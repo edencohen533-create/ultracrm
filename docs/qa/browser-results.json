@@ -1,12 +1,12 @@
 {
-  "base": "http://localhost:3100",
-  "ranAt": "2026-09-24T05:34:52.898Z",
+  "base": "http://localhost:3210",
+  "ranAt": "2026-09-24T11:33:37.520Z",
   "results": [
     {
       "name": "B1 login (single login for every module)",
       "status": "pass",
       "detail": {
-        "url": "http://localhost:3100/dashboard"
+        "url": "http://localhost:3210/dashboard"
       }
     },
     {
@@ -32,8 +32,8 @@
       "name": "B3 create contact from the CRM screen",
       "status": "pass",
       "detail": {
-        "contactId": "cmuf3gkag00975wej9jmgt6n6",
-        "phone": "0529902223"
+        "contactId": "cmufg8uvb0034hgejgci4o5w1",
+        "phone": "0529919013"
       }
     },
     {
@@ -48,8 +48,8 @@
     },
     {
       "name": "B6 dial from the card (simulation) → call bar appears",
-      "status": "pass",
-      "detail": null
+      "status": "fail",
+      "detail": "page.waitForFunction: Timeout 20000ms exceeded."
     },
     {
       "name": "B7 navigate CRM → inbox → contacts during the call: call bar persists (no drop, no 2nd connection)",
@@ -65,14 +65,14 @@
     },
     {
       "name": "B9 hang up and save outcome + note in the dialer screen; follow-up task created",
-      "status": "pass",
-      "detail": null
+      "status": "fail",
+      "detail": "page.waitForSelector: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=מעקב אחרי שיחה') to be visible\u001b[22m\n"
     },
     {
       "name": "B10 WhatsApp from the card → inbox conversation (mock provider) → message in card timeline",
       "status": "pass",
       "detail": {
-        "conversationId": "cmuf3iz7v009y5wej0jeq2977"
+        "conversationId": "cmufgcchq003uhgejevdm7tqv"
       }
     },
     {

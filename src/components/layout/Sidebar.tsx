@@ -73,6 +73,7 @@ const SECTIONS: Section[] = [
       { href: "/lists", label: "רשימות חיוג", roles: ALL, module: "telephony", icon: ICON.lists },
       { href: "/manager", label: "מוקד בזמן אמת", roles: MGMT, module: "telephony", icon: ICON.manager, match: (p) => p === "/manager" },
       { href: "/manager/calls", label: "היסטוריית שיחות", roles: MGMT, module: "telephony", icon: ICON.history },
+      { href: "/numbers", label: "מספרים יוצאים", roles: MGMT, module: "telephony", icon: ICON.settings },
     ],
   },
   {

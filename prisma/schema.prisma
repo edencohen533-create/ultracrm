@@ -350,15 +350,17 @@ model Business {
   usage          UsageCounter[]
   auditLogs      AuditLog[]
 
-  dialLists       DialList[]
-  queueLeads      ListLead[]
-  sessions        DialerSession[]
-  calls           Call[]
-  monitors        CallMonitor[]
-  telephonyEvents TelephonyEvent[]
-  phoneNumbers    PhoneNumber[]
-  scripts         Script[]
-  noteDrafts      NoteDraft[]
+  dialLists        DialList[]
+  queueLeads       ListLead[]
+  sessions         DialerSession[]
+  calls            Call[]
+  monitors         CallMonitor[]
+  telephonyEvents  TelephonyEvent[]
+  phoneNumbers     PhoneNumber[]
+  numberOrders     NumberOrder[]
+  numberConnection NumberConnection?
+  scripts          Script[]
+  noteDrafts       NoteDraft[]
 
   providerCredentials    ProviderCredential[]
   whatsappSignupSessions WhatsAppSignupSession[]
@@ -888,6 +890,8 @@ model DialList {
   scriptId             String?   @map("script_id")
   /// Outbound caller id for this list/campaign (falls back to the business default).
   phoneNumberId        String?   @map("phone_number_id")
+  /// Outbound number policy for this campaign: { mode: fixed|agent|round_robin|load, numberIds: [] }
+  numberPolicy         Json      @default("{}") @map("number_policy")
   /// Dynamic lists re-apply filterJson on refresh; frozen lists keep their membership.
   isDynamic            Boolean   @default(false) @map("is_dynamic")
   isPaused             Boolean   @default(false) @map("is_paused")
@@ -994,9 +998,11 @@ model Call {
   conferenceId   String?           @map("conference_id")
   activeForUser  String?           @unique @map("active_for_user")
 
-  toE164        String  @map("to_e164")
-  fromE164      String  @map("from_e164")
-  phoneNumberId String? @map("phone_number_id")
+  toE164                String  @map("to_e164")
+  fromE164              String  @map("from_e164")
+  phoneNumberId         String? @map("phone_number_id")
+  /// Why this caller id was chosen: fixed | sticky_lead | agent | round_robin | load
+  numberSelectionReason String? @map("number_selection_reason")
 
   status          CallStatus       @default(created)
   telephonyResult TelephonyResult? @map("telephony_result")
@@ -1042,6 +1048,7 @@ model Call {
   monitors    CallMonitor[]
 
   @@index([businessId, createdAt])
+  @@index([businessId, phoneNumberId, createdAt])
   @@index([userId, createdAt])
   @@index([contactId, createdAt])
   @@index([leadId])
@@ -1097,14 +1104,36 @@ model TelephonyEvent {
 }
 
 model PhoneNumber {
-  id         String            @id @default(cuid())
-  businessId String            @map("business_id")
-  e164       String
-  label      String?
-  provider   TelephonyProvider @default(telnyx)
-  isDefault  Boolean           @default(false) @map("is_default")
-  isActive   Boolean           @default(true) @map("is_active")
-  createdAt  DateTime          @default(now()) @map("created_at")
+  id                  String            @id @default(cuid())
+  businessId          String            @map("business_id")
+  e164                String
+  label               String?
+  provider            TelephonyProvider @default(telnyx)
+  isDefault           Boolean           @default(false) @map("is_default")
+  isActive            Boolean           @default(true) @map("is_active")
+  // ─── outbound number management ───
+  /// Temporarily excluded from outbound selection (manager action, e.g. after a spam report).
+  outboundPaused      Boolean           @default(false) @map("outbound_paused")
+  /// unverified | verified | inactive – ownership proven against the provider inventory (24h freshness).
+  verificationStatus  String            @default("unverified") @map("verification_status")
+  verifiedAt          DateTime?         @map("verified_at")
+  providerNumberId    String?           @map("provider_number_id")
+  providerData        Json?             @map("provider_data")
+  /// Purchase quote that was paid (as returned by the provider) – never estimated.
+  costs               Json?
+  assignedUserId      String?           @map("assigned_user_id")
+  callbackUserId      String?           @map("callback_user_id")
+  maxConcurrent       Int?              @map("max_concurrent")
+  maxDailyAttempts    Int?              @map("max_daily_attempts")
+  lastSelectedAt      DateTime?         @map("last_selected_at")
+  /// clear | spam | unknown | failed | unsupported – exactly what the source reported.
+  reputationStatus    String            @default("unsupported") @map("reputation_status")
+  reputationSource    String            @default("truecaller") @map("reputation_source")
+  reputationCheckedAt DateTime?         @map("reputation_checked_at")
+  reputationData      Json?             @map("reputation_data")
+  /// required | open | resolved – manager review after a spam mark.
+  reputationReview    String?           @map("reputation_review")
+  createdAt           DateTime          @default(now()) @map("created_at")
 
   business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   calls    Call[]
@@ -1699,4 +1728,47 @@ model SequenceRun {
   @@index([businessId, status, nextAt])
   @@index([contactId, status])
   @@map("sequence_runs")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Outbound number management (provider connection, purchases)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Credentials stay server environment secrets; this row records an actual provider check, not key presence.
+model NumberConnection {
+  businessId  String    @id @map("business_id")
+  /// unverified | verified | failed
+  status      String    @default("unverified")
+  checkedAt   DateTime? @map("checked_at")
+  error       String?
+  /// Hash of the credentials that were verified – a changed key invalidates the check.
+  fingerprint String?
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("number_connections")
+}
+
+/// One purchase attempt per (business, provider, number). States: quoted → submitting → pending → configuring → ready, or unknown.
+model NumberOrder {
+  id              String    @id @default(cuid())
+  businessId      String    @map("business_id")
+  provider        String    @default("telnyx")
+  e164            String
+  state           String    @default("quoted")
+  quote           Json
+  expiresAt       DateTime  @map("expires_at")
+  confirmedBy     String?   @map("confirmed_by")
+  confirmedAt     DateTime? @map("confirmed_at")
+  providerOrderId String?   @map("provider_order_id")
+  providerStatus  String?   @map("provider_status")
+  error           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, provider, e164])
+  @@index([businessId, createdAt])
+  @@map("number_orders")
 }

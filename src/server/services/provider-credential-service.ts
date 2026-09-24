@@ -53,7 +53,7 @@ export async function activateMetaProvider(input: MetaProviderConfigInput, actor
     const existing = await tx.providerCredential.findFirst({ where: { provider: "meta_whatsapp_cloud_api", phoneNumberId: input.phoneNumberId } });
     if (existing && options.teamId !== undefined && existing.teamId !== options.teamId) await applyNumberTeam(tx, existing.id, options.teamId);
     const isDefault = options.makeDefault || !other || Boolean(existing?.isDefault);
-    if (isDefault) await tx.providerCredential.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
+    if (isDefault) await tx.providerCredential.updateMany({ where: { isDefault: true, channel: "whatsapp" }, data: { isDefault: false } });
     const data = { phoneNumberId: input.phoneNumberId, wabaId: input.businessAccountId, config: sealMetaConfig(input) as Prisma.InputJsonValue, connectionMethod: "manual", status: "connected_not_ready" as const, isActive: true, isDefault, sendingBlocked: false, lastCheckedAt: new Date(), lastConnectionError: null, displayPhoneNumber: report.phoneNumber, verifiedName: report.verifiedName, subscribedAt: report.hasSubscribedApp ? new Date() : null, ...(options.label !== undefined ? { label: options.label } : {}), ...(options.teamId !== undefined ? { teamId: options.teamId } : {}) };
     return existing
       ? tx.providerCredential.update({ where: { id: existing.id }, data })
@@ -77,7 +77,7 @@ export async function activateMetaProvider(input: MetaProviderConfigInput, actor
 export async function activateMockProvider(actorUserId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requireBusinessId()}, 774291))`;
-    await tx.providerCredential.updateMany({ where: { isActive: true }, data: { isActive: false, isDefault: false } });
+    await tx.providerCredential.updateMany({ where: { isActive: true, channel: "whatsapp" }, data: { isActive: false, isDefault: false } });
   });
 
   await writeAuditLog({
@@ -90,7 +90,7 @@ export async function activateMockProvider(actorUserId: string) {
 }
 
 export async function listProviderSummaries() {
-  return prisma.providerCredential.findMany({ orderBy: [{ isActive: "desc" }, { isDefault: "desc" }, { createdAt: "asc" }], select: {
+  return prisma.providerCredential.findMany({ where: { channel: "whatsapp" }, orderBy: [{ isActive: "desc" }, { isDefault: "desc" }, { createdAt: "asc" }], select: {
     id: true, provider: true, label: true, phoneNumberId: true, displayPhoneNumber: true, teamId: true, isActive: true, isDefault: true,
     sendingBlocked: true, lastCheckedAt: true, lastWebhookAt: true, lastConnectionError: true,
   } });
@@ -109,12 +109,12 @@ export async function updateProvider(id: string, input: { action: "disconnect" |
     if (input.action === "disconnect") {
       await tx.providerCredential.update({ where: { id }, data: { isActive: false, isDefault: false } });
       if (credential.isDefault) {
-        const next = await tx.providerCredential.findFirst({ where: { isActive: true }, orderBy: { createdAt: "asc" } });
+        const next = await tx.providerCredential.findFirst({ where: { isActive: true, channel: "whatsapp" }, orderBy: { createdAt: "asc" } });
         if (next) await tx.providerCredential.update({ where: { id: next.id }, data: { isDefault: true } });
       }
     } else if (input.action === "default") {
       if (!credential.isActive || credential.sendingBlocked) throw new MetaConnectionError("יש לחבר ולאמת את המספר לפני בחירתו כברירת מחדל");
-      await tx.providerCredential.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
+      await tx.providerCredential.updateMany({ where: { isDefault: true, channel: "whatsapp" }, data: { isDefault: false } });
       await tx.providerCredential.update({ where: { id }, data: { isDefault: true } });
     } else {
       if (input.teamId !== undefined && input.teamId !== credential.teamId) await applyNumberTeam(tx, id, input.teamId);

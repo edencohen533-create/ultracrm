@@ -127,6 +127,27 @@ async function main() {
     await prisma.suppression.create({ data: { businessId: business.id, contactId: optedOut.id, identifierType: "phone", identifier: optedOut.phoneE164, scope: "marketing", source: "whatsapp", reason: "נתוני דמו – ביקש הסרה" } });
   }
 
+  // SMS / email simulation providers + one template per channel (no real sending).
+  const { sealSecret } = await import("../src/lib/crypto");
+  const encryption = Boolean(process.env.ENCRYPTION_KEY);
+  for (const [channel, provider, extra] of [
+    ["sms", "mock_sms", { senders: [{ id: "DEMO", type: "alphanumeric", value: "DEMO", inbound: false }, { id: "+972501110000", type: "number", value: "+972501110000", inbound: true }], testRecipients: ["+972509998888"], unitPrice: 0.02, unitPriceCurrency: "USD" }],
+    ["email", "mock_email", { senderName: "[דמו] סולינה", senderEmail: "news@demo.local", testRecipients: ["qa@demo.local"] }],
+  ] as const) {
+    const existing = await prisma.providerCredential.findFirst({ where: { businessId: business.id, channel, provider } });
+    if (!existing) await prisma.providerCredential.create({ data: { businessId: business.id, channel, provider, label: "הדמיה", isActive: true, isDefault: true, status: "connected", connectionMethod: "manual", config: { webhookSecret: encryption ? sealSecret(`mock-${channel}-demo`) : `mock-${channel}-demo` }, capabilities: { inbound: channel === "sms", deliveryReports: true, opens: channel === "email", clicks: channel === "email", bounces: channel === "email", complaints: channel === "email", suppressionSync: false, cancelQueued: false, alphanumericSender: true, unicode: true, cost: false }, lastCheckedAt: new Date(), ...extra } });
+  }
+  const { renderEmailHtml, renderEmailText, defaultEmailDesign } = await import("../src/lib/email/blocks");
+  const design = defaultEmailDesign();
+  await prisma.template.upsert({ where: { businessId_name_language: { businessId: business.id, name: "[דמו] מבצע SMS", language: "he" } }, update: {}, create: { businessId: business.id, channel: "sms", name: "[דמו] מבצע SMS", language: "he", category: "MARKETING", status: "APPROVED", body: "שלום {{first_name|לקוח}}, השבוע 20% הנחה על כל המזרנים ב-{{company|סולינה}}!", variables: ["first_name", "company"] } });
+  await prisma.template.upsert({ where: { businessId_name_language: { businessId: business.id, name: "[דמו] ניוזלטר", language: "he" } }, update: {}, create: { businessId: business.id, channel: "email", name: "[דמו] ניוזלטר", language: "he", category: "MARKETING", status: "APPROVED", subject: "חדש אצלנו, {{first_name|לקוח}}", preheader: "מבצעי החודש", design: design as object, html: renderEmailHtml(design, { preheader: "מבצעי החודש" }), text: renderEmailText(design), body: renderEmailText(design), variables: ["first_name", "name", "company"] } });
+
+  // Distribution list of consenting demo contacts for SMS / email / WhatsApp campaigns.
+  if (!(await prisma.distributionList.findFirst({ where: { businessId: business.id, name: "[דמו] רשימת דיוור" } }))) {
+    const optedIn = await prisma.contact.findMany({ where: { businessId: business.id, consentStatus: "OPTED_IN" }, select: { id: true }, take: 20 });
+    await prisma.distributionList.create({ data: { businessId: business.id, name: "[דמו] רשימת דיוור", members: { create: optedIn.map((c) => ({ contactId: c.id })) } } });
+  }
+
   // Business B: one contact, must never be visible from business A.
   await prisma.contact.upsert({ where: { businessId_phoneE164: { businessId: businessB.id, phoneE164: "+972521111111" } }, update: {}, create: { businessId: businessB.id, fullName: "[דמו] לקוח של עסק ב", phoneE164: "+972521111111", phoneRaw: "0521111111", source: "manual" } });
 

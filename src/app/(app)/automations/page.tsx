@@ -11,15 +11,20 @@ import { StopAutomationsButton } from "@/components/automations/stop-automations
 import { RuleList } from "@/components/automations/rule-list";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
+import { SequencePanel } from "@/components/automations/sequence-panel";
+import { listSequences } from "@/server/services/sequence-service";
 
 export default organizationRequest(async function AutomationsPage() {
   if (!hasRole(await auth(), ROLES_ADMIN_MANAGER)) return <AccessDenied />;
-  const [rules, agents, cannedReplies, templates, conversations] = await Promise.all([
+  const [rules, agents, cannedReplies, templates, conversations, sequences, allTemplates, tags] = await Promise.all([
     listRules(),
     prisma.user.findMany({ where: { role: { in: ["agent", "manager"] }, isActive: true }, select: { id: true, fullName: true } }),
     prisma.cannedReply.findMany({ select: { id: true, title: true } }),
-    prisma.template.findMany({ where: { status: "APPROVED" }, select: { id: true, name: true, body: true } }),
+    prisma.template.findMany({ where: { status: "APPROVED", channel: "whatsapp" }, select: { id: true, name: true, body: true } }),
     prisma.conversation.findMany({ orderBy: { lastMessageAt: "desc" }, take: 50, select: { id: true, contact: { select: { fullName: true, phoneE164: true } } } }),
+    listSequences(),
+    prisma.template.findMany({ where: { status: "APPROVED" }, select: { id: true, name: true, channel: true }, orderBy: { name: "asc" } }),
+    prisma.tag.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
   ]);
 
   return (
@@ -43,6 +48,7 @@ export default organizationRequest(async function AutomationsPage() {
       ) : (
         <RuleList key={rules.map((r) => `${r.id}:${r.isActive}`).join(",")} rules={rules} />
       )}
+      <SequencePanel sequences={JSON.parse(JSON.stringify(sequences))} templates={allTemplates} tags={tags.map((t) => t.name)} />
     </div>
   );
 });

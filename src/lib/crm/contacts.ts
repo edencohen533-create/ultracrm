@@ -119,8 +119,15 @@ async function syncTags(db: Db, businessId: string, contactId: string, tagIds?: 
     const tag = await db.tag.upsert({ where: { businessId_name: { businessId, name } }, update: {}, create: { businessId, name } });
     ids.add(tag.id);
   }
+  const before = new Set((await db.contactTag.findMany({ where: { contactId }, select: { tagId: true } })).map((t) => t.tagId));
   await db.contactTag.deleteMany({ where: { contactId, tagId: { notIn: [...ids] } } });
   if (ids.size) await db.contactTag.createMany({ data: [...ids].map((tagId) => ({ contactId, tagId })), skipDuplicates: true });
+  const added = [...ids].filter((id) => !before.has(id));
+  if (added.length) {
+    const { emitEvent } = await import("@/lib/events");
+    const tags = await db.tag.findMany({ where: { id: { in: added } }, select: { id: true, name: true } });
+    for (const tag of tags) await emitEvent(db, { businessId, type: "contact.tag_added", contactId, source: "user", dedupeKey: `contact.tag_added:${contactId}:${tag.id}:${Date.now()}`, payload: { tagId: tag.id, tagName: tag.name } });
+  }
 }
 
 export const CONTACT_CARD_INCLUDE = {

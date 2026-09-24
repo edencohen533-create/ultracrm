@@ -301,6 +301,17 @@ function BusinessTab({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+function ChannelStatus({ channel }: { channel: "sms" | "email" }) {
+  const [c, setC] = useState<{ provider: string; status: string; sendingBlocked: boolean; simulated: boolean; lastConnectionError: string | null; domainStatus?: string | null } | null | undefined>(undefined);
+  useEffect(() => { api.get<{ items: Array<{ provider: string; status: string; sendingBlocked: boolean; simulated: boolean; lastConnectionError: string | null; isActive: boolean; domainStatus?: string | null }> }>(`/api/channels/${channel}`).then((r) => setC(r.items.find((x) => x.isActive) ?? null)).catch(() => setC(null)); }, [channel]);
+  if (c === undefined) return <Spinner className="w-4 h-4" />;
+  if (!c) return <Badge tone="neutral">לא מחובר</Badge>;
+  if (c.simulated) return <Badge tone="warn">הדמיה – אין שליחה אמיתית</Badge>;
+  if (c.sendingBlocked || c.status === "error") return <Badge tone="bad">שגיאת חיבור</Badge>;
+  if (c.status === "connected_not_ready") return <Badge tone="warn">{channel === "email" && c.domainStatus !== "verified" ? "מחובר – דומיין לא מאומת" : "מחובר – לא מוכן"}</Badge>;
+  return <Badge tone="good">מחובר</Badge>;
+}
+
 function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
   const [wa, setWa] = useState<{ provider: string; configured?: boolean; sendingBlocked?: boolean; phoneNumberId?: string | null; lastConnectionError?: string | null } | null>(null);
   const [waDenied, setWaDenied] = useState(false);
@@ -314,8 +325,8 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
             {!modules.messaging ? <Badge tone="neutral">המודול כבוי בחבילה</Badge> : waDenied ? <Badge tone="neutral">פרטי החיבור זמינים לבעלים בלבד</Badge> : wa ? (wa.provider === "mock" ? <Badge tone="warn">מצב הדגמה – אין שליחה אמיתית</Badge> : wa.sendingBlocked ? <Badge tone="bad">חסום – בדוק Token</Badge> : <Badge tone="good">מחובר</Badge>) : <Spinner className="w-4 h-4" />}
             {modules.messaging && <a href="/settings/whatsapp" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור וואטסאפ →</a>}
           </li>
-          <li className="flex items-center gap-2"><b>SMS</b><Badge tone="neutral">לא ממומש – אין ספק מחובר</Badge><span className="text-xs text-muted">בקשות הסרה דרך SMS ייקלטו ברגע שיחובר ספק; ההסרה הגלובלית כבר מכסה את הערוץ.</span></li>
-          <li className="flex items-center gap-2"><b>אימייל</b><Badge tone="neutral">לא ממומש – אין ספק מחובר</Badge></li>
+          <li className="flex flex-wrap items-center gap-2"><b>SMS</b>{modules.messaging ? <ChannelStatus channel="sms" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/sms" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור SMS →</a>}</li>
+          <li className="flex flex-wrap items-center gap-2"><b>אימייל</b>{modules.messaging ? <ChannelStatus channel="email" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/email" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור אימייל →</a>}</li>
         </ul>
       </Panel>
       {modules.telephony && <TelephonyTab />}
@@ -397,16 +408,29 @@ function AutomationsTab({ isAdmin, messaging }: { isAdmin: boolean; messaging: b
 }
 
 function SuppressionsTab() {
-  const [items, setItems] = useState<Array<{ id: string; identifier: string; identifierType: string; scope: string; source: string; reason: string | null; createdAt: string; contact: { id: string; fullName: string } | null; createdBy: { fullName: string } | null }>>([]);
+  const [items, setItems] = useState<Array<{ id: string; identifier: string; identifierType: string; scope: string; source: string; reason: string | null; createdAt: string; pendingReview: boolean; contact: { id: string; fullName: string } | null; createdBy: { fullName: string } | null }>>([]);
+  const [pending, setPending] = useState(0);
+  const [bySource, setBySource] = useState<Record<string, number>>({});
   const [q, setQ] = useState("");
-  const load = useCallback(() => api.get<{ items: typeof items }>(`/api/suppressions${qs({ q })}`).then((r) => setItems(r.items)).catch((e) => toast.error(e.message)), [q]);
+  const [onlyReview, setOnlyReview] = useState(false);
+  const [note, setNote] = useState<Record<string, string>>({});
+  const load = useCallback(() => api.get<{ items: typeof items; pending: number; bySource: Record<string, number> }>(`/api/suppressions${qs({ q, review: onlyReview ? "1" : undefined })}`).then((r) => { setItems(r.items); setPending(r.pending); setBySource(r.bySource); }).catch((e) => toast.error(e.message)), [q, onlyReview]);
   useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [load]);
+  async function review(id: string, action: "confirm" | "dismiss") {
+    try { await api.post(`/api/suppressions/${id}/review`, { action, note: note[id] ?? "" }); toast.success(action === "confirm" ? "ההסרה אושרה" : "הבקשה נדחתה והדיוור שוחרר"); load(); } catch (e) { toast.error((e as Error).message); }
+  }
+  const SOURCE: Record<string, string> = { whatsapp: "WhatsApp", sms: "SMS", email: "אימייל", manual: "נציג", import: "ייבוא", phone: "טלפון", api: "API" };
   return (
     <Panel title="הסרות מדיוור (מקור אמת גלובלי)">
-      <p className="text-xs text-muted mb-3">כל בקשת הסרה מ-WhatsApp, SMS, אימייל, נציג או ייבוא חוסמת דיוור שיווקי בכל הערוצים לכל הטלפונים והאימיילים של איש הקשר. היקף &quot;לא ליצור קשר&quot; חוסם גם הודעות שירות ושיחות יוצאות. חזרה לדיוור נעשית מכרטיס הלקוח עם תיעוד הסכמה.</p>
+      <p className="text-xs text-muted mb-3">כל בקשת הסרה מ-WhatsApp, SMS, אימייל, נציג או ייבוא חוסמת דיוור שיווקי בכל הערוצים לכל הטלפונים והאימיילים של איש הקשר. היקף &quot;לא ליצור קשר&quot; חוסם גם הודעות שירות ושיחות יוצאות. חזרה לדיוור נעשית מכרטיס הלקוח עם תיעוד הסכמה. ייבוא מחדש, החלפת ספק או שולח אינם מבטלים חסימה.</p>
+      <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+        {Object.entries(bySource).map(([s, n]) => <Badge key={s} tone="neutral">{SOURCE[s] ?? s}: {n}</Badge>)}
+        {pending > 0 && <Badge tone="warn">ממתינות לבדיקה: {pending}</Badge>}
+        <label className="flex items-center gap-1 ms-auto"><input type="checkbox" checked={onlyReview} onChange={(e) => setOnlyReview(e.target.checked)} />רק בקשות לבדיקה</label>
+      </div>
       <Input placeholder="חיפוש לפי טלפון / אימייל" value={q} onChange={(e) => setQ(e.target.value)} className="mb-3 max-w-sm" />
       <table className="w-full text-sm"><thead className="text-xs text-muted"><tr><th className="text-start h-8 font-medium">מזהה</th><th className="text-start font-medium">איש קשר</th><th className="text-start font-medium">היקף</th><th className="text-start font-medium">מקור</th><th className="text-start font-medium">סיבה</th><th className="text-start font-medium">מועד</th></tr></thead>
-        <tbody className="divide-y divide-line">{items.map((s) => <tr key={s.id}><td className="h-9"><Phone value={s.identifierType === "phone" ? formatPhone(s.identifier) : s.identifier} /></td><td>{s.contact ? <a href={`/contacts/${s.contact.id}`} className="hover:underline">{s.contact.fullName}</a> : "—"}</td><td>{s.scope === "all" ? <Badge tone="bad">לא ליצור קשר</Badge> : <Badge tone="warn">שיווקי</Badge>}</td><td className="text-muted">{s.source}</td><td className="text-muted max-w-xs truncate">{s.reason ?? "—"}</td><td className="text-muted text-xs tabular">{formatDateTime(s.createdAt)} · {s.createdBy?.fullName ?? "מערכת"}</td></tr>)}
+        <tbody className="divide-y divide-line">{items.map((s) => <tr key={s.id} className={s.pendingReview ? "bg-amber-500/5" : ""}><td className="h-9"><Phone value={s.identifierType === "phone" ? formatPhone(s.identifier) : s.identifier} /></td><td>{s.contact ? <a href={`/contacts/${s.contact.id}`} className="hover:underline">{s.contact.fullName}</a> : "—"}</td><td>{s.pendingReview ? <Badge tone="warn">ממתין לבדיקה</Badge> : s.scope === "all" ? <Badge tone="bad">לא ליצור קשר</Badge> : <Badge tone="warn">שיווקי</Badge>}</td><td className="text-muted">{SOURCE[s.source] ?? s.source}</td><td className="text-muted max-w-xs"><div className="truncate">{s.reason ?? "—"}</div>{s.pendingReview && <div className="mt-1 flex flex-wrap items-center gap-1"><Input placeholder="נימוק" value={note[s.id] ?? ""} onChange={(e) => setNote({ ...note, [s.id]: e.target.value })} className="h-7 w-40" /><Button size="sm" onClick={() => review(s.id, "confirm")}>אשר הסרה</Button><Button size="sm" variant="ghost" onClick={() => review(s.id, "dismiss")}>לא בקשת הסרה</Button></div>}</td><td className="text-muted text-xs tabular">{formatDateTime(s.createdAt)} · {s.createdBy?.fullName ?? "מערכת"}</td></tr>)}
         {items.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-muted">אין הסרות פעילות</td></tr>}</tbody></table>
     </Panel>
   );

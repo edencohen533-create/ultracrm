@@ -190,4 +190,15 @@ const taskCreated: EventHandler = {
   },
 };
 
-export const HANDLERS: EventHandler[] = [leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated];
+const sequences: EventHandler = {
+  name: "marketing.sequences",
+  types: ["message.delivery_failed", "message.sent", "contact.tag_added"],
+  async run(event) {
+    const { isModuleEnabled } = await import("@/lib/modules");
+    if (!(await isModuleEnabled(event.businessId, "messaging"))) return { skipped: "messaging module disabled" };
+    const { startSequencesForEvent } = await import("@/server/services/sequence-service");
+    return await startSequencesForEvent(event);
+  },
+};
+
+export const HANDLERS: EventHandler[] = [leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences];

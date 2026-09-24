@@ -30,6 +30,8 @@ export interface SuppressInput {
   reason?: string;
   evidence?: string;
   actorId?: string | null;
+  /** Unclear request: block marketing now, ask a manager to confirm/dismiss. */
+  pendingReview?: boolean;
 }
 
 export interface ContactIdentifiers {
@@ -73,7 +75,7 @@ export async function contactForIdentifier(businessId: string, identifier: strin
 /** Active suppressions covering any of the identifiers. */
 export async function activeSuppressions(businessId: string, identifiers: string[], db: Db = prisma) {
   if (!identifiers.length) return [];
-  return db.suppression.findMany({ where: { businessId, identifier: { in: identifiers }, revokedAt: null }, select: { id: true, identifier: true, scope: true, source: true, reason: true, createdAt: true, contactId: true } });
+  return db.suppression.findMany({ where: { businessId, identifier: { in: identifiers }, revokedAt: null }, select: { id: true, identifier: true, scope: true, source: true, reason: true, createdAt: true, contactId: true, pendingReview: true, messageId: true } });
 }
 
 /**
@@ -89,6 +91,7 @@ export async function sendBlockReason(businessId: string, contactId: string, cat
   const active = await activeSuppressions(businessId, [...ids.phones, ...ids.emails], db);
   if (active.some((s) => s.scope === "all")) return "איש הקשר ביקש שלא ליצור עמו קשר";
   if (category === "marketing") {
+    if (active.some((s) => s.pendingReview)) return "בקשת הסרה ממתינה לבדיקת מנהל – הדיוור מושהה";
     if (active.length) return "איש הקשר הוסר מכל הדיוור השיווקי";
     if (contact.consentStatus !== "OPTED_IN") return "איש הקשר אינו מאשר קבלת דיוור";
   }
@@ -130,13 +133,14 @@ export async function suppressContact(input: SuppressInput, db: Db = prisma) {
       continue;
     }
     const row = await db.suppression.create({
-      data: { businessId: input.businessId, contactId, identifier, identifierType: identifierType(identifier), scope, source: input.source, reason: input.reason ?? null, evidence: input.evidence ?? null, createdByUserId: input.actorId ?? null },
+      data: { businessId: input.businessId, contactId, identifier, identifierType: identifierType(identifier), scope, source: input.source, reason: input.reason ?? null, evidence: input.evidence ?? null, createdByUserId: input.actorId ?? null, pendingReview: Boolean(input.pendingReview) },
     });
     created.push(row.id);
   }
 
   if (contactId) {
-    await db.contact.update({
+    // A request held for review keeps the consent record untouched (only the block applies) until a manager confirms it.
+    if (!input.pendingReview) await db.contact.update({
       where: { id: contactId },
       data: { consentStatus: "OPTED_OUT", consentAt: new Date(), consentSource: input.source, consentScope: scope, consentEvidence: input.evidence ?? input.reason ?? null, ...(scope === "all" ? { isBlocked: true } : {}) },
     });
@@ -147,7 +151,7 @@ export async function suppressContact(input: SuppressInput, db: Db = prisma) {
     }
   }
 
-  await audit(input.businessId, input.actorId ?? null, "contact", contactId ?? input.identifier ?? "unknown", "contact.suppressed", { scope, source: input.source, reason: input.reason, identifiers: [...identifiers], created: created.length }, db);
+  await audit(input.businessId, input.actorId ?? null, "contact", contactId ?? input.identifier ?? "unknown", input.pendingReview ? "contact.suppression_review_requested" : "contact.suppressed", { scope, source: input.source, reason: input.reason, identifiers: [...identifiers], created: created.length }, db);
   await emitEvent(db, {
     businessId: input.businessId,
     type: "contact.suppressed",
@@ -155,9 +159,30 @@ export async function suppressContact(input: SuppressInput, db: Db = prisma) {
     actorUserId: input.actorId ?? null,
     source: input.actorId ? "user" : "webhook",
     dedupeKey: `contact.suppressed:${contactId ?? input.identifier}:${scope}:${created[0] ?? "existing"}:${Date.now()}`,
-    payload: { scope, source: input.source, reason: input.reason ?? null, identifiers: [...identifiers] },
+    payload: { scope, source: input.source, reason: input.reason ?? null, identifiers: [...identifiers], pendingReview: Boolean(input.pendingReview) },
   });
   return { contactId, identifiers: [...identifiers], created: created.length };
+}
+
+/**
+ * Resolve a request that was held for review. `confirm` keeps the block and records the consent
+ * change; `dismiss` lifts ONLY the pending-review rows (documented reason required) – a confirmed
+ * or clear unsubscribe is never removed this way.
+ */
+export async function reviewSuppression(businessId: string, suppressionId: string, action: "confirm" | "dismiss", actorId: string, note: string, db: Db = prisma) {
+  const row = await db.suppression.findFirst({ where: { id: suppressionId, businessId, pendingReview: true, revokedAt: null } });
+  if (!row) throw new ApiError("הבקשה לא נמצאה או שכבר טופלה", 404, "not_found");
+  if (action === "dismiss" && note.trim().length < 5) throw new ApiError("נדרש נימוק (לפחות 5 תווים) לביטול בקשה שממתינה לבדיקה", 400, "evidence_required");
+  const siblings = await db.suppression.findMany({ where: { businessId, contactId: row.contactId ?? undefined, ...(row.contactId ? {} : { identifier: row.identifier }), pendingReview: true, revokedAt: null } });
+  const ids = siblings.map((s) => s.id);
+  if (action === "confirm") {
+    await db.suppression.updateMany({ where: { id: { in: ids } }, data: { pendingReview: false, reviewedAt: new Date(), reviewedByUserId: actorId, reason: note.trim() ? `${row.reason ?? ""} · אושר: ${note.trim()}` : row.reason } });
+    if (row.contactId) await db.contact.update({ where: { id: row.contactId }, data: { consentStatus: "OPTED_OUT", consentAt: new Date(), consentSource: row.source, consentScope: row.scope, consentEvidence: row.evidence ?? row.reason ?? null } });
+  } else {
+    await db.suppression.updateMany({ where: { id: { in: ids } }, data: { pendingReview: false, reviewedAt: new Date(), reviewedByUserId: actorId, revokedAt: new Date(), revokedByUserId: actorId, revokeEvidence: `לא בקשת הסרה: ${note.trim()}` } });
+  }
+  await audit(businessId, actorId, "contact", row.contactId ?? row.identifier, action === "confirm" ? "contact.suppression_review_confirmed" : "contact.suppression_review_dismissed", { suppressionIds: ids, note }, db);
+  return { resolved: ids.length };
 }
 
 /**
@@ -169,6 +194,10 @@ export async function stopPendingMarketing(businessId: string, contactId: string
     where: { contactId, status: "QUEUED", campaign: { businessId } },
     data: { status: "SKIPPED", error: "הנמען הוסר מהדיוור", completedAt: new Date() },
   });
+  // Cross-channel sequences in flight for this contact stop at the next step.
+  await db.sequenceRun.updateMany({ where: { businessId, contactId, status: { in: ["PENDING", "RUNNING"] } }, data: { status: "STOPPED", stopReason: "unsubscribe", completedAt: new Date() } });
+  // Marketing messages persisted but not yet handed to a provider are cancelled (never re-labelled once accepted).
+  await db.message.updateMany({ where: { businessId, category: "marketing", status: "QUEUED", direction: "OUTBOUND", conversation: { contactId } }, data: { status: "CANCELLED", errorReason: "הנמען הוסר מהדיוור", failedAt: new Date() } });
   const pending = await db.automationRun.findMany({
     where: { businessId, status: "PENDING", conversation: { contactId } },
     select: { id: true, triggerPayload: true },

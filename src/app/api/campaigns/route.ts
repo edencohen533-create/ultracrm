@@ -3,9 +3,10 @@ import { campaignActor } from "@/lib/campaign-auth";
 import { campaignSchema } from "@/lib/campaigns";
 import { CampaignError, createCampaign, listCampaigns } from "@/server/services/campaign-service";
 
-export const GET = organizationRequest(async function() {
+export const GET = organizationRequest(async function(request: Request) {
   if (!await campaignActor()) return Response.json({ error: "אין הרשאה" }, { status: 403 });
-  return Response.json({ campaigns: await listCampaigns() });
+  const channel = new URL(request.url).searchParams.get("channel");
+  return Response.json({ campaigns: await listCampaigns(["whatsapp", "sms", "email"].includes(channel ?? "") ? (channel as "whatsapp" | "sms" | "email") : undefined) });
 });
 export const POST = organizationRequest(async function(request: Request) {
   const actor = await campaignActor();

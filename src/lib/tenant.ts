@@ -18,11 +18,23 @@ interface TenantStore {
   session?: SessionUser;
 }
 
-const storage = new AsyncLocalStorage<TenantStore>();
+// One storage for the whole process. Bundlers (Turbopack dev in particular) can instantiate this
+// module once per route chunk while the Prisma client – cached on globalThis – closes over a
+// single instance; sharing the storage on globalThis keeps every copy in sync.
+const g = globalThis as unknown as { __ultracrmTenantStorage?: AsyncLocalStorage<TenantStore> };
+const storage = (g.__ultracrmTenantStorage ??= new AsyncLocalStorage<TenantStore>());
 
 export function withBusiness<T>(businessId: string, operation: () => T, session?: SessionUser): T {
   if (!businessId) throw new Error("Business context is required");
-  return storage.run({ businessId, session }, operation);
+  return storage.run({ businessId, session }, () => {
+    const result = operation();
+    // Prisma queries are lazy (they run on `.then`). If the callback returns a thenable
+    // without awaiting it, settle it *inside* the scope so the query still sees the tenant.
+    if (result && typeof (result as { then?: unknown }).then === "function") {
+      return (async () => await (result as unknown as Promise<unknown>))() as unknown as T;
+    }
+    return result;
+  });
 }
 
 /** The current business id or `null` when running outside a tenant scope (login, webhook routing, cron enumeration). */

@@ -12,8 +12,8 @@ import { visibleUserIds, type SessionUser } from "@/lib/auth";
 
 // ─── Leads ───────────────────────────────────────────────────────────────────
 
-export const LEAD_STATUSES = ["new", "contacted", "qualified", "unqualified", "converted", "lost"] as const;
-export const LEAD_STATUS_LABEL: Record<(typeof LEAD_STATUSES)[number], string> = { new: "חדש", contacted: "נוצר קשר", qualified: "מתאים", unqualified: "לא מתאים", converted: "הומר לעסקה", lost: "אבוד" };
+import { LEAD_STATUSES, DEAL_STAGES } from "./labels";
+export { LEAD_STATUSES, LEAD_STATUS_LABEL, DEAL_STAGES, DEAL_STAGE_LABEL } from "./labels";
 
 export const leadInputSchema = z.object({
   contactId: z.string().min(1),
@@ -120,8 +120,6 @@ export async function convertLead(user: SessionUser, id: string, deal: { title?:
 
 // ─── Deals ───────────────────────────────────────────────────────────────────
 
-export const DEAL_STAGES = ["new", "proposal", "negotiation", "won", "lost"] as const;
-export const DEAL_STAGE_LABEL: Record<(typeof DEAL_STAGES)[number], string> = { new: "חדשה", proposal: "הצעה", negotiation: "משא ומתן", won: "נסגרה", lost: "אבודה" };
 
 export const dealInputSchema = z.object({
   contactId: z.string().min(1),

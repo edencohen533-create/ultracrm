@@ -116,11 +116,11 @@ export function ConversationListPane({ initialConversations }: { initialConversa
               )}
             >
               <Avatar className="h-10 w-10 shrink-0">
-                <AvatarFallback>{initials(conversation.contact.name)}</AvatarFallback>
+                <AvatarFallback>{initials(conversation.contact.fullName)}</AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium">{conversation.contact.name}</span>
+                  <span className="truncate text-sm font-medium">{conversation.contact.fullName}</span>
                   {conversation.lastMessageAt && (
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {formatDistanceToNow(new Date(conversation.lastMessageAt), { locale: he, addSuffix: true })}
@@ -128,7 +128,7 @@ export function ConversationListPane({ initialConversations }: { initialConversa
                   )}
                 </div>
                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                  <Ltr>{conversation.contact.phone}</Ltr>
+                  <Ltr>{conversation.contact.phoneE164}</Ltr>
                 </div>
                 {conversation.providerCredential && <p className="text-xs text-muted-foreground">דרך: {conversation.providerCredential.label || conversation.providerCredential.displayPhoneNumber || "WhatsApp"}</p>}
                 {lastMessage?.body && (
@@ -139,7 +139,7 @@ export function ConversationListPane({ initialConversations }: { initialConversa
                     {STATUS_LABELS[conversation.status]}
                   </Badge>
                   {conversation.assignedAgent && (
-                    <span className="text-[10px] text-muted-foreground">{conversation.assignedAgent.name}</span>
+                    <span className="text-[10px] text-muted-foreground">{conversation.assignedAgent.fullName}</span>
                   )}
                   {conversation.unreadCount > 0 && (
                     <Badge className="ms-auto h-4 min-w-4 justify-center rounded-full px-1 text-[10px]">

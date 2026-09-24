@@ -79,6 +79,24 @@ export const contactPatchSchema = contactInputSchema.partial().extend({
   isBlocked: z.boolean().optional(),
 });
 
+/**
+ * Find the contact owning `e164` (primary or additional phone) or create a card.
+ * Safe under concurrent inbound events: a unique-constraint race is resolved by re-reading.
+ */
+export async function findOrCreateContactByPhone(businessId: string, e164: string, create: { fullName: string; phoneRaw: string; source: string; ownerUserId?: string | null }, db: Db = prisma) {
+  const existingId = await contactForIdentifier(businessId, e164, db);
+  if (existingId) return db.contact.findUniqueOrThrow({ where: { id: existingId } });
+  try {
+    return await db.contact.create({ data: { businessId, fullName: create.fullName, phoneE164: e164, phoneRaw: create.phoneRaw, source: create.source, ownerUserId: create.ownerUserId ?? null } });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const again = await contactForIdentifier(businessId, e164, db);
+      if (again) return db.contact.findUniqueOrThrow({ where: { id: again } });
+    }
+    throw err;
+  }
+}
+
 /** Which contact already owns this phone (primary or additional)? */
 export async function findDuplicateByPhone(businessId: string, e164: string, exceptId?: string, db: Db = prisma) {
   const id = await contactForIdentifier(businessId, e164, db);
@@ -316,8 +334,13 @@ export async function importContacts(user: SessionUser, rows: ContactInput[], de
       customFields: (r.customFields as Prisma.InputJsonValue | undefined) ?? undefined,
     };
     if (existingId) {
-      // Never overwrite consent on import; an unsubscribe is never undone by a file.
-      await prisma.contact.update({ where: { id: existingId }, data: { ...base, source: r.source || undefined, ownerUserId: r.ownerUserId || undefined } });
+      // Update only the fields the file provides – never blank existing data, never touch consent
+      // (an unsubscribe is never undone by a file).
+      if (base.email) {
+        const dupEmail = await findDuplicateByEmail(businessId, base.email, existingId);
+        if (dupEmail) { errors.push({ row: i + 1, phone: r.phone, reason: "האימייל שייך לאיש קשר אחר" }); invalid++; continue; }
+      }
+      await prisma.contact.update({ where: { id: existingId }, data: { fullName: base.fullName, email: base.email ?? undefined, company: base.company ?? undefined, city: base.city ?? undefined, notes: base.notes ?? undefined, customFields: base.customFields, source: r.source || undefined, ownerUserId: r.ownerUserId || undefined } });
       await syncTags(prisma, businessId, existingId, undefined, r.tagNames);
       updated++;
     } else {

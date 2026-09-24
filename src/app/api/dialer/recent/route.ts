@@ -13,4 +13,4 @@ export const GET = withAuth(async ({ user }) => {
     select: { id: true, toE164: true, createdAt: true, telephonyResult: true, outcome: true, talkSeconds: true, contact: { select: { id: true, fullName: true } } },
   });
   return ok(calls);
-});
+}, { module: "telephony" });

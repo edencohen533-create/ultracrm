@@ -4,4 +4,4 @@ import { telephonyStatus } from "@/lib/telephony";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withAuth(async () => ok(telephonyStatus()));
+export const GET = withAuth(async () => ok(telephonyStatus()), { module: "telephony" });

@@ -231,14 +231,9 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
   private async handleInboundMessage(message: MetaInboundMessage, contactName: string | undefined) {
     const phone = normalizePhone(`+${message.from}`) ?? `+${message.from}`;
 
-    // The CRM contact is the single source of truth: find by any linked phone, otherwise create a card.
-    const { contactForIdentifier } = await import("@/lib/suppression");
-    const existingId = await contactForIdentifier(requireBusinessId(), phone);
-    const contact = existingId
-      ? await prisma.contact.findUniqueOrThrow({ where: { id: existingId } })
-      : await prisma.contact.upsert({ where: { businessId_phoneE164: { businessId: requireBusinessId(), phoneE164: phone } }, update: {}, create: {
-        businessId: requireBusinessId(), fullName: contactName ?? phone, phoneE164: phone, phoneRaw: `+${message.from}`, source: "whatsapp",
-      } });
+    // The CRM contact is the single source of truth: find by any linked phone, otherwise create one card (race-safe).
+    const { findOrCreateContactByPhone } = await import("@/lib/crm/contacts");
+    const contact = await findOrCreateContactByPhone(requireBusinessId(), phone, { fullName: contactName ?? phone, phoneRaw: `+${message.from}`, source: "whatsapp" });
 
     const type = META_TYPE_TO_MESSAGE_TYPE[message.type] ?? MessageType.TEXT;
     const text =

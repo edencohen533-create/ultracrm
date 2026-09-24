@@ -30,4 +30,4 @@ export const GET = withAuth(async ({ user, params }) => {
       "Content-Disposition": `inline; filename="call-${call.id}.${src.contentType === "audio/wav" ? "wav" : "mp3"}"`,
     },
   });
-});
+}, { module: "telephony" });

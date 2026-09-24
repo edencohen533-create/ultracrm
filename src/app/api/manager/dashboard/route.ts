@@ -79,4 +79,4 @@ export const GET = withAuth(async ({ req, user }) => {
       inboundMissed: "שיחות נכנסות שלא נענו על ידי נציג",
     },
   });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

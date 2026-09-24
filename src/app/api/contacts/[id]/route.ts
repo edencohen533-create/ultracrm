@@ -31,7 +31,7 @@ export const GET = withAuth(async ({ user, params }) => {
     suppressionSummary(user.businessId, c.id),
     prisma.note.findMany({ where: { contactId: c.id }, orderBy: { createdAt: "desc" }, take: 20, include: { author: { select: { id: true, fullName: true } } } }),
   ]);
-  return ok({ ...c, tags: c.tags.map((t) => t.tag), tasks, calls, conversations, notes, isDnc: Boolean(dnc), dncReason: dnc?.reason ?? null, suppression });
+  return ok({ ...c, tags: c.tags.map((t) => t.tag), tasks, calls, conversations, noteItems: notes, isDnc: Boolean(dnc), dncReason: dnc?.reason ?? null, suppression });
 });
 
 export const PATCH = withAuth(async ({ req, user, params }) => {

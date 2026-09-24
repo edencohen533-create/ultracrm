@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MessageType } from "@/generated/prisma/client";
+import { MessageType } from "@/generated/prisma/enums";
 
 export const simulateInboundSchema = z.object({
   contactId: z.string().min(1, "יש לבחור איש קשר"),

@@ -23,4 +23,4 @@ export const POST = withAuth(async ({ req, user }) => {
   await assertListAccess(user.businessId, user.id, user.role, s.listId);
   const lead = await claimNextLead(user.businessId, user.id, s.listId);
   return ok(lead);
-});
+}, { module: "telephony" });

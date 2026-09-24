@@ -20,4 +20,4 @@ const schema = z.object({
 export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, schema);
   return ok(await startCall(user, b));
-});
+}, { module: "telephony" });

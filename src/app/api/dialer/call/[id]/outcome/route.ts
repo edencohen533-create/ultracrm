@@ -24,4 +24,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
     contactUpdates: b.contactUpdates,
   });
   return ok(call);
-});
+}, { module: "telephony" });

@@ -38,4 +38,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
   }
   await audit(user.businessId, user.id, "list", copy.id, "list.duplicated", { from: src.id, copied });
   return ok({ ...copy, copied }, 201);
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

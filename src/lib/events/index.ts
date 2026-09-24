@@ -137,20 +137,21 @@ async function runHandlers(event: Prisma.DomainEventGetPayload<object>) {
     if (done.has(handler.name)) continue;
     try {
       const result = await handler.run(event);
-      await prisma.automationJob.upsert({
+      await upsertJob({
         where: { eventId_handler: { eventId: event.id, handler: handler.name } },
         create: { businessId: event.businessId, eventId: event.id, handler: handler.name, status: "done", result: (result ?? {}) as Prisma.InputJsonValue, completedAt: new Date() },
         update: { status: "done", result: (result ?? {}) as Prisma.InputJsonValue, error: null, completedAt: new Date() },
       });
     } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") continue; // another worker completed this handler
       anyFailed = true;
       lastError = err instanceof Error ? err.message : String(err);
       console.error(`[events] handler ${handler.name} failed for ${event.type}`, err);
-      await prisma.automationJob.upsert({
+      await upsertJob({
         where: { eventId_handler: { eventId: event.id, handler: handler.name } },
         create: { businessId: event.businessId, eventId: event.id, handler: handler.name, status: "failed", error: lastError.slice(0, 1000) },
         update: { status: "failed", error: lastError.slice(0, 1000) },
-      });
+      }).catch(() => undefined);
     }
   }
   if (!anyFailed) {
@@ -165,6 +166,31 @@ async function runHandlers(event: Prisma.DomainEventGetPayload<object>) {
       : { status: "pending", lockedAt: null, lastError, nextAttemptAt: new Date(Date.now() + backoffMs(event.attempts)) },
   });
   return { failed: true };
+}
+
+/** AutomationJob upsert that survives a concurrent writer (unique event+handler). */
+async function upsertJob(args: Parameters<typeof prisma.automationJob.upsert>[0]) {
+  try {
+    await prisma.automationJob.upsert(args);
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      await prisma.automationJob.update({ where: args.where, data: args.update });
+      return;
+    }
+    throw err;
+  }
+}
+
+/** Test/ops helper: wait until no pending/processing events remain for a business. */
+export async function waitForEvents(businessId: string, timeoutMs = 15_000) {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    const open = await db.domainEvent.count({ where: { businessId, status: { in: ["pending", "processing"] } } });
+    if (!open) return true;
+    await processDomainEvents({ businessId });
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
 }
 
 export type { EventHandler };

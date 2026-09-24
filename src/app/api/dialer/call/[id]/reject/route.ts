@@ -11,4 +11,4 @@ export const POST = withAuth(async ({ user, params }) => {
   await prisma.call.updateMany({ where: { id: params.id, userId: user.id, direction: "inbound", endedAt: null }, data: { routingNote: "rejected_by_agent" } });
   await audit(user.businessId, user.id, "call", params.id, "inbound.rejected");
   return ok(await hangupCall(user, params.id));
-});
+}, { module: "telephony" });

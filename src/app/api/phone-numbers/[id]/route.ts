@@ -16,11 +16,11 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
     return tx.phoneNumber.update({ where: { id: n.id }, data: { ...(b.label !== undefined ? { label: b.label || null } : {}), ...(b.isDefault !== undefined ? { isDefault: b.isDefault } : {}), ...(b.isActive !== undefined ? { isActive: b.isActive } : {}) } });
   });
   return ok(updated);
-}, { minRole: "owner" });
+}, { minRole: "owner", module: "telephony" });
 
 export const DELETE = withAuth(async ({ user, params }) => {
   const n = await prisma.phoneNumber.findFirst({ where: { id: params.id, businessId: user.businessId } });
   if (!n) throw new ApiError("מספר לא נמצא", 404, "not_found");
   await prisma.phoneNumber.update({ where: { id: n.id }, data: { isActive: false, isDefault: false } });
   return ok({ deactivated: true });
-}, { minRole: "owner" });
+}, { minRole: "owner", module: "telephony" });

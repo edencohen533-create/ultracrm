@@ -9,4 +9,4 @@ export const GET = withAuth(async ({ user, params }) => {
   const c = await prisma.call.findFirst({ where: { id: params.id, userId: user.id }, select: { id: true } });
   if (!c) throw new ApiError("שיחה לא נמצאה", 404, "not_found");
   return ok(await reconcileCall(c.id));
-});
+}, { module: "telephony" });

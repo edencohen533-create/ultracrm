@@ -120,4 +120,4 @@ export const GET = withAuth(async ({ user }) => {
     telephony: telephonyStatus(),
     teams: [...new Map(agents.filter((a) => a.team).map((a) => [a.team!.id, a.team!])).values()],
   });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

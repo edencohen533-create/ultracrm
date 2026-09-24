@@ -14,7 +14,7 @@ export const GET = organizationRequest(async function(request: Request, { params
   const page = Math.max(1, Math.min(100000, Number(new URL(request.url).searchParams.get("page")) || 1));
   const recipients = await prisma.campaignRecipient.findMany({ where: { campaignId: id }, orderBy: { id: "asc" }, take: 100, skip: (Math.floor(page) - 1) * 100, include: { contact: { select: { fullName: true, phoneE164: true } } } });
   const messages = await prisma.message.findMany({ where: { id: { in: recipients.flatMap((r) => r.messageId ? [r.messageId] : []) } }, select: { id: true, status: true } });
-  return Response.json({ recipients: recipients.map((r) => ({ ...r, deliveryStatus: messages.find((m) => m.id === r.messageId)?.status ?? null })) });
+  return Response.json({ recipients: recipients.map((r) => ({ ...r, contact: { name: r.contact.fullName, phone: r.contact.phoneE164 }, deliveryStatus: messages.find((m) => m.id === r.messageId)?.status ?? null })) });
 });
 export const PATCH = organizationRequest(async function(request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!await campaignActor()) return Response.json({ error: "אין הרשאה" }, { status: 403 });

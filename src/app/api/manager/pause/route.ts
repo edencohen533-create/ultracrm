@@ -29,4 +29,4 @@ export const POST = withAuth(async ({ req, user }) => {
   await prisma.dialList.update({ where: { id: list.id }, data: { isPaused: b.paused } });
   await audit(user.businessId, user.id, "list", list.id, b.paused ? "list.paused" : "list.resumed");
   return ok({ listId: list.id, isPaused: b.paused });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

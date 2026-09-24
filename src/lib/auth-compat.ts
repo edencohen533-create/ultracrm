@@ -9,6 +9,7 @@ import { redirect } from "next/navigation";
 import { getValidSession, requireUser, type SessionUser } from "@/lib/auth";
 import { handleError } from "@/lib/response";
 import { currentSessionUser, withBusiness } from "@/lib/tenant";
+import { assertModuleEnabled, isModuleEnabled } from "@/lib/modules";
 import type { UserRole } from "@/generated/prisma/enums";
 
 export interface Session {
@@ -45,6 +46,8 @@ export function organizationRequest<A extends unknown[], R>(handler: Wrapped<A, 
     if (first instanceof Request) {
       try {
         const user = await requireUser(first as NextRequest);
+        // Every ported route belongs to the messaging module.
+        await assertModuleEnabled(user.businessId, "messaging");
         return await withBusiness(user.businessId, () => handler(...args), user);
       } catch (err) {
         return handleError(err) as unknown as R;
@@ -52,6 +55,7 @@ export function organizationRequest<A extends unknown[], R>(handler: Wrapped<A, 
     }
     const user = await getValidSession();
     if (!user) redirect("/login");
+    if (!(await isModuleEnabled(user.businessId, "messaging"))) redirect("/dashboard?disabled=messaging");
     return withBusiness(user.businessId, () => handler(...args), user);
   };
 }

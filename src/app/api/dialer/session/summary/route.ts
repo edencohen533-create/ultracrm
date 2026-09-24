@@ -27,4 +27,4 @@ export const GET = withAuth(async ({ req, user }) => {
     outcomes: Object.entries(outcomes).map(([k, v]) => ({ key: k, label: OUTCOME_BY_KEY[k as keyof typeof OUTCOME_BY_KEY]?.label ?? k, count: v })),
     queue,
   });
-});
+}, { module: "telephony" });

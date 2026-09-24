@@ -1,0 +1,107 @@
+{
+  "base": "http://localhost:3100",
+  "ranAt": "2026-09-24T04:43:14.912Z",
+  "results": [
+    {
+      "name": "B1 login (single login for every module)",
+      "status": "pass",
+      "detail": {
+        "url": "http://localhost:3100/dashboard"
+      }
+    },
+    {
+      "name": "B1b warm up dev compilation of every screen",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "B2 sidebar shows CRM + messaging + telephony for the Pro business",
+      "status": "pass",
+      "detail": {
+        "telephony": "simulation badge visible"
+      }
+    },
+    {
+      "name": "B3 create contact from the CRM screen",
+      "status": "pass",
+      "detail": {
+        "contactId": "cmuf1m4x5001p5wejlmbfxikq",
+        "phone": "0529924733"
+      }
+    },
+    {
+      "name": "B4 contact card: dial + WhatsApp + lead + deal + task actions present",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "B5 create lead from the card → owner + first-contact task appear (event pipeline)",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "B6 dial from the card (simulation) → call bar appears",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "B7 navigate CRM → inbox → contacts during the call: call bar persists (no drop, no 2nd connection)",
+      "status": "pass",
+      "detail": {
+        "audioSinks": 1
+      }
+    },
+    {
+      "name": "B8 dial button disabled while a call is live (no second call)",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "B9 hang up and save outcome + note in the dialer screen; follow-up task created",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "B10 WhatsApp from the card → inbox conversation (mock provider) → message in card timeline",
+      "status": "fail",
+      "detail": "page.waitForSelector: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=תודה, נחזור אליך') to be visible\u001b[22m\n"
+    },
+    {
+      "name": "B11 unsubscribe via inbound 'הסר' → card shows suppression, WhatsApp marketing blocked",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "B12 update lead status from the leads screen and see it on the card",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "B13 logout + login again → data persisted server-side",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "B14 business switcher (owner belongs to two businesses; second has no telephony)",
+      "status": "pass",
+      "detail": {
+        "options": [
+          "[דמו] סולינה מכירות",
+          "[דמו] עסק שני (בידוד)"
+        ]
+      }
+    },
+    {
+      "name": "B15 settings screens render (owner)",
+      "status": "pass",
+      "detail": null
+    },
+    {
+      "name": "console errors",
+      "status": "warn",
+      "detail": [
+        "Base UI: A component that acts as a button expected a native <button> because the `nativeButton` prop is true. Rendering a non-<button> removes native button semantics, which can impact forms and acce"
+      ]
+    }
+  ]
+}

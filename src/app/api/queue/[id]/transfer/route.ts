@@ -11,4 +11,4 @@ const schema = z.object({ toUserId: z.string().nullable(), note: z.string().max(
 export const POST = withAuth(async ({ req, user, params }) => {
   const b = await parseBody(req, schema);
   return ok(await transferLead(user.businessId, user.id, params.id, b.toUserId, b.note));
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

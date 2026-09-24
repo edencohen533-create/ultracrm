@@ -64,11 +64,8 @@ async function resolveFromNumber(businessId: string, phoneNumberId?: string, lis
 
 /** Find or create the contact for a manually dialed number. */
 async function contactForPhone(businessId: string, userId: string, phoneE164: string, raw: string) {
-  return prisma.contact.upsert({
-    where: { businessId_phoneE164: { businessId, phoneE164 } },
-    update: {},
-    create: { businessId, fullName: "מספר לא מזוהה", phoneE164, phoneRaw: raw, source: "manual_dial", ownerUserId: userId },
-  });
+  const { findOrCreateContactByPhone } = await import("@/lib/crm/contacts");
+  return findOrCreateContactByPhone(businessId, phoneE164, { fullName: "מספר לא מזוהה", phoneRaw: raw, source: "manual_dial", ownerUserId: userId });
 }
 
 export async function startCall(user: SessionUser, input: StartCallInput): Promise<CallWithRefs> {

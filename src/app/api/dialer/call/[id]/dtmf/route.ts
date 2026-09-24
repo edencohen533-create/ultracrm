@@ -11,4 +11,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
   const b = await parseBody(req, schema);
   await sendDtmf(user, params.id, b.digits);
   return ok({ sent: true });
-});
+}, { module: "telephony" });

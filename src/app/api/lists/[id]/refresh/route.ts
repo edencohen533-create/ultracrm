@@ -16,4 +16,4 @@ export const POST = withAuth(async ({ user, params }) => {
   await prisma.dialList.update({ where: { id: list.id }, data: { lastRefreshedAt: new Date() } });
   await audit(user.businessId, user.id, "automation", list.id, "automation.list_refreshed", { trigger: "manual_refresh", added, result: "ok" });
   return ok({ added });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

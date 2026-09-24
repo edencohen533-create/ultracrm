@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AutomationActionType, AutomationTrigger, ConversationStatus } from "@/generated/prisma/client";
+import { AutomationActionType, AutomationTrigger, ConversationStatus } from "@/generated/prisma/enums";
 
 const requiredText = z.string().trim().min(1).max(200);
 export const automationRuleSchema = z.object({

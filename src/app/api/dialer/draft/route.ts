@@ -9,7 +9,7 @@ export const GET = withAuth(async ({ req, user }) => {
   const { contactId } = parseQuery(req, z.object({ contactId: z.string() }));
   const d = await prisma.noteDraft.findUnique({ where: { userId_contactId: { userId: user.id, contactId } } });
   return ok({ body: d?.body ?? "" });
-});
+}, { module: "telephony" });
 
 export const PUT = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, z.object({ contactId: z.string(), body: z.string().max(4000) }));
@@ -25,4 +25,4 @@ export const PUT = withAuth(async ({ req, user }) => {
     update: { body: b.body },
   });
   return ok({ saved: true });
-});
+}, { module: "telephony" });

@@ -134,7 +134,8 @@ function getBrowserSessionId() {
   }
 }
 
-export function DialerProvider({ children }: { children: ReactNode }) {
+/** `enabled=false` (telephony module off): no WebRTC registration and no state polling; the context still renders. */
+export function DialerProvider({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
   const [state, setState] = useState<DialerStateDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +214,7 @@ export function DialerProvider({ children }: { children: ReactNode }) {
   }, [browserSessionId]);
 
   useEffect(() => {
+    if (!enabled) { setLoading(false); return; }
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const loop = async () => {
@@ -231,7 +233,7 @@ export function DialerProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [refresh]);
+  }, [refresh, enabled]);
 
   // ── Heartbeat (renews lead lock, proves the tab is alive) ────────────
   useEffect(() => {
@@ -392,7 +394,7 @@ export function DialerProvider({ children }: { children: ReactNode }) {
   }, [connectPhone]);
 
   useEffect(() => {
-    connectPhone();
+    if (enabled) connectPhone();
     return () => {
       // Invalidate all pending registrations, including reconnects started after mount.
       // eslint-disable-next-line react-hooks/exhaustive-deps

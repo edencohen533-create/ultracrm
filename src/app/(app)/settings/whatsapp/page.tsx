@@ -14,7 +14,7 @@ export default organizationRequest(async function WhatsAppSettingsPage() {
   }
 
   const [summary, numbers, teams] = await Promise.all([getActiveProviderSummary(), listProviderSummaries(), prisma.team.findMany({ select: { id: true, name: true } })]);
-  const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const webhookUrl = `${baseUrl}/api/webhooks/whatsapp`;
 
   return (

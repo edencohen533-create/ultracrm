@@ -1,0 +1,597 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  admin
+  manager
+  agent
+}
+
+/// Agent presence, as shown on the manager screen.
+enum PresenceStatus {
+  offline
+  available
+  in_call
+  wrap_up
+  paused
+}
+
+enum DialMode {
+  manual
+  preview
+  power
+}
+
+enum SessionStatus {
+  active
+  paused
+  ended
+}
+
+enum LeadStatus {
+  pending      // waiting in queue
+  locked       // claimed by an agent (lock has TTL)
+  in_call      // a call is in progress for this lead
+  callback     // scheduled callback; re-enters queue at nextAttemptAt
+  completed    // finished (sale / not interested / interested…)
+  exhausted    // max attempts reached
+  removed      // removed manually
+  dnc          // blocked by Do-Not-Call
+}
+
+/// Telephony (provider) state of a call. This is NOT the business outcome.
+enum CallStatus {
+  created          // record created, nothing sent to provider yet
+  dialing_agent    // agent leg (browser) is being dialed
+  agent_connected  // agent leg answered by browser
+  dialing_lead     // lead leg dialed, not yet ringing/answered
+  ringing          // provider reported lead leg ringing
+  answered         // provider confirmed lead answered (bridged)
+  ended            // call finished normally
+  failed           // provider failure / no legs connected
+}
+
+/// What the provider says happened with the lead leg.
+enum TelephonyResult {
+  answered
+  no_answer
+  busy
+  failed
+  cancelled
+  rejected
+}
+
+/// Business outcome chosen by the agent (separate from TelephonyResult).
+enum OutcomeKey {
+  answered_interested
+  answered_not_interested
+  callback
+  no_answer
+  busy
+  wrong_number
+  sale
+  dnc
+}
+
+enum TaskStatus {
+  open
+  done
+  cancelled
+}
+
+enum TelephonyProvider {
+  mock
+  telnyx
+}
+
+enum CallDirection {
+  outbound
+  inbound
+}
+
+enum MonitorMode {
+  listen
+  whisper
+}
+
+enum MonitorStatus {
+  connecting
+  listening
+  whispering
+  ended
+  failed
+}
+
+enum RecordingStatus {
+  none
+  recording
+  saved
+  failed
+}
+
+// ─── Tenant ──────────────────────────────────────────────────────────────────
+
+model Business {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  timezone  String   @default("Asia/Jerusalem")
+  /// Dialer settings: wrapUpSeconds, autoDialCountdownSeconds, maxAttempts,
+  /// retryIntervalMinutes, dialWindow {start,end,days}, recordingEnabled,
+  /// recordingAnnouncement, lockTtlSeconds, ringTimeoutSeconds
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users        User[]
+  teams        Team[]
+  contacts     Contact[]
+  dncEntries   DncEntry[]
+  dialLists    DialList[]
+  leads        ListLead[]
+  sessions     DialerSession[]
+  calls        Call[]
+  tasks        Task[]
+  phoneNumbers PhoneNumber[]
+  scripts      Script[]
+  events       TelephonyEvent[]
+  auditLogs    AuditLog[]
+  noteDrafts   NoteDraft[]
+
+  @@map("businesses")
+}
+
+model Team {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  name       String
+  managerId  String?  @map("manager_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  manager  User?    @relation("TeamManager", fields: [managerId], references: [id])
+  members  User[]   @relation("TeamMembers")
+
+  @@index([businessId])
+  @@map("teams")
+}
+
+// ─── Users ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String         @id @default(cuid())
+  businessId   String         @map("business_id")
+  email        String
+  passwordHash String         @map("password_hash")
+  fullName     String         @map("full_name")
+  role         UserRole       @default(agent)
+  teamId       String?        @map("team_id")
+  isActive     Boolean        @default(true) @map("is_active")
+  presence     PresenceStatus @default(offline)
+  presenceAt   DateTime       @default(now()) @map("presence_at")
+  lastSeenAt   DateTime?      @map("last_seen_at")
+
+  /// Telnyx telephony credential (one per agent) – the browser logs in with a
+  /// short-lived JWT minted server-side from this credential.
+  telnyxCredentialId String? @map("telnyx_credential_id")
+  sipUsername        String? @map("sip_username")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  business     Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  team         Team?           @relation("TeamMembers", fields: [teamId], references: [id])
+  managedTeams Team[]          @relation("TeamManager")
+  sessions     DialerSession[]
+  calls        Call[]
+  tasks        Task[]
+  lockedLeads  ListLead[]      @relation("LockedLeads")
+  listAgents   DialListAgent[]
+  ownedContacts Contact[]      @relation("ContactOwner")
+  auditLogs    AuditLog[]
+  noteDrafts   NoteDraft[]
+  dncEntries   DncEntry[]
+  monitors     CallMonitor[]
+
+  @@unique([businessId, email])
+  @@index([businessId, presence])
+  @@map("users")
+}
+
+// ─── CRM: contacts ───────────────────────────────────────────────────────────
+
+model Contact {
+  id           String   @id @default(cuid())
+  businessId   String   @map("business_id")
+  fullName     String   @map("full_name")
+  phoneE164    String   @map("phone_e164")
+  phoneRaw     String   @map("phone_raw")
+  email        String?
+  company      String?
+  city         String?
+  source       String?
+  notes        String?
+  customFields Json?    @map("custom_fields")
+  tags         String[] @default([])
+  ownerUserId  String?  @map("owner_user_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  owner    User?      @relation("ContactOwner", fields: [ownerUserId], references: [id])
+  leads    ListLead[]
+  calls    Call[]
+  tasks    Task[]
+  drafts   NoteDraft[]
+
+  @@unique([businessId, phoneE164])
+  @@index([businessId, fullName])
+  @@index([businessId, source])
+  @@map("contacts")
+}
+
+model DncEntry {
+  id              String   @id @default(cuid())
+  businessId      String   @map("business_id")
+  phoneE164       String   @map("phone_e164")
+  reason          String?
+  createdByUserId String?  @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation(fields: [createdByUserId], references: [id])
+
+  @@unique([businessId, phoneE164])
+  @@map("dnc_entries")
+}
+
+// ─── Dial lists ──────────────────────────────────────────────────────────────
+
+model DialList {
+  id                   String   @id @default(cuid())
+  businessId           String   @map("business_id")
+  name                 String
+  description          String?
+  isActive             Boolean  @default(true) @map("is_active")
+  priority             Int      @default(0)
+  /// Saved CRM filter used to build/refresh this list (source, city, owner, createdAfter …)
+  filterJson           Json?    @map("filter_json")
+  maxAttempts          Int?     @map("max_attempts")
+  retryIntervalMinutes Int?     @map("retry_interval_minutes")
+  /// {start:"09:00", end:"20:00", days:[0,1,2,3,4], timezone:"Asia/Jerusalem"}
+  dialWindowJson       Json?    @map("dial_window_json")
+  scriptId             String?  @map("script_id")
+  /// Outbound caller id for this list/campaign (falls back to the business default).
+  phoneNumberId        String?  @map("phone_number_id")
+  /// Dynamic lists re-apply filterJson on refresh; frozen lists keep their membership.
+  isDynamic            Boolean  @default(false) @map("is_dynamic")
+  isPaused             Boolean  @default(false) @map("is_paused")
+  archivedAt           DateTime? @map("archived_at")
+  lastRefreshedAt      DateTime? @map("last_refreshed_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  script      Script?      @relation(fields: [scriptId], references: [id])
+  phoneNumber PhoneNumber? @relation("ListCallerId", fields: [phoneNumberId], references: [id])
+  agents   DialListAgent[]
+  leads    ListLead[]
+  sessions DialerSession[]
+  calls    Call[]
+
+  @@index([businessId, isActive])
+  @@map("dial_lists")
+}
+
+model DialListAgent {
+  listId    String   @map("list_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  list DialList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([listId, userId])
+  @@map("dial_list_agents")
+}
+
+model ListLead {
+  id             String     @id @default(cuid())
+  businessId     String     @map("business_id")
+  listId         String     @map("list_id")
+  contactId      String     @map("contact_id")
+  status         LeadStatus @default(pending)
+  priority       Int        @default(0)
+  attempts       Int        @default(0)
+  lastAttemptAt  DateTime?  @map("last_attempt_at")
+  nextAttemptAt  DateTime?  @map("next_attempt_at")
+  lastOutcome    OutcomeKey? @map("last_outcome")
+  lastSkipReason String?    @map("last_skip_reason")
+  /// Callbacks are routed to this agent first (others may take it once overdue).
+  preferredUserId String?   @map("preferred_user_id")
+  /// Short, human explanation of why this lead was served (set at claim time).
+  claimReason     String?   @map("claim_reason")
+  claimScore      Float?    @map("claim_score")
+  /// Locking – set atomically server-side (FOR UPDATE SKIP LOCKED); expires unless renewed.
+  lockedByUserId String?    @map("locked_by_user_id")
+  lockToken      String?    @map("lock_token")
+  lockExpiresAt  DateTime?  @map("lock_expires_at")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  list     DialList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  lockedBy User?    @relation("LockedLeads", fields: [lockedByUserId], references: [id])
+  calls    Call[]
+  tasks    Task[]
+
+  @@unique([listId, contactId])
+  @@index([listId, status, priority, nextAttemptAt])
+  @@index([lockedByUserId])
+  @@map("list_leads")
+}
+
+// ─── Dialer sessions (one per agent working session) ─────────────────────────
+
+model DialerSession {
+  id               String        @id @default(cuid())
+  businessId       String        @map("business_id")
+  userId           String        @map("user_id")
+  listId           String?       @map("list_id")
+  mode             DialMode
+  status           SessionStatus @default(active)
+  /// Random id generated by the browser tab; only this tab may drive the session.
+  browserSessionId String        @map("browser_session_id")
+  countdownSeconds Int           @default(5) @map("countdown_seconds")
+  startedAt        DateTime      @default(now()) @map("started_at")
+  lastHeartbeatAt  DateTime      @default(now()) @map("last_heartbeat_at")
+  endedAt          DateTime?     @map("ended_at")
+  dialsCount       Int           @default(0) @map("dials_count")
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  list     DialList? @relation(fields: [listId], references: [id])
+  calls    Call[]
+
+  @@index([userId, status])
+  @@map("dialer_sessions")
+}
+
+// ─── Calls ───────────────────────────────────────────────────────────────────
+
+model Call {
+  id             String            @id @default(cuid())
+  businessId     String            @map("business_id")
+  userId         String            @map("user_id")
+  sessionId      String?           @map("session_id")
+  listId         String?           @map("list_id")
+  leadId         String?           @map("lead_id")
+  contactId      String?           @map("contact_id")
+  mode           DialMode
+  direction      CallDirection     @default(outbound)
+  provider       TelephonyProvider
+  /// Client-generated key; the same key always returns the same call (double-click / retry safe).
+  idempotencyKey String            @unique @map("idempotency_key")
+  /// Inbound: how the call was routed / why it was missed.
+  routingNote    String?           @map("routing_note")
+  /// Provider conference that hosts both legs (required for supervisor listen/whisper).
+  conferenceId   String?           @map("conference_id")
+  /// = userId while the call is alive, NULL once ended. Unique ⇒ one live call per agent.
+  activeForUser  String?           @unique @map("active_for_user")
+
+  toE164        String  @map("to_e164")
+  fromE164      String  @map("from_e164")
+  phoneNumberId String? @map("phone_number_id")
+
+  status          CallStatus       @default(created)
+  telephonyResult TelephonyResult? @map("telephony_result")
+  hangupCause     String?          @map("hangup_cause")
+  hangupSource    String?          @map("hangup_source")
+  amdResult       String?          @map("amd_result")
+  failureReason   String?          @map("failure_reason")
+
+  // Provider identifiers – kept for reconciliation / investigation
+  agentLegId        String? @map("agent_leg_id")
+  leadLegId         String? @map("lead_leg_id")
+  providerSessionId String? @map("provider_session_id")
+  /// Set when a dial request timed out and we are waiting for the provider to confirm.
+  dialPendingSince  DateTime? @map("dial_pending_since")
+  leadDialedAt      DateTime? @map("lead_dialed_at")
+  /// We asked the provider to hang up; if no hangup event follows, reconciliation finalizes the call.
+  hangupRequestedAt DateTime? @map("hangup_requested_at")
+  lastEventAt       DateTime? @map("last_event_at")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  agentAnsweredAt DateTime? @map("agent_answered_at")
+  ringingAt       DateTime? @map("ringing_at")
+  answeredAt      DateTime? @map("answered_at")
+  endedAt         DateTime? @map("ended_at")
+  /// Seconds between answeredAt and endedAt (0 if never answered).
+  talkSeconds     Int?      @map("talk_seconds")
+
+  // Business outcome (agent's choice) – separate from telephony result
+  outcome        OutcomeKey?
+  outcomeNote    String?     @map("outcome_note")
+  outcomeSavedAt DateTime?   @map("outcome_saved_at")
+  callbackAt     DateTime?   @map("callback_at")
+
+  // Recording
+  recordingStatus     RecordingStatus @default(none) @map("recording_status")
+  recordingId         String?         @map("recording_id")
+  recordingDurationMs Int?            @map("recording_duration_ms")
+  recordingFormat     String?         @map("recording_format")
+
+  business    Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id])
+  session     DialerSession? @relation(fields: [sessionId], references: [id])
+  list        DialList?      @relation(fields: [listId], references: [id])
+  lead        ListLead?      @relation(fields: [leadId], references: [id])
+  contact     Contact?       @relation(fields: [contactId], references: [id])
+  phoneNumber PhoneNumber?   @relation(fields: [phoneNumberId], references: [id])
+  events      TelephonyEvent[]
+  tasks       Task[]
+  monitors    CallMonitor[]
+
+  @@index([businessId, createdAt])
+  @@index([userId, createdAt])
+  @@index([contactId, createdAt])
+  @@index([leadId])
+  @@index([userId, endedAt, outcomeSavedAt])
+  @@index([agentLegId])
+  @@index([leadLegId])
+  @@map("calls")
+}
+
+/// A supervisor (manager) joined to a live call: listen-only or whisper-to-agent.
+model CallMonitor {
+  id         String        @id @default(cuid())
+  businessId String        @map("business_id")
+  callId     String        @map("call_id")
+  managerId  String        @map("manager_id")
+  /// = managerId while active, NULL once ended. Unique ⇒ one active monitor per manager.
+  activeForManager String? @unique @map("active_for_manager")
+  mode       MonitorMode   @default(listen)
+  status     MonitorStatus @default(connecting)
+  legId      String?       @map("leg_id")
+  error      String?
+  startedAt  DateTime      @default(now()) @map("started_at")
+  joinedAt   DateTime?     @map("joined_at")
+  endedAt    DateTime?     @map("ended_at")
+  lastEventAt DateTime?    @map("last_event_at")
+
+  call    Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  manager User @relation(fields: [managerId], references: [id])
+
+  @@index([callId, status])
+  @@index([legId])
+  @@map("call_monitors")
+}
+
+/// Raw provider events. Unique providerEventId ⇒ duplicate webhooks are ignored.
+model TelephonyEvent {
+  id              String            @id @default(cuid())
+  businessId      String?           @map("business_id")
+  callId          String?           @map("call_id")
+  provider        TelephonyProvider
+  providerEventId String            @map("provider_event_id")
+  eventType       String            @map("event_type")
+  legId           String?           @map("leg_id")
+  occurredAt      DateTime?         @map("occurred_at")
+  receivedAt      DateTime          @default(now()) @map("received_at")
+  processedAt     DateTime?         @map("processed_at")
+  payload         Json
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  call     Call?     @relation(fields: [callId], references: [id])
+
+  @@unique([provider, providerEventId])
+  @@index([callId])
+  @@map("telephony_events")
+}
+
+// ─── Tasks (callbacks) ───────────────────────────────────────────────────────
+
+model Task {
+  id         String     @id @default(cuid())
+  businessId String     @map("business_id")
+  userId     String     @map("user_id")
+  contactId  String     @map("contact_id")
+  leadId     String?    @map("lead_id")
+  callId     String?    @map("call_id")
+  type       String     @default("callback")
+  dueAt      DateTime   @map("due_at")
+  status     TaskStatus @default(open)
+  note       String?
+  createdAt  DateTime   @default(now()) @map("created_at")
+  doneAt     DateTime?  @map("done_at")
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id])
+  contact  Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  lead     ListLead? @relation(fields: [leadId], references: [id])
+  call     Call?     @relation(fields: [callId], references: [id])
+
+  @@index([userId, status, dueAt])
+  @@index([businessId, status, dueAt])
+  @@index([contactId, status])
+  @@index([callId])
+  @@map("tasks")
+}
+
+// ─── Business phone numbers (allowed caller IDs) ─────────────────────────────
+
+model PhoneNumber {
+  id         String            @id @default(cuid())
+  businessId String            @map("business_id")
+  e164       String
+  label      String?
+  provider   TelephonyProvider @default(telnyx)
+  isDefault  Boolean           @default(false) @map("is_default")
+  isActive   Boolean           @default(true) @map("is_active")
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  calls    Call[]
+  lists    DialList[] @relation("ListCallerId")
+
+  @@unique([businessId, e164])
+  @@map("phone_numbers")
+}
+
+model Script {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  title      String
+  body       String
+  isDefault  Boolean  @default(false) @map("is_default")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lists    DialList[]
+
+  @@map("scripts")
+}
+
+/// Server-side note draft so nothing is lost on refresh / navigation.
+model NoteDraft {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  userId     String   @map("user_id")
+  contactId  String   @map("contact_id")
+  body       String
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contactId])
+  @@map("note_drafts")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  actorId    String?  @map("actor_id")
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  action     String
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  actor    User?    @relation(fields: [actorId], references: [id])
+
+  @@index([businessId, entityType, entityId])
+  @@map("audit_logs")
+}

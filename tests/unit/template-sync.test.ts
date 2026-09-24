@@ -15,10 +15,13 @@ describe("Meta template synchronization", () => {
   it("maps approved positional text templates", () => {
     expect(mapRemoteTemplate(base)).toMatchObject({ status: "APPROVED", variables: ["1"], providerTemplateId: "1", syncError: null });
   });
-  it("disables unsupported media headers and named variables", () => {
-    expect(mapRemoteTemplate({ ...base, components: [{ type: "HEADER", format: "IMAGE" }, ...base.components] } as Parameters<typeof mapRemoteTemplate>[0]).status).toBe("DRAFT");
+  it("supports media headers, disables unsupported headers and named variables, keeps Meta PAUSED/DISABLED as their own statuses", () => {
+    const media = mapRemoteTemplate({ ...base, components: [{ type: "HEADER", format: "IMAGE" }, ...base.components] } as Parameters<typeof mapRemoteTemplate>[0]);
+    expect(media.status).toBe("APPROVED"); expect(media.headerFormat).toBe("IMAGE");
+    expect(mapRemoteTemplate({ ...base, components: [{ type: "HEADER", format: "LOCATION" }, ...base.components] } as Parameters<typeof mapRemoteTemplate>[0]).status).toBe("DRAFT");
     expect(mapRemoteTemplate({ ...base, components: [{ type: "BODY", text: "{{name}}" }] }).status).toBe("DRAFT");
-    expect(mapRemoteTemplate({ ...base, status: "PAUSED" }).status).toBe("REJECTED");
+    expect(mapRemoteTemplate({ ...base, status: "PAUSED" }).status).toBe("PAUSED");
+    expect(mapRemoteTemplate({ ...base, status: "DISABLED" }).status).toBe("DISABLED");
   });
   it("rebuilds pagination URLs without trusting remote next hosts", async () => {
     const request = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ data: [base], paging: { next: "https://evil.example", cursors: { after: "cursor" } } }) })

@@ -16,7 +16,9 @@ export const automationRuleSchema = z.object({
     CHANGE_STATUS: z.object({ status: z.enum(ConversationStatus) }),
     ADD_INTERNAL_NOTE: z.object({ body: z.string().trim().min(1).max(4096) }),
     SEND_CANNED_REPLY: z.object({ cannedReplyId: requiredText }),
-    SEND_TEMPLATE: z.object({ templateId: requiredText, variables: z.record(z.string().regex(/^\d+$/), z.string().trim().min(1).max(1024)).optional() }),
+    SEND_TEMPLATE: z.object({ templateId: requiredText, variables: z.record(z.string().regex(/^\d+$/), z.string().trim().min(1).max(1024)).optional(), mediaUrl: z.string().url().max(2000).optional() }),
+    CREATE_TASK: z.object({ title: requiredText, dueHours: z.number().int().min(1).max(720).default(24), note: z.string().max(2000).optional() }),
+    SET_CUSTOM_FIELD: z.object({ key: z.string().trim().min(1).max(100), value: z.string().max(2000) }),
   };
   if (!actions[rule.actionType].safeParse(rule.actionConfig).success) {
     ctx.addIssue({ code: "custom", path: ["actionConfig"], message: "יש להשלים את פרטי הפעולה" });

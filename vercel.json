@@ -5,6 +5,7 @@
     { "path": "/api/jobs/campaigns", "schedule": "* * * * *" },
     { "path": "/api/jobs/automations", "schedule": "*/2 * * * *" },
     { "path": "/api/jobs/retention", "schedule": "30 2 * * *" },
-    { "path": "/api/jobs/numbers", "schedule": "0 3 * * *" }
+    { "path": "/api/jobs/numbers", "schedule": "0 3 * * *" },
+    { "path": "/api/jobs/whatsapp-health", "schedule": "15 3 * * *" }
   ]
 }

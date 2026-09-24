@@ -16,7 +16,7 @@ export const metaWebhookSchema = z.object({
     field: z.string(), value: z.object({
       metadata: z.object({ phone_number_id: z.string() }).optional(),
       messages: z.array(message).max(1000).optional(),
-      statuses: z.array(z.object({ id: z.string().min(1), status: z.string(), timestamp: z.string().regex(/^\d+$/) })).max(1000).optional(),
+      statuses: z.array(z.object({ id: z.string().min(1), status: z.string(), timestamp: z.string().regex(/^\d+$/), errors: z.array(z.object({ code: z.number().optional(), title: z.string().optional(), message: z.string().optional() }).passthrough()).optional(), pricing: z.object({ category: z.string().optional(), billable: z.boolean().optional() }).passthrough().optional() })).max(1000).optional(),
       contacts: z.array(z.object({ wa_id: z.string(), profile: z.object({ name: z.string() }).optional() })).optional(),
       // account_update / phone_number_* / business_capability_update fields
       event: z.string().optional(),

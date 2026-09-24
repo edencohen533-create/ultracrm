@@ -5,6 +5,9 @@ import { updateProviderMessageStatus } from "@/server/services/message-status-se
 import { MAX_DOWNLOAD_BYTES, safeMediaDownloadUrl } from "@/lib/media";
 import crypto from "node:crypto";
 import { GRAPH_VERSION } from "@/lib/meta/graph";
+import { classifyMetaError } from "@/lib/meta/errors";
+import { db } from "@/lib/db";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { ConversationSource, MessageStatus, MessageType } from "@/generated/prisma/client";
 import { createInboundMessage } from "@/server/services/message-service";
@@ -76,10 +79,11 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
       redirect: "error",
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok && this.credentialId && [10, 190, 200, 131005, 131031].includes(data?.error?.code)) {
-      await prisma.providerCredential.update({ where: { id: this.credentialId }, data: { sendingBlocked: true, lastConnectionError: `Meta error ${data.error.code}`, lastCheckedAt: new Date() } });
+    const classified = res.ok ? null : classifyMetaError(data?.error?.code, res.status, data?.error?.message);
+    if (classified?.blocksCredential && this.credentialId) {
+      await prisma.providerCredential.update({ where: { id: this.credentialId }, data: { sendingBlocked: true, status: "revoked", lastConnectionError: `Meta error ${data.error.code}: ${classified.label}`, lastCheckedAt: new Date() } });
     }
-    return { ok: res.ok, data };
+    return { ok: res.ok, data, classified };
   }
 
   async sendMessage(payload: OutboundMessagePayload): Promise<SendResult> {
@@ -104,9 +108,9 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
         body = { messaging_product: "whatsapp", to, type: "text", text: { body: payload.body ?? "" } };
     }
 
-    const { ok, data } = await this.post("/messages", body);
+    const { ok, data, classified } = await this.post("/messages", body);
     if (!ok) {
-      return { providerMessageId: "", status: "FAILED", error: data?.error?.message ?? "Meta API error" };
+      return { providerMessageId: "", status: "FAILED", error: classified?.label ?? data?.error?.message ?? "Meta API error", errorCode: classified?.code ?? null, retryable: Boolean(classified?.retryable) };
     }
     if (typeof data?.messages?.[0]?.id !== "string" || !data.messages[0].id) throw new Error("Meta accepted request without a message ID; outcome unknown");
     return { providerMessageId: data.messages[0].id, status: "ACCEPTED" };
@@ -128,20 +132,39 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
     const parameters = templateParameterKeys(template.body).map((key) => ({
       type: "text", text: payload.templateVariables![key],
     }));
+    const components: Array<Record<string, unknown>> = [];
+    // Header media: the template declares IMAGE/VIDEO/DOCUMENT; the send supplies a public link.
+    const headerFormat = (template.headerFormat ?? "").toUpperCase();
+    if (["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat)) {
+      if (!payload.templateMedia?.link) return { providerMessageId: "", status: "FAILED", error: "לתבנית זו נדרש קובץ מדיה לכותרת", errorCode: "template_media_required", retryable: false };
+      const key = headerFormat.toLowerCase();
+      components.push({ type: "header", parameters: [{ type: key, [key]: { link: payload.templateMedia.link, ...(key === "document" && payload.templateMedia.filename ? { filename: payload.templateMedia.filename } : {}) } }] });
+    }
+    if (parameters.length > 0) components.push({ type: "body", parameters });
+    // Dynamic URL buttons: Meta expects one component per button with its index and the suffix text.
+    const buttons = (template.buttons as Array<{ type: string; dynamic?: boolean }> | null) ?? [];
+    buttons.forEach((b, index) => {
+      if (b.type === "URL" && b.dynamic) {
+        const suffix = payload.templateButtonParams?.[String(index)];
+        if (suffix) components.push({ type: "button", sub_type: "url", index: String(index), parameters: [{ type: "text", text: suffix }] });
+      }
+    });
+    const missingButton = buttons.some((b, index) => b.type === "URL" && b.dynamic && !payload.templateButtonParams?.[String(index)]);
+    if (missingButton) return { providerMessageId: "", status: "FAILED", error: "לכפתור הקישור בתבנית נדרש ערך", errorCode: "template_button_param_required", retryable: false };
 
-    const { ok, data } = await this.post("/messages", {
+    const { ok, data, classified } = await this.post("/messages", {
       messaging_product: "whatsapp",
       to,
       type: "template",
       template: {
         name: template.name,
         language: { code: template.language },
-        ...(parameters.length > 0 ? { components: [{ type: "body", parameters }] } : {}),
+        ...(components.length > 0 ? { components } : {}),
       },
     });
 
     if (!ok) {
-      return { providerMessageId: "", status: "FAILED", error: data?.error?.message ?? "Meta API error" };
+      return { providerMessageId: "", status: "FAILED", error: classified?.label ?? data?.error?.message ?? "Meta API error", errorCode: classified?.code ?? null, retryable: Boolean(classified?.retryable) };
     }
     if (typeof data?.messages?.[0]?.id !== "string" || !data.messages[0].id) throw new Error("Meta accepted request without a message ID; outcome unknown");
     return { providerMessageId: data.messages[0].id, status: "ACCEPTED" };
@@ -226,7 +249,14 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
         }
         for (const status of value.statuses ?? []) {
           const mapped = META_STATUS_TO_MESSAGE_STATUS[status.status];
-          if (mapped) await updateProviderMessageStatus(status.id, mapped, providerTimestamp(status.timestamp), this.credentialId);
+          if (!mapped) continue;
+          // Event ledger: every status callback is recorded once; Meta retries (same wamid+status+timestamp) are no-ops.
+          const eventId = `${status.id}:${status.status}:${status.timestamp}`;
+          try { await db.providerWebhookEvent.create({ data: { businessId: requireBusinessId(), credentialId: this.credentialId ?? null, provider: "meta_whatsapp_cloud_api", eventId, type: status.status, occurredAt: providerTimestamp(status.timestamp), result: status.errors?.length ? ({ errors: status.errors } as unknown as Prisma.InputJsonValue) : undefined } }); }
+          catch (err) { if ((err as { code?: string }).code === "P2002") continue; throw err; }
+          const failure = status.errors?.[0];
+          const classified = failure ? classifyMetaError(failure.code, null, failure.message ?? failure.title) : null;
+          await updateProviderMessageStatus(status.id, mapped, providerTimestamp(status.timestamp), this.credentialId, classified ? { reason: classified.label, code: classified.code } : undefined);
         }
       }
     }

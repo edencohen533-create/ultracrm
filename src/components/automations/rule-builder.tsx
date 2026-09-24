@@ -33,6 +33,8 @@ const ACTION_LABELS: Record<AutomationActionType, string> = {
   ADD_INTERNAL_NOTE: "הוספת הערה פנימית",
   SEND_CANNED_REPLY: "שליחת תגובה מוכנה",
   SEND_TEMPLATE: "שליחת תבנית",
+  CREATE_TASK: "יצירת משימת מעקב",
+  SET_CUSTOM_FIELD: "עדכון שדה מותאם",
 };
 
 interface Option {
@@ -57,15 +59,22 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
   const [cannedReplyId, setCannedReplyId] = useState("");
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [templateId, setTemplateId] = useState("");
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [onlyOutsideHours, setOnlyOutsideHours] = useState(false);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDueHours, setTaskDueHours] = useState("24");
+  const [fieldKey, setFieldKey] = useState("");
+  const [fieldValue, setFieldValue] = useState("");
   const [isActive, setIsActive] = useState(false);
   const [conversationId, setConversationId] = useState("");
   const [testing, setTesting] = useState(false);
   const [preview, setPreview] = useState<{ input: string; result: { allowedLocally: boolean; reasons: string[]; body: string | null; provider: string; notice: string; delayMinutes: number } } | null>(null);
 
   function buildTriggerConfig(): Record<string, unknown> {
-    if (trigger === AutomationTrigger.NO_REPLY_TIMEOUT) return { minutes: Number(minutes) || 30 };
-    if (trigger === AutomationTrigger.TAG_ADDED) return tagName ? { tagName } : {};
-    return {};
+    const hours = onlyOutsideHours ? { onlyOutsideHours: true } : {};
+    if (trigger === AutomationTrigger.NO_REPLY_TIMEOUT) return { minutes: Number(minutes) || 30, ...hours };
+    if (trigger === AutomationTrigger.TAG_ADDED) return { ...(tagName ? { tagName } : {}), ...hours };
+    return hours;
   }
 
   function buildActionConfig(): Record<string, unknown> {
@@ -81,7 +90,11 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
       case AutomationActionType.SEND_CANNED_REPLY:
         return { cannedReplyId };
       case AutomationActionType.SEND_TEMPLATE:
-        return { templateId, variables };
+        return { templateId, variables, ...(mediaUrl ? { mediaUrl } : {}) };
+      case AutomationActionType.CREATE_TASK:
+        return { title: taskTitle, dueHours: Number(taskDueHours) || 24 };
+      case AutomationActionType.SET_CUSTOM_FIELD:
+        return { key: fieldKey, value: fieldValue };
       default:
         return {};
     }
@@ -155,6 +168,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
             </Select>
           </div>
 
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={onlyOutsideHours} onChange={(e) => setOnlyOutsideHours(e.target.checked)} />להפעיל רק מחוץ לשעות הפעילות (חלון השליחה בהגדרות → דיוור)</label>
           {trigger === AutomationTrigger.NO_REPLY_TIMEOUT && (
             <div className="space-y-1.5">
               <Label>דקות ללא מענה</Label>
@@ -221,6 +235,29 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
                   <SelectItem value="CLOSED">סגור</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          )}
+          {actionType === AutomationActionType.CREATE_TASK && (
+            <div className="space-y-1.5">
+              <Label>כותרת המשימה</Label>
+              <Input aria-label="כותרת המשימה" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="להתקשר ללקוח" />
+              <Label>יעד (שעות מהטריגר)</Label>
+              <Input aria-label="שעות ליעד" type="number" min={1} value={taskDueHours} onChange={(e) => setTaskDueHours(e.target.value)} />
+              <p className="text-xs text-muted-foreground">המשימה תשויך לנציג המשויך לשיחה, ואם אין – לאחראי איש הקשר.</p>
+            </div>
+          )}
+          {actionType === AutomationActionType.SET_CUSTOM_FIELD && (
+            <div className="space-y-1.5">
+              <Label>שדה מותאם</Label>
+              <Input aria-label="שם שדה" value={fieldKey} onChange={(e) => setFieldKey(e.target.value)} placeholder="למשל stage" />
+              <Label>ערך</Label>
+              <Input aria-label="ערך" value={fieldValue} onChange={(e) => setFieldValue(e.target.value)} />
+            </div>
+          )}
+          {actionType === AutomationActionType.SEND_TEMPLATE && (
+            <div className="space-y-1.5">
+              <Label>קישור מדיה לכותרת (רק לתבניות עם כותרת תמונה/וידאו/מסמך)</Label>
+              <Input aria-label="קישור מדיה" value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} dir="ltr" placeholder="https://…" />
             </div>
           )}
           {actionType === AutomationActionType.ADD_INTERNAL_NOTE && (

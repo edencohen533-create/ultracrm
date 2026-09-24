@@ -8,12 +8,20 @@ export interface OutboundMessagePayload {
   fileName?: string;
   templateId?: string;
   templateVariables?: Record<string, string>;
+  /** Template header media (public https link) for IMAGE/VIDEO/DOCUMENT headers. */
+  templateMedia?: { link: string; filename?: string };
+  /** Dynamic URL-button suffixes keyed by button index. */
+  templateButtonParams?: Record<string, string>;
 }
 
 export interface SendResult {
   providerMessageId: string;
   status: "ACCEPTED" | "SENT" | "FAILED";
   error?: string;
+  /** Provider error code (e.g. Meta 130429) for reporting and retry decisions. */
+  errorCode?: string | null;
+  /** Transient failure – a controlled retry with backoff may be attempted. */
+  retryable?: boolean;
 }
 
 export interface MessageStatusResult {

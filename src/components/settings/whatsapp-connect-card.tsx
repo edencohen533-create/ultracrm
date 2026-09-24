@@ -31,6 +31,7 @@ export interface ConnectionView {
   qualityRating: string | null; codeVerificationStatus: string | null; platformType: string | null; grantedScopes: unknown; isDefault: boolean; isActive: boolean;
   team: { id: string; name: string } | null; subscribedAt: string | null; registeredAt: string | null; tokenCheckedAt: string | null; lastCheckedAt: string | null;
   lastWebhookAt: string | null; lastOutboundTestAt: string | null; lastError: string | null; sendingBlocked: boolean; createdAt: string;
+  testRecipients?: string[]; unitPrice?: number | null; unitPriceCurrency?: string | null;
 }
 export interface Overview {
   embeddedSignup: { ready: boolean; missing: string[]; appId: string | null; configId: string | null; version: string };
@@ -107,6 +108,8 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
   const [busy, setBusy] = useState<string | null>(null);
   const [pin, setPin] = useState("");
   const [testTo, setTestTo] = useState("");
+  const [allow, setAllow] = useState<Record<string, string>>({});
+  const [price, setPrice] = useState<Record<string, string>>({});
   const [confirmDisconnect, setConfirmDisconnect] = useState<ConnectionView | null>(null);
   const inFlight = useRef(false);           // double-click guard
   const stateRef = useRef<string | null>(null);
@@ -183,7 +186,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
     } finally { inFlight.current = false; }
   }
 
-  async function act(c: ConnectionView, action: "check" | "retry_setup" | "disconnect" | "test_send", extra: Record<string, unknown> = {}) {
+  async function act(c: ConnectionView, action: "check" | "retry_setup" | "disconnect" | "test_send" | "settings", extra: Record<string, unknown> = {}) {
     if (busy) return;
     setBusy(`${c.id}:${action}`);
     try {
@@ -192,6 +195,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
       if (action === "retry_setup") { if (r.status === "connected") toast.success("ההגדרה הושלמה"); else toast.warning(r.error ?? "עדיין נדרשת פעולה"); }
       if (action === "disconnect") toast.success(r.warning ?? "החיבור נותק. ההיסטוריה נשמרה.");
       if (action === "test_send") toast.success(`הודעת בדיקה נשלחה${r.providerMessageId ? ` (${r.providerMessageId})` : ""}`);
+      if ((action as string) === "settings") toast.success("הגדרות הבדיקה והעלות נשמרו");
       await refresh();
     } catch (e) { toast.error((e as Error).message); }
     finally { setBusy(null); }
@@ -273,6 +277,13 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
                   <Button variant="outline" size="sm" onClick={connect} disabled={!es.ready || flowBusy} data-testid="wa-reconnect">חבר מחדש</Button>
                 ) : null}
                 <Button variant="destructive" size="sm" onClick={() => setConfirmDisconnect(c)} disabled={busy !== null} data-testid="wa-disconnect">נתק</Button>
+              </div>
+            )}
+            {canManage && (
+              <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3" data-testid="wa-settings">
+                <div><Label htmlFor={`allow-${c.id}`} className="text-xs">מספרי בדיקה מורשים (מופרדים בפסיק) – שליחות בדיקה יוצאות רק אליהם</Label><Input id={`allow-${c.id}`} value={allow[c.id] ?? (c.testRecipients ?? []).join(", ")} onChange={(e) => setAllow({ ...allow, [c.id]: e.target.value })} dir="ltr" className="w-72" placeholder="+972501234567" /></div>
+                <div><Label htmlFor={`price-${c.id}`} className="text-xs">מחיר ידני לשיחה שיווקית (לאומדן; ריק = לא ידוע)</Label><Input id={`price-${c.id}`} value={price[c.id] ?? (c.unitPrice?.toString() ?? "")} onChange={(e) => setPrice({ ...price, [c.id]: e.target.value })} dir="ltr" type="number" step="0.001" min="0" className="w-36" /></div>
+                <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => act(c, "settings", { testRecipients: (allow[c.id] ?? (c.testRecipients ?? []).join(", ")).split(/[,\n]/).map((s) => s.trim()).filter(Boolean), unitPrice: (price[c.id] ?? c.unitPrice?.toString() ?? "") === "" ? null : Number(price[c.id] ?? c.unitPrice), unitPriceCurrency: "USD" })} data-testid="wa-save-settings">שמור הגדרות בדיקה ועלות</Button>
               </div>
             )}
             {canManage && c.sendReady && (

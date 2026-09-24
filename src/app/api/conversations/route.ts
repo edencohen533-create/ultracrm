@@ -15,6 +15,9 @@ export const GET = organizationRequest(async function(request: Request) {
     status: z.enum(["OPEN", "PENDING", "RESOLVED", "CLOSED"]).optional(),
     assignedTo: z.enum(["me", "unassigned", "all"]).optional(),
     providerCredentialId: z.string().min(1).optional(),
+    tagId: z.string().min(1).optional(),
+    teamId: z.string().min(1).optional(),
+    channel: z.enum(["whatsapp", "sms", "email"]).optional(),
     search: z.string().max(300).optional(),
   }).safeParse(Object.fromEntries(url.searchParams));
   if (!parsed.success) return NextResponse.json({ error: "מסנני שיחה לא תקינים" }, { status: 400 });

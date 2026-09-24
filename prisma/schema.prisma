@@ -243,6 +243,10 @@ enum TemplateStatus {
   PENDING_APPROVAL
   APPROVED
   REJECTED
+  /// Meta paused the template (quality) – cannot be sent until Meta re-enables it.
+  PAUSED
+  /// Meta disabled the template.
+  DISABLED
 }
 
 enum TemplateCategory {
@@ -266,6 +270,8 @@ enum AutomationActionType {
   ADD_INTERNAL_NOTE
   SEND_CANNED_REPLY
   SEND_TEMPLATE
+  CREATE_TASK
+  SET_CUSTOM_FIELD
 }
 
 enum AutomationRunStatus {
@@ -1349,6 +1355,10 @@ model Message {
   /// Outbound idempotency: client/automation request key, unique.
   requestKey           String?          @unique @map("request_key")
   errorReason          String?          @map("error_reason")
+  /// Provider error code (Meta / HTTP) for the last failure.
+  errorCode            String?          @map("error_code")
+  /// The failure was transient (rate limit, 5xx, network): a controlled retry may be attempted.
+  retryable            Boolean          @default(false)
   acceptedAt           DateTime?        @map("accepted_at")
   sentAt               DateTime?        @map("sent_at")
   deliveredAt          DateTime?        @map("delivered_at")
@@ -1460,6 +1470,13 @@ model Template {
   variables          String[]         @default([])
   status             TemplateStatus   @default(DRAFT)
   // ─── email ───
+  // ─── WhatsApp (Meta) template structure ───
+  /// Raw Meta components (HEADER / BODY / FOOTER / BUTTONS) as synced.
+  components         Json?
+  /// TEXT | IMAGE | VIDEO | DOCUMENT | null
+  headerFormat       String?          @map("header_format")
+  /// [{ type: QUICK_REPLY|URL|PHONE_NUMBER|COPY_CODE, text, url?, dynamic?: boolean }]
+  buttons            Json?
   subject            String?
   preheader          String?
   /// Block-editor document (see src/lib/email/blocks.ts); `html`/`text` are rendered from it on save.
@@ -1573,6 +1590,12 @@ model Campaign {
   /// Frozen estimate at draft time { segments, perRecipient, recipients, unitPrice, currency, total | null, known }.
   estimate              Json?
   lastTestAt            DateTime?      @map("last_test_at")
+  /// WhatsApp template header media (public https link) when the template has a media header.
+  mediaUrl              String?        @map("media_url")
+  /// WhatsApp dynamic URL-button parameters { "<button index>": "<suffix>" }.
+  buttonParams          Json?          @map("button_params")
+  /// Preflight review frozen at start/resume (eligible, exclusions, blockers, sender, cost).
+  preflightSnapshot     Json?          @map("preflight_snapshot")
   /// Why the campaign was paused/failed by the system (provider down, quota…).
   statusReason          String?        @map("status_reason")
   createdAt             DateTime       @default(now()) @map("created_at")
@@ -1593,16 +1616,20 @@ model Campaign {
 }
 
 model CampaignRecipient {
-  id          String          @id @default(cuid())
-  campaignId  String          @map("campaign_id")
-  contactId   String          @map("contact_id")
-  status      RecipientStatus @default(QUEUED)
-  messageId   String?         @unique @map("message_id")
+  id            String          @id @default(cuid())
+  campaignId    String          @map("campaign_id")
+  contactId     String          @map("contact_id")
+  status        RecipientStatus @default(QUEUED)
+  messageId     String?         @unique @map("message_id")
   /// Phone / email the send targeted (frozen at dispatch).
-  identifier  String?
-  error       String?
-  claimedAt   DateTime?       @map("claimed_at")
-  completedAt DateTime?       @map("completed_at")
+  identifier    String?
+  /// Send attempts so far (automatic backoff + manual retries). Each attempt has its own requestKey.
+  attempts      Int             @default(0)
+  /// Earliest time the next attempt may run (backoff). Null = now.
+  nextAttemptAt DateTime?       @map("next_attempt_at")
+  error         String?
+  claimedAt     DateTime?       @map("claimed_at")
+  completedAt   DateTime?       @map("completed_at")
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact  Contact  @relation(fields: [contactId], references: [id])
@@ -1648,6 +1675,10 @@ enum SequenceTrigger {
   SENT_NO_REPLY
   /// A tag was added to the contact.
   TAG_ADDED
+  /// A new contact was created (manual, import, inbound).
+  CONTACT_CREATED
+  /// A lead of the contact changed status (triggerConfig.leadStatus filters).
+  LEAD_STATUS_CHANGED
 }
 
 enum SequenceRunStatus {
@@ -1691,6 +1722,8 @@ model SequenceStep {
   /// Delay before this step (minutes) – measured from the previous step / trigger.
   waitMinutes Int     @default(0) @map("wait_minutes")
   /// Extra condition: { requireNoReply?: true, requireConsent?: true }
+  /// send (template on `channel`) | task (create a follow-up task for the contact owner)
+  action      String  @default("send")
   condition   Json    @default("{}")
   variables   Json    @default("{}")
 

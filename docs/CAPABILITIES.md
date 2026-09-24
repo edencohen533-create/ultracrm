@@ -26,6 +26,19 @@
 | חיוג ושליחת WhatsApp מכרטיס הלקוח | `/contacts/[id]` | ממומש ונבדק (browser B6/B10) |
 | דשבורד חוצה מודולים | `/dashboard` | ממומש |
 
+## השלמת WhatsApp – מטריצת 199 הדרישות (ענף feat/whatsapp-completion)
+
+ראו `docs/WHATSAPP_COMPLETION.md` ו-`docs/qa/whatsapp-requirements-matrix.md` (125 מומש ונבדק / 65 חלקי / 0 חסר / 9 חסום ל-Meta חי).
+
+| יכולת | מיקום | מצב |
+|---|---|---|
+| סיווג שגיאות Meta, retry אוטומטי עם backoff (retryable בלבד, requestKey לכל ניסיון), UNKNOWN לעולם לא אוטומטי, retry ידני מבוקר | `src/lib/meta/errors.ts`, `src/jobs/campaign-runner.ts`, `campaign-service.retryRecipient` | ממומש ונבדק (אינטגרציה + דפדפן W6) |
+| תבניות עם כותרת מדיה וכפתורים, PAUSED/DISABLED, משתנים עם ברירות מחדל ושדות מותאמים, מדיה/כפתורים בקמפיין, preflight snapshot | `template-sync-service.ts`, `meta-whatsapp-provider.ts`, `src/lib/campaigns.ts` | ממומש ונבדק (סימולציה; לא מול Meta חי) |
+| שליחת בדיקה רק ל-allowlist של החיבור, מחיר ידני לשיחה, cron בריאות חיבור יומי, לדג׳ר סטטוסים + סיבות כשל | `embedded-signup-service.ts`, `/api/jobs/whatsapp-health`, `message-status-service.ts` | ממומש ונבדק |
+| מיזוג כפילויות עם שמירת כל הקשרים והסכמה מחמירה | `src/lib/crm/contacts.ts#mergeContacts`, `/contacts/duplicates` | ממומש ונבדק |
+| רצפים: טריגר ליד חדש / שינוי סטטוס, שלב משימה, תנאי שלב; אוטומציות: משימה / שדה מותאם / מחוץ לשעות | `sequence-service.ts`, `automation-service.ts` | ממומש (ליד חדש/משימה/תנאים נבדקו; סטטוס ליד ומחוץ לשעות – ללא בדיקה אוטומטית) |
+| מדיניות שמירה (הודעות/audit), magic bytes, קישורי קליקים חתומים באימייל, ייצוא CSV נמענים, סינוני inbox, תשובות שמורות, אנליטיקה לפי טווח ומספר | `/api/jobs/retention`, `src/lib/media.ts`, `src/app/r/[token]`, … | ממומש ונבדק |
+
 ## דיוור (מ-solinainbox)
 
 | יכולת | מיקום ב-UltraCRM | מצב |

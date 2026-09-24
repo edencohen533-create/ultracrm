@@ -49,6 +49,42 @@ export function unsubscribeUrl(token: string) {
   return `${base}/u/${token}`;
 }
 
+/** Signed redirect token for click tracking: {m: messageId, u: url}. */
+export function signTrackedLink(messageId: string, url: string): string {
+  const payload = Buffer.from(JSON.stringify({ m: messageId, u: url, exp: Math.floor(Date.now() / 1000) + 180 * 86400 }), "utf8");
+  const sig = crypto.createHmac("sha256", key()).update(Buffer.concat([Buffer.from("r1"), payload])).digest();
+  return `${b64(payload)}.${b64(sig)}`;
+}
+export function verifyTrackedLink(token: string): { m: string; u: string } | null {
+  const [p, s] = token.split(".");
+  if (!p || !s) return null;
+  try {
+    const payload = Buffer.from(p, "base64url");
+    const expected = crypto.createHmac("sha256", key()).update(Buffer.concat([Buffer.from("r1"), payload])).digest();
+    const given = Buffer.from(s, "base64url");
+    if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) return null;
+    const d = JSON.parse(payload.toString("utf8")) as { m: string; u: string; exp: number };
+    if (typeof d.m !== "string" || typeof d.u !== "string" || !/^https?:\/\//.test(d.u) || d.exp < Date.now() / 1000) return null;
+    return { m: d.m, u: d.u };
+  } catch { return null; }
+}
+export function trackedUrl(messageId: string, url: string) {
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return `${base}/r/${signTrackedLink(messageId, url)}`;
+}
+
+/**
+ * Rewrite absolute http(s) hrefs in marketing email HTML to signed redirect links (click tracking, 11.09).
+ * Unsubscribe links (/u/) and already-tracked links (/r/) are left untouched; mailto/tel/anchors are not links we track.
+ */
+export function rewriteTrackedLinks(html: string, messageId: string) {
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return html.replace(/href=(["'])(https?:\/\/[^"']+)\1/gi, (m, q, url) => {
+    if (url.startsWith(`${base}/u/`) || url.startsWith(`${base}/r/`)) return m;
+    return `href=${q}${trackedUrl(messageId, url)}${q}`;
+  });
+}
+
 /** e.g. "i***@example.com" / "+9725***01" – never the full identifier on the public page. */
 export function maskIdentifier(identifier: string) {
   if (identifier.includes("@")) {

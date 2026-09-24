@@ -1,5 +1,4 @@
 import { requireBusinessId } from "@/lib/tenant";
-import { personalizeVariables } from "@/lib/campaigns";
 import { prisma } from "@/lib/db";
 import {
   AutomationActionType,
@@ -48,7 +47,15 @@ async function getSystemActorId(): Promise<string> {
 export async function evaluateTrigger(trigger: AutomationTrigger, context: TriggerContext): Promise<void> {
   const rules = await prisma.automationRule.findMany({ where: { trigger, isActive: true } });
 
+  const { getBusinessSettings, isWithinDialWindow } = await import("@/lib/settings");
+  let settings: Awaited<ReturnType<typeof getBusinessSettings>> | null = null;
   for (const rule of rules) {
+    // Optional "outside business hours only" condition (e.g. auto-reply when the team is offline).
+    const cfg = rule.triggerConfig as { onlyOutsideHours?: boolean };
+    if (cfg.onlyOutsideHours) {
+      settings ??= await getBusinessSettings(requireBusinessId());
+      if (isWithinDialWindow({ ...settings.marketing.window, timezone: settings.marketing.window.timezone ?? settings.timezone })) continue;
+    }
     if (trigger === AutomationTrigger.TAG_ADDED) {
       const config = rule.triggerConfig as { tagName?: string };
       if (config.tagName && context.tagId) {
@@ -170,6 +177,28 @@ export async function executeAction(
       return { status };
     }
 
+    case AutomationActionType.CREATE_TASK: {
+      const conv = await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId }, select: { contactId: true, assignedAgentId: true, contact: { select: { ownerUserId: true, fullName: true } } } });
+      const userId = conv.assignedAgentId ?? conv.contact.ownerUserId ?? await getSystemActorId();
+      const dueHours = typeof config.dueHours === "number" ? config.dueHours : 24;
+      const requestKey = `automation:${context.runId ?? conversationId}:task`;
+      const task = await prisma.task.upsert({
+        where: { businessId_requestKey: { businessId: requireBusinessId(), requestKey } },
+        create: { businessId: requireBusinessId(), userId, createdById: null, contactId: conv.contactId, conversationId, type: "follow_up", title: String(config.title ?? "מעקב אוטומטי"), dueAt: new Date(Date.now() + dueHours * 3600_000), note: typeof config.note === "string" ? config.note : null, requestKey },
+        update: {},
+      });
+      return { taskId: task.id };
+    }
+
+    case AutomationActionType.SET_CUSTOM_FIELD: {
+      const key = String(config.key ?? "").trim();
+      if (!key) return { skipped: "no key configured" };
+      const conv = await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId }, select: { contactId: true, contact: { select: { customFields: true } } } });
+      const current = (conv.contact.customFields ?? {}) as Record<string, unknown>;
+      await prisma.contact.update({ where: { id: conv.contactId }, data: { customFields: { ...current, [key]: String(config.value ?? "") } as Prisma.InputJsonValue } });
+      return { key };
+    }
+
     case AutomationActionType.ADD_INTERNAL_NOTE: {
       const body = (config.body as string | undefined) ?? "הערה אוטומטית";
       const authorId = await getSystemActorId();
@@ -195,8 +224,11 @@ export async function executeAction(
       const template = await prisma.template.findUnique({ where: { id: templateId } });
       if (!template) return { skipped: "template not found" };
       const sentByUserId = await getSystemActorId();
-      const contact = await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId }, select: { contact: { select: { fullName: true } } } });
-      const variables = personalizeVariables((config.variables ?? {}) as Record<string, string>, contact.contact.fullName);
+      const contact = await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId }, select: { contact: true } });
+      const { personalizeVariablesForContact } = await import("@/lib/campaigns");
+      let variables: Record<string, string>;
+      try { variables = personalizeVariablesForContact((config.variables ?? {}) as Record<string, string>, contact.contact); }
+      catch (err) { return { skipped: (err as Error).message }; }
       const { message } = await createOutboundMessage({
         conversationId,
         body: template.body,
@@ -204,6 +236,7 @@ export async function executeAction(
         templateId: template.id,
         automated: true,
         templateVariables: variables,
+        templateMedia: typeof config.mediaUrl === "string" && config.mediaUrl ? { link: config.mediaUrl } : undefined,
         requestKey: context.runId ? `automation:${context.runId}` : undefined,
       });
       assertAccepted(message);

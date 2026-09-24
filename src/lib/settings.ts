@@ -42,8 +42,15 @@ export interface MarketingSettings {
   /** Shared frequency cap across channels (hours between marketing messages to the same contact). */
   minHoursBetweenMarketing: number;
 }
+export interface RetentionSettings {
+  /** Delete message bodies/attachments older than N days (0 = keep). Conversations and counts stay. */
+  messagesDays: number;
+  /** Delete audit-log rows older than N days (0 = keep). */
+  auditDays: number;
+}
 export interface BusinessSettings {
   marketing: MarketingSettings;
+  retention: RetentionSettings;
   wrapUpSeconds: number;
   autoDialCountdownSeconds: number;
   maxAttempts: number;
@@ -107,6 +114,7 @@ export const DEFAULT_PRIORITIZATION: PrioritizationWeights = {
 };
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
+  retention: { messagesDays: 0, auditDays: 0 },
   marketing: { window: { start: "08:00", end: "21:00", days: [0, 1, 2, 3, 4, 5, 6], timezone: "Asia/Jerusalem" }, maxPerMinute: 60, minHoursBetweenMarketing: 24 },
   wrapUpSeconds: 60,
   autoDialCountdownSeconds: 5,
@@ -138,6 +146,7 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     ...r,
     dialWindow: { ...DEFAULT_SETTINGS.dialWindow, ...(r.dialWindow ?? {}) },
     marketing: { ...DEFAULT_SETTINGS.marketing, ...(r.marketing ?? {}), window: { ...DEFAULT_SETTINGS.marketing.window, ...(r.marketing?.window ?? {}) } },
+    retention: { ...DEFAULT_SETTINGS.retention, ...(r.retention ?? {}) },
     prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },
     inbound: { ...DEFAULT_SETTINGS.inbound, ...(r.inbound ?? {}) },
     automations: {

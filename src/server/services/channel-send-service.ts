@@ -19,7 +19,7 @@ import { MARKETING_INTERVAL_MS } from "@/lib/message-policy";
 import { sendBlockReason } from "@/lib/suppression";
 import { renderMergeTags, type MergeContact } from "@/lib/merge-tags";
 import { smsMetrics, SMS_MAX_SEGMENTS } from "@/lib/sms";
-import { signUnsubscribeToken, unsubscribeUrl } from "@/lib/unsubscribe-token";
+import { rewriteTrackedLinks, signUnsubscribeToken, unsubscribeUrl } from "@/lib/unsubscribe-token";
 import { MessagePolicyError } from "./message-service";
 import { activeChannelCredential, ChannelUnavailableError, emailProviderFor, smsProviderFor } from "@/server/channels/registry";
 import { ChannelProviderError, ChannelRequestTimeout, type SmsSender } from "@/server/channels/types";
@@ -141,7 +141,7 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
       result = await smsProviderFor(credential).send({ to: identifier, from: sender!.value, body: rendered.body!, idempotencyKey: input.requestKey });
     } else {
       result = await emailProviderFor(credential).send({
-        to: identifier, fromName: credential.senderName!, fromEmail: credential.senderEmail!, replyTo: credential.replyTo, subject: rendered.subject!, html: rendered.html!, text: rendered.text!, idempotencyKey: input.requestKey,
+        to: identifier, fromName: credential.senderName!, fromEmail: credential.senderEmail!, replyTo: credential.replyTo, subject: rendered.subject!, html: marketing ? rewriteTrackedLinks(rendered.html!, queued.id) : rendered.html!, text: rendered.text!, idempotencyKey: input.requestKey,
         headers: marketing ? { "List-Unsubscribe": `<${url}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } : undefined,
         tags: { business: businessId, message: queued.id, ...(input.campaignId ? { campaign: input.campaignId } : {}) },
       });
@@ -152,7 +152,8 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
       throw new MessagePolicyError("הספק לא ענה בזמן; תוצאה לא ודאית");
     }
     if (err instanceof ChannelProviderError && err.status !== null) {
-      await prisma.message.update({ where: { id: queued.id }, data: { status: "FAILED", errorReason: err.message.slice(0, 500), failedAt: new Date() } });
+      const retryable = !err.permanent && (err.status === 429 || err.status >= 500);
+      await prisma.message.update({ where: { id: queued.id }, data: { status: "FAILED", errorReason: err.message.slice(0, 500), errorCode: `http_${err.status}`, retryable, failedAt: new Date() } });
       await audit(businessId, input.sentByUserId, "message", queued.id, "message.failed", { channel: input.channel, error: err.message.slice(0, 300) });
       return { message: await prisma.message.findUniqueOrThrow({ where: { id: queued.id } }) };
     }

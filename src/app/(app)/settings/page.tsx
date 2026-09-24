@@ -411,16 +411,24 @@ function AutomationsTab({ isAdmin, messaging }: { isAdmin: boolean; messaging: b
 
 function MarketingTab({ isAdmin }: { isAdmin: boolean }) {
   const [m, setM] = useState<{ window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number } | null>(null);
+  const [ret, setRet] = useState<{ messagesDays: number; auditDays: number }>({ messagesDays: 0, auditDays: 0 });
   const [tz, setTz] = useState("");
-  useEffect(() => { api.get<{ business: { timezone?: string }; settings: { marketing: { window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number } } }>("/api/settings").then((r) => { setM(r.settings.marketing); setTz(r.business.timezone ?? ""); }).catch((e) => toast.error(e.message)); }, []);
+  useEffect(() => { api.get<{ business: { timezone?: string }; settings: { marketing: { window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number }; retention?: { messagesDays: number; auditDays: number } } }>("/api/settings").then((r) => { setM(r.settings.marketing); setRet(r.settings.retention ?? { messagesDays: 0, auditDays: 0 }); setTz(r.business.timezone ?? ""); }).catch((e) => toast.error(e.message)); }, []);
   if (!m) return <Spinner />;
   const days = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
   async function save() {
-    try { await api.patch("/api/settings", { settings: { marketing: m } }); toast.success("נשמר"); } catch (e) { toast.error((e as Error).message); }
+    try { await api.patch("/api/settings", { settings: { marketing: m, retention: ret } }); toast.success("נשמר"); } catch (e) { toast.error((e as Error).message); }
   }
-  return (
-    <Panel title="דיוור SMS ואימייל – חלון שליחה, קצב ותדירות">
-      <p className="text-xs text-muted mb-3">קמפיינים ורצפים ב-SMS ובאימייל נשלחים רק בתוך חלון השליחה (באזור הזמן של העסק{tz ? `: ${tz}` : ""}). מגבלת התדירות משותפת לכל הערוצים כולל WhatsApp.</p>
+  return (<>
+    <Panel title="שמירה ומחיקת מידע" className="mb-4">
+      <p className="text-xs text-muted mb-3">מדיניות שמירה לעסק: תוכן הודעות וקבצים מצורפים ישנים נמחקים בעבודת רקע יומית (השיחות, הספירות ויומן הביקורת של המחיקה נשמרים). 0 = לשמור לתמיד. המחיקה אינה הפיכה.</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Input label="מחיקת תוכן הודעות ומדיה אחרי (ימים)" type="number" value={String(ret.messagesDays)} onChange={(e) => setRet({ ...ret, messagesDays: Number(e.target.value) })} disabled={!isAdmin} />
+        <Input label="מחיקת יומן ביקורת אחרי (ימים)" type="number" value={String(ret.auditDays)} onChange={(e) => setRet({ ...ret, auditDays: Number(e.target.value) })} disabled={!isAdmin} />
+      </div>
+    </Panel>
+    <Panel title="דיוור – חלון שליחה, קצב ותדירות (כל הערוצים)">
+      <p className="text-xs text-muted mb-3">קמפיינים שיווקיים ורצפים בכל הערוצים נשלחים רק בתוך חלון השליחה (באזור הזמן של העסק{tz ? `: ${tz}` : ""}). מגבלת התדירות משותפת לכל הערוצים כולל WhatsApp.</p>
       <div className="grid gap-3 sm:grid-cols-3">
         <Input label="תחילת חלון (HH:MM)" value={m.window.start} onChange={(e) => setM({ ...m, window: { ...m.window, start: e.target.value } })} disabled={!isAdmin} ltr />
         <Input label="סוף חלון (HH:MM)" value={m.window.end} onChange={(e) => setM({ ...m, window: { ...m.window, end: e.target.value } })} disabled={!isAdmin} ltr />
@@ -430,7 +438,7 @@ function MarketingTab({ isAdmin }: { isAdmin: boolean }) {
       </div>
       {isAdmin && <Button className="mt-3" onClick={save}>שמור</Button>}
     </Panel>
-  );
+  </>);
 }
 
 function SuppressionsTab() {

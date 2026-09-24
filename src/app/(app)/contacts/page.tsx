@@ -96,7 +96,13 @@ export default function ContactsPage() {
     try {
       const r = await api.post<{ created: number; updated: number; invalid: number; errors: Array<{ row: number; phone: string; reason: string }> }>("/api/contacts/import", { rows: rowsIn, source: "csv" });
       toast.success(`נוצרו ${r.created}, עודכנו ${r.updated}, לא תקינים ${r.invalid}`);
-      if (r.errors?.length) toast.error(`שגיאות: ${r.errors.slice(0, 5).map((e) => `שורה ${e.row + 1} (${e.phone}): ${e.reason}`).join(" · ")}${r.errors.length > 5 ? ` ועוד ${r.errors.length - 5}` : ""}`, { duration: 15000 });
+      if (r.errors?.length) {
+        toast.error(`שגיאות: ${r.errors.slice(0, 5).map((e) => `שורה ${e.row + 1} (${e.phone}): ${e.reason}`).join(" · ")}${r.errors.length > 5 ? ` ועוד ${r.errors.length - 5}` : ""}`, { duration: 15000 });
+        // Downloadable error report (row, phone, reason) for fixing the source file.
+        const csv = "\uFEFF" + ["row,phone,reason", ...r.errors.map((e) => `${e.row + 1},"${String(e.phone).replace(/"/g, '""')}","${e.reason.replace(/"/g, '""')}"`)].join("\n");
+        const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        const a = document.createElement("a"); a.href = url; a.download = `import-errors-${Date.now()}.csv`; a.click(); URL.revokeObjectURL(url);
+      }
       setImportOpen(false);
       setCsv("");
       load();

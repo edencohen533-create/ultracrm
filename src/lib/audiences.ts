@@ -14,7 +14,7 @@ const leafSchema = z.discriminatedUnion("field", [
   z.object({ field: z.literal("blocked"), operator: z.literal("is"), value: z.boolean() }).strict(),
   z.object({ field: z.literal("marketingEligible"), operator: z.literal("is"), value: z.boolean() }).strict(),
   z.object({ field: z.enum(["lastMessage", "lastInbound", "lastOutbound"]), operator: z.enum(["before", "after", "never"]), value: z.iso.datetime({ offset: true }).optional() }).strict().refine((rule) => rule.operator === "never" || !!rule.value, "נדרש תאריך להשוואה"),
-  z.object({ field: z.literal("campaign"), operator: z.literal("is"), value: text, result: z.enum(["ANY", "QUEUED", "PROCESSING", "SENT", "FAILED", "SKIPPED", "UNKNOWN"]) }).strict(),
+  z.object({ field: z.literal("campaign"), operator: z.literal("is"), value: text, result: z.enum(["ANY", "QUEUED", "PROCESSING", "SENT", "FAILED", "SKIPPED", "UNKNOWN", "DELIVERED", "READ", "REPLIED", "NOT_DELIVERED"]) }).strict(),
 ]);
 export type AudienceRule = z.infer<typeof leafSchema>;
 export type AudienceNode = AudienceRule | { operator: "AND" | "OR"; conditions: AudienceNode[] };

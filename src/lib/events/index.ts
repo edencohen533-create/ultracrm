@@ -30,6 +30,8 @@ export type DomainEventType =
   | "contact.suppressed"
   | "contact.resubscribed"
   | "contact.tag_added"
+  | "contact.created"
+  | "contact.merged"
   | "message.delivery_failed"
   | "sequence.step_sent"
   | "task.created";

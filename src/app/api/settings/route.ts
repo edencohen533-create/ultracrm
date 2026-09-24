@@ -49,6 +49,7 @@ const schema = z.object({
         followUpMessage: z.object({ enabled: z.boolean(), templateId: z.string().nullable(), outcomes: z.array(z.string().max(40)).max(10), variables: z.record(z.string(), z.string().max(1024)) }).partial(),
       }).partial().optional(),
       dialWindow: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
+      retention: z.object({ messagesDays: z.number().int().min(0).max(3650).optional(), auditDays: z.number().int().min(0).max(3650).optional() }).optional(),
       marketing: z.object({
         window: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
         maxPerMinute: z.number().int().min(0).max(600).optional(),
@@ -68,6 +69,7 @@ export const PATCH = withAuth(async ({ req, user }) => {
     inbound: { ...before.inbound, ...(b.settings?.inbound ?? {}) },
     automations: { ...before.automations, ...(b.settings?.automations ?? {}), followUpMessage: { ...before.automations.followUpMessage, ...(b.settings?.automations?.followUpMessage ?? {}) } },
     marketing: { ...before.marketing, ...(b.settings?.marketing ?? {}), window: { ...before.marketing.window, ...(b.settings?.marketing?.window ?? {}) } },
+    retention: { ...before.retention, ...(b.settings?.retention ?? {}) },
   });
   const changed: Record<string, { from: unknown; to: unknown }> = {};
   for (const k of Object.keys(merged) as (keyof typeof merged)[]) {

@@ -271,7 +271,7 @@ describe("multi-channel marketing (simulated providers)", () => {
 
   it("sequence: WhatsApp delivery failure → wait → SMS, re-checked for suppression; duplicate events start one run", async () => {
     const c = await run(a.session, () => createContact(a.session, { fullName: "נועה", phone: "0501000031", consentStatus: "OPTED_IN", consentEvidence: "t" }));
-    const seq = await run(a.session, () => saveSequence(a.session, { name: "fallback", isActive: true, trigger: "DELIVERY_FAILED", triggerConfig: { channel: "whatsapp", marketingOnly: true }, stopOn: ["reply", "conversion", "unsubscribe"], steps: [{ channel: "sms", templateId: smsTpl, waitMinutes: 0, variables: {}, condition: { requireNoReply: true } }] }));
+    const seq = await run(a.session, () => saveSequence(a.session, { name: "fallback", isActive: true, trigger: "DELIVERY_FAILED", triggerConfig: { channel: "whatsapp", marketingOnly: true }, stopOn: ["reply", "conversion", "unsubscribe"], steps: [{ action: "send", channel: "sms", templateId: smsTpl, waitMinutes: 0, variables: {}, condition: { requireNoReply: true } }] }));
     const conv = await db.conversation.create({ data: { businessId: a.business.id, contactId: c.id, providerCredentialId: waCredentials[0], source: "MANUAL" } });
     const failed = await db.message.create({ data: { businessId: a.business.id, conversationId: conv.id, channel: "whatsapp", category: "marketing", direction: "OUTBOUND", type: "TEMPLATE", status: "FAILED", body: "x" } });
     const { emitEvent } = await import("@/lib/events");
@@ -331,7 +331,7 @@ describe("multi-channel marketing (simulated providers)", () => {
 
     it("a 'sent, no reply' sequence never re-triggers itself from its own step", async () => {
       const c = await run(a.session, () => createContact(a.session, { fullName: "לולאה", phone: "0501000042", consentStatus: "OPTED_IN", consentEvidence: "t" }));
-      const seq = await run(a.session, () => saveSequence(a.session, { name: "follow-up", isActive: true, trigger: "SENT_NO_REPLY", triggerConfig: { channel: "sms", marketingOnly: true }, stopOn: ["unsubscribe"], steps: [{ channel: "sms", templateId: smsTpl, waitMinutes: 30, variables: {}, condition: { requireNoReply: true } }] }));
+      const seq = await run(a.session, () => saveSequence(a.session, { name: "follow-up", isActive: true, trigger: "SENT_NO_REPLY", triggerConfig: { channel: "sms", marketingOnly: true }, stopOn: ["unsubscribe"], steps: [{ action: "send", channel: "sms", templateId: smsTpl, waitMinutes: 30, variables: {}, condition: { requireNoReply: true } }] }));
       const first = await run(a.session, () => sendChannelMessage({ channel: "sms", contactId: c.id, templateId: smsTpl, category: "marketing", requestKey: `loop:${c.id}`, sentByUserId: a.user.id }));
       // The send kicks event processing in the background; poll until the handler has run.
       const runs = async () => db.sequenceRun.count({ where: { sequenceId: seq.id, contactId: c.id } });

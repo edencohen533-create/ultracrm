@@ -12,7 +12,7 @@ import { smsMetrics } from "@/lib/sms";
 import Link from "next/link";
 
 const CATEGORY_LABELS: Record<string, string> = { MARKETING: "שיווק", UTILITY: "שירות", AUTHENTICATION: "אימות" };
-const STATUS_LABELS: Record<string, string> = { DRAFT: "טיוטה", PENDING_APPROVAL: "ממתין לאישור", APPROVED: "מאושר", REJECTED: "נדחה" };
+const STATUS_LABELS: Record<string, string> = { DRAFT: "לא נתמך / טיוטה", PENDING_APPROVAL: "ממתין לאישור", APPROVED: "מאושר", REJECTED: "נדחה", PAUSED: "מושהה ע\"י Meta", DISABLED: "מושבת ע\"י Meta" };
 const TABS = [["whatsapp", "WhatsApp"], ["sms", "SMS"], ["email", "אימייל"]] as const;
 
 export default organizationRequest(async function TemplatesPage({ searchParams }: { searchParams: Promise<{ channel?: string }> }) {
@@ -41,8 +41,8 @@ export default organizationRequest(async function TemplatesPage({ searchParams }
                     <TableCell>{template.language === "he" ? "עברית" : template.language}</TableCell>
                     <TableCell><Badge variant="outline">{CATEGORY_LABELS[template.category] ?? template.category}</Badge></TableCell>
                     <TableCell><Badge variant="secondary">{STATUS_LABELS[template.status] ?? template.status}</Badge></TableCell>
-                    <TableCell className="max-w-xs truncate text-sm text-muted-foreground">{template.body}</TableCell>
-                    <TableCell><TemplatePreviewDialog name={template.name} body={template.body} variables={template.variables} /></TableCell>
+                    <TableCell className="max-w-xs truncate text-sm text-muted-foreground">{template.headerFormat && template.headerFormat !== "TEXT" ? `[${template.headerFormat}] ` : ""}{template.body}{Array.isArray(template.buttons) && template.buttons.length ? ` · ${template.buttons.length} כפתורים` : ""}</TableCell>
+                    <TableCell><TemplatePreviewDialog name={template.name} body={template.body} variables={template.variables} headerFormat={template.headerFormat} buttons={template.buttons as Array<{ type: string; text: string; url?: string | null; dynamic?: boolean }> | null} /></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

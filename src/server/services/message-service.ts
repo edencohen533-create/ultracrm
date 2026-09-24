@@ -123,6 +123,8 @@ export interface CreateOutboundMessageInput {
   /** Depth of the automation chain that produced this send (loop protection). */
   eventDepth?: number;
   media?: { file: Buffer; mimeType: string; fileName: string };
+  templateMedia?: { link: string; filename?: string };
+  templateButtonParams?: Record<string, string>;
 }
 
 export class MessagePolicyError extends Error {}
@@ -203,6 +205,8 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
     body,
     templateId: input.templateId,
     templateVariables: input.templateVariables,
+    templateMedia: input.templateMedia,
+    templateButtonParams: input.templateButtonParams,
     ...(uploaded ? { mediaId: uploaded.mediaId, mediaUrl: uploaded.mediaUrl, fileName: input.media?.fileName } : {}),
   };
 
@@ -261,11 +265,18 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
     data: {
       status: sendResult.status === "FAILED" ? MessageStatus.FAILED : sendResult.status === "ACCEPTED" ? MessageStatus.ACCEPTED : MessageStatus.SENT,
       errorReason: sendResult.error ?? null,
+      errorCode: sendResult.errorCode ?? null,
+      retryable: sendResult.status === "FAILED" && Boolean(sendResult.retryable),
       acceptedAt: sendResult.status !== "FAILED" ? new Date() : null,
       failedAt: sendResult.status === "FAILED" ? new Date() : null,
       providerMessageId: sendResult.providerMessageId || null,
     },
   });
+
+  // A synchronous provider rejection never reached the recipient: release the reserved 24h marketing slot
+  // so a backoff retry / controlled manual retry of the same campaign is not blocked by the frequency cap.
+  // UNKNOWN (timeout) keeps the slot – the message may have been delivered.
+  if (marketing && sendResult.status === "FAILED") await prisma.contact.updateMany({ where: { id: conversation.contact.id, lastMarketingAt: now }, data: { lastMarketingAt: null } });
 
   const updated = await prisma.conversation.update({
     where: { id: input.conversationId },

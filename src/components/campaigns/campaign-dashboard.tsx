@@ -17,14 +17,14 @@ interface Campaign {
   id: string; name: string; status: string; channel: ChannelKey; scheduledAt: string | null; statusReason: string | null; lastTestAt: string | null; estimate: { total: number | null; units: number; currency: string | null; known: boolean; segments: number | null } | null;
   list: { name: string }; template: { name: string }; _count: { recipients: number }; counts: Record<string, number>;
 }
-interface Recipient { id: string; status: string; deliveryStatus: string | null; error: string | null; identifier: string | null; contact: { name: string; phone: string } }
+interface Recipient { id: string; status: string; deliveryStatus: string | null; deliveryError?: string | null; errorCode?: string | null; retryable?: boolean; attempts?: number; error: string | null; identifier: string | null; contact: { name: string; phone: string } }
 interface ChannelTemplate { id: string; channel: string; name: string; category: string; body: string; subject: string | null }
 interface Report { channel: ChannelKey; simulated: boolean; recipients: Record<string, number>; delivery: Record<string, number>; engagement: { opened: number; clicked: number; complained: number; hardBounce: number; softBounce: number; replies: number | null; unsubscribes: number }; cost: { actual: { amount: number; currency: string | null; messages: number } | null; estimate: { total: number | null; currency: string | null; known: boolean; units: number } | null }; availability: Record<string, string>; notes: string[] }
 interface Props {
   initialCampaigns: Campaign[];
   lists: { id: string; name: string; segment?: unknown; members: { contactId: string }[]; _count: { members: number } }[];
   contacts: { id: string; name: string; phone: string; consentStatus: string }[];
-  templates: { id: string; name: string; body: string; language?: string }[];
+  templates: { id: string; name: string; body: string; language?: string; headerFormat?: string | null; buttons?: unknown; status?: string }[];
   channelTemplates: ChannelTemplate[];
   channels: { sms: { id: string; provider: string; simulated: boolean; sendingBlocked: boolean; status: string; senders: Array<{ value: string; type: string; inbound: boolean }>; testRecipients: string[]; unitPrice: number | null; currency: string | null; label: string } | null; email: { id: string; provider: string; simulated: boolean; sendingBlocked: boolean; status: string; domainStatus: string | null; sender: string; testRecipients: string[]; unitPrice: number | null; currency: string | null; label: string } | null };
   timezone: string;
@@ -65,6 +65,8 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
   const [listId, setListId] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [variables, setVariables] = useState<Record<string, string>>({});
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [buttonParams, setButtonParams] = useState<Record<string, string>>({});
   const [schedule, setSchedule] = useState<Record<string, string>>({});
   const [testTo, setTestTo] = useState<Record<string, string>>({});
   const [report, setReport] = useState<(Report & { name: string }) | null>(null);
@@ -80,6 +82,10 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
   const [detail, setDetail] = useState<{ id: string; name: string; total: number; page: number; recipients: Recipient[] } | null>(null);
   const segmentInvalid = !!segment && !audienceSchema.safeParse(segment).success;
   const waTemplate = templates.find((t) => t.id === templateId);
+  const waHeader = (waTemplate?.headerFormat ?? "").toUpperCase();
+  const waNeedsMedia = ["IMAGE", "VIDEO", "DOCUMENT"].includes(waHeader);
+  const waButtons = (Array.isArray(waTemplate?.buttons) ? waTemplate!.buttons : []) as Array<{ type: string; text: string; url?: string | null; dynamic?: boolean }>;
+  const waDynamicButtons = waButtons.map((b, i) => ({ ...b, index: i })).filter((b) => b.type === "URL" && b.dynamic);
   const chTemplates = useMemo(() => channelTemplates.filter((t) => t.channel === channel), [channelTemplates, channel]);
   const chTemplate = chTemplates.find((t) => t.id === templateId);
   const filtered = contacts.filter((c) => `${c.name} ${c.phone}`.toLowerCase().includes(search.toLowerCase()));
@@ -97,12 +103,18 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
   useEffect(() => {
     const timer = setInterval(async () => {
       try {
-        const response = await fetch("/api/campaigns");
+        const response = await fetch(`/api/campaigns${campaignSearch.trim() ? `?q=${encodeURIComponent(campaignSearch.trim())}` : ""}`);
         if (response.ok) setCampaigns((await response.json()).campaigns);
       } catch { /* Keep the last successful snapshot during network interruptions. */ }
     }, 10000);
     return () => clearInterval(timer);
-  }, []);
+  }, [campaignSearch]);
+  // Search also covers campaigns older than the latest 100 (server-side).
+  useEffect(() => {
+    const q = campaignSearch.trim();
+    const t = setTimeout(async () => { try { const r = await fetch(`/api/campaigns${q ? `?q=${encodeURIComponent(q)}` : ""}`); if (r.ok) setCampaigns((await r.json()).campaigns); } catch { /* ignore */ } }, 400);
+    return () => clearTimeout(t);
+  }, [campaignSearch]);
 
   async function mutate(url: string, method: string, body: unknown) {
     setBusy(true);
@@ -146,6 +158,11 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
     }
     const scheduledAt = action === "start" && schedule[campaign.id] ? zonedToIso(schedule[campaign.id], timezone) : undefined;
     if (await mutate(`/api/campaigns/${campaign.id}`, "PATCH", { action, scheduledAt, scheduledTimezone: scheduledAt ? timezone : undefined })) setReview(null);
+  }
+  async function retry(campaign: Campaign, r: Recipient) {
+    const unknown = r.status === "UNKNOWN";
+    if (unknown && !confirm("התוצאה לא ודאית: ייתכן שההודעה כבר נמסרה. נסה שוב רק אם בדקת אצל הספק שהיא לא נשלחה. לאשר?")) return;
+    if (await mutate(`/api/campaigns/${campaign.id}`, "PATCH", { action: "retry_recipient", recipientId: r.id, confirmNotSent: unknown })) { toast.success("הנמען הוחזר לתור – ייבדק מחדש וישלח בסבב הבא"); if (detail) showDetails(detail, detail.page); }
   }
   async function sendTest(campaign: Campaign) {
     setBusy(true);
@@ -207,11 +224,13 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
           {channel === "sms" && channels.sms && <label className="block space-y-1"><span>שולח מאושר</span><select aria-label="שולח SMS" className={selectClass} value={senderId} onChange={(e) => setSenderId(e.target.value)}>{channels.sms.senders.map((s) => <option key={s.value} value={s.value}>{s.value}{s.type === "alphanumeric" ? " (אלפאנומרי – ללא תשובות)" : s.inbound ? " (קולט תשובות)" : ""}</option>)}{!channels.sms.senders.length && <option value="">אין שולח מאושר – בדוק את החיבור</option>}</select></label>}
           {channel === "email" && channels.email && <p className="text-sm">שולח: <span dir="ltr">{channels.email.sender}</span></p>}
           <label className="block space-y-1"><span>תבנית {channel === "whatsapp" ? "מאושרת" : ""}</span><select className={selectClass} value={templateId} onChange={(e) => { setTemplateId(e.target.value); setVariables({}); }} data-testid="campaign-template"><option value="">בחר תבנית</option>{channel === "whatsapp" ? templates.map((t) => <option key={t.id} value={t.id}>{t.name}{t.language ? ` (${t.language})` : ""}</option>) : chTemplates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.category === "MARKETING" ? "שיווקי" : "שירות"})</option>)}</select></label>
-          {channel === "whatsapp" && waTemplate && templateParameterKeys(waTemplate.body).map((key) => <label key={key} className="block space-y-1"><span>משתנה {key}</span><Input value={variables[key] ?? ""} onChange={(e) => setVariables({ ...variables, [key]: e.target.value })} placeholder="השתמש ב־{name} לשם הנמען" maxLength={1024} /></label>)}
+          {channel === "whatsapp" && waTemplate && templateParameterKeys(waTemplate.body).map((key) => <label key={key} className="block space-y-1"><span>משתנה {key}</span><Input value={variables[key] ?? ""} onChange={(e) => setVariables({ ...variables, [key]: e.target.value })} placeholder="{name}, {{first_name|לקוח}}, {{company|-}}, {{custom.שדה|ברירת מחדל}}" maxLength={1024} /></label>)}
+          {channel === "whatsapp" && waNeedsMedia && <label className="block space-y-1"><span>קובץ מדיה לכותרת ({waHeader === "IMAGE" ? "תמונה" : waHeader === "VIDEO" ? "וידאו" : "מסמך"}) – קישור https ציבורי</span><Input value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} dir="ltr" placeholder="https://…" maxLength={2000} data-testid="campaign-media-url" /></label>}
+          {channel === "whatsapp" && waDynamicButtons.map((b) => <label key={b.index} className="block space-y-1"><span>כפתור &quot;{b.text}&quot; – סיומת הקישור ({b.url})</span><Input value={buttonParams[String(b.index)] ?? ""} onChange={(e) => setButtonParams({ ...buttonParams, [String(b.index)]: e.target.value })} dir="ltr" maxLength={500} /></label>)}
           {channel !== "whatsapp" && extraTags.map(({ tag, fallback }) => <label key={tag} className="block space-y-1"><span>ערך ל-{`{{${tag}}}`}{fallback !== null ? ` (ברירת מחדל: ${fallback || "ריק"})` : ""}</span><Input value={variables[tag] ?? ""} onChange={(e) => setVariables({ ...variables, [tag]: e.target.value })} maxLength={1024} /></label>)}
-          <Button disabled={busy || !channelReady || !name.trim() || !listId || (channel === "whatsapp" ? !waTemplate || templateParameterKeys(waTemplate.body).some((key) => !variables[key]?.trim()) : !chTemplate || extraTags.some((t) => t.fallback === null && !variables[t.tag]?.trim()))} onClick={async () => { if (await mutate("/api/campaigns", "POST", { channel, name, listId, excludedListIds, templateId, variables: Object.fromEntries(Object.entries(variables).filter(([, v]) => v.trim())), providerCredentialId: channel === "whatsapp" ? (providerCredentialId || null) : (channel === "sms" ? channels.sms?.id : channels.email?.id) ?? null, senderId: channel === "sms" ? senderId || null : null })) { setName(""); toast.success("הטיוטה נשמרה. ניתן לשלוח בדיקה, להתחיל או לתזמן שליחה"); } }} data-testid="campaign-save">שמור טיוטה</Button>
+          <Button disabled={busy || !channelReady || !name.trim() || !listId || (channel === "whatsapp" ? !waTemplate || templateParameterKeys(waTemplate.body).some((key) => !variables[key]?.trim()) || (waNeedsMedia && !/^https:\/\//.test(mediaUrl)) || waDynamicButtons.some((b) => !buttonParams[String(b.index)]?.trim()) : !chTemplate || extraTags.some((t) => t.fallback === null && !variables[t.tag]?.trim()))} onClick={async () => { if (await mutate("/api/campaigns", "POST", { channel, name, listId, excludedListIds, templateId, variables: Object.fromEntries(Object.entries(variables).filter(([, v]) => v.trim())), providerCredentialId: channel === "whatsapp" ? (providerCredentialId || null) : (channel === "sms" ? channels.sms?.id : channels.email?.id) ?? null, senderId: channel === "sms" ? senderId || null : null, mediaUrl: channel === "whatsapp" && waNeedsMedia ? mediaUrl : null, buttonParams: channel === "whatsapp" && waDynamicButtons.length ? buttonParams : null })) { setName(""); toast.success("הטיוטה נשמרה. ניתן לשלוח בדיקה, להתחיל או לתזמן שליחה"); } }} data-testid="campaign-save">שמור טיוטה</Button>
         </div>
-        <div className="space-y-3"><h3 className="text-sm font-medium">תצוגה מקדימה</h3>{channel === "email" && chTemplate?.subject && <p className="text-sm"><b>נושא:</b> {chTemplate.subject}</p>}<div className={`min-h-32 whitespace-pre-wrap rounded-xl p-4 ${channel === "whatsapp" ? "bg-emerald-50 text-emerald-950" : channel === "sms" ? "bg-sky-50 text-sky-950" : "bg-violet-50 text-violet-950"}`} data-testid="campaign-preview">{previewText}</div>
+        <div className="space-y-3"><h3 className="text-sm font-medium">תצוגה מקדימה</h3>{channel === "email" && chTemplate?.subject && <p className="text-sm"><b>נושא:</b> {chTemplate.subject}</p>}<div className={`min-h-32 whitespace-pre-wrap rounded-xl p-4 ${channel === "whatsapp" ? "bg-emerald-50 text-emerald-950" : channel === "sms" ? "bg-sky-50 text-sky-950" : "bg-violet-50 text-violet-950"}`} data-testid="campaign-preview">{channel === "whatsapp" && waNeedsMedia && <div className="mb-2 rounded-lg border border-emerald-300 bg-white/60 p-2 text-xs">{mediaUrl ? (waHeader === "IMAGE" ? <img src={mediaUrl} alt="" className="max-h-40 rounded" /> : <span dir="ltr">📎 {mediaUrl}</span>) : `[כותרת ${waHeader === "IMAGE" ? "תמונה" : waHeader === "VIDEO" ? "וידאו" : "מסמך"} – חסר קישור]`}</div>}{previewText}{channel === "whatsapp" && waButtons.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{waButtons.map((b, i) => <span key={i} className="rounded-full border border-emerald-400 bg-white px-3 py-1 text-xs">{b.type === "URL" ? "🔗 " : b.type === "PHONE_NUMBER" ? "📞 " : ""}{b.text}{b.type === "URL" && b.dynamic ? ` → ${(b.url ?? "").replace(/\{\{\d+\}\}/, buttonParams[String(i)] || "…")}` : ""}</span>)}</div>}</div>
           {sms && chTemplate && <p className="text-xs text-muted-foreground" data-testid="sms-estimate">קידוד {sms.encoding} · {sms.length} תווים · {sms.segments} מקטעים לנמען{channels.sms?.unitPrice != null ? ` · אומדן ${(sms.segments * channels.sms.unitPrice).toFixed(4)} ${channels.sms.currency ?? ""} לנמען (מחיר יחידה ידני)` : " · מחיר לא ידוע – הגדר מחיר ליחידה בחיבור"}</p>}
           {channel === "email" && chTemplate && <p className="text-xs text-muted-foreground">{channels.email?.unitPrice != null ? `אומדן ${channels.email.unitPrice} ${channels.email.currency ?? ""} לאימייל (מחיר יחידה ידני)` : "מחיר לא ידוע – הגדר מחיר ליחידה בחיבור"} · קישור הסרה גלובלי מתווסף אוטומטית</p>}
           <p className="text-sm text-muted-foreground">הנמענים נשמרים בעת יצירת הטיוטה. הסכמה, הסרות ומגבלת תדירות נבדקות מחדש בזמן השליחה. עצירה אינה מבטלת הודעה שכבר הועברה לספק.</p>
@@ -227,7 +246,8 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
           <div className="flex flex-wrap gap-4 text-sm">{Object.entries(campaign.counts).map(([status, count]) => <span key={status}>{recipientStatusLabels[status]}: <strong>{count}</strong></span>)}</div>
           <div className="flex flex-wrap items-center gap-2">
             {campaign.status === "DRAFT" && <><Input className="w-auto" type="datetime-local" aria-label={`מועד שליחה עבור ${campaign.name}`} value={schedule[campaign.id] ?? ""} onChange={(e) => setSchedule({ ...schedule, [campaign.id]: e.target.value })} /><Button disabled={busy} onClick={() => action(campaign, "start")}>{schedule[campaign.id] ? "תזמן שליחה" : "התחל שליחה"}</Button></>}
-            {campaign.status === "DRAFT" && campaign.channel !== "whatsapp" && <><Input className="w-48" dir="ltr" placeholder="נמען בדיקה" aria-label={`נמען בדיקה עבור ${campaign.name}`} value={testTo[campaign.id] ?? ""} onChange={(e) => setTestTo({ ...testTo, [campaign.id]: e.target.value })} /><Button variant="secondary" disabled={busy || !testTo[campaign.id]} onClick={() => sendTest(campaign)}>שלח בדיקה</Button></>}
+            {campaign.status === "DRAFT" && <><Input className="w-48" dir="ltr" placeholder={campaign.channel === "whatsapp" ? "מספר בדיקה מורשה" : "נמען בדיקה"} aria-label={`נמען בדיקה עבור ${campaign.name}`} value={testTo[campaign.id] ?? ""} onChange={(e) => setTestTo({ ...testTo, [campaign.id]: e.target.value })} /><Button variant="secondary" disabled={busy || !testTo[campaign.id]} onClick={() => sendTest(campaign)}>שלח בדיקה</Button></>}
+            <a className="text-sm underline" href={`/api/campaigns/${campaign.id}/export`}>ייצוא CSV</a>
             {["RUNNING", "SCHEDULED"].includes(campaign.status) && <Button variant="outline" disabled={busy} onClick={() => action(campaign, "pause")}>השהה</Button>}
             {campaign.status === "PAUSED" && <Button disabled={busy} onClick={() => action(campaign, "resume")}>המשך שליחה</Button>}
             {!["CANCELLED", "COMPLETED"].includes(campaign.status) && <Button variant="outline" disabled={busy} onClick={() => action(campaign, "cancel")}>בטל קמפיין</Button>}
@@ -237,7 +257,7 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
           </div>
         </article>)}
       </div>
-      {detail && <section className="space-y-3 rounded-xl border p-5"><div className="flex items-center justify-between"><h2 className="font-semibold">נמענים — {detail.name}</h2><Button variant="ghost" onClick={() => setDetail(null)}>סגור</Button></div><div className="overflow-x-auto"><table className="w-full text-start text-sm"><thead><tr><th className="p-2 text-start">שם</th><th className="p-2 text-start">יעד</th><th className="p-2 text-start">מצב</th><th className="p-2 text-start">פירוט</th></tr></thead><tbody>{detail.recipients.map((r) => <tr key={r.id} className="border-t"><td className="p-2">{r.contact.name}</td><td className="p-2" dir="ltr">{r.identifier ?? r.contact.phone}</td><td className="p-2">{r.deliveryStatus ? deliveryStatusLabels[r.deliveryStatus] ?? r.deliveryStatus : recipientStatusLabels[r.status]}</td><td className="p-2">{r.error}</td></tr>)}</tbody></table></div><div className="flex items-center gap-3"><Button variant="outline" disabled={detail.page <= 1} onClick={() => showDetails(detail, detail.page - 1)}>הקודם</Button><span>עמוד {detail.page}</span><Button variant="outline" disabled={detail.page * 100 >= detail.total} onClick={() => showDetails(detail, detail.page + 1)}>הבא</Button><Button variant="ghost" onClick={() => showDetails(detail, detail.page)}>רענון</Button></div></section>}
+      {detail && <section className="space-y-3 rounded-xl border p-5"><div className="flex items-center justify-between"><h2 className="font-semibold">נמענים — {detail.name}</h2><Button variant="ghost" onClick={() => setDetail(null)}>סגור</Button></div><div className="overflow-x-auto"><table className="w-full text-start text-sm"><thead><tr><th className="p-2 text-start">שם</th><th className="p-2 text-start">יעד</th><th className="p-2 text-start">מצב</th><th className="p-2 text-start">ניסיונות</th><th className="p-2 text-start">פירוט</th><th className="p-2 text-start"></th></tr></thead><tbody>{detail.recipients.map((r) => { const c = campaigns.find((x) => x.id === detail.id); return <tr key={r.id} className="border-t"><td className="p-2">{r.contact.name}</td><td className="p-2" dir="ltr">{r.identifier ?? r.contact.phone}</td><td className="p-2">{r.deliveryStatus ? deliveryStatusLabels[r.deliveryStatus] ?? r.deliveryStatus : recipientStatusLabels[r.status]}</td><td className="p-2">{r.attempts ?? 0}</td><td className="p-2">{r.deliveryError ?? r.error}{r.errorCode ? <span className="text-xs text-muted-foreground"> ({r.errorCode})</span> : null}</td><td className="p-2">{c && ["FAILED", "UNKNOWN"].includes(r.status) && <Button size="sm" variant="outline" disabled={busy} onClick={() => retry(c, r)} data-testid="retry-recipient">{r.status === "UNKNOWN" ? "נסה שוב (לאחר בירור)" : "נסה שוב"}</Button>}</td></tr>; })}</tbody></table></div><div className="flex items-center gap-3"><Button variant="outline" disabled={detail.page <= 1} onClick={() => showDetails(detail, detail.page - 1)}>הקודם</Button><span>עמוד {detail.page}</span><Button variant="outline" disabled={detail.page * 100 >= detail.total} onClick={() => showDetails(detail, detail.page + 1)}>הבא</Button><Button variant="ghost" onClick={() => showDetails(detail, detail.page)}>רענון</Button></div></section>}
     </>}
   </div>;
 }

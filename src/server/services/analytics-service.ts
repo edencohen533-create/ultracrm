@@ -60,9 +60,20 @@ export async function getOverviewStats(range: AnalyticsRange) {
     perAgent.set(conversation.assignedAgentId, entry);
   }
 
+  // Per outbound number (11.02): outbound messages and delivery outcomes in range, by provider credential.
+  const byNumberRaw = await prisma.message.groupBy({ by: ["providerCredentialId", "status"], where: { direction: MessageDirection.OUTBOUND, createdAt: { gte: range.from, lte: range.to }, providerCredentialId: { not: null } }, _count: { _all: true } });
+  const credentials = await prisma.providerCredential.findMany({ where: { id: { in: [...new Set(byNumberRaw.map((r) => r.providerCredentialId!))] } }, select: { id: true, label: true, displayPhoneNumber: true, channel: true, isActive: true } });
+  const perNumber = credentials.map((c) => {
+    const rows = byNumberRaw.filter((r) => r.providerCredentialId === c.id);
+    const count = (statuses: string[]) => rows.filter((r) => statuses.includes(r.status)).reduce((n, r) => n + r._count._all, 0);
+    return { id: c.id, label: c.label || c.displayPhoneNumber || c.id, channel: c.channel, isActive: c.isActive, sent: count(["ACCEPTED", "SENT", "DELIVERED", "READ"]), delivered: count(["DELIVERED", "READ"]), read: count(["READ"]), failed: count(["FAILED", "BOUNCED"]), unknown: count(["UNKNOWN"]) };
+  });
+
   return {
     openConversations,
     messagesToday,
+    perNumber,
+    range,
     avgFirstResponseMinutes: firstResponseCount > 0 ? Math.round(totalFirstResponseMs / firstResponseCount / 60000) : null,
     avgResolutionHours: null, // updatedAt is not a closure timestamp; do not invent handling duration.
     firstResponseCount,

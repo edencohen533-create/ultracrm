@@ -7,7 +7,7 @@ import { requireBusinessId } from "@/lib/tenant";
 import { consumeQuota } from "@/lib/modules";
 import { ApiError } from "@/lib/response";
 import { audit } from "@/lib/audit";
-import { campaignSchema, validateTemplateVariables, personalizeVariables, renderTemplate } from "@/lib/campaigns";
+import { campaignSchema, validateTemplateVariables, personalizeVariablesForContact, renderTemplate } from "@/lib/campaigns";
 import { smsMetrics } from "@/lib/sms";
 import { activeChannelCredential, ChannelUnavailableError } from "@/server/channels/registry";
 import { deliverableEmail, renderChannelContent, sendChannelTest } from "./channel-send-service";
@@ -29,7 +29,9 @@ export function estimateCampaignCost(channel: string, credential: Pick<ProviderC
     const m = smsMetrics(template.body.replace(/\{\{[^}]*\}\}/g, "ישראל ישראלי") + (marketing ? "\nלהסרה השיבו הסר" : ""));
     segments = m.segments; perRecipient = m.segments;
   }
-  return { channel, recipients, segments, perRecipient, unitPrice: unit, currency: credential?.unitPriceCurrency ?? null, units: perRecipient * recipients, total: unit !== null ? Number((unit * perRecipient * recipients).toFixed(4)) : null, known: unit !== null };
+  // WhatsApp: Meta bills per conversation category (marketing/utility/authentication) by country – no verified
+  // rate card is available here, so only a manually configured unit price yields an estimate.
+  return { channel, recipients, segments, perRecipient, unitPrice: unit, currency: credential?.unitPriceCurrency ?? null, units: perRecipient * recipients, total: unit !== null ? Number((unit * perRecipient * recipients).toFixed(4)) : null, known: unit !== null, basis: channel === "whatsapp" ? "מחיר ידני לשיחה שיווקית (Meta מחייבת לפי קטגוריית שיחה ומדינה)" : channel === "sms" ? "מחיר ידני למקטע" : "מחיר ידני לאימייל" };
 }
 
 export async function createCampaign(input: z.infer<typeof campaignSchema>, actorUserId: string) {
@@ -65,6 +67,11 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
       if (wa?.provider === "meta_whatsapp_cloud_api" && template.providerAccountId !== (wa.config as Record<string, unknown>).businessAccountId) throw new CampaignError("התבנית אינה שייכת לחשבון WhatsApp של המספר השולח. יש לסנכרן תבניות");
       try { validateTemplateVariables(template.body, input.variables); }
       catch (error) { throw new CampaignError((error as Error).message); }
+      const headerFormat = (template.headerFormat ?? "").toUpperCase();
+      if (["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat) && !input.mediaUrl) throw new CampaignError(`התבנית כוללת כותרת ${headerFormat === "IMAGE" ? "תמונה" : headerFormat === "VIDEO" ? "וידאו" : "מסמך"} – יש לצרף קישור https ציבורי לקובץ`);
+      if (!["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat) && input.mediaUrl) throw new CampaignError("התבנית אינה כוללת כותרת מדיה – הסר את קישור המדיה");
+      const buttons = (template.buttons as Array<{ type: string; dynamic?: boolean }> | null) ?? [];
+      buttons.forEach((b, i) => { if (b.type === "URL" && b.dynamic && !input.buttonParams?.[String(i)]) throw new CampaignError(`לכפתור הקישור מס' ${i + 1} בתבנית נדרש ערך`); });
     }
     const excludedListIds = input.excludedListIds ?? [];
     const audience = await resolveAudience(tx, input.listId, excludedListIds, new Date());
@@ -73,10 +80,11 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
     if (contacts.length > MAX_AUDIENCE_SIZE) throw new CampaignError("הקהל גדול מ־10,000 אנשי קשר. יש לצמצם את התנאים לפני יצירת קמפיין");
     const excluded = audience.exclusion ? await tx.contact.findMany({ where: { AND: [audience.base, audience.exclusion] }, select: { id: true } }) : [];
     const excludedIds = new Set(excluded.map((contact) => contact.id));
-    const estimate = channel === "whatsapp" ? null : estimateCampaignCost(channel, channelCredential, template, contacts.length - excludedIds.size, template.category === "MARKETING");
-    const { channel: _c, senderId: _s, ...rest } = input;
+    const waCredential = channel === "whatsapp" && providerCredentialId ? await tx.providerCredential.findUnique({ where: { id: providerCredentialId } }) : null;
+    const estimate = estimateCampaignCost(channel, channelCredential ?? waCredential, template, contacts.length - excludedIds.size, template.category === "MARKETING");
+    const { channel: _c, senderId: _s, buttonParams, mediaUrl, ...rest } = input;
     const campaign = await tx.campaign.create({ data: {
-      businessId: requireBusinessId(), ...rest, channel, senderId: sender?.value ?? null, excludedListIds, providerCredentialId, createdById: actorUserId, senderSnapshot, templateSnapshot: templateFingerprint(template),
+      businessId: requireBusinessId(), ...rest, channel, senderId: sender?.value ?? null, mediaUrl: mediaUrl ?? null, buttonParams: (buttonParams ?? undefined) as Prisma.InputJsonValue | undefined, excludedListIds, providerCredentialId, createdById: actorUserId, senderSnapshot, templateSnapshot: templateFingerprint(template),
       estimate: estimate as unknown as Prisma.InputJsonValue, audienceExcludedCount: excludedIds.size,
       audienceSnapshot: { frozenAt: new Date().toISOString(), lists: audience.lists.map((list) => ({ id: list.id, name: list.name, segment: list.segment })) },
       recipients: { createMany: { data: contacts.map(({ id: contactId }) => ({ contactId, ...(excludedIds.has(contactId) ? { status: "SKIPPED" as const, error: "הוחרג מהקהל ביצירת הטיוטה", completedAt: new Date() } : {}) })) } },
@@ -91,10 +99,17 @@ export async function changeCampaignStatus(id: string, action: "start" | "pause"
     try { await consumeQuota(requireBusinessId(), "campaigns_started"); }
     catch (error) { if (error instanceof ApiError) throw new CampaignError(error.message); throw error; }
   }
+  let snapshot: Record<string, unknown> | null = null;
   if (action === "start" || action === "resume") {
+    // A template paused/changed at Meta after the draft was saved must be known before dispatch.
+    const c = await prisma.campaign.findUnique({ where: { id }, select: { channel: true, providerCredential: { select: { provider: true } } } });
+    if (c?.channel === "whatsapp" && c.providerCredential?.provider === "meta_whatsapp_cloud_api") {
+      try { const { syncMetaTemplates } = await import("./template-sync-service"); await syncMetaTemplates(); } catch { /* preflight below reports a changed/unavailable template */ }
+    }
     const review = await campaignPreflight(id);
     if (review.blockers.length) throw new CampaignError(review.blockers.join("; "));
     if (!review.eligible) throw new CampaignError("אין נמענים זכאים לשליחה כעת");
+    snapshot = { at: new Date().toISOString(), action, eligible: review.eligible, totalQueued: review.totalQueued, exclusions: review.exclusions, sender: review.sender, cost: review.cost, simulated: review.simulated };
   }
   const from: Record<typeof action, CampaignStatus[]> = {
     start: ["DRAFT"], pause: ["SCHEDULED", "RUNNING"], resume: ["PAUSED"], cancel: ["DRAFT", "SCHEDULED", "RUNNING", "PAUSED"],
@@ -107,7 +122,7 @@ export async function changeCampaignStatus(id: string, action: "start" | "pause"
   await prisma.$transaction(async (tx) => {
     const result = await tx.campaign.updateMany({
       where: { id, status: { in: from[action] } },
-      data: { status, statusReason: null, ...((action === "start" || action === "resume") ? { scheduledAt: date, ...(scheduledTimezone ? { scheduledTimezone } : {}) } : {}) },
+      data: { status, statusReason: null, ...((action === "start" || action === "resume") ? { scheduledAt: date, ...(scheduledTimezone ? { scheduledTimezone } : {}), preflightSnapshot: snapshot as Prisma.InputJsonValue } : {}) },
     });
     if (!result.count) throw new CampaignError("לא ניתן לבצע פעולה זו במצב הנוכחי של הקמפיין");
     if (action === "cancel") {
@@ -119,9 +134,10 @@ export async function changeCampaignStatus(id: string, action: "start" | "pause"
   });
 }
 
-export async function listCampaigns(channel?: "whatsapp" | "sms" | "email") {
+export async function listCampaigns(channel?: "whatsapp" | "sms" | "email", q?: string) {
+  const search = q?.trim();
   const campaigns = await prisma.campaign.findMany({
-    where: channel ? { channel } : {},
+    where: { ...(channel ? { channel } : {}), ...(search ? { OR: [{ name: { contains: search, mode: "insensitive" } }, { list: { name: { contains: search, mode: "insensitive" } } }, { template: { name: { contains: search, mode: "insensitive" } } }] } : {}) },
     orderBy: { createdAt: "desc" }, take: 100,
     include: { list: { select: { name: true } }, template: { select: { name: true } }, _count: { select: { recipients: true } } },
   });
@@ -143,6 +159,13 @@ export async function campaignPreflight(id: string) {
   if (campaign.template.status !== "APPROVED" || templateFingerprint(campaign.template) !== campaign.templateSnapshot) blockers.push("התבנית השתנתה או אינה מאושרת. צור טיוטה חדשה");
   const active = campaign.providerCredentialId ? await prisma.providerCredential.findUnique({ where: { id: campaign.providerCredentialId } }) : null;
   if (campaign.channel === "email" && active && !active.provider.startsWith("mock") && active.domainStatus !== "verified") blockers.push("הדומיין השולח אינו מאומת אצל הספק");
+  if (campaign.channel === "whatsapp") {
+    if (["PAUSED", "DISABLED"].includes(campaign.template.status)) blockers.push(campaign.template.status === "PAUSED" ? "התבנית הושהתה על ידי Meta (איכות) – לא ניתן לשלוח עד שתופעל מחדש" : "התבנית הושבתה על ידי Meta");
+    const hf = (campaign.template.headerFormat ?? "").toUpperCase();
+    if (["IMAGE", "VIDEO", "DOCUMENT"].includes(hf) && !campaign.mediaUrl) blockers.push("לתבנית נדרש קובץ מדיה לכותרת");
+    const btns = (campaign.template.buttons as Array<{ type: string; dynamic?: boolean }> | null) ?? [];
+    if (btns.some((b, i) => b.type === "URL" && b.dynamic && !(campaign.buttonParams as Record<string, string> | null)?.[String(i)])) blockers.push("לכפתור קישור דינמי בתבנית חסר ערך");
+  }
   const { getBusinessSettings } = await import("@/lib/settings");
   const settings = await getBusinessSettings(requireBusinessId());
   const capMs = settings.marketing.minHoursBetweenMarketing * 3600_000;
@@ -159,7 +182,7 @@ export async function campaignPreflight(id: string) {
     if (reason) { exclusions[reason] = (exclusions[reason] ?? 0) + 1; continue; }
     try {
       if (campaign.channel === "whatsapp") {
-        const variables = personalizeVariables(campaign.variables as Record<string, string>, contact.fullName);
+        const variables = personalizeVariablesForContact(campaign.variables as Record<string, string>, contact);
         validateTemplateVariables(campaign.template.body, variables);
         eligible++;
         if (samples.length < 3) samples.push({ name: contact.fullName, phone: contact.phoneE164, body: renderTemplate(campaign.template.body, variables) });
@@ -176,7 +199,7 @@ export async function campaignPreflight(id: string) {
     ? (active ? `${active.label || active.provider} · ${active.displayPhoneNumber || String(phoneNumberId ?? "")}` : "הדגמה בלבד")
     : campaign.channel === "sms" ? `${active?.label || active?.provider || ""} · ${smsSender?.value ?? "—"}${active?.provider.startsWith("mock") ? " (הדמיה)" : ""}`
     : `${active?.senderName ?? ""} <${active?.senderEmail ?? ""}>${active?.provider.startsWith("mock") ? " (הדמיה)" : ""}`;
-  const estimate = campaign.channel === "whatsapp" ? null : estimateCampaignCost(campaign.channel, active, campaign.template, eligible, marketing);
+  const estimate = estimateCampaignCost(campaign.channel, active, campaign.template, eligible, marketing);
   const window = settings.marketing.window;
   return { channel: campaign.channel, eligible, audienceExcluded: campaign.audienceExcludedCount, totalQueued: campaign.recipients.length, exclusions, blockers, samples, sender: senderLabel, audiencePolicy: "קהל מוקפא ביצירת הטיוטה; זכאות, הסכמה והסרות נבדקות מחדש בכל שליחה", cost: estimate, sendWindow: campaign.channel === "whatsapp" ? null : { ...window, timezone: window.timezone ?? settings.timezone, maxPerMinute: settings.marketing.maxPerMinute }, timezone: settings.timezone, simulated: Boolean(active?.provider.startsWith("mock")) || (campaign.channel === "whatsapp" && !active), lastTestAt: campaign.lastTestAt };
 }
@@ -223,9 +246,27 @@ export async function campaignReport(id: string) {
 
 /** Test send of the campaign content to an explicitly configured test recipient. */
 export async function sendCampaignTest(user: { id: string; businessId: string; fullName: string }, id: string, to: string) {
-  const campaign = await prisma.campaign.findUnique({ where: { id } });
+  const campaign = await prisma.campaign.findUnique({ where: { id }, include: { template: true } });
   if (!campaign) throw new CampaignError("הקמפיין לא נמצא");
-  if (campaign.channel === "whatsapp") throw new CampaignError("שליחת בדיקה זמינה ל-SMS ואימייל; ב-WhatsApp השתמש בתבנית מאושרת מהתיבה");
+  if (campaign.channel === "whatsapp") {
+    // Test sends go ONLY to numbers explicitly allow-listed on the WhatsApp connection – never to customers.
+    const { normalizePhone } = await import("@/lib/phone");
+    const e164 = normalizePhone(to);
+    if (!e164) throw new CampaignError("מספר בדיקה לא תקין");
+    const credential = campaign.providerCredentialId ? await prisma.providerCredential.findUnique({ where: { id: campaign.providerCredentialId } }) : null;
+    const allowed = ((credential?.testRecipients as string[] | null) ?? []);
+    if (!allowed.includes(e164)) throw new ApiError("שליחת בדיקה מותרת רק למספרי בדיקה שהוגדרו במפורש בחיבור WhatsApp", 403, "test_recipient_not_allowed", { allowed });
+    const { getActiveProvider } = await import("@/server/providers/provider-registry");
+    const provider = await getActiveProvider(campaign.providerCredentialId);
+    let variables: Record<string, string>;
+    try { variables = personalizeVariablesForContact(campaign.variables as Record<string, string>, { fullName: user.fullName, phoneE164: e164, customFields: {} }); }
+    catch (error) { throw new CampaignError((error as Error).message); }
+    const result = await provider.sendTemplate({ conversationId: "", to: e164, type: "TEMPLATE", templateId: campaign.templateId, templateVariables: variables, templateMedia: campaign.mediaUrl ? { link: campaign.mediaUrl } : undefined, templateButtonParams: (campaign.buttonParams as Record<string, string> | null) ?? undefined });
+    await audit(user.businessId, user.id, "campaign", id, "campaign.test_sent", { channel: "whatsapp", to: e164, providerMessageId: result.providerMessageId || null, status: result.status, error: result.error ?? null, simulated: !credential || credential.provider === "mock" });
+    if (result.status === "FAILED") throw new ApiError(result.error ?? "הספק דחה את הודעת הבדיקה", 502, "test_send_failed");
+    await prisma.campaign.update({ where: { id }, data: { lastTestAt: new Date() } });
+    return { providerMessageId: result.providerMessageId, status: result.status, segments: null, simulated: !credential || credential.provider === "mock" };
+  }
   const r = await sendChannelTest(user, { channel: campaign.channel, credentialId: campaign.providerCredentialId, templateId: campaign.templateId, variables: campaign.variables as Record<string, string>, to, senderId: campaign.senderId });
   await prisma.campaign.update({ where: { id }, data: { lastTestAt: new Date() } });
   await audit(user.businessId, user.id, "campaign", id, "campaign.test_sent", { to, providerMessageId: r.providerMessageId, simulated: r.simulated });
@@ -233,3 +274,23 @@ export async function sendCampaignTest(user: { id: string; businessId: string; f
 }
 
 export function campaignHash(c: { id: string; status: string }) { return createHash("sha1").update(`${c.id}:${c.status}`).digest("hex").slice(0, 8); }
+
+/**
+ * Controlled retry of one recipient (7.11). FAILED outcomes may be retried; an UNKNOWN outcome only after
+ * a manager attests that the provider did NOT deliver it (`confirmNotSent`). Never blind: each attempt
+ * gets its own requestKey and the worker re-runs every eligibility check.
+ */
+export async function retryRecipient(campaignId: string, recipientId: string, confirmNotSent: boolean, actorUserId: string | null) {
+  const recipient = await prisma.campaignRecipient.findFirst({ where: { id: recipientId, campaignId }, include: { campaign: { select: { status: true } }, message: { select: { status: true, errorReason: true } } } });
+  if (!recipient) throw new CampaignError("הנמען לא נמצא");
+  if (recipient.status === "UNKNOWN" && !confirmNotSent) throw new CampaignError("תוצאה לא ודאית: יש לוודא אצל הספק שההודעה לא נמסרה ולאשר זאת במפורש לפני ניסיון חוזר");
+  if (!["FAILED", "UNKNOWN"].includes(recipient.status)) throw new CampaignError("ניתן לנסות שוב רק נמען שנכשל או שתוצאתו לא ודאית");
+  if (recipient.attempts >= 10) throw new CampaignError("הגעת למספר הניסיונות המרבי לנמען זה");
+  if (!["RUNNING", "PAUSED", "COMPLETED", "SCHEDULED"].includes(recipient.campaign.status)) throw new CampaignError("לא ניתן לנסות שוב בקמפיין שבוטל");
+  await prisma.$transaction(async (tx) => {
+    await tx.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "QUEUED", claimedAt: null, completedAt: null, nextAttemptAt: null, attempts: Math.max(recipient.attempts, 1), error: `ניסיון חוזר ידני (${recipient.status})` } });
+    if (recipient.campaign.status === "COMPLETED") await tx.campaign.update({ where: { id: campaignId }, data: { status: "RUNNING", statusReason: null } });
+    await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: actorUserId, action: "campaign.recipient_retry", entityType: "Campaign", entityId: campaignId, payload: { recipientId, previousStatus: recipient.status, confirmNotSent, previousError: recipient.message?.errorReason ?? recipient.error ?? null } } });
+  });
+  return { ok: true, requeued: true };
+}

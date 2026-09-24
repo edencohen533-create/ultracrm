@@ -12,6 +12,7 @@ import type { ProviderEvent } from "@/lib/telephony/types";
 import { getBusinessSettings } from "@/lib/settings";
 import { handleInboundInitiated, setupInboundBridge } from "@/lib/dialer/inbound";
 import { endMonitorsForCall, markMonitorEnded, markMonitorJoined } from "@/lib/dialer/monitor";
+import { emitEvent, kickEventProcessing } from "@/lib/events";
 
 const RANK: Record<CallStatus, number> = {
   created: 0,
@@ -363,5 +364,11 @@ export async function afterCallFinalized(callId: string) {
       where: { id: currentCall.userId, presence: "in_call" },
       data: { presence: "wrap_up", presenceAt: new Date() },
     });
+    await emitEvent(tx, {
+      businessId: currentCall.businessId, type: "call.ended", contactId: currentCall.contactId, source: "system", occurredAt: currentCall.endedAt ?? new Date(),
+      dedupeKey: `call.ended:${currentCall.id}`,
+      payload: { callId: currentCall.id, userId: currentCall.userId, direction: currentCall.direction, answered: Boolean(currentCall.answeredAt), telephonyResult: currentCall.telephonyResult, talkSeconds: currentCall.talkSeconds ?? 0 },
+    });
   });
+  kickEventProcessing(call.businessId);
 }

@@ -62,6 +62,16 @@ export interface BusinessSettings {
   allowedCountries: string[];
   /** Per-agent outbound dial rate limit. 0 = unlimited. */
   maxDialsPerMinute: number;
+  /** Cross-module automations (events → actions). */
+  automations: {
+    /** Minutes until the "first contact" task of a new lead is due. */
+    newLeadTaskMinutes: number;
+    /** Call outcomes that create a follow-up task automatically. */
+    followUpTaskOutcomes: string[];
+    followUpTaskHours: number;
+    /** Send a WhatsApp template after a call outcome (only with consent + connected channel). */
+    followUpMessage: { enabled: boolean; templateId: string | null; outcomes: string[]; variables: Record<string, string> };
+  };
   inbound: {
     /** Route to the contact's owner first when they are available. */
     preferOwner: boolean;
@@ -107,6 +117,7 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   dialingPaused: false,
   allowedCountries: ["IL"],
   maxDialsPerMinute: 0,
+  automations: { newLeadTaskMinutes: 60, followUpTaskOutcomes: ["answered_interested"], followUpTaskHours: 24, followUpMessage: { enabled: false, templateId: null, outcomes: ["answered_interested"], variables: {} } },
   inbound: { preferOwner: true, noAgentAction: "hangup", createCallbackTask: true, respectDialWindow: false },
 };
 
@@ -118,6 +129,12 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     dialWindow: { ...DEFAULT_SETTINGS.dialWindow, ...(r.dialWindow ?? {}) },
     prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },
     inbound: { ...DEFAULT_SETTINGS.inbound, ...(r.inbound ?? {}) },
+    automations: {
+      ...DEFAULT_SETTINGS.automations,
+      ...(r.automations ?? {}),
+      followUpMessage: { ...DEFAULT_SETTINGS.automations.followUpMessage, ...(r.automations?.followUpMessage ?? {}) },
+      followUpTaskOutcomes: Array.isArray(r.automations?.followUpTaskOutcomes) ? r.automations!.followUpTaskOutcomes : DEFAULT_SETTINGS.automations.followUpTaskOutcomes,
+    },
     allowedCountries: Array.isArray(r.allowedCountries) ? r.allowedCountries : DEFAULT_SETTINGS.allowedCountries,
   };
 }

@@ -74,7 +74,7 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
     const ttl = settings.lockTtlSeconds;
     const S = dbSchema();
     const T = (t: string) => Prisma.raw(`"${S}"."${t}"`);
-    const E = Prisma.raw(`"${S}"."LeadStatus"`);
+    const E = Prisma.raw(`"${S}"."QueueLeadStatus"`);
     const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
       UPDATE ${T("list_leads")} SET
         status = 'locked'::${E},
@@ -231,7 +231,7 @@ export async function applyOutcomeToLead(opts: {
 }
 
 /** Block a number for the whole business and pull it out of every list. */
-export async function addToDnc(businessId: string, userId: string | null, phoneE164: string, reason?: string, db: Prisma.TransactionClient = prisma) {
+export async function addToDnc(businessId: string, userId: string | null, phoneE164: string, reason?: string, db: Prisma.TransactionClient = prisma, opts: { skipSuppression?: boolean } = {}) {
   await db.dncEntry.upsert({
     where: { businessId_phoneE164: { businessId, phoneE164 } },
     create: { businessId, phoneE164, reason, createdByUserId: userId },
@@ -242,13 +242,18 @@ export async function addToDnc(businessId: string, userId: string | null, phoneE
     where: { businessId, contactId: { in: contacts.map((c) => c.id) }, status: { notIn: ["in_call"] } },
     data: { status: "dnc", lockedByUserId: null, lockToken: null, lockExpiresAt: null, nextAttemptAt: null, preferredUserId: null },
   });
-  await db.task.updateMany({ where: { businessId, contactId: { in: contacts.map((c) => c.id) }, status: "open" }, data: { status: "cancelled" } });
+  await db.task.updateMany({ where: { businessId, contactId: { in: contacts.map((c) => c.id) }, status: "open", type: "callback" }, data: { status: "cancelled" } });
   await audit(businessId, userId, "dnc", phoneE164, "dnc.added", { reason }, db);
+  // "לא ליצור קשר" is a global do-not-contact request: block marketing + service messages on every channel too.
+  if (!opts.skipSuppression) {
+    const { suppressContact } = await import("@/lib/suppression");
+    await suppressContact({ businessId, identifier: phoneE164, scope: "all", source: "phone", reason: reason ?? "dnc", actorId: userId }, db);
+  }
 }
 
-export async function removeFromDnc(businessId: string, userId: string, phoneE164: string) {
-  await prisma.dncEntry.deleteMany({ where: { businessId, phoneE164 } });
-  await audit(businessId, userId, "dnc", phoneE164, "dnc.removed");
+export async function removeFromDnc(businessId: string, userId: string, phoneE164: string, db: Prisma.TransactionClient = prisma) {
+  await db.dncEntry.deleteMany({ where: { businessId, phoneE164 } });
+  await audit(businessId, userId, "dnc", phoneE164, "dnc.removed", undefined, db);
 }
 
 /** Queue counters for a list (used by the workspace and list pages). */
@@ -294,7 +299,7 @@ export async function transferLead(businessId: string, actorId: string, leadId: 
     where: { id: leadId },
     data: { preferredUserId: toUserId, status: back, lockedByUserId: null, lockToken: null, lockExpiresAt: null },
   });
-  await prisma.task.updateMany({ where: { leadId, status: "open" }, data: toUserId ? { userId: toUserId } : {} });
+  await prisma.task.updateMany({ where: { listLeadId: leadId, status: "open" }, data: toUserId ? { userId: toUserId } : {} });
   await audit(businessId, actorId, "lead", leadId, "lead.transferred", { from: lead.lockedByUserId ?? lead.preferredUserId, to: toUserId, note });
   return updated;
 }

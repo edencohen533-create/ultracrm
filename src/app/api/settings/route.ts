@@ -42,6 +42,12 @@ const schema = z.object({
         sourceWeights: z.record(z.string().max(100), z.number().min(-1000).max(1000)), interestedBefore: z.number().min(0).max(1000),
       }).partial().optional(),
       inbound: z.object({ preferOwner: z.boolean(), noAgentAction: z.literal("hangup"), createCallbackTask: z.boolean(), respectDialWindow: z.boolean() }).partial().optional(),
+      automations: z.object({
+        newLeadTaskMinutes: z.number().int().min(1).max(10080),
+        followUpTaskOutcomes: z.array(z.string().max(40)).max(10),
+        followUpTaskHours: z.number().int().min(1).max(720),
+        followUpMessage: z.object({ enabled: z.boolean(), templateId: z.string().nullable(), outcomes: z.array(z.string().max(40)).max(10), variables: z.record(z.string(), z.string().max(1024)) }).partial(),
+      }).partial().optional(),
       dialWindow: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
     })
     .optional(),
@@ -51,7 +57,12 @@ export const PATCH = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, schema);
   const current = await prisma.business.findUnique({ where: { id: user.businessId }, select: { settings: true, name: true, timezone: true } });
   const before = mergeSettings(current?.settings);
-  const merged = mergeSettings({ ...before, ...(b.settings ?? {}), prioritization: { ...before.prioritization, ...(b.settings?.prioritization ?? {}) }, inbound: { ...before.inbound, ...(b.settings?.inbound ?? {}) } });
+  const merged = mergeSettings({
+    ...before, ...(b.settings ?? {}),
+    prioritization: { ...before.prioritization, ...(b.settings?.prioritization ?? {}) },
+    inbound: { ...before.inbound, ...(b.settings?.inbound ?? {}) },
+    automations: { ...before.automations, ...(b.settings?.automations ?? {}), followUpMessage: { ...before.automations.followUpMessage, ...(b.settings?.automations?.followUpMessage ?? {}) } },
+  });
   const changed: Record<string, { from: unknown; to: unknown }> = {};
   for (const k of Object.keys(merged) as (keyof typeof merged)[]) {
     if (JSON.stringify(before[k]) !== JSON.stringify(merged[k])) changed[k] = { from: before[k], to: merged[k] };
@@ -65,4 +76,4 @@ export const PATCH = withAuth(async ({ req, user }) => {
     select: { id: true, name: true, timezone: true, settings: true },
   });
   return ok(updated);
-}, { minRole: "admin" });
+}, { minRole: "owner" });

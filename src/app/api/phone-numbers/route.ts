@@ -26,4 +26,4 @@ export const POST = withAuth(async ({ req, user }) => {
     return tx.phoneNumber.create({ data: { businessId: user.businessId, e164, label: b.label || null, isDefault: Boolean(b.isDefault) || count === 0 } });
   });
   return ok(n, 201);
-}, { minRole: "admin" });
+}, { minRole: "owner" });

@@ -15,7 +15,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("general");
   const [me, setMe] = useState<{ role: string } | null>(null);
   useEffect(() => { api.get<{ user: { role: string } }>("/api/auth/me").then((m) => setMe(m.user)).catch(() => undefined); }, []);
-  const isAdmin = me?.role === "admin";
+  const isAdmin = me?.role === "owner";
   const tabs: Array<[Tab, string]> = [["general", "חייגן"], ["priority", "תעדוף לידים"], ["safety", "בטיחות ושיחות נכנסות"], ["numbers", "מספרים יוצאים"], ["users", "משתמשים"], ["scripts", "תסריטים"], ["dnc", "לא ליצור קשר"], ["telephony", "טלפוניה"], ["history", "היסטוריית שינויים"]];
   return (
     <div className="p-5 space-y-4 max-w-5xl">
@@ -121,7 +121,7 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
           <Input label="שם מלא" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
           <Input label="אימייל" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} ltr />
           <Input label="סיסמה (6+ תווים)" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} ltr />
-          <Select label="תפקיד" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="agent">נציג</option><option value="manager">מנהל מוקד</option><option value="admin">מנהל מערכת</option></Select>
+          <Select label="תפקיד" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="agent">נציג</option><option value="manager">מנהל מוקד</option><option value="owner">מנהל מערכת</option></Select>
           <Select label="צוות" value={form.teamId} onChange={(e) => setForm({ ...form, teamId: e.target.value })}><option value="">ללא</option>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>
         </div>
       </Modal>

@@ -119,7 +119,7 @@ async function missed(businessId: string, businessNumber: string, fromE164: stri
   const telephony = getTelephony();
   // Assign the record to the contact owner or the first manager so it is visible somewhere.
   const owner = contactId ? (await prisma.contact.findUnique({ where: { id: contactId }, select: { ownerUserId: true } }))?.ownerUserId : null;
-  const fallback = owner ?? (await prisma.user.findFirst({ where: { businessId, isActive: true, role: { in: ["manager", "admin"] } }, select: { id: true } }))?.id;
+  const fallback = owner ?? (await prisma.user.findFirst({ where: { businessId, isActive: true, role: { in: ["manager", "owner"] } }, select: { id: true } }))?.id;
   if (!fallback) return null;
   const call = await prisma.call.create({
     data: {

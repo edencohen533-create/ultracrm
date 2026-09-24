@@ -2,7 +2,7 @@ import { z } from "zod";
 import { withAuth, parseBody, parseQuery } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
-import { contactFilterSchema } from "@/lib/contacts";
+import { contactFilterSchema } from "@/lib/crm/contacts";
 import { addLeadsToList } from "@/lib/lists";
 import { phoneDigits } from "@/lib/phone";
 import type { Prisma } from "@/generated/prisma/client";

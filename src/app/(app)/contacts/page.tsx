@@ -107,7 +107,7 @@ export default function ContactsPage() {
   }
 
   const canDial = !state?.activeCall && !state?.wrapUpCall;
-  const isManager = me?.role === "manager" || me?.role === "admin";
+  const isManager = me?.role === "manager" || me?.role === "owner";
 
   return (
     <div className="p-5 space-y-4">

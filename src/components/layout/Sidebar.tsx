@@ -7,13 +7,13 @@ import { Badge, cx } from "@/components/ui";
 import { PRESENCE_LABEL } from "@/lib/client/format";
 
 const items = [
-  { href: "/dialer", label: "מסך חיוג", roles: ["agent", "manager", "admin"], icon: "M2 5.5A2.5 2.5 0 0 1 4.5 3h2l2 5-2.5 1.5a11 11 0 0 0 5.5 5.5L13 12.5l5 2v2A2.5 2.5 0 0 1 15.5 19 13.5 13.5 0 0 1 2 5.5z" },
-  { href: "/tasks", label: "משימות חזרה", roles: ["agent", "manager", "admin"], icon: "M4 6h16M4 12h16M4 18h10" },
-  { href: "/contacts", label: "אנשי קשר", roles: ["agent", "manager", "admin"], icon: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },
-  { href: "/lists", label: "רשימות חיוג", roles: ["agent", "manager", "admin"], icon: "M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" },
-  { href: "/manager", label: "מסך מנהל", roles: ["manager", "admin"], icon: "M3 3v18h18M7 14l4-4 4 4 5-6" },
-  { href: "/manager/calls", label: "היסטוריית שיחות", roles: ["manager", "admin"], icon: "M12 8v4l3 3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" },
-  { href: "/settings", label: "הגדרות", roles: ["admin", "manager"], icon: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" },
+  { href: "/dialer", label: "מסך חיוג", roles: ["agent", "manager", "owner"], icon: "M2 5.5A2.5 2.5 0 0 1 4.5 3h2l2 5-2.5 1.5a11 11 0 0 0 5.5 5.5L13 12.5l5 2v2A2.5 2.5 0 0 1 15.5 19 13.5 13.5 0 0 1 2 5.5z" },
+  { href: "/tasks", label: "משימות חזרה", roles: ["agent", "manager", "owner"], icon: "M4 6h16M4 12h16M4 18h10" },
+  { href: "/contacts", label: "אנשי קשר", roles: ["agent", "manager", "owner"], icon: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },
+  { href: "/lists", label: "רשימות חיוג", roles: ["agent", "manager", "owner"], icon: "M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" },
+  { href: "/manager", label: "מסך מנהל", roles: ["manager", "owner"], icon: "M3 3v18h18M7 14l4-4 4 4 5-6" },
+  { href: "/manager/calls", label: "היסטוריית שיחות", roles: ["manager", "owner"], icon: "M12 8v4l3 3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" },
+  { href: "/settings", label: "הגדרות", roles: ["owner", "manager"], icon: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" },
 ];
 
 export function Sidebar({ user, businessName }: { user: { fullName: string; role: string }; businessName: string }) {
@@ -56,7 +56,7 @@ export function Sidebar({ user, businessName }: { user: { fullName: string; role
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <p className="text-sm font-medium truncate">{user.fullName}</p>
-            <p className="text-[11px] text-muted">{user.role === "admin" ? "מנהל מערכת" : user.role === "manager" ? "מנהל מוקד" : "נציג"}</p>
+            <p className="text-[11px] text-muted">{user.role === "owner" ? "בעלים" : user.role === "manager" ? "מנהל מוקד" : "נציג"}</p>
           </div>
           <Badge tone={presenceTone} dot>
             {PRESENCE_LABEL[presence]}

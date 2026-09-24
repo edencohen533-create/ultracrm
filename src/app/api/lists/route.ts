@@ -4,7 +4,7 @@ import { withAuth, parseBody } from "@/lib/api";
 import { ok } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { listQueueStats } from "@/lib/dialer/queue";
-import { contactFilterSchema } from "@/lib/contacts";
+import { contactFilterSchema } from "@/lib/crm/contacts";
 import { addLeadsToList } from "@/lib/lists";
 import type { Prisma } from "@/generated/prisma/client";
 

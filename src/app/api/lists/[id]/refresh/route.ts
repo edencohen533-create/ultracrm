@@ -3,7 +3,7 @@ import { ok, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { addLeadsToList } from "@/lib/lists";
 import { audit } from "@/lib/audit";
-import type { ContactFilter } from "@/lib/contacts";
+import type { ContactFilter } from "@/lib/crm/contacts";
 
 export const dynamic = "force-dynamic";
 

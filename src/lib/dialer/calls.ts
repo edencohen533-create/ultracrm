@@ -18,6 +18,9 @@ import { OUTCOME_BY_KEY } from "@/lib/outcomes";
 import { applyOutcomeToLead, assertListAccess, assertLeadLock, isDnc, listDialWindow } from "@/lib/dialer/queue";
 import { audit } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
+import { emitEvent, kickEventProcessing } from "@/lib/events";
+import { consumeQuota } from "@/lib/modules";
+import { callBlockReason } from "@/lib/suppression";
 
 export const CALL_INCLUDE = {
   contact: { select: { id: true, fullName: true, phoneE164: true, company: true } },
@@ -126,10 +129,9 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
     throw new ApiError("חסר יעד לחיוג", 400, "missing_destination");
   }
 
-  // DNC is checked again at the moment of dialing – for every mode.
-  if (await isDnc(user.businessId, toE164)) {
-    throw new ApiError("המספר חסום – לא ליצור קשר", 403, "dnc_blocked");
-  }
+  // DNC / do-not-contact is checked again at the moment of dialing – for every mode.
+  const blocked = await callBlockReason(user.businessId, toE164);
+  if (blocked) throw new ApiError(blocked, 403, "dnc_blocked");
 
   const settings = await getBusinessSettings(user.businessId);
   // Business-level kill switch (manager stops all new outbound dials).
@@ -163,6 +165,7 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
     sessionId = s.id;
   }
 
+  await consumeQuota(user.businessId, "calls_started");
   let call: CallWithRefs;
   let createdHere = false;
   try {
@@ -436,7 +439,7 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
           businessId: user.businessId,
           userId: user.id,
           contactId: call.contactId,
-          leadId: call.leadId,
+          listLeadId: call.leadId,
           callId: call.id,
           type: "callback",
           dueAt: input.callbackAt!,
@@ -468,8 +471,13 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
     const session = await tx.dialerSession.findFirst({ where: { userId: user.id, status: { in: ["active", "paused"] } } });
     await tx.user.updateMany({ where: { id: user.id, presence: "wrap_up" }, data: { presence: session?.status === "paused" ? "paused" : "available", presenceAt: new Date() } });
     await audit(user.businessId, user.id, "call", call.id, "call.outcome_saved", { outcome: input.outcome }, tx);
+    await emitEvent(tx, {
+      businessId: user.businessId, type: "call.outcome_saved", contactId: call.contactId, actorUserId: user.id, source: "user",
+      dedupeKey: `call.outcome_saved:${call.id}`, payload: { callId: call.id, outcome: input.outcome, userId: user.id, callbackAt: input.callbackAt?.toISOString() ?? null, listLeadId: call.leadId },
+    });
     return u;
   });
+  kickEventProcessing(user.businessId);
   return updated;
 }
 

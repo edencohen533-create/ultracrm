@@ -68,10 +68,10 @@ export default function ListPage({ params }: { params: Promise<{ id: string }> }
   async function duplicate() { try { const r = await api.post<{ id: string; copied: number }>(`/api/lists/${id}/duplicate`, { withLeads: true }); toast.success(`שוכפל עם ${r.copied} לידים`); window.location.href = `/lists/${r.id}`; } catch (e) { toast.error((e as Error).message); } }
   async function refresh() { try { const r = await api.post<{ added: number }>(`/api/lists/${id}/refresh`); toast.success(`רוענן: נוספו ${r.added}`); load(); } catch (e) { toast.error((e as Error).message); } }
   async function transfer(leadId: string) {
-    const toUserId = window.prompt("מזהה/שם נציג יעד (ריק = חזרה למאגר):\n" + users.filter((u) => u.role !== "admin").map((u) => `${u.fullName} = ${u.id}`).join("\n"));
+    const toUserId = window.prompt("מזהה/שם נציג יעד (ריק = חזרה למאגר):\n" + users.filter((u) => u.role !== "owner").map((u) => `${u.fullName} = ${u.id}`).join("\n"));
     if (toUserId === null) return;
     const match = users.find((u) => u.id === toUserId.trim() || u.fullName === toUserId.trim());
-    try { await api.post(`/api/leads/${leadId}/transfer`, { toUserId: toUserId.trim() ? match?.id ?? toUserId.trim() : null }); toast.success("הליד הועבר"); load(); } catch (e) { toast.error((e as Error).message); }
+    try { await api.post(`/api/queue/${leadId}/transfer`, { toUserId: toUserId.trim() ? match?.id ?? toUserId.trim() : null }); toast.success("הליד הועבר"); load(); } catch (e) { toast.error((e as Error).message); }
   }
   async function saveAgents() {
     try { await api.put(`/api/lists/${id}/agents`, { agentIds }); setAgentsOpen(false); load(); } catch (e) { toast.error((e as Error).message); }
@@ -171,7 +171,7 @@ export default function ListPage({ params }: { params: Promise<{ id: string }> }
       </Modal>
       <Modal open={agentsOpen} onClose={() => setAgentsOpen(false)} title="שיוך נציגים לרשימה" footer={<><Button variant="ghost" onClick={() => setAgentsOpen(false)}>ביטול</Button><Button onClick={saveAgents}>שמור</Button></>}>
         <div className="flex flex-wrap gap-1.5">
-          {users.filter((u) => u.role !== "admin").map((u) => (
+          {users.filter((u) => u.role !== "owner").map((u) => (
             <button key={u.id} type="button" onClick={() => setAgentIds(agentIds.includes(u.id) ? agentIds.filter((x) => x !== u.id) : [...agentIds, u.id])} className={`h-8 px-3 rounded-md text-xs ${agentIds.includes(u.id) ? "bg-accent text-white" : "bg-white/6 text-muted"}`}>{u.fullName}</button>
           ))}
         </div>

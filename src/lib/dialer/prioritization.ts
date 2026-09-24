@@ -9,7 +9,7 @@ import type { PrioritizationWeights } from "@/lib/settings";
 /** ORDER BY expression for the claim query. `l` = list_leads, `c` = contacts. */
 export function scoreSql(w: PrioritizationWeights, userId: string) {
   const S = dbSchema();
-  const E = Prisma.raw(`"${S}"."LeadStatus"`);
+  const E = Prisma.raw(`"${S}"."QueueLeadStatus"`);
   const O = Prisma.raw(`"${S}"."OutcomeKey"`);
   const sourceCase =
     Object.keys(w.sourceWeights).length === 0

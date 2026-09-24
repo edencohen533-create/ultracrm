@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { MockWhatsAppProvider } from "./mock-whatsapp-provider";
-import { MetaWhatsAppProvider, type MetaWhatsAppConfig } from "./meta-whatsapp-provider";
+import { MetaWhatsAppProvider } from "./meta-whatsapp-provider";
+import { metaConfigOf } from "@/lib/meta/graph";
 import type { WhatsAppProvider } from "./whatsapp-provider";
 import type { Session } from "@/lib/auth-compat";
 
@@ -24,7 +25,7 @@ export async function resolveSender(credentialId?: string | null, allowInactive 
 export async function getActiveProvider(credentialId?: string | null, allowInactive = false): Promise<WhatsAppProvider> {
   const active = await resolveSender(credentialId, allowInactive);
   if (!active || active.provider === "mock") return mockProvider;
-  if (active.provider === "meta_whatsapp_cloud_api") return new MetaWhatsAppProvider(active.config as unknown as MetaWhatsAppConfig, active.id);
+  if (active.provider === "meta_whatsapp_cloud_api") return new MetaWhatsAppProvider(metaConfigOf(active.config), active.id);
   throw new ProviderUnavailableError("ספק המספר אינו נתמך");
 }
 export function getMockProvider(): MockWhatsAppProvider { return mockProvider; }

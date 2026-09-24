@@ -9,6 +9,8 @@ import { checkMetaConnection } from "./meta-connection-service";
 import { prisma } from "@/lib/db";
 import type { MetaProviderConfigInput } from "@/lib/validation/provider";
 import { writeAuditLog } from "@/lib/audit";
+import { metaConfigOf, sealMetaConfig } from "@/lib/meta/graph";
+import { maskSecret } from "@/lib/crypto";
 
 async function applyNumberTeam(tx: Prisma.TransactionClient, id: string, teamId: string | null | undefined) {
   if (!teamId) return;
@@ -22,7 +24,7 @@ export async function getActiveProviderSummary() {
     return { provider: "mock" as const, configured: true };
   }
 
-  const config = active.config as unknown as Record<string, string>;
+  const config = metaConfigOf(active.config);
   return {
     id: active.id,
     provider: active.provider,
@@ -32,7 +34,7 @@ export async function getActiveProviderSummary() {
     sendingBlocked: active.sendingBlocked,
     phoneNumberId: config.phoneNumberId ?? null,
     businessAccountId: config.businessAccountId ?? null,
-    accessTokenMasked: config.accessToken ? `${"•".repeat(Math.max(config.accessToken.length - 4, 4))}${config.accessToken.slice(-4)}` : null,
+    accessTokenMasked: maskSecret(config.accessToken),
     hasAppSecret: Boolean(config.appSecret),
   };
 }
@@ -52,7 +54,7 @@ export async function activateMetaProvider(input: MetaProviderConfigInput, actor
     if (existing && options.teamId !== undefined && existing.teamId !== options.teamId) await applyNumberTeam(tx, existing.id, options.teamId);
     const isDefault = options.makeDefault || !other || Boolean(existing?.isDefault);
     if (isDefault) await tx.providerCredential.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
-    const data = { phoneNumberId: input.phoneNumberId, config: input, isActive: true, isDefault, sendingBlocked: false, lastCheckedAt: new Date(), lastConnectionError: null, displayPhoneNumber: report.phoneNumber, ...(options.label !== undefined ? { label: options.label } : {}), ...(options.teamId !== undefined ? { teamId: options.teamId } : {}) };
+    const data = { phoneNumberId: input.phoneNumberId, wabaId: input.businessAccountId, config: sealMetaConfig(input) as Prisma.InputJsonValue, connectionMethod: "manual", status: "connected_not_ready" as const, isActive: true, isDefault, sendingBlocked: false, lastCheckedAt: new Date(), lastConnectionError: null, displayPhoneNumber: report.phoneNumber, verifiedName: report.verifiedName, subscribedAt: report.hasSubscribedApp ? new Date() : null, ...(options.label !== undefined ? { label: options.label } : {}), ...(options.teamId !== undefined ? { teamId: options.teamId } : {}) };
     return existing
       ? tx.providerCredential.update({ where: { id: existing.id }, data })
       : tx.providerCredential.create({ data: { businessId: requireBusinessId(), channel: "whatsapp", provider: "meta_whatsapp_cloud_api", ...data } });
@@ -97,7 +99,7 @@ export async function updateProvider(id: string, input: { action: "disconnect" |
   if (input.action === "reconnect") {
     const saved = await prisma.providerCredential.findUnique({ where: { id } });
     if (!saved || saved.provider !== "meta_whatsapp_cloud_api") throw new MetaConnectionError("המספר אינו נגיש");
-    return activateMetaProvider(saved.config as unknown as MetaProviderConfigInput, actorUserId);
+    return activateMetaProvider(metaConfigOf(saved.config) as MetaProviderConfigInput, actorUserId);
   }
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requireBusinessId()}, 774291))`;

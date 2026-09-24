@@ -31,6 +31,8 @@
 | יכולת | מיקום ב-UltraCRM | מצב |
 |---|---|---|
 | WhatsApp Meta Cloud API: שליחה/קבלה, מדיה, סטטוסי מסירה, חתימות | `src/server/providers/meta-whatsapp-provider.ts`, `/api/webhooks/whatsapp` | ממומש – הדמיה (Meta חי טרם אומת; mock provider נבדק) |
+| "חבר WhatsApp" – Meta Embedded Signup: state/CSRF, החלפת code בשרת, `debug_token`, אימות נכסים, `subscribed_apps`, `register`, מצבים אמיתיים, בדוק/חבר מחדש/נתק, PIN, בדיקת שליחה, `account_update` → revoked | `/settings/whatsapp`, `/api/whatsapp/signup/*`, `/api/whatsapp/connection*`, `src/server/services/embedded-signup-service.ts` | ממומש – הדמיה (20 בדיקות אינטגרציה מול Graph מזויף + QA דפדפן); מול Meta חי חסום עד קבלת App ID / Config ID (ראו `docs/WHATSAPP_EMBEDDED_SIGNUP.md`) |
+| Coexistence (מספר שכבר ב-WhatsApp Business App) | – | לא ממומש ולא מובטח – מתועד בלבד |
 | תיבת שיחות, שיוך נציג, תגיות, הערות פנימיות, טיוטות, קבצים | `/inbox`, `/api/conversations/*` | ממומש ונבדק (browser B10) |
 | תבניות: סנכרון/הגשה ל-Meta, תצוגה מקדימה | `/templates`, `/api/templates*` | ממומש (Meta חי חסום) |
 | קמפיינים, רשימות תפוצה, קהלים דינמיים, preflight, worker עם נעילה | `/campaigns`, `/api/campaigns*`, `/api/jobs/campaigns` | ממומש ונבדק (unit + integration) |

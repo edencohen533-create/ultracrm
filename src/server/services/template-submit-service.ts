@@ -2,14 +2,14 @@ import { prisma } from "@/lib/db";
 import { requireBusinessId } from "@/lib/tenant";
 import { submitTemplateSchema } from "@/lib/validation/template";
 import { templateParameterKeys } from "@/lib/campaigns";
-import type { MetaWhatsAppConfig } from "@/server/providers/meta-whatsapp-provider";
+import { metaConfigOf, GRAPH_VERSION } from "@/lib/meta/graph";
 
 export class TemplateSubmissionError extends Error {}
 
 export async function submitMetaTemplate(input: unknown) {
   const data = submitTemplateSchema.parse(input);
   const credential = await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api", sendingBlocked: false }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] });
-  const config = credential?.config as unknown as MetaWhatsAppConfig | undefined;
+  const config = credential ? metaConfigOf(credential.config) : undefined;
   if (!config?.businessAccountId) throw new TemplateSubmissionError("יש לחבר חשבון Meta ולהגדיר Business Account ID לפני הגשה");
   const variables = templateParameterKeys(data.body);
   // Reserve the unique name before the external call, preventing concurrent submissions.
@@ -21,7 +21,7 @@ export async function submitMetaTemplate(input: unknown) {
     throw error;
   }
   try {
-    const response = await fetch(`https://graph.facebook.com/${config.apiVersion ?? "v21.0"}/${config.businessAccountId}/message_templates`, {
+    const response = await fetch(`https://graph.facebook.com/${config.apiVersion ?? GRAPH_VERSION}/${config.businessAccountId}/message_templates`, {
       method: "POST", headers: { Authorization: `Bearer ${config.accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ name: data.name, language: data.language, category: data.category, components: [{ type: "BODY", text: data.body, ...(variables.length ? { example: { body_text: [variables.map((key) => data.examples[key])] } } : {}) }] }),
       signal: AbortSignal.timeout(15000), redirect: "error",

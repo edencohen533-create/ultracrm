@@ -4,6 +4,7 @@ import { metaWebhookSchema, providerTimestamp, InvalidWebhookError, type MetaInb
 import { updateProviderMessageStatus } from "@/server/services/message-status-service";
 import { MAX_DOWNLOAD_BYTES, safeMediaDownloadUrl } from "@/lib/media";
 import crypto from "node:crypto";
+import { GRAPH_VERSION } from "@/lib/meta/graph";
 import { prisma } from "@/lib/db";
 import { ConversationSource, MessageStatus, MessageType } from "@/generated/prisma/client";
 import { createInboundMessage } from "@/server/services/message-service";
@@ -22,6 +23,8 @@ export interface MetaWhatsAppConfig {
   webhookVerifyToken: string;
   appSecret?: string;
   apiVersion?: string;
+  /** Two-step verification PIN used for Cloud API registration (Embedded Signup). */
+  twoStepPin?: string;
 }
 
 const META_TYPE_TO_MESSAGE_TYPE: Record<string, MessageType> = {
@@ -52,7 +55,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
   constructor(private readonly config: MetaWhatsAppConfig, readonly credentialId?: string) {}
 
   private get baseUrl(): string {
-    return `https://graph.facebook.com/${this.config.apiVersion ?? "v21.0"}/${this.config.phoneNumberId}`;
+    return `https://graph.facebook.com/${this.config.apiVersion ?? GRAPH_VERSION}/${this.config.phoneNumberId}`;
   }
 
   private toE164Digits(phone: string): string {
@@ -60,7 +63,8 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
   }
 
   private async post(path: string, body: unknown) {
-    if (this.credentialId && !await prisma.providerCredential.findFirst({ where: { id: this.credentialId, isActive: true, sendingBlocked: false, config: { equals: this.config as unknown as import("@/generated/prisma/client").Prisma.InputJsonValue } }, select: { id: true } })) throw new Error("WhatsApp connection changed or sending is blocked");
+    // Re-check right before each send: the connection may have been disconnected, revoked or blocked meanwhile.
+    if (this.credentialId && !await prisma.providerCredential.findFirst({ where: { id: this.credentialId, isActive: true, sendingBlocked: false, phoneNumberId: this.config.phoneNumberId, status: { notIn: ["disconnected", "revoked", "error"] } }, select: { id: true } })) throw new Error("WhatsApp connection changed or sending is blocked");
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "POST",
       headers: {
@@ -166,7 +170,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
   async downloadMedia(mediaId: string, range?: string): Promise<Response> {
     if (!/^\d+$/.test(mediaId)) throw new Error("Invalid media ID");
     const headers = { Authorization: `Bearer ${this.config.accessToken}` };
-    const metadata = await fetch(`https://graph.facebook.com/${this.config.apiVersion ?? "v21.0"}/${mediaId}?phone_number_id=${encodeURIComponent(this.config.phoneNumberId)}`, {
+    const metadata = await fetch(`https://graph.facebook.com/${this.config.apiVersion ?? GRAPH_VERSION}/${mediaId}?phone_number_id=${encodeURIComponent(this.config.phoneNumberId)}`, {
       headers, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(10000),
     });
     if (!metadata.ok) throw new Error("Media is no longer available");

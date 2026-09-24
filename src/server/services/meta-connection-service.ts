@@ -1,10 +1,11 @@
 import type { MetaWhatsAppConfig } from "@/server/providers/meta-whatsapp-provider";
+import { GRAPH_VERSION } from "@/lib/meta/graph";
 export class MetaConnectionError extends Error {}
 
 /** Read-only preflight: validates number ownership and both management resources. */
 export async function checkMetaConnection(config: MetaWhatsAppConfig) {
   if (!config.businessAccountId) throw new MetaConnectionError("Business Account ID נדרש לחיבור מלא");
-  const base = `https://graph.facebook.com/${config.apiVersion ?? "v21.0"}`;
+  const base = `https://graph.facebook.com/${config.apiVersion ?? GRAPH_VERSION}`;
   async function get(path: string) {
     try {
       const res = await fetch(`${base}/${path}`, { headers: { Authorization: `Bearer ${config.accessToken}` }, signal: AbortSignal.timeout(10000), redirect: "error", cache: "no-store" });

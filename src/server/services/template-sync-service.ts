@@ -2,7 +2,7 @@ import { requireBusinessId } from "@/lib/tenant";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { templateParameterKeys } from "@/lib/campaigns";
-import type { MetaWhatsAppConfig } from "@/server/providers/meta-whatsapp-provider";
+import { metaConfigOf, GRAPH_VERSION } from "@/lib/meta/graph";
 import type { TemplateStatus } from "@/generated/prisma/client";
 
 const remoteTemplate = z.object({
@@ -29,14 +29,14 @@ export function mapRemoteTemplate(template: z.infer<typeof remoteTemplate>) {
 export async function syncMetaTemplates() {
   const credential = await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api", sendingBlocked: false }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] });
   if (!credential) throw new TemplateSyncError("יש לחבר תחילה את Meta בהגדרות וואטסאפ");
-  const config = credential.config as unknown as MetaWhatsAppConfig;
+  const config = metaConfigOf(credential.config);
   if (!config.businessAccountId || !/^\d+$/.test(config.businessAccountId)) throw new TemplateSyncError("יש להגדיר WhatsApp Business Account ID בהגדרות החיבור");
   const templates: z.infer<typeof remoteTemplate>[] = [];
   let cursor: string | undefined;
   const seen = new Set<string>();
   // Build every page URL ourselves; never send credentials to paging.next.
   for (let page = 0; page < 20; page++) {
-    const url = new URL(`https://graph.facebook.com/${config.apiVersion ?? "v21.0"}/${config.businessAccountId}/message_templates`);
+    const url = new URL(`https://graph.facebook.com/${config.apiVersion ?? GRAPH_VERSION}/${config.businessAccountId}/message_templates`);
     url.searchParams.set("fields", "id,name,language,status,category,components"); url.searchParams.set("limit", "100");
     if (cursor) url.searchParams.set("after", cursor);
     const response = await fetch(url, { headers: { Authorization: `Bearer ${config.accessToken}` }, signal: AbortSignal.timeout(10000), redirect: "error", cache: "no-store" });

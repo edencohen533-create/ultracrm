@@ -26,7 +26,8 @@ npm run dev                    # http://localhost:3000
 | `NEXT_PUBLIC_APP_URL` | משותף | כתובת האפליקציה (מוצגת במסכי ההגדרות ליצירת כתובות Webhook). |
 | `TELEPHONY_PROVIDER` | טלפוניה | `mock` (הדמיה מסומנת) או `telnyx`. |
 | `TELNYX_API_KEY`, `TELNYX_PUBLIC_KEY`, `TELNYX_CALL_CONTROL_APP_ID`, `TELNYX_CREDENTIAL_CONNECTION_ID` | טלפוניה | חשבון Telnyx אחד לכל הפריסה (ראו "מגבלות"). |
-| WhatsApp | דיוור | **אין משתני סביבה** – Access Token / Phone Number ID / App Secret / Verify Token נשמרים לכל עסק בטבלת `provider_credentials` דרך הגדרות → חיבורים → וואטסאפ. |
+| WhatsApp (Embedded Signup) | דיוור | `META_APP_ID`, `META_APP_SECRET` (שרת בלבד), `META_ES_CONFIG_ID`, `META_GRAPH_VERSION`, `META_WEBHOOK_VERIFY_TOKEN`, `ENCRYPTION_KEY` – ראו `docs/WHATSAPP_EMBEDDED_SIGNUP.md`. הלקוח מחבר את חשבונו בלחיצה על "חבר WhatsApp"; ה-token נשמר מוצפן ב-`provider_credentials`. חסר משתנה → הכרטיס מציג "חסרה הגדרה" והכפתור מושבת. |
+| WhatsApp (חיבור ידני) | דיוור | ללא משתנים – Access Token / Phone Number ID / App Secret / Verify Token לכל עסק (בעל העסק בלבד, "חיבור ידני מתקדם"). |
 
 סודות לעולם אינם נשלחים לדפדפן: מסך ההגדרות מציג Token ממוסך בלבד; Telnyx נגיש רק מצד השרת; אסימון WebRTC של הנציג הוא JWT קצר-מועד שנוצר בשרת.
 
@@ -35,7 +36,7 @@ npm run dev                    # http://localhost:3000
 | שירות | כתובת | אימות | הערות |
 |---|---|---|---|
 | Telnyx Call Control | `POST https://<domain>/api/webhooks/telnyx` | חתימת Ed25519 (`TELNYX_PUBLIC_KEY`) + חלון זמן 5 דקות | אירועים כפולים/בסדר שגוי מטופלים (מזהה אירוע ייחודי, מכונת מצבים קדימה בלבד). |
-| Meta WhatsApp Cloud API | `GET/POST https://<domain>/api/webhooks/whatsapp` | `hub.verify_token` לרישום; `X-Hub-Signature-256` עם App Secret של העסק | הניתוב לעסק לפי `phone_number_id` שייחודי גלובלית; כל החתימות נבדקות לפני כל גישה לנתוני עסק. |
+| Meta WhatsApp Cloud API | `GET/POST https://<domain>/api/webhooks/whatsapp` | `hub.verify_token` = `META_WEBHOOK_VERIFY_TOKEN`; `X-Hub-Signature-256` עם App Secret של האפליקציה (נפילה לאחור: App Secret של חיבור ידני) | הודעות מנותבות לפי `phone_number_id` (ייחודי גלובלית), אירועי חשבון (`account_update`…) לפי `waba_id`; כל החתימות נבדקות לפני כל גישה לנתוני עסק. שדות לרישום: messages, account_update, account_review_update, phone_number_quality_update, phone_number_name_update, business_capability_update. |
 | Vercel Cron | `/api/jobs/events` (כל דקה), `/api/jobs/campaigns` (כל דקה), `/api/jobs/automations` (כל 2 דקות), `/api/jobs/retention` (יומי) | `CRON_SECRET` | מוגדר ב-`vercel.json`. ניתן להפעיל מכל מתזמן חיצוני. |
 
 **אין לשנות** את ה-Webhooks של המערכות המקוריות (dialer / solinainbox); UltraCRM דורש רישום כתובות חדשות בחשבונות Telnyx ו-Meta של סביבת הבדיקה.
@@ -53,7 +54,7 @@ npm run dev                    # http://localhost:3000
 
 1. יצירת מסד PostgreSQL לייצור והרצת `prisma migrate deploy` (אין להריץ על מסדי המקור).
 2. Telnyx: Call Control App עם ה-Webhook החדש, SIP Credential Connection, Outbound Voice Profile, מספרי E.164 של העסק, והגדרת ארבעת משתני הסביבה + `TELEPHONY_PROVIDER=telnyx`. עד אז המערכת רצה בהדמיה מסומנת.
-3. Meta: אפליקציה עם הרשאות `whatsapp_business_messaging` + `whatsapp_business_management`, רישום Webhook לכתובת החדשה, והזנת פרטי החיבון לכל עסק במסך ההגדרות; סנכרון תבניות מאושרות. עד אז הדיוור רץ עם ספק mock מסומן.
+3. Meta: אפליקציית Business עם WhatsApp + Facebook Login for Business, Configuration ל-Embedded Signup, Advanced Access לשתי ההרשאות (App Review + Business Verification), רישום Webhook לכתובת החדשה, ומילוי `META_*` בשרת. לאחר מכן כל עסק לוחץ "חבר WhatsApp" בהגדרות; סנכרון תבניות מאושרות. עד אז הדיוור רץ עם ספק mock מסומן.
 4. החלפת סיסמאות הדמו (חיבור Meta מסרב לפעול כשמשתמש פעיל עדיין עם `Demo1234!`).
 5. `CRON_SECRET` + `JWT_SECRET` ייצוריים ב-Vercel; אימות שה-crons פעילים (תוכנית Vercel שתומכת בתדירות דקה).
 6. שיחת בדיקה למספר מאושר עם אודיו דו-כיווני והודעת WhatsApp לחשבון בדיקה – רק אז ניתן לסמן את האינטגרציה החיה כמאומתת.

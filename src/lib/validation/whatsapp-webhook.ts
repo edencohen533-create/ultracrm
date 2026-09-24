@@ -11,12 +11,19 @@ const message = z.object({
 });
 export const metaWebhookSchema = z.object({
   object: z.literal("whatsapp_business_account"),
-  entry: z.array(z.object({ changes: z.array(z.object({
+  // `entry.id` is the WABA id – used to route account-level events (account_update, …).
+  entry: z.array(z.object({ id: z.string().optional(), changes: z.array(z.object({
     field: z.string(), value: z.object({
       metadata: z.object({ phone_number_id: z.string() }).optional(),
       messages: z.array(message).max(1000).optional(),
       statuses: z.array(z.object({ id: z.string().min(1), status: z.string(), timestamp: z.string().regex(/^\d+$/) })).max(1000).optional(),
       contacts: z.array(z.object({ wa_id: z.string(), profile: z.object({ name: z.string() }).optional() })).optional(),
+      // account_update / phone_number_* / business_capability_update fields
+      event: z.string().optional(),
+      waba_info: z.object({ waba_id: z.string().optional(), owner_business_id: z.string().optional() }).passthrough().optional(),
+      display_phone_number: z.string().optional(),
+      decision: z.string().optional(),
+      current_limit: z.string().optional(),
     }).passthrough(),
   })).max(1000) })).max(1000),
 });

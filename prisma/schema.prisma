@@ -357,6 +357,7 @@ model Business {
   noteDrafts   NoteDraft[]
 
   providerCredentials ProviderCredential[]
+  whatsappSignupSessions WhatsAppSignupSession[]
   conversations Conversation[]
   messages      Message[]
   cannedReplies CannedReply[]
@@ -1129,7 +1130,19 @@ model NoteDraft {
 // Messaging module (solinainbox)
 // ═════════════════════════════════════════════════════════════════════════════
 
+/// Real connection state of a WhatsApp number (never "connected" just because a window closed).
+enum WaConnectionStatus {
+  disconnected
+  in_progress
+  needs_action
+  connected_not_ready
+  connected
+  revoked
+  error
+}
+
 /// Per-business provider connection. `provider`: meta_whatsapp_cloud_api | mock.
+/// Secrets inside `config` (accessToken, appSecret, twoStepPin) are encrypted at rest (src/lib/crypto.ts).
 /// (Telephony credentials remain server env vars – see docs/DEPLOYMENT.md.)
 model ProviderCredential {
   id                  String    @id @default(cuid())
@@ -1140,6 +1153,24 @@ model ProviderCredential {
   displayPhoneNumber  String?   @map("display_phone_number")
   /// Meta phone number id – globally unique so webhooks can route to the owning business.
   phoneNumberId       String?   @unique @map("phone_number_id")
+  /// Meta WhatsApp Business Account id (webhooks such as account_update route by it).
+  wabaId              String?   @map("waba_id")
+  wabaName            String?   @map("waba_name")
+  metaBusinessId      String?   @map("meta_business_id")
+  verifiedName        String?   @map("verified_name")
+  nameStatus          String?   @map("name_status")
+  qualityRating       String?   @map("quality_rating")
+  codeVerificationStatus String? @map("code_verification_status")
+  platformType        String?   @map("platform_type")
+  /// manual | embedded_signup
+  connectionMethod    String    @default("manual") @map("connection_method")
+  status              WaConnectionStatus @default(disconnected)
+  /// Scopes granted to the business token, as reported by /debug_token.
+  grantedScopes       Json?     @map("granted_scopes")
+  subscribedAt        DateTime? @map("subscribed_at")
+  registeredAt        DateTime? @map("registered_at")
+  tokenCheckedAt      DateTime? @map("token_checked_at")
+  lastOutboundTestAt  DateTime? @map("last_outbound_test_at")
   teamId              String?   @map("team_id")
   isDefault           Boolean   @default(false) @map("is_default")
   isActive            Boolean   @default(false) @map("is_active")
@@ -1155,9 +1186,39 @@ model ProviderCredential {
   team          Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
   conversations Conversation[]
   campaigns     Campaign[]
+  signupSessions WhatsAppSignupSession[]
 
   @@index([businessId, isActive])
+  @@index([wabaId])
   @@map("provider_credentials")
+}
+
+/// One Embedded Signup attempt. `state` is generated server-side and bound to the
+/// business + user that started it (CSRF / cross-business binding protection); the
+/// exchangeable code is consumed exactly once (status CAS) and never stored in clear.
+model WhatsAppSignupSession {
+  id             String    @id @default(cuid())
+  businessId     String    @map("business_id")
+  userId         String    @map("user_id")
+  state          String    @unique
+  /// started | code_received | completed | failed | cancelled
+  status         String    @default("started")
+  step           String?
+  codeHash       String?   @map("code_hash")
+  wabaId         String?   @map("waba_id")
+  phoneNumberId  String?   @map("phone_number_id")
+  metaBusinessId String?   @map("meta_business_id")
+  credentialId   String?   @map("credential_id")
+  error          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  expiresAt      DateTime  @map("expires_at")
+
+  business   Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  credential ProviderCredential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, status, createdAt])
+  @@map("whatsapp_signup_sessions")
 }
 
 model Conversation {

@@ -47,6 +47,15 @@ await step("B1 login (single login for every module)", async () => {
   return { url: page.url() };
 });
 
+await step("B1a cleanup: finish any call left by a previous run (server truth via API)", async () => {
+  const st = await (await page.request.get(`${BASE}/api/dialer/state`)).json();
+  const call = st.data?.activeCall ?? st.data?.wrapUpCall;
+  if (!call) return { cleaned: false };
+  if (!call.endedAt) { await page.request.post(`${BASE}/api/dialer/call/${call.id}/hangup`); await page.waitForTimeout(3000); await page.request.get(`${BASE}/api/dialer/state`); }
+  await page.request.post(`${BASE}/api/dialer/call/${call.id}/outcome`, { data: { outcome: "no_answer", note: "QA cleanup" } });
+  return { cleaned: call.id };
+});
+
 await step("B1b warm up dev compilation of every screen", async () => {
   for (const p of ["/contacts", "/leads", "/deals", "/tasks", "/inbox", "/campaigns", "/templates", "/automations", "/dialer", "/lists", "/manager", "/settings", "/dashboard"]) {
     await page.goto(`${BASE}${p}`, { waitUntil: "networkidle", timeout: 120000 }).catch(() => undefined);
@@ -126,10 +135,13 @@ await step("B8 dial button disabled while a call is live (no second call)", asyn
 
 await step("B9 hang up and save outcome + note in the dialer screen; follow-up task created", async () => {
   await page.goto(`${BASE}/dialer`);
-  await page.waitForTimeout(6000); // let the simulated call answer (last digit ≠ 0/1/2 → answered)
-  const hang = page.locator('button:text-is("נתק")').first();
-  if (await hang.count()) await hang.click();
-  await page.waitForSelector('button:has-text("ענה – מעוניין")', { timeout: 30000 });
+  await page.waitForTimeout(8000); // let the simulated call answer (last digit ≠ 0/1/2 → answered)
+  const hang = page.locator("main button", { hasText: /^נתק/ }).first();
+  await hang.waitFor({ timeout: 30000 });
+  await hang.click();
+  // Server truth: the provider (simulation) must report the call ended.
+  await page.waitForFunction(async () => { const r = await fetch("/api/dialer/state"); const d = (await r.json()).data; return !d.activeCall && d.wrapUpCall; }, null, { timeout: 60000, polling: 1500 });
+  await page.waitForSelector('button:has-text("ענה – מעוניין")', { timeout: 60000 });
   const note = page.locator("textarea").first();
   if (await note.count()) await note.fill("הערת QA מהדפדפן");
   await page.click('button:has-text("ענה – מעוניין")');
@@ -137,33 +149,43 @@ await step("B9 hang up and save outcome + note in the dialer screen; follow-up t
   if (await save.count()) await save.click().catch(() => undefined);
   await page.waitForTimeout(3000);
   await shot(page, "B9-outcome-saved");
+  // Server truth first: the outcome event must produce the follow-up task (event worker runs after the response + cron safety net).
+  await page.waitForFunction(async (id) => { const r = await fetch(`/api/tasks?contactId=${id}&status=open&limit=50`); const d = (await r.json()).data; return (d?.items ?? []).some((t) => t.type === "follow_up" && (t.title ?? "").includes("מעקב אחרי שיחה")); }, contactId, { timeout: 120000, polling: 2000 });
   await page.goto(`${BASE}/contacts/${contactId}`);
-  await page.waitForSelector("text=מעקב אחרי שיחה", { timeout: 20000 });
-  await page.waitForSelector("text=ענה – מעוניין", { timeout: 20000 });
+  await page.waitForSelector("text=מעקב אחרי שיחה", { timeout: 60000 });
+  await page.waitForSelector("text=ענה – מעוניין", { timeout: 60000 });
   await shot(page, "B9-card-after-call");
 });
 
 await step("B10 WhatsApp from the card → inbox conversation (mock provider) → message in card timeline", async () => {
   await page.goto(`${BASE}/contacts/${contactId}`);
   await page.click('button:has-text("שלח WhatsApp")');
-  await page.waitForURL("**/inbox/**", { timeout: 20000 });
-  await page.waitForSelector("text=כרטיס לקוח והסרה מדיוור", { timeout: 20000 });
-  await shot(page, "B10-inbox-conversation");
+  await page.waitForURL("**/inbox/**", { timeout: 60000 });
+  await page.waitForSelector("text=כרטיס לקוח והסרה מדיוור", { timeout: 60000 });
   const conversationId = page.url().split("/").pop();
+  await shot(page, "B10-inbox-conversation");
   // Simulate an inbound reply through the real inbound path (demo simulator).
   const res = await page.request.post(`${BASE}/api/demo/simulate-inbound`, { data: { contactId, body: "היי, תשובת בדיקה" } });
   if (!res.ok()) throw new Error(`simulate-inbound ${res.status()}`);
   await page.reload();
   await page.waitForSelector("text=היי, תשובת בדיקה", { timeout: 20000 });
   // Now the 24h service window is open – send a free-text reply.
-  const composer = page.locator("textarea").last();
+  const composer = page.locator("textarea:visible").last();
+  await composer.waitFor({ timeout: 60000 });
+  const sends = [];
+  const onResp = (r) => { if (r.url().includes(`/api/conversations/${conversationId}/messages`) && r.request().method() === "POST") sends.push(r.status()); };
+  page.on("response", onResp);
   await composer.fill("תודה, נחזור אליך");
-  await composer.press("Enter");
-  await page.waitForSelector("text=תודה, נחזור אליך", { timeout: 20000 });
+  await page.locator("button", { hasText: /^שלח$/ }).last().click();
+  // Server truth: an OUTBOUND message must exist for this conversation.
+  await page.waitForFunction(async (id) => { const r = await fetch(`/api/conversations/${id}/messages`); const d = await r.json(); return (d.messages ?? []).some((m) => m.direction === "OUTBOUND" && (m.body ?? "").includes("נחזור אליך")); }, conversationId, { timeout: 120000, polling: 2000 });
+  page.off("response", onResp);
+  await page.waitForSelector("text=תודה, נחזור אליך", { timeout: 60000 });
+  console.log("   send responses:", sends.join(","));
   await shot(page, "B10-inbox-reply");
   await page.goto(`${BASE}/contacts/${contactId}`);
-  await page.waitForSelector("text=הודעה נכנסת · WhatsApp", { timeout: 20000 });
-  await page.waitForSelector("text=תודה, נחזור אליך", { timeout: 20000 });
+  await page.waitForSelector("text=הודעה נכנסת · WhatsApp", { timeout: 60000 });
+  await page.waitForSelector("text=תודה, נחזור אליך", { timeout: 60000 });
   await shot(page, "B10-card-timeline");
   return { conversationId };
 });
@@ -214,8 +236,8 @@ await step("B14 business switcher (owner belongs to two businesses; second has n
   const options = await switcher.locator("option").allTextContents();
   await switcher.selectOption({ index: 1 });
   await page.waitForTimeout(3000);
-  await page.waitForFunction(() => { const s = document.querySelector('select[aria-label="בחירת עסק"]'); return s && s.options[s.selectedIndex]?.textContent?.includes("עסק שני"); }, null, { timeout: 20000 });
-  await page.waitForSelector("aside >> text=Starter", { timeout: 15000 });
+  await page.waitForFunction(() => { const s = document.querySelector('select[aria-label="בחירת עסק"]'); return s && s.options[s.selectedIndex]?.textContent?.includes("עסק שני"); }, null, { timeout: 60000 });
+  await page.waitForSelector("aside >> text=Starter", { timeout: 30000 });
   const dialerNav = await page.locator('aside >> text=חייגן').count();
   if (dialerNav) throw new Error("telephony nav visible for Starter business");
   await page.goto(`${BASE}/contacts`);

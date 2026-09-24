@@ -16,7 +16,7 @@ function createClient() {
   const url = new URL(connectionString);
   const schema = url.searchParams.get("schema") ?? "public";
   url.searchParams.delete("schema");
-  const adapter = new PrismaPg({ connectionString: url.toString(), max: 5 }, { schema });
+  const adapter = new PrismaPg({ connectionString: url.toString(), max: Number(process.env.DATABASE_POOL_MAX ?? 10) }, { schema });
   return new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],

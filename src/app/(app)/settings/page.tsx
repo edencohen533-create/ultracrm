@@ -6,7 +6,7 @@ import { api, qs } from "@/lib/client/api";
 import { Badge, Button, Input, Modal, Panel, Phone, Select, Spinner, Textarea, cx } from "@/components/ui";
 import { formatDateTime, formatPhone } from "@/lib/client/format";
 
-type Tab = "business" | "users" | "connections" | "plan" | "automations" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history";
+type Tab = "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history";
 interface Prio { callbackDue: number; priority: number; newLeadPerHour: number; newLeadMaxHours: number; agingPerHour: number; agingMaxHours: number; attemptPenalty: number; ownerMatch: number; sourceWeights: Record<string, number>; interestedBefore: number }
 interface Automations { newLeadTaskMinutes: number; followUpTaskOutcomes: string[]; followUpTaskHours: number; followUpMessage: { enabled: boolean; templateId: string | null; outcomes: string[]; variables: Record<string, string> } }
 interface Settings { automations: Automations; wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; retryIntervalMinutes: number; busyRetryMinutes: number; technicalFailureRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; recordingRetentionDays: number; amdEnabled: boolean; stickyOwner: boolean; removeFromOtherListsOnSale: boolean; dialingPaused: boolean; allowedCountries: string[]; maxDialsPerMinute: number; dialWindow: { start: string; end: string; days: number[] }; prioritization: Prio; inbound: { preferOwner: boolean; createCallbackTask: boolean; respectDialWindow: boolean } }
@@ -19,7 +19,7 @@ export default function SettingsPage() {
   const isAdmin = me?.user.role === "owner";
   const modules = me?.modules ?? { crm: true, messaging: true, telephony: true };
   const groups: Array<{ title: string; tabs: Array<[Tab, string]>; show: boolean }> = [
-    { title: "עסק", tabs: [["business", "פרטי העסק"], ["users", "משתמשים וצוותים"], ["connections", "חיבורים"], ["plan", "חבילה ומכסות"], ["automations", "אוטומציות"], ["suppressions", "הסרות מדיוור"], ["history", "היסטוריית שינויים"]], show: true },
+    { title: "עסק", tabs: [["business", "פרטי העסק"], ["users", "משתמשים וצוותים"], ["connections", "חיבורים"], ["plan", "חבילה ומכסות"], ["automations", "אוטומציות"], ["marketing", "דיוור"], ["suppressions", "הסרות מדיוור"], ["history", "היסטוריית שינויים"]], show: true },
     { title: "טלפוניה", tabs: [["general", "חייגן"], ["priority", "תעדוף לידים"], ["safety", "בטיחות ושיחות נכנסות"], ["numbers", "מספרים יוצאים"], ["scripts", "תסריטים"], ["dnc", "לא ליצור קשר"]], show: modules.telephony },
   ];
   return (
@@ -37,6 +37,7 @@ export default function SettingsPage() {
       {tab === "connections" && <ConnectionsTab modules={modules} />}
       {tab === "plan" && <PlanTab isAdmin={isAdmin} />}
       {tab === "automations" && <AutomationsTab isAdmin={isAdmin} messaging={modules.messaging} />}
+      {tab === "marketing" && <MarketingTab isAdmin={isAdmin} />}
       {tab === "suppressions" && <SuppressionsTab />}
       {tab === "general" && <GeneralTab isAdmin={isAdmin} />}
       {tab === "priority" && <PriorityTab isAdmin={isAdmin} />}
@@ -403,6 +404,30 @@ function AutomationsTab({ isAdmin, messaging }: { isAdmin: boolean; messaging: b
         </div>
         <p className="text-xs text-muted border-t border-line pt-3">אוטומציות נוספות מובנות: שיחה שהסתיימה / הודעה נכנסת מעדכנות את ציר הפעילות ומקדמות ליד &quot;חדש&quot; ל&quot;נוצר קשר&quot;; בקשת הסרה בכל ערוץ חוסמת דיוור שיווקי בכל הערוצים. כל אירוע מעובד פעם אחת לכל מטפל (טבלת automation_jobs) עם ניסיונות חוזרים במקרה כשל זמני.</p>
       </div>
+    </Panel>
+  );
+}
+
+function MarketingTab({ isAdmin }: { isAdmin: boolean }) {
+  const [m, setM] = useState<{ window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number } | null>(null);
+  const [tz, setTz] = useState("");
+  useEffect(() => { api.get<{ business: { timezone?: string }; settings: { marketing: { window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number } } }>("/api/settings").then((r) => { setM(r.settings.marketing); setTz(r.business.timezone ?? ""); }).catch((e) => toast.error(e.message)); }, []);
+  if (!m) return <Spinner />;
+  const days = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
+  async function save() {
+    try { await api.patch("/api/settings", { settings: { marketing: m } }); toast.success("נשמר"); } catch (e) { toast.error((e as Error).message); }
+  }
+  return (
+    <Panel title="דיוור SMS ואימייל – חלון שליחה, קצב ותדירות">
+      <p className="text-xs text-muted mb-3">קמפיינים ורצפים ב-SMS ובאימייל נשלחים רק בתוך חלון השליחה (באזור הזמן של העסק{tz ? `: ${tz}` : ""}). מגבלת התדירות משותפת לכל הערוצים כולל WhatsApp.</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Input label="תחילת חלון (HH:MM)" value={m.window.start} onChange={(e) => setM({ ...m, window: { ...m.window, start: e.target.value } })} disabled={!isAdmin} ltr />
+        <Input label="סוף חלון (HH:MM)" value={m.window.end} onChange={(e) => setM({ ...m, window: { ...m.window, end: e.target.value } })} disabled={!isAdmin} ltr />
+        <div><span className="text-xs text-muted">ימים</span><div className="flex gap-1 mt-1">{days.map((d, i) => <button key={i} type="button" disabled={!isAdmin} onClick={() => setM({ ...m, window: { ...m.window, days: m.window.days.includes(i) ? m.window.days.filter((x) => x !== i) : [...m.window.days, i].sort() } })} className={cx("h-8 w-8 rounded border text-sm", m.window.days.includes(i) ? "bg-accent text-white" : "text-muted")}>{d}</button>)}</div></div>
+        <Input label="מקסימום נמענים לדקה (0 = ללא הגבלה)" type="number" value={String(m.maxPerMinute)} onChange={(e) => setM({ ...m, maxPerMinute: Number(e.target.value) })} disabled={!isAdmin} />
+        <Input label="שעות מינימום בין הודעות שיווקיות לאותו נמען" type="number" value={String(m.minHoursBetweenMarketing)} onChange={(e) => setM({ ...m, minHoursBetweenMarketing: Number(e.target.value) })} disabled={!isAdmin} hint="נאכף כיום ב-24 שעות בכל הערוצים; ערך גבוה יותר מחמיר את בדיקת הזכאות בסיכום הקמפיין" />
+      </div>
+      {isAdmin && <Button className="mt-3" onClick={save}>שמור</Button>}
     </Panel>
   );
 }

@@ -213,6 +213,8 @@ export async function updateContact(user: SessionUser, id: string, input: z.infe
       if (dup) throw new ApiError("אימייל זה שייך לאיש קשר אחר", 409, "duplicate_email", { contactId: dup });
     }
     data.email = email;
+    // A new address starts with a clean deliverability record (a previous hard bounce belonged to the old one).
+    if (email !== c.email) { data.emailStatus = null; data.emailBouncedAt = null; }
   }
   if (input.phone !== undefined) {
     const e164 = normalizePhone(input.phone);

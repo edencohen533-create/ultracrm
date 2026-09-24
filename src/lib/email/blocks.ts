@@ -86,7 +86,7 @@ export function renderEmailText(design: EmailDesign): string {
   let hasUnsubscribe = false;
   for (const b of design.blocks) {
     switch (b.type) {
-      case "heading": lines.push(b.text.toUpperCase() === b.text ? b.text : b.text, ""); break;
+      case "heading": lines.push(b.text, ""); break;
       case "text": lines.push(b.text.replace(/\*\*(.+?)\*\*/g, "$1"), ""); break;
       case "image": if (b.alt) lines.push(`[${b.alt}]${b.href ? ` ${b.href}` : ""}`, ""); break;
       case "button": lines.push(`${b.text}: ${b.href}`, ""); break;

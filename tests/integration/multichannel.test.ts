@@ -31,6 +31,9 @@ const { POST: unsubscribeApi } = await import("@/app/api/unsubscribe/route");
 const { GET: channelsGet } = await import("@/app/api/channels/[channel]/route");
 const { GET: reportGet } = await import("@/app/api/campaigns/[id]/report/route");
 const { openConfig } = await import("@/server/channels/registry");
+const { MockSmsProvider } = await import("@/server/channels/mock");
+const { createOutboundMessage } = await import("@/server/services/message-service");
+const { updateContact } = await import("@/lib/crm/contacts");
 
 const run = <T,>(s: SessionUser, fn: () => Promise<T>) => withBusiness(s.businessId, fn, s);
 const mockSig = (secret: string, body: string) => crypto.createHmac("sha256", secret).update(body).digest("hex");
@@ -299,5 +302,96 @@ describe("multi-channel marketing (simulated providers)", () => {
     expect(imp.invalid).toBeGreaterThanOrEqual(1);
     expect(imp.errors[0].reason).toMatch(/טלפון/);
     expect(() => MessagePolicyError).toBeDefined();
+  });
+
+  describe("regressions found in review", () => {
+    it("provider outage → retry sends exactly once and never marks a recipient SENT on a cancelled message", async () => {
+      const c = await run(a.session, () => createContact(a.session, { fullName: "רטרי", phone: "0501000041", consentStatus: "OPTED_IN", consentEvidence: "t" }));
+      const list = await db.distributionList.create({ data: { businessId: a.business.id, name: "retry", members: { create: [{ contactId: c.id }] } } });
+      const campaign = await run(a.session, () => createCampaign({ channel: "sms", name: "retry", listId: list.id, templateId: smsTpl, variables: {}, providerCredentialId: sms.id, senderId: "+972501110000" }, a.user.id));
+      await run(a.session, () => changeCampaignStatus(campaign.id, "start", undefined, a.user.id));
+      const spy = vi.spyOn(MockSmsProvider.prototype, "send").mockRejectedValueOnce(new TypeError("fetch failed"));
+      await run(a.session, () => processDueCampaigns());
+      const rec = await db.campaignRecipient.findFirstOrThrow({ where: { campaignId: campaign.id } });
+      expect(rec.status).toBe("QUEUED");
+      expect(rec.messageId).toBeNull();
+      expect(await db.message.count({ where: { requestKey: `campaign:${rec.id}` } })).toBe(0); // nothing left behind
+      expect((await db.contact.findUniqueOrThrow({ where: { id: c.id } })).lastMarketingAt).toBeNull(); // cap slot released
+      // Provider back: resume → sends once, recipient SENT on an ACCEPTED message.
+      await run(a.session, () => changeCampaignStatus(campaign.id, "resume", undefined, a.user.id));
+      await run(a.session, () => processDueCampaigns());
+      await run(a.session, () => processDueCampaigns());
+      const after = await db.campaignRecipient.findUniqueOrThrow({ where: { id: rec.id }, include: { message: true } });
+      expect(after.status).toBe("SENT");
+      expect(after.message?.status).toBe("ACCEPTED");
+      expect(await db.message.count({ where: { requestKey: `campaign:${rec.id}` } })).toBe(1);
+      expect(spy).toHaveBeenCalledTimes(2);
+      spy.mockRestore();
+    });
+
+    it("a 'sent, no reply' sequence never re-triggers itself from its own step", async () => {
+      const c = await run(a.session, () => createContact(a.session, { fullName: "לולאה", phone: "0501000042", consentStatus: "OPTED_IN", consentEvidence: "t" }));
+      const seq = await run(a.session, () => saveSequence(a.session, { name: "follow-up", isActive: true, trigger: "SENT_NO_REPLY", triggerConfig: { channel: "sms", marketingOnly: true }, stopOn: ["unsubscribe"], steps: [{ channel: "sms", templateId: smsTpl, waitMinutes: 30, variables: {}, condition: { requireNoReply: true } }] }));
+      const first = await run(a.session, () => sendChannelMessage({ channel: "sms", contactId: c.id, templateId: smsTpl, category: "marketing", requestKey: `loop:${c.id}`, sentByUserId: a.user.id }));
+      // The send kicks event processing in the background; poll until the handler has run.
+      const runs = async () => db.sequenceRun.count({ where: { sequenceId: seq.id, contactId: c.id } });
+      for (let i = 0; i < 40 && (await runs()) === 0; i++) { await processDomainEvents({ businessId: a.business.id, limit: 50 }); await new Promise((r) => setTimeout(r, 250)); }
+      expect(await runs()).toBe(1);
+      // Fast-forward the run and lift the frequency cap so the step actually sends.
+      await db.sequenceRun.updateMany({ where: { sequenceId: seq.id, contactId: c.id }, data: { nextAt: new Date(Date.now() - 1000) } });
+      await db.contact.update({ where: { id: c.id }, data: { lastMarketingAt: null } });
+      await run(a.session, () => processDueSequenceRuns(Date.now() + 30_000, a.business.id));
+      const stepMsg = await db.message.findFirst({ where: { conversation: { contactId: c.id }, requestKey: { startsWith: "seq:" } } });
+      expect(stepMsg?.status).toBe("ACCEPTED");
+      await processDomainEvents({ businessId: a.business.id, limit: 50 });
+      await new Promise((r) => setTimeout(r, 1500));
+      await processDomainEvents({ businessId: a.business.id, limit: 50 });
+      expect(await runs()).toBe(1); // no second run from the step's own message.sent
+      expect(first.message.id).not.toBe(stepMsg?.id);
+    });
+
+    it("free-text reply on an SMS conversation from the inbox goes out as a service SMS (no template, no marketing gate)", async () => {
+      // Inbound SMS from a brand-new number creates the contact + SMS conversation.
+      expect((await postSms({ eventId: "in-reply-1", providerMessageId: "mock-in-reply-1", inbound: { from: "+972501000043", to: "+972501110000", body: "יש לכם מלאי?" } })).status).toBe(200);
+      const conv = await db.conversation.findFirstOrThrow({ where: { businessId: a.business.id, channel: "sms", contact: { phoneE164: "+972501000043" } } });
+      const { message } = await run(a.session, () => createOutboundMessage({ conversationId: conv.id, body: "כן, מוזמנים להגיע היום", sentByUserId: a.user.id, requestKey: `reply:${conv.id}:1` }));
+      expect(message.channel).toBe("sms");
+      expect(message.category).toBe("service");
+      expect(message.status).toBe("ACCEPTED");
+      expect(message.body).not.toContain("להסרה");
+      // Idempotent
+      const again = await run(a.session, () => createOutboundMessage({ conversationId: conv.id, body: "כן, מוזמנים להגיע היום", sentByUserId: a.user.id, requestKey: `reply:${conv.id}:1` }));
+      expect(again.message.id).toBe(message.id);
+      // A "do not contact" suppression blocks even service replies.
+      const contactRow = await db.contact.findFirstOrThrow({ where: { businessId: a.business.id, phoneE164: "+972501000043" } });
+      await run(a.session, () => suppressContact({ businessId: a.business.id, contactId: contactRow.id, scope: "all", source: "manual", reason: "t", actorId: a.user.id }));
+      await expect(run(a.session, () => createOutboundMessage({ conversationId: conv.id, body: "עוד", sentByUserId: a.user.id, requestKey: `reply:${conv.id}:2` }))).rejects.toThrow(MessagePolicyError);
+    });
+
+    it("changing a contact's email clears a previous hard-bounce mark", async () => {
+      const c = await run(a.session, () => createContact(a.session, { fullName: "בואנס", phone: "0501000044", email: "old@example.test", consentStatus: "OPTED_IN", consentEvidence: "t" }));
+      await db.contact.update({ where: { id: c.id }, data: { emailStatus: "hard_bounce", emailBouncedAt: new Date() } });
+      await run(a.session, () => updateContact(a.session, c.id, { email: "new@example.test" }));
+      const after = await db.contact.findUniqueOrThrow({ where: { id: c.id } });
+      expect(after.email).toBe("new@example.test");
+      expect(after.emailStatus).toBeNull();
+      await run(a.session, () => updateContact(a.session, c.id, { company: "x" }));
+      expect((await db.contact.findUniqueOrThrow({ where: { id: c.id } })).emailStatus).toBeNull();
+    });
+
+    it("audience filters by CRM owner and lead status resolve to the right contacts", async () => {
+      const { previewAudience } = await import("@/server/services/audience-service");
+      const owned = await run(a.session, () => createContact(a.session, { fullName: "בעלים", phone: "0501000045", consentStatus: "OPTED_IN", consentEvidence: "t", ownerUserId: a.user.id }));
+      await db.lead.create({ data: { businessId: a.business.id, contactId: owned.id, status: "qualified" } });
+      const byOwner = await run(a.session, () => previewAudience({ segment: { field: "owner", operator: "is", value: a.user.id } }));
+      expect(byOwner.matched).toBeGreaterThanOrEqual(1);
+      const byStage = await run(a.session, () => previewAudience({ segment: { operator: "AND", conditions: [{ field: "leadStatus", operator: "is", value: "qualified" }, { field: "owner", operator: "is", value: a.user.id }] } }));
+      expect(byStage.matched).toBe(1);
+      // Contacts created by the owner are auto-owned; exactly one of them has a lead.
+      const noLead = await run(a.session, () => previewAudience({ segment: { operator: "AND", conditions: [{ field: "leadStatus", operator: "is", value: "none" }, { field: "owner", operator: "is", value: a.user.id }] } }));
+      expect(noLead.matched).toBe(byOwner.matched - 1);
+      const notOwned = await run(a.session, () => previewAudience({ segment: { field: "owner", operator: "is_not", value: a.user.id } }));
+      expect(notOwned.matched + byOwner.matched).toBe(await db.contact.count({ where: { businessId: a.business.id } }));
+    });
   });
 });

@@ -12,7 +12,7 @@ import { CHANNEL_LABELS } from "@/lib/campaigns";
 
 interface TemplateOpt { id: string; name: string; channel: string }
 interface Step { channel: "whatsapp" | "sms" | "email"; templateId: string; waitMinutes: number; variables: Record<string, string>; condition: { requireNoReply: boolean } }
-export interface SequenceRow { id: string; name: string; isActive: boolean; trigger: string; triggerConfig: { channel?: string; tagName?: string; marketingOnly?: boolean }; stopOn: string[]; steps: Array<{ position: number; channel: string; templateId: string; waitMinutes: number; template: { name: string } }>; _count: { runs: number } }
+export interface SequenceRow { id: string; name: string; isActive: boolean; trigger: string; triggerConfig: { channel?: string; tagName?: string; marketingOnly?: boolean }; stopOn: string[]; steps: Array<{ position: number; channel: string; templateId: string; waitMinutes: number; variables?: Record<string, string>; condition?: { requireNoReply?: boolean }; template: { name: string } }>; _count: { runs: number } }
 
 const TRIGGER: Record<string, string> = { DELIVERY_FAILED: "הודעה שיווקית נכשלה במסירה", SENT_NO_REPLY: "הודעה שיווקית נשלחה ואין תשובה", TAG_ADDED: "תגית נוספה לאיש קשר" };
 const EMPTY: Step = { channel: "sms", templateId: "", waitMinutes: 60, variables: {}, condition: { requireNoReply: true } };
@@ -38,7 +38,7 @@ export function SequencePanel({ sequences, templates, tags }: { sequences: Seque
     } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
   }
   async function toggle(s: SequenceRow) {
-    try { await api.put(`/api/sequences/${s.id}`, { name: s.name, isActive: !s.isActive, trigger: s.trigger, triggerConfig: s.triggerConfig, stopOn: s.stopOn, steps: s.steps.map((st) => ({ channel: st.channel, templateId: st.templateId, waitMinutes: st.waitMinutes, variables: {}, condition: { requireNoReply: true } })) }); router.refresh(); } catch (e) { toast.error((e as Error).message); }
+    try { await api.put(`/api/sequences/${s.id}`, { name: s.name, isActive: !s.isActive, trigger: s.trigger, triggerConfig: s.triggerConfig, stopOn: s.stopOn, steps: s.steps.map((st) => ({ channel: st.channel, templateId: st.templateId, waitMinutes: st.waitMinutes, variables: st.variables ?? {}, condition: { requireNoReply: st.condition?.requireNoReply ?? true } })) }); router.refresh(); } catch (e) { toast.error((e as Error).message); }
   }
   async function remove(s: SequenceRow) {
     if (!confirm(`למחוק את הרצף "${s.name}"? ריצות פעילות ייעצרו.`)) return;
@@ -77,7 +77,7 @@ export function SequencePanel({ sequences, templates, tags }: { sequences: Seque
         <ul className="space-y-2">{sequences.map((s) => (
           <li key={s.id} className="rounded-xl border p-3 text-sm" data-testid={`sequence-${s.id}`}>
             <div className="flex flex-wrap items-center gap-2"><b>{s.name}</b><span className="rounded-full border px-2 text-xs">{s.isActive ? "פעיל" : "כבוי"}</span><span className="text-muted-foreground">{TRIGGER[s.trigger]}{s.triggerConfig.channel ? ` · ${CHANNEL_LABELS[s.triggerConfig.channel]}` : ""}{s.triggerConfig.tagName ? ` · ${s.triggerConfig.tagName}` : ""} · {s._count.runs} ריצות</span>
-              <span className="ms-auto flex gap-1"><Button variant="ghost" size="sm" onClick={() => toggle(s)}>{s.isActive ? "כבה" : "הפעל"}</Button><Button variant="ghost" size="sm" onClick={() => { setEditing(s.id); setName(s.name); setTrigger(s.trigger); setTriggerChannel(s.triggerConfig.channel ?? ""); setTagName(s.triggerConfig.tagName ?? ""); setStopOn(s.stopOn); setSteps(s.steps.map((st) => ({ channel: st.channel as Step["channel"], templateId: st.templateId, waitMinutes: st.waitMinutes, variables: {}, condition: { requireNoReply: true } }))); setOpen(true); }}>עריכה</Button><Button variant="ghost" size="sm" onClick={() => remove(s)}>מחק</Button></span></div>
+              <span className="ms-auto flex gap-1"><Button variant="ghost" size="sm" onClick={() => toggle(s)}>{s.isActive ? "כבה" : "הפעל"}</Button><Button variant="ghost" size="sm" onClick={() => { setEditing(s.id); setName(s.name); setTrigger(s.trigger); setTriggerChannel(s.triggerConfig.channel ?? ""); setTagName(s.triggerConfig.tagName ?? ""); setStopOn(s.stopOn); setSteps(s.steps.map((st) => ({ channel: st.channel as Step["channel"], templateId: st.templateId, waitMinutes: st.waitMinutes, variables: st.variables ?? {}, condition: { requireNoReply: st.condition?.requireNoReply ?? true } }))); setOpen(true); }}>עריכה</Button><Button variant="ghost" size="sm" onClick={() => remove(s)}>מחק</Button></span></div>
             <ol className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">{s.steps.map((st) => <li key={st.position} className="rounded bg-muted px-2 py-0.5">{st.position + 1}. המתנה {st.waitMinutes} דק׳ → {CHANNEL_LABELS[st.channel]}: {st.template.name}</li>)}</ol>
           </li>
         ))}</ul>

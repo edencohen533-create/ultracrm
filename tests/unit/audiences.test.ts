@@ -26,3 +26,15 @@ it("rejects inaccessible references even in negative tag conditions", async () =
   const count = vi.fn().mockResolvedValue(0);
   await expect(validateAudienceReferences({ tag: { count } } as unknown as Prisma.TransactionClient, { field: "tag", operator: "is_not", value: "foreign-tag" })).rejects.toThrow("אינו נגיש");
 });
+
+it("owner and lead-status rules validate and translate to ownership / lead predicates", async () => {
+  const { audienceWhere } = await import("@/server/services/audience-service");
+  expect(audienceSchema.safeParse({ field: "owner", operator: "is", value: null }).success).toBe(true);
+  expect(audienceSchema.safeParse({ field: "leadStatus", operator: "is_not", value: "converted" }).success).toBe(true);
+  expect(audienceSchema.safeParse({ field: "leadStatus", operator: "is", value: "bogus" }).success).toBe(false);
+  expect(audienceWhere({ field: "owner", operator: "is", value: null })).toEqual({ ownerUserId: null });
+  expect(audienceWhere({ field: "owner", operator: "is_not", value: "u1" })).toEqual({ OR: [{ ownerUserId: null }, { ownerUserId: { not: "u1" } }] });
+  expect(audienceWhere({ field: "owner", operator: "is_not", value: null })).toEqual({ ownerUserId: { not: null } });
+  expect(audienceWhere({ field: "leadStatus", operator: "is", value: "none" })).toEqual({ leads: { none: {} } });
+  expect(audienceWhere({ field: "leadStatus", operator: "is", value: "qualified" })).toEqual({ leads: { some: { status: "qualified" } } });
+});

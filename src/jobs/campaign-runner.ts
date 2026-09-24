@@ -25,7 +25,7 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
   const channelBudget = settings.marketing.maxPerMinute > 0 ? settings.marketing.maxPerMinute : Number.MAX_SAFE_INTEGER;
   const due = await prisma.campaignRecipient.findMany({
     where: { status: "QUEUED", campaign: { status: "RUNNING", ...(insideWindow ? {} : { channel: "whatsapp" }) } },
-    orderBy: { id: "asc" }, take: 20, include: { campaign: { select: { channel: true } } },
+    orderBy: { id: "asc" }, take: 50, include: { campaign: { select: { channel: true } } },
   });
   let processed = 0;
   let channelSends = 0;
@@ -34,7 +34,7 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
     if (Date.now() >= deadline) break;
     if (pausedCampaigns.has(recipient.campaignId)) continue;
     const isChannel = recipient.campaign.channel !== "whatsapp";
-    if (isChannel && channelSends >= channelBudget) break;
+    if (isChannel && channelSends >= channelBudget) continue;
     const claimed = await prisma.campaignRecipient.updateMany({
       where: { id: recipient.id, status: "QUEUED", campaign: { status: "RUNNING" } },
       data: { status: "PROCESSING", claimedAt: new Date() },

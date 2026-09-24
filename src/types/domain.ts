@@ -4,6 +4,7 @@
 export interface ConversationListItem {
   id: string;
   status: "OPEN" | "PENDING" | "RESOLVED" | "CLOSED";
+  channel?: "whatsapp" | "sms" | "email";
   unreadCount: number;
   lastMessageAt: string | null;
   contact: { id: string; fullName: string; phoneE164: string };

@@ -68,6 +68,13 @@ export async function startSequencesForEvent(event: DomainEvent) {
   const trigger = event.type === "message.delivery_failed" ? "DELIVERY_FAILED" : event.type === "message.sent" ? "SENT_NO_REPLY" : event.type === "contact.tag_added" ? "TAG_ADDED" : null;
   if (!trigger) return { started: 0 };
   const sequences = await prisma.marketingSequence.findMany({ where: { businessId: event.businessId, trigger, isActive: true }, include: { steps: { orderBy: { position: "asc" } } } });
+  if (!sequences.length) return { started: 0 };
+  // Messages sent BY a sequence step (requestKey `seq:…`) never start another sequence – no self-chaining loops.
+  if (typeof p.messageId === "string") {
+    const source = await prisma.message.findUnique({ where: { id: p.messageId }, select: { requestKey: true } });
+    if (source?.requestKey?.startsWith("seq:")) return { started: 0, skipped: "sequence-originated message" };
+  }
+  if (typeof p.sequenceRunId === "string") return { started: 0, skipped: "sequence-originated message" };
   let started = 0;
   for (const seq of sequences) {
     const cfg = (seq.triggerConfig ?? {}) as { channel?: string; tagName?: string; campaignId?: string; marketingOnly?: boolean };
@@ -75,8 +82,6 @@ export async function startSequencesForEvent(event: DomainEvent) {
       if (cfg.channel && p.channel !== cfg.channel) continue;
       if (cfg.campaignId && p.campaignId !== cfg.campaignId) continue;
       if (cfg.marketingOnly !== false && p.category !== "marketing") continue;
-      // Never chain a sequence step onto itself.
-      if (typeof p.sequenceRunId === "string") continue;
     } else if (cfg.tagName && p.tagName !== cfg.tagName) continue;
     if (!seq.steps.length) continue;
     const sourceKey = typeof p.messageId === "string" ? `message:${p.messageId}` : `event:${event.id}`;
@@ -127,6 +132,15 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       if (stop) { await finish("STOPPED", { stopReason: stop }); continue; }
       const blocked = await sendBlockReason(bid, run.contactId, "marketing");
       if (blocked) { await finish("STOPPED", { stopReason: `unsubscribe: ${blocked}` }); continue; }
+      // Per-step condition: skip this step (not the whole run) when the contact already replied.
+      const cond = (step.condition ?? {}) as { requireNoReply?: boolean };
+      if (cond.requireNoReply !== false && await prisma.message.findFirst({ where: { direction: "INBOUND", createdAt: { gt: run.startedAt }, conversation: { contactId: run.contactId } }, select: { id: true } })) {
+        const entry = { step: step.position, channel: step.channel, messageId: null, skipped: "reply received", at: new Date().toISOString() };
+        const next = seq.steps[run.stepIndex + 1];
+        if (!next) { await finish("COMPLETED", { log: [...log, entry] as Prisma.InputJsonValue }); continue; }
+        await finish("PENDING", { stepIndex: run.stepIndex + 1, nextAt: new Date(Date.now() + next.waitMinutes * 60_000), lockedAt: null, log: [...log, entry] as Prisma.InputJsonValue });
+        continue;
+      }
       const requestKey = `seq:${run.id}:${step.position}`;
       let messageId: string | null = null;
       let skipped: string | null = null;
@@ -150,7 +164,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
         const { MessagePolicyError } = await import("@/server/services/message-service");
         const { ChannelUnavailableError } = await import("@/server/channels/registry");
         try {
-          const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId: step.templateId, variables: (step.variables as Record<string, string>) ?? {}, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1 });
+          const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId: step.templateId, variables: (step.variables as Record<string, string>) ?? {}, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1, sequenceRunId: run.id });
           messageId = message.id;
         } catch (err) {
           if (err instanceof MessagePolicyError) skipped = err.message;

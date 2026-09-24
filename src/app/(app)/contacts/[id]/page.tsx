@@ -41,6 +41,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const [timeline, setTimeline] = useState<TimelineItem[] | null>(null);
   const [edit, setEdit] = useState(false);
   const [form, setForm] = useState({ fullName: "", phone: "", email: "", company: "", city: "", source: "", notes: "", ownerUserId: "" });
+  const [custom, setCustom] = useState<Array<{ key: string; value: string }>>([]);
   const [users, setUsers] = useState<Array<{ id: string; fullName: string }>>([]);
   const [tagInput, setTagInput] = useState("");
   const [noteBody, setNoteBody] = useState("");
@@ -64,6 +65,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
       setTimeline(t.items);
       setNow(Date.now());
       setForm({ fullName: r.fullName, phone: r.phoneE164, email: r.email ?? "", company: r.company ?? "", city: r.city ?? "", source: r.source ?? "", notes: r.notes ?? "", ownerUserId: r.owner?.id ?? "" });
+      setCustom(Object.entries(r.customFields ?? {}).map(([key, value]) => ({ key, value: value === null || value === undefined ? "" : String(value) })));
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -73,7 +75,9 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
 
   async function save() {
     try {
-      await api.patch(`/api/contacts/${id}`, { ...form, ownerUserId: form.ownerUserId || null });
+      const keys = custom.map((f) => f.key.trim()).filter(Boolean);
+      if (new Set(keys).size !== keys.length) throw new Error("שמות שדות מותאמים חייבים להיות ייחודיים");
+      await api.patch(`/api/contacts/${id}`, { ...form, ownerUserId: form.ownerUserId || null, customFields: Object.fromEntries(custom.filter((f) => f.key.trim()).map((f) => [f.key.trim(), f.value])) });
       toast.success("נשמר");
       setEdit(false);
       load();
@@ -163,12 +167,18 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
                 <Input label="מקור" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} />
                 {isManager && <Select label="נציג אחראי" value={form.ownerUserId} onChange={(e) => setForm({ ...form, ownerUserId: e.target.value })}><option value="">ללא</option>{users.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select>}
                 <Textarea label="הערות קבועות" rows={4} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                <div className="border-t border-line pt-2 space-y-1">
+                  <span className="text-xs text-muted">שדות מותאמים (זמינים כמשתנים {"{{custom.שם}}"} ובסינון קהלים)</span>
+                  {custom.map((f, i) => <div key={i} className="flex gap-1"><Input placeholder="שם שדה" value={f.key} onChange={(e) => setCustom(custom.map((x, j) => j === i ? { ...x, key: e.target.value } : x))} /><Input placeholder="ערך" value={f.value} onChange={(e) => setCustom(custom.map((x, j) => j === i ? { ...x, value: e.target.value } : x))} /><Button variant="ghost" size="sm" onClick={() => setCustom(custom.filter((_, j) => j !== i))}>הסר</Button></div>)}
+                  <Button variant="ghost" size="sm" disabled={custom.length >= 50} onClick={() => setCustom([...custom, { key: "", value: "" }])}>+ הוסף שדה</Button>
+                </div>
               </div>
             ) : (
               <dl className="text-sm space-y-2">
                 {[["אימייל", c.email], ["חברה", c.company], ["עיר", c.city], ["מקור", c.source], ["נציג אחראי", c.owner?.fullName], ["נוצר", formatDateTime(c.createdAt)], ["פעילות אחרונה", c.lastActivityAt ? relativeTime(c.lastActivityAt) : null]].map(([k, v]) => (
                   <div key={k as string} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd className={cx(k === "אימייל" && "ltr")}>{v || "—"}</dd></div>
                 ))}
+                {c.customFields && Object.keys(c.customFields).length > 0 && <div className="border-t border-line pt-2 space-y-1">{Object.entries(c.customFields).map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd>{v === null || v === undefined || v === "" ? "—" : String(v)}</dd></div>)}</div>}
                 {c.notes && <p className="text-xs text-muted whitespace-pre-wrap border-t border-line pt-2">{c.notes}</p>}
               </dl>
             )}

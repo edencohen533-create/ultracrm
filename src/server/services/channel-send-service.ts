@@ -42,6 +42,8 @@ export interface ChannelSendInput {
   senderId?: string | null;
   automated?: boolean;
   eventDepth?: number;
+  /** Set when a cross-channel sequence step sends – such sends never trigger another sequence. */
+  sequenceRunId?: string;
 }
 
 export const CHANNEL_LABEL: Record<"whatsapp" | "sms" | "email", string> = { whatsapp: "WhatsApp", sms: "SMS", email: "אימייל" };
@@ -71,6 +73,8 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
   const existing = await prisma.message.findUnique({ where: { requestKey: input.requestKey } });
   if (existing) {
     if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessagePolicyError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
+    // A message we cancelled ourselves (suppressed / invalid) is a policy outcome, never a "sent" result.
+    if (existing.status === "CANCELLED") throw new MessagePolicyError(existing.errorReason ?? "ההודעה בוטלה");
     return { message: existing };
   }
   const template = await prisma.template.findUnique({ where: { id: input.templateId } });
@@ -152,8 +156,11 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
       await audit(businessId, input.sentByUserId, "message", queued.id, "message.failed", { channel: input.channel, error: err.message.slice(0, 300) });
       return { message: await prisma.message.findUniqueOrThrow({ where: { id: queued.id } }) };
     }
-    // Network / unreachable: keep the row QUEUED-like (UNKNOWN is wrong – nothing was sent) and let the caller pause.
-    await prisma.message.update({ where: { id: queued.id }, data: { status: "CANCELLED", errorReason: "הספק אינו זמין – השליחה לא בוצעה", failedAt: new Date() } });
+    // Network / unreachable: nothing reached the provider. Remove the row so the caller can requeue and a
+    // later retry (same requestKey) sends exactly once; the reserved frequency-cap slot is released too.
+    if (input.campaignRecipientId) await prisma.campaignRecipient.updateMany({ where: { id: input.campaignRecipientId, messageId: queued.id }, data: { messageId: null } });
+    await prisma.message.delete({ where: { id: queued.id } });
+    if (marketing) await prisma.contact.updateMany({ where: { id: contact.id, lastMarketingAt: now }, data: { lastMarketingAt: null } });
     throw new ChannelUnavailableError(err instanceof Error ? err.message : "provider unavailable");
   }
 
@@ -166,7 +173,7 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
   await prisma.conversation.update({ where: { id: conversation.id }, data: result.status === "FAILED" ? {} : { lastMessageAt: now } });
   await audit(businessId, input.sentByUserId, "message", message.id, result.status === "FAILED" ? "message.failed" : "message.accepted", { channel: input.channel, to: identifier, campaignId: input.campaignId ?? null, providerError: result.error ?? null });
   if (result.status !== "FAILED") {
-    await emitEvent(prisma, { businessId, type: "message.sent", contactId: contact.id, actorUserId: input.automated ? null : input.sentByUserId, source: input.automated ? "automation" : "user", depth: input.eventDepth ?? 0, dedupeKey: `message.sent:${message.id}`, payload: { messageId: message.id, conversationId: conversation.id, channel: input.channel, category: marketing ? "marketing" : "service", templateId: template.id, campaignId: input.campaignId ?? null } });
+    await emitEvent(prisma, { businessId, type: "message.sent", contactId: contact.id, actorUserId: input.automated ? null : input.sentByUserId, source: input.automated ? "automation" : "user", depth: input.eventDepth ?? 0, dedupeKey: `message.sent:${message.id}`, payload: { messageId: message.id, conversationId: conversation.id, channel: input.channel, category: marketing ? "marketing" : "service", templateId: template.id, campaignId: input.campaignId ?? null, sequenceRunId: input.sequenceRunId ?? null } });
     kickEventProcessing(businessId);
   }
   return { message };
@@ -216,4 +223,55 @@ export async function sendChannelTest(user: { id: string; businessId: string; fu
   await audit(user.businessId, user.id, "provider", credential.id, "channel.test_sent", { channel: input.channel, to, providerMessageId: result.providerMessageId, status: result.status, error: result.error ?? null });
   if (result.status === "FAILED") throw new ApiError(result.error ?? "הספק דחה את הודעת הבדיקה", 502, "test_send_failed");
   return { providerMessageId: result.providerMessageId, status: result.status, segments: rendered.segments ?? result.segments ?? null, simulated: credential.provider.startsWith("mock") };
+}
+
+/**
+ * Free-text SERVICE reply on an existing SMS conversation (inbox composer). No template, no
+ * marketing footer; blocked only by a "do not contact" suppression / hard block. Same guarantees:
+ * requestKey idempotency, persist-before-provider, timeout → UNKNOWN.
+ */
+export async function sendServiceSms(input: { conversationId: string; body: string; sentByUserId: string; requestKey?: string }): Promise<{ message: Message }> {
+  const businessId = requireBusinessId();
+  if (input.requestKey) {
+    const existing = await prisma.message.findUnique({ where: { requestKey: input.requestKey } });
+    if (existing) {
+      if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessagePolicyError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
+      return { message: existing };
+    }
+  }
+  const conversation = await prisma.conversation.findUnique({ where: { id: input.conversationId }, include: { contact: true } });
+  if (!conversation || conversation.channel !== "sms") throw new MessagePolicyError("השיחה אינה שיחת SMS");
+  if (!conversation.providerCredentialId) throw new MessagePolicyError("לשיחה אין ספק SMS משויך");
+  const body = input.body.trim();
+  if (!body) throw new MessagePolicyError("אין תוכן לשליחה");
+  const m = smsMetrics(body);
+  if (m.segments > SMS_MAX_SEGMENTS) throw new MessagePolicyError(`ההודעה ארוכה מדי (${m.segments} מקטעים)`);
+  const blocked = await sendBlockReason(businessId, conversation.contactId, "service");
+  if (blocked) throw new MessagePolicyError(blocked);
+  const credential = await activeChannelCredential("sms", conversation.providerCredentialId);
+  // Reply from the sender the customer wrote to; fall back to the first inbound-capable sender.
+  const lastInbound = await prisma.message.findFirst({ where: { conversationId: conversation.id, direction: "INBOUND" }, orderBy: { createdAt: "desc" }, select: { toIdentifier: true } });
+  const senders = ((credential.senders as SmsSender[] | null) ?? []);
+  const sender = senders.find((s) => s.value === lastInbound?.toIdentifier) ?? senders.find((s) => s.inbound) ?? senders[0];
+  if (!sender) throw new MessagePolicyError("לספק ה-SMS אין שולח זמין");
+  try { await consumeQuota(businessId, "messages_sent"); }
+  catch (err) { if (err instanceof ApiError) throw new MessagePolicyError(err.message); throw err; }
+  const now = new Date();
+  const queued = await prisma.message.create({ data: { businessId, conversationId: conversation.id, channel: "sms", category: "service", direction: "OUTBOUND", type: "TEXT", body, status: "QUEUED", requestKey: input.requestKey, providerCredentialId: credential.id, sentByUserId: input.sentByUserId, toIdentifier: conversation.contact.phoneE164, segments: m.segments, encoding: m.encoding, createdAt: now } });
+  let result;
+  try { result = await smsProviderFor(credential).send({ to: conversation.contact.phoneE164, from: sender.value, body, idempotencyKey: input.requestKey ?? `msg:${queued.id}` }); }
+  catch (err) {
+    if (err instanceof ChannelRequestTimeout) { await prisma.message.update({ where: { id: queued.id }, data: { status: "UNKNOWN", errorReason: "הספק לא ענה בזמן; ייתכן שההודעה נשלחה" } }); throw new MessagePolicyError("הספק לא ענה בזמן; תוצאה לא ודאית"); }
+    const reason = err instanceof Error ? err.message.slice(0, 500) : "provider error";
+    await prisma.message.update({ where: { id: queued.id }, data: { status: "FAILED", errorReason: reason, failedAt: new Date() } });
+    throw new MessagePolicyError(reason);
+  }
+  const message = await prisma.message.update({ where: { id: queued.id }, data: { status: result.status === "FAILED" ? "FAILED" : "ACCEPTED", providerMessageId: result.providerMessageId || null, errorReason: result.error ?? null, acceptedAt: result.status !== "FAILED" ? new Date() : null, failedAt: result.status === "FAILED" ? new Date() : null, costAmount: result.cost ? new Prisma.Decimal(result.cost.amount) : null, costCurrency: result.cost?.currency ?? null } });
+  if (result.status !== "FAILED") await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: now } });
+  await audit(businessId, input.sentByUserId, "message", message.id, result.status === "FAILED" ? "message.failed" : "message.accepted", { channel: "sms", to: conversation.contact.phoneE164 });
+  if (result.status !== "FAILED") {
+    await emitEvent(prisma, { businessId, type: "message.sent", contactId: conversation.contactId, actorUserId: input.sentByUserId, source: "user", dedupeKey: `message.sent:${message.id}`, payload: { messageId: message.id, conversationId: conversation.id, channel: "sms", category: "service", templateId: null } });
+    kickEventProcessing(businessId);
+  }
+  return { message };
 }

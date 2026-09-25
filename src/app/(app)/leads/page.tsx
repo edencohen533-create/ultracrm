@@ -30,9 +30,11 @@ function LeadsWorkspace() {
   const me = useMe();
   const router = useRouter();
   const params = useSearchParams();
-  const { dial, state } = useDialer();
+  const { dial, state, sessionSummary } = useDialer();
   const session = state?.session;
-  const dialerLive = Boolean((session && session.status !== "ended") || state?.activeCall || state?.wrapUpCall);
+  // Keep the workspace mounted while the end-of-session summary is open – otherwise the modal would reappear
+  // over the next call and block it.
+  const dialerLive = Boolean((session && session.status !== "ended") || state?.activeCall || state?.wrapUpCall || sessionSummary);
   const [data, setData] = useState<{ items: Lead[]; total: number; byStatus: Record<string, number> } | null>(null);
   const [filter, setFilter] = useState({ status: params.get("status") ?? "", q: params.get("q") ?? "", ownerUserId: params.get("mine") === "1" ? "me" : (params.get("ownerUserId") ?? "") });
   const [page, setPage] = useState(1);

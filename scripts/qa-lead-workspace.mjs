@@ -90,8 +90,10 @@ await step("L6 hang up → outcome panel in the same screen → save outcome →
   await page.click("button:has-text('שמור תוצאה והמשך')");
   await page.waitForSelector("text=הליד הבא בעוד", { timeout: 60000 }).catch(() => undefined);
   await page.click("button:has-text('סיים סשן')");
-  await page.waitForSelector('[data-testid="open-dialer"]', { timeout: 90000 });
+  await page.waitForSelector("text=סיכום סשן", { timeout: 60000 }); // end-of-session summary stays on screen until closed
   await shot("after-session");
+  await page.click("div[role='dialog'] button:has-text('סגור')");
+  await page.waitForSelector('[data-testid="open-dialer"]', { timeout: 90000 });
 });
 
 await step("L7 manual dial from a lead row, then hang up and record the outcome from /leads", async () => {
@@ -111,6 +113,9 @@ await step("L7 manual dial from a lead row, then hang up and record the outcome 
 });
 
 await step("L7a 'הלידים שלי': the pre-flight builds a personal queue from the agent's open leads without a manager list", async () => {
+  let st = (await api("/api/dialer/state")).json?.data ?? {};
+  if (st.activeCall) { await api(`/api/dialer/call/${st.activeCall.id}/hangup`, "POST", {}); await page.waitForTimeout(2000); st = (await api("/api/dialer/state")).json?.data ?? {}; }
+  if (st.wrapUpCall) await api(`/api/dialer/call/${st.wrapUpCall.id}/outcome`, "POST", { outcome: "no_answer" });
   await page.goto(`${BASE}/leads`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="open-dialer"]:not([disabled])');
   await page.click('[data-testid="open-dialer"]');

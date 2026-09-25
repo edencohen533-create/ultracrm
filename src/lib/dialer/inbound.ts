@@ -61,7 +61,10 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
   const free = candidates.filter((u) => working.has(u.id) && !liveUsers.has(u.id) && !wrapping.has(u.id));
   const owner = settings.inbound.preferOwner && contact?.ownerUserId ? free.find((u) => u.id === contact!.ownerUserId) : undefined;
   // Agents before managers; managers only take inbound calls when no agent is free.
-  const agent = owner ?? free.find((u) => u.role === "agent") ?? free[0];
+  // Callbacks: prefer the number's designated callback agent, then the agent who last dialled this customer from this number.
+  const lastOutbound = fromE164 ? await prisma.call.findFirst({ where: { businessId, direction: "outbound", toE164: fromE164, phoneNumberId: number.id }, orderBy: { createdAt: "desc" }, select: { userId: true } }) : null;
+  const callbackAgent = free.find((u) => u.id === number.callbackUserId) ?? free.find((u) => u.id === lastOutbound?.userId);
+  const agent = callbackAgent ?? owner ?? free.find((u) => u.role === "agent") ?? free[0];
   if (!agent) {
     return missed(businessId, number.e164, fromE164, contact?.id ?? null, ev, "no_agent_available", settings.inbound.createCallbackTask);
   }
@@ -86,7 +89,7 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
         leadLegId: ev.legId,
         ringingAt: new Date(),
         leadDialedAt: new Date(),
-        routingNote: owner ? "routed_to_owner" : "routed_to_available_agent",
+        routingNote: callbackAgent ? "routed_to_previous_or_assigned_agent" : owner ? "routed_to_owner" : "routed_to_available_agent",
         lastEventAt: new Date(),
       },
     });

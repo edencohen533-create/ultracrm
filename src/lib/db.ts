@@ -34,7 +34,7 @@ const TENANT_MODELS = new Set<string>([
   "DialList", "ListLead", "DialerSession", "Call", "CallMonitor", "PhoneNumber", "Script", "NoteDraft",
   "ProviderCredential", "Conversation", "Message", "ConversationDraft", "CannedReply", "Template",
   "AutomationRule", "AutomationRun", "DistributionList", "Campaign", "WhatsAppSignupSession",
-  "MarketingSequence", "SequenceRun",
+  "MarketingSequence", "SequenceRun", "NumberOrder",
 ]);
 
 /**

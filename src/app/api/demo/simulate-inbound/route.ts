@@ -13,7 +13,7 @@ export const POST = organizationRequest(async function(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (await prisma.providerCredential.findFirst({ where: { isActive: true, provider: { not: "mock" } }, select: { id: true } })) {
+  if (await prisma.providerCredential.findFirst({ where: { isActive: true, channel: "whatsapp", provider: { not: "mock" } }, select: { id: true } })) {
     return NextResponse.json({ error: "סימולציה זמינה במצב דמו בלבד" }, { status: 409 });
   }
   const body = await request.json().catch(() => null);

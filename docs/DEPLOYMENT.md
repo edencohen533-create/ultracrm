@@ -27,6 +27,7 @@ npm run dev                    # http://localhost:3000
 | `TELEPHONY_PROVIDER` | טלפוניה | `mock` (הדמיה מסומנת) או `telnyx`. |
 | `TELNYX_API_KEY`, `TELNYX_PUBLIC_KEY`, `TELNYX_CALL_CONTROL_APP_ID`, `TELNYX_CREDENTIAL_CONNECTION_ID` | טלפוניה | חשבון Telnyx אחד לכל הפריסה (ראו "מגבלות"). |
 | WhatsApp (Embedded Signup) | דיוור | `META_APP_ID`, `META_APP_SECRET` (שרת בלבד), `META_ES_CONFIG_ID`, `META_GRAPH_VERSION`, `META_WEBHOOK_VERIFY_TOKEN`, `ENCRYPTION_KEY` – ראו `docs/WHATSAPP_EMBEDDED_SIGNUP.md`. הלקוח מחבר את חשבונו בלחיצה על "חבר WhatsApp"; ה-token נשמר מוצפן ב-`provider_credentials`. חסר משתנה → הכרטיס מציג "חסרה הגדרה" והכפתור מושבת. |
+| ניהול מספרים יוצאים | טלפוניה | `TELNYX_NUMBERS_BUSINESS_ID` (העסק היחיד המורשה), `NUMBER_PURCHASES_ENABLED=false`, אופציונלי `NUMBER_PROVIDER=mock` להדמיה. cron יומי `/api/jobs/numbers`. ראו `docs/NUMBER_MANAGEMENT.md`. |
 | SMS (Telnyx) / אימייל (Resend) | דיוור | **אין משתני סביבה** – API Key, Messaging Profile, Public Key / Webhook Secret, שולח ודומיין נשמרים לכל עסק מוצפנים (`ENCRYPTION_KEY`) דרך הגדרות → חיבורים → SMS / אימייל. ראו `docs/MULTICHANNEL_MARKETING.md`. |
 | WhatsApp (חיבור ידני) | דיוור | ללא משתנים – Access Token / Phone Number ID / App Secret / Verify Token לכל עסק (בעל העסק בלבד, "חיבור ידני מתקדם"). |
 

@@ -101,6 +101,7 @@ function NumbersTab({ isAdmin }: { isAdmin: boolean }) {
   async function patch(id: string, body: object) { try { await api.patch(`/api/phone-numbers/${id}`, body); load(); } catch (e) { toast.error((e as Error).message); } }
   return (
     <Panel title="מספרים מורשים לחיוג יוצא">
+      <a href="/numbers" className="block underline mb-3 text-sm">לניהול מספרים: מוניטין, רכישה, רוטציה ומדיניות לקמפיין →</a>
       <p className="text-xs text-muted mb-3">רק מספרים ברשימה זו יוצגו ללקוח כמזהה מתקשר. ב-Telnyx המספר חייב להיות משויך לחשבון ול-Call Control App.</p>
       {isAdmin && <div className="flex gap-2 mb-4"><Input placeholder="+972…" value={phone} onChange={(e) => setPhone(e.target.value)} ltr /><Input placeholder="תווית" value={label} onChange={(e) => setLabel(e.target.value)} /><Button onClick={add} disabled={!phone}>הוסף</Button></div>}
       <ul className="divide-y divide-line">

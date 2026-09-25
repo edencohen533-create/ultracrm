@@ -15,7 +15,7 @@ export async function resolveSender(credentialId?: string | null, allowInactive 
     return null;
   }
   const active = await prisma.providerCredential.findFirst({
-    where: credentialId ? { id: credentialId, ...(!allowInactive ? { isActive: true } : {}) } : { isActive: true },
+    where: credentialId ? { id: credentialId, channel: "whatsapp", ...(!allowInactive ? { isActive: true } : {}) } : { isActive: true, channel: "whatsapp" },
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
   });
   if (!active && credentialId) throw new ProviderUnavailableError("המספר השולח נותק או שאינו נגיש. יש לחבר את אותו מספר מחדש");

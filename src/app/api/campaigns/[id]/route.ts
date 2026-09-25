@@ -22,7 +22,8 @@ export const PATCH = organizationRequest(async function(request: Request, { para
   const parsed = campaignActionSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "פעולה לא תקינה" }, { status: 400 });
   try {
-    await changeCampaignStatus(id, parsed.data.action, parsed.data.scheduledAt);
+    const { auth } = await import("@/lib/auth-compat");
+    await changeCampaignStatus(id, parsed.data.action, parsed.data.scheduledAt, (await auth())?.user?.id, parsed.data.scheduledTimezone);
     return Response.json({ ok: true });
   } catch (error) {
     if (error instanceof CampaignError) return Response.json({ error: error.message }, { status: 409 });

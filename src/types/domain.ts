@@ -4,6 +4,7 @@
 export interface ConversationListItem {
   id: string;
   status: "OPEN" | "PENDING" | "RESOLVED" | "CLOSED";
+  channel?: "whatsapp" | "sms" | "email";
   unreadCount: number;
   lastMessageAt: string | null;
   contact: { id: string; fullName: string; phoneE164: string };
@@ -18,7 +19,7 @@ export interface MessageItem {
   direction: "INBOUND" | "OUTBOUND";
   type: "TEXT" | "IMAGE" | "VIDEO" | "AUDIO" | "DOCUMENT" | "LINK" | "TEMPLATE";
   body: string | null;
-  status: "ACCEPTED" | "UNKNOWN" | "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
+  status: "ACCEPTED" | "UNKNOWN" | "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | "BOUNCED" | "CANCELLED";
   createdAt: string;
   attachments?: { id: string; url: string; mimeType: string; fileName: string | null; sizeBytes?: number | null }[];
   sentByUser: { id: string; name: string } | null;

@@ -34,7 +34,16 @@ export interface PrioritizationWeights {
   interestedBefore: number;
 }
 
+export interface MarketingSettings {
+  /** Hours (business timezone) in which SMS / email campaigns and sequences are dispatched. */
+  window: DialWindow;
+  /** Max recipients handed to SMS/email providers per minute per business (0 = unlimited). */
+  maxPerMinute: number;
+  /** Shared frequency cap across channels (hours between marketing messages to the same contact). */
+  minHoursBetweenMarketing: number;
+}
 export interface BusinessSettings {
+  marketing: MarketingSettings;
   wrapUpSeconds: number;
   autoDialCountdownSeconds: number;
   maxAttempts: number;
@@ -98,6 +107,7 @@ export const DEFAULT_PRIORITIZATION: PrioritizationWeights = {
 };
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
+  marketing: { window: { start: "08:00", end: "21:00", days: [0, 1, 2, 3, 4, 5, 6], timezone: "Asia/Jerusalem" }, maxPerMinute: 60, minHoursBetweenMarketing: 24 },
   wrapUpSeconds: 60,
   autoDialCountdownSeconds: 5,
   maxAttempts: 3,
@@ -127,6 +137,7 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     ...DEFAULT_SETTINGS,
     ...r,
     dialWindow: { ...DEFAULT_SETTINGS.dialWindow, ...(r.dialWindow ?? {}) },
+    marketing: { ...DEFAULT_SETTINGS.marketing, ...(r.marketing ?? {}), window: { ...DEFAULT_SETTINGS.marketing.window, ...(r.marketing?.window ?? {}) } },
     prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },
     inbound: { ...DEFAULT_SETTINGS.inbound, ...(r.inbound ?? {}) },
     automations: {

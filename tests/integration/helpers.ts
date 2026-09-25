@@ -17,6 +17,8 @@ export async function destroyBusiness(businessId: string, accountIds: string[] =
   await db.campaign.deleteMany({ where: { businessId } });
   // Conversations restrict deletion of their provider credential; clear them before the credentials.
   await db.conversation.deleteMany({ where: { businessId } });
+  await db.marketingSequence.deleteMany({ where: { businessId } });
+  await db.providerWebhookEvent.deleteMany({ where: { businessId } });
   await db.providerCredential.deleteMany({ where: { businessId } });
   await db.business.delete({ where: { id: businessId } });
   if (accountIds.length) await db.account.deleteMany({ where: { id: { in: accountIds } } });

@@ -6,6 +6,10 @@ const leafSchema = z.discriminatedUnion("field", [
   z.object({ field: z.literal("source"), operator: z.enum(["equals", "contains"]), value: text }).strict(),
   z.object({ field: z.literal("custom"), operator: z.enum(["equals", "contains"]), key: text, value: text }).strict(),
   z.object({ field: z.literal("agent"), operator: z.literal("is"), value: text }).strict(),
+  /** CRM owner of the contact (null = no owner). */
+  z.object({ field: z.literal("owner"), operator: z.enum(["is", "is_not"]), value: text.nullable() }).strict(),
+  /** Has an open/any lead in this status. */
+  z.object({ field: z.literal("leadStatus"), operator: z.enum(["is", "is_not"]), value: z.enum(["new", "contacted", "qualified", "unqualified", "converted", "none"]) }).strict(),
   z.object({ field: z.literal("consent"), operator: z.literal("is"), value: z.enum(["OPTED_IN", "OPTED_OUT", "UNKNOWN"]) }).strict(),
   z.object({ field: z.literal("blocked"), operator: z.literal("is"), value: z.boolean() }).strict(),
   z.object({ field: z.literal("marketingEligible"), operator: z.literal("is"), value: z.boolean() }).strict(),

@@ -56,5 +56,4 @@ await step("agent is denied (page + API)", async () => {
   if (r.status() !== 403) throw new Error(`api status ${r.status()}`);
 });
 await browser.close();
-console.log(results.join("\n"));
-process.exit(results.some((r) => r.startsWith("❌")) ? 1 : 0);
+process.stdout.write(results.join("\n") + "\n", () => process.exit(results.some((r) => r.startsWith("❌")) ? 1 : 0));

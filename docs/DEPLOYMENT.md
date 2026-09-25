@@ -27,6 +27,7 @@ npm run dev                    # http://localhost:3000
 | `TELEPHONY_PROVIDER` | טלפוניה | `mock` (הדמיה מסומנת) או `telnyx`. |
 | `TELNYX_API_KEY`, `TELNYX_PUBLIC_KEY`, `TELNYX_CALL_CONTROL_APP_ID`, `TELNYX_CREDENTIAL_CONNECTION_ID` | טלפוניה | חשבון Telnyx אחד לכל הפריסה (ראו "מגבלות"). |
 | WhatsApp (Embedded Signup) | דיוור | `META_APP_ID`, `META_APP_SECRET` (שרת בלבד), `META_ES_CONFIG_ID`, `META_GRAPH_VERSION`, `META_WEBHOOK_VERIFY_TOKEN`, `ENCRYPTION_KEY` – ראו `docs/WHATSAPP_EMBEDDED_SIGNUP.md`. הלקוח מחבר את חשבונו בלחיצה על "חבר WhatsApp"; ה-token נשמר מוצפן ב-`provider_credentials`. חסר משתנה → הכרטיס מציג "חסרה הגדרה" והכפתור מושבת. |
+| SMS (Telnyx) / אימייל (Resend) | דיוור | **אין משתני סביבה** – API Key, Messaging Profile, Public Key / Webhook Secret, שולח ודומיין נשמרים לכל עסק מוצפנים (`ENCRYPTION_KEY`) דרך הגדרות → חיבורים → SMS / אימייל. ראו `docs/MULTICHANNEL_MARKETING.md`. |
 | WhatsApp (חיבור ידני) | דיוור | ללא משתנים – Access Token / Phone Number ID / App Secret / Verify Token לכל עסק (בעל העסק בלבד, "חיבור ידני מתקדם"). |
 
 סודות לעולם אינם נשלחים לדפדפן: מסך ההגדרות מציג Token ממוסך בלבד; Telnyx נגיש רק מצד השרת; אסימון WebRTC של הנציג הוא JWT קצר-מועד שנוצר בשרת.
@@ -38,6 +39,9 @@ npm run dev                    # http://localhost:3000
 | Telnyx Call Control | `POST https://<domain>/api/webhooks/telnyx` | חתימת Ed25519 (`TELNYX_PUBLIC_KEY`) + חלון זמן 5 דקות | אירועים כפולים/בסדר שגוי מטופלים (מזהה אירוע ייחודי, מכונת מצבים קדימה בלבד). |
 | Meta WhatsApp Cloud API | `GET/POST https://<domain>/api/webhooks/whatsapp` | `hub.verify_token` = `META_WEBHOOK_VERIFY_TOKEN`; `X-Hub-Signature-256` עם App Secret של האפליקציה (נפילה לאחור: App Secret של חיבור ידני) | הודעות מנותבות לפי `phone_number_id` (ייחודי גלובלית), אירועי חשבון (`account_update`…) לפי `waba_id`; כל החתימות נבדקות לפני כל גישה לנתוני עסק. שדות לרישום: messages, account_update, account_review_update, phone_number_quality_update, phone_number_name_update, business_capability_update. |
 | Vercel Cron | `/api/jobs/events` (כל דקה), `/api/jobs/campaigns` (כל דקה), `/api/jobs/automations` (כל 2 דקות), `/api/jobs/retention` (יומי) | `CRON_SECRET` | מוגדר ב-`vercel.json`. ניתן להפעיל מכל מתזמן חיצוני. |
+
+| Telnyx Messaging (SMS) | `POST https://<domain>/api/webhooks/sms/telnyx/<credentialId>` | Ed25519 (`telnyx-signature-ed25519` + `telnyx-timestamp`) עם המפתח הציבורי של העסק | ה-credentialId בכתובת בוחר את מפתח האימות של עסק אחד; אירועים כפולים נדחים לפי `provider+eventId`. |
+| Resend (אימייל) | `POST https://<domain>/api/webhooks/email/resend/<credentialId>` | Svix (`svix-id`, `svix-timestamp`, `svix-signature`) עם ה-signing secret של העסק | כנ"ל; bounces/תלונות מזינים את ההסרה הגלובלית. |
 
 **אין לשנות** את ה-Webhooks של המערכות המקוריות (dialer / solinainbox); UltraCRM דורש רישום כתובות חדשות בחשבונות Telnyx ו-Meta של סביבת הבדיקה.
 

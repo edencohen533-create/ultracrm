@@ -152,6 +152,13 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
     include: { contact: true, providerCredential: { select: { teamId: true } } },
   });
 
+  if (conversation.channel === "sms") {
+    if (input.templateId || input.media) throw new MessagePolicyError("בשיחת SMS ניתן לשלוח טקסט חופשי בלבד (תבניות SMS נשלחות בקמפיינים)");
+    const { sendServiceSms } = await import("./channel-send-service");
+    const { message } = await sendServiceSms({ conversationId: input.conversationId, body: input.body, sentByUserId: input.sentByUserId, requestKey: input.requestKey });
+    return { conversation: await prisma.conversation.findUniqueOrThrow({ where: { id: input.conversationId } }), message };
+  }
+  if (conversation.channel === "email") throw new MessagePolicyError("מענה לאימייל מהתיבה אינו נתמך; השב מתיבת הדואר של העסק (Reply-To)");
   const serviceWindow = !!conversation.lastInboundAt && now.getTime() - conversation.lastInboundAt.getTime() < 86400000;
   let marketing = Boolean(input.requireOptIn);
   if (input.automated && conversation.assignedAgentId) throw new MessagePolicyError("המענה האוטומטי נעצר כאשר נציג מטפל בשיחה");

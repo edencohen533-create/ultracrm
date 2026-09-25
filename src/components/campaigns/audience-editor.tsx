@@ -7,7 +7,7 @@ import { defaultAudience, type AudienceNode, type AudienceRule } from "@/lib/aud
 export interface AudienceOptions { tags: { id: string; name: string }[]; agents: { id: string; name: string }[]; campaigns: { id: string; name: string }[] }
 const selectClass = "min-w-0 w-full rounded border bg-background p-2 text-sm";
 const fields: { value: AudienceRule["field"]; label: string }[] = [
-  { value: "tag", label: "תגית" }, { value: "source", label: "מקור ליד" }, { value: "custom", label: "שדה מותאם" }, { value: "agent", label: "נציג משויך בשיחה" },
+  { value: "tag", label: "תגית" }, { value: "source", label: "מקור ליד" }, { value: "custom", label: "שדה מותאם" }, { value: "agent", label: "נציג משויך בשיחה" }, { value: "owner", label: "אחראי CRM" }, { value: "leadStatus", label: "שלב ליד" },
   { value: "consent", label: "הסכמה לדיוור" }, { value: "blocked", label: "חסימה מלאה" }, { value: "marketingEligible", label: "זכאות שיווקית כעת" },
   { value: "lastMessage", label: "הודעה אחרונה" }, { value: "lastInbound", label: "תגובה אחרונה מהלקוח" }, { value: "lastOutbound", label: "הודעה אחרונה ללקוח" }, { value: "campaign", label: "השתתפות בקמפיין" },
 ];
@@ -18,6 +18,8 @@ function freshRule(field: AudienceRule["field"]): AudienceRule {
   if (field === "source") return { field, operator: "equals", value: "" };
   if (field === "campaign") return { field, operator: "is", value: "", result: "ANY" };
   if (field === "tag" || field === "agent") return { field, operator: "is", value: "" };
+  if (field === "owner") return { field, operator: "is", value: null };
+  if (field === "leadStatus") return { field, operator: "is", value: "new" };
   return { field, operator: "never" };
 }
 function dateValue(value?: string) { if (!value) return ""; const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
@@ -26,6 +28,9 @@ function RuleEditor({ rule, onChange, options, path }: { rule: AudienceRule; onC
   return <div className="grid min-w-0 gap-2 sm:grid-cols-2">
     <select className={selectClass} aria-label={`סוג תנאי ${path}`} value={rule.field} onChange={(event) => onChange(freshRule(event.target.value as AudienceRule["field"]))}>{fields.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}</select>
     {rule.field === "tag" && <select className={selectClass} aria-label={`השוואה ${path}`} value={rule.operator} onChange={(event) => onChange({ ...rule, operator: event.target.value as "is" | "is_not" })}><option value="is">כולל תגית</option><option value="is_not">ללא תגית</option></select>}
+    {(rule.field === "owner" || rule.field === "leadStatus") && <select className={selectClass} aria-label={`השוואה ${path}`} value={rule.operator} onChange={(event) => onChange({ ...rule, operator: event.target.value as "is" | "is_not" })}><option value="is">הוא</option><option value="is_not">אינו</option></select>}
+    {rule.field === "owner" && <select className={selectClass} aria-label={`ערך תנאי ${path}`} value={rule.value ?? ""} onChange={(event) => onChange({ ...rule, value: event.target.value || null })}><option value="">ללא אחראי</option>{options.agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
+    {rule.field === "leadStatus" && <select className={selectClass} aria-label={`ערך תנאי ${path}`} value={rule.value} onChange={(event) => onChange({ ...rule, value: event.target.value as typeof rule.value })}>{Object.entries({ new: "ליד חדש", contacted: "נוצר קשר", qualified: "ליד מתאים", unqualified: "לא רלוונטי", converted: "הומר לעסקה", none: "ללא ליד" }).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}
     {(rule.field === "custom" || rule.field === "source") && <select className={selectClass} aria-label={`השוואה ${path}`} value={rule.operator} onChange={(event) => onChange({ ...rule, operator: event.target.value as "equals" | "contains" })}><option value="equals">שווה ל־</option><option value="contains">מכיל</option></select>}
     {rule.field === "custom" && <Input maxLength={200} aria-label={`שם שדה ${path}`} placeholder="שם השדה כפי שנשמר בכרטיס הלקוח" value={rule.key} onChange={(event) => onChange({ ...rule, key: event.target.value })} />}
     {(rule.field === "custom" || rule.field === "source") && <Input maxLength={200} aria-label={`ערך תנאי ${path}`} value={rule.value} onChange={(event) => onChange({ ...rule, value: event.target.value })} />}

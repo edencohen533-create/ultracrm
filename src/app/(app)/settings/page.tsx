@@ -6,7 +6,7 @@ import { api, qs } from "@/lib/client/api";
 import { Badge, Button, Input, Modal, Panel, Phone, Select, Spinner, Textarea, cx } from "@/components/ui";
 import { formatDateTime, formatPhone } from "@/lib/client/format";
 
-type Tab = "business" | "users" | "connections" | "plan" | "automations" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history";
+type Tab = "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history";
 interface Prio { callbackDue: number; priority: number; newLeadPerHour: number; newLeadMaxHours: number; agingPerHour: number; agingMaxHours: number; attemptPenalty: number; ownerMatch: number; sourceWeights: Record<string, number>; interestedBefore: number }
 interface Automations { newLeadTaskMinutes: number; followUpTaskOutcomes: string[]; followUpTaskHours: number; followUpMessage: { enabled: boolean; templateId: string | null; outcomes: string[]; variables: Record<string, string> } }
 interface Settings { automations: Automations; wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; retryIntervalMinutes: number; busyRetryMinutes: number; technicalFailureRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; recordingRetentionDays: number; amdEnabled: boolean; stickyOwner: boolean; removeFromOtherListsOnSale: boolean; dialingPaused: boolean; allowedCountries: string[]; maxDialsPerMinute: number; dialWindow: { start: string; end: string; days: number[] }; prioritization: Prio; inbound: { preferOwner: boolean; createCallbackTask: boolean; respectDialWindow: boolean } }
@@ -19,7 +19,7 @@ export default function SettingsPage() {
   const isAdmin = me?.user.role === "owner";
   const modules = me?.modules ?? { crm: true, messaging: true, telephony: true };
   const groups: Array<{ title: string; tabs: Array<[Tab, string]>; show: boolean }> = [
-    { title: "עסק", tabs: [["business", "פרטי העסק"], ["users", "משתמשים וצוותים"], ["connections", "חיבורים"], ["plan", "חבילה ומכסות"], ["automations", "אוטומציות"], ["suppressions", "הסרות מדיוור"], ["history", "היסטוריית שינויים"]], show: true },
+    { title: "עסק", tabs: [["business", "פרטי העסק"], ["users", "משתמשים וצוותים"], ["connections", "חיבורים"], ["plan", "חבילה ומכסות"], ["automations", "אוטומציות"], ["marketing", "דיוור"], ["suppressions", "הסרות מדיוור"], ["history", "היסטוריית שינויים"]], show: true },
     { title: "טלפוניה", tabs: [["general", "חייגן"], ["priority", "תעדוף לידים"], ["safety", "בטיחות ושיחות נכנסות"], ["numbers", "מספרים יוצאים"], ["scripts", "תסריטים"], ["dnc", "לא ליצור קשר"]], show: modules.telephony },
   ];
   return (
@@ -37,6 +37,7 @@ export default function SettingsPage() {
       {tab === "connections" && <ConnectionsTab modules={modules} />}
       {tab === "plan" && <PlanTab isAdmin={isAdmin} />}
       {tab === "automations" && <AutomationsTab isAdmin={isAdmin} messaging={modules.messaging} />}
+      {tab === "marketing" && <MarketingTab isAdmin={isAdmin} />}
       {tab === "suppressions" && <SuppressionsTab />}
       {tab === "general" && <GeneralTab isAdmin={isAdmin} />}
       {tab === "priority" && <PriorityTab isAdmin={isAdmin} />}
@@ -301,6 +302,17 @@ function BusinessTab({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+function ChannelStatus({ channel }: { channel: "sms" | "email" }) {
+  const [c, setC] = useState<{ provider: string; status: string; sendingBlocked: boolean; simulated: boolean; lastConnectionError: string | null; domainStatus?: string | null } | null | undefined>(undefined);
+  useEffect(() => { api.get<{ items: Array<{ provider: string; status: string; sendingBlocked: boolean; simulated: boolean; lastConnectionError: string | null; isActive: boolean; domainStatus?: string | null }> }>(`/api/channels/${channel}`).then((r) => setC(r.items.find((x) => x.isActive) ?? null)).catch(() => setC(null)); }, [channel]);
+  if (c === undefined) return <Spinner className="w-4 h-4" />;
+  if (!c) return <Badge tone="neutral">לא מחובר</Badge>;
+  if (c.simulated) return <Badge tone="warn">הדמיה – אין שליחה אמיתית</Badge>;
+  if (c.sendingBlocked || c.status === "error") return <Badge tone="bad">שגיאת חיבור</Badge>;
+  if (c.status === "connected_not_ready") return <Badge tone="warn">{channel === "email" && c.domainStatus !== "verified" ? "מחובר – דומיין לא מאומת" : "מחובר – לא מוכן"}</Badge>;
+  return <Badge tone="good">מחובר</Badge>;
+}
+
 function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
   const [wa, setWa] = useState<{ provider: string; configured?: boolean; sendingBlocked?: boolean; phoneNumberId?: string | null; lastConnectionError?: string | null } | null>(null);
   const [waDenied, setWaDenied] = useState(false);
@@ -314,8 +326,8 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
             {!modules.messaging ? <Badge tone="neutral">המודול כבוי בחבילה</Badge> : waDenied ? <Badge tone="neutral">פרטי החיבור זמינים לבעלים בלבד</Badge> : wa ? (wa.provider === "mock" ? <Badge tone="warn">מצב הדגמה – אין שליחה אמיתית</Badge> : wa.sendingBlocked ? <Badge tone="bad">חסום – בדוק Token</Badge> : <Badge tone="good">מחובר</Badge>) : <Spinner className="w-4 h-4" />}
             {modules.messaging && <a href="/settings/whatsapp" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור וואטסאפ →</a>}
           </li>
-          <li className="flex items-center gap-2"><b>SMS</b><Badge tone="neutral">לא ממומש – אין ספק מחובר</Badge><span className="text-xs text-muted">בקשות הסרה דרך SMS ייקלטו ברגע שיחובר ספק; ההסרה הגלובלית כבר מכסה את הערוץ.</span></li>
-          <li className="flex items-center gap-2"><b>אימייל</b><Badge tone="neutral">לא ממומש – אין ספק מחובר</Badge></li>
+          <li className="flex flex-wrap items-center gap-2"><b>SMS</b>{modules.messaging ? <ChannelStatus channel="sms" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/sms" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור SMS →</a>}</li>
+          <li className="flex flex-wrap items-center gap-2"><b>אימייל</b>{modules.messaging ? <ChannelStatus channel="email" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/email" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור אימייל →</a>}</li>
         </ul>
       </Panel>
       {modules.telephony && <TelephonyTab />}
@@ -396,17 +408,54 @@ function AutomationsTab({ isAdmin, messaging }: { isAdmin: boolean; messaging: b
   );
 }
 
+function MarketingTab({ isAdmin }: { isAdmin: boolean }) {
+  const [m, setM] = useState<{ window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number } | null>(null);
+  const [tz, setTz] = useState("");
+  useEffect(() => { api.get<{ business: { timezone?: string }; settings: { marketing: { window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number } } }>("/api/settings").then((r) => { setM(r.settings.marketing); setTz(r.business.timezone ?? ""); }).catch((e) => toast.error(e.message)); }, []);
+  if (!m) return <Spinner />;
+  const days = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
+  async function save() {
+    try { await api.patch("/api/settings", { settings: { marketing: m } }); toast.success("נשמר"); } catch (e) { toast.error((e as Error).message); }
+  }
+  return (
+    <Panel title="דיוור SMS ואימייל – חלון שליחה, קצב ותדירות">
+      <p className="text-xs text-muted mb-3">קמפיינים ורצפים ב-SMS ובאימייל נשלחים רק בתוך חלון השליחה (באזור הזמן של העסק{tz ? `: ${tz}` : ""}). מגבלת התדירות משותפת לכל הערוצים כולל WhatsApp.</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Input label="תחילת חלון (HH:MM)" value={m.window.start} onChange={(e) => setM({ ...m, window: { ...m.window, start: e.target.value } })} disabled={!isAdmin} ltr />
+        <Input label="סוף חלון (HH:MM)" value={m.window.end} onChange={(e) => setM({ ...m, window: { ...m.window, end: e.target.value } })} disabled={!isAdmin} ltr />
+        <div><span className="text-xs text-muted">ימים</span><div className="flex gap-1 mt-1">{days.map((d, i) => <button key={i} type="button" disabled={!isAdmin} onClick={() => setM({ ...m, window: { ...m.window, days: m.window.days.includes(i) ? m.window.days.filter((x) => x !== i) : [...m.window.days, i].sort() } })} className={cx("h-8 w-8 rounded border text-sm", m.window.days.includes(i) ? "bg-accent text-white" : "text-muted")}>{d}</button>)}</div></div>
+        <Input label="מקסימום נמענים לדקה (0 = ללא הגבלה)" type="number" value={String(m.maxPerMinute)} onChange={(e) => setM({ ...m, maxPerMinute: Number(e.target.value) })} disabled={!isAdmin} />
+        <Input label="שעות מינימום בין הודעות שיווקיות לאותו נמען" type="number" value={String(m.minHoursBetweenMarketing)} onChange={(e) => setM({ ...m, minHoursBetweenMarketing: Number(e.target.value) })} disabled={!isAdmin} hint="נאכף כיום ב-24 שעות בכל הערוצים; ערך גבוה יותר מחמיר את בדיקת הזכאות בסיכום הקמפיין" />
+      </div>
+      {isAdmin && <Button className="mt-3" onClick={save}>שמור</Button>}
+    </Panel>
+  );
+}
+
 function SuppressionsTab() {
-  const [items, setItems] = useState<Array<{ id: string; identifier: string; identifierType: string; scope: string; source: string; reason: string | null; createdAt: string; contact: { id: string; fullName: string } | null; createdBy: { fullName: string } | null }>>([]);
+  const [items, setItems] = useState<Array<{ id: string; identifier: string; identifierType: string; scope: string; source: string; reason: string | null; createdAt: string; pendingReview: boolean; contact: { id: string; fullName: string } | null; createdBy: { fullName: string } | null }>>([]);
+  const [pending, setPending] = useState(0);
+  const [bySource, setBySource] = useState<Record<string, number>>({});
   const [q, setQ] = useState("");
-  const load = useCallback(() => api.get<{ items: typeof items }>(`/api/suppressions${qs({ q })}`).then((r) => setItems(r.items)).catch((e) => toast.error(e.message)), [q]);
+  const [onlyReview, setOnlyReview] = useState(false);
+  const [note, setNote] = useState<Record<string, string>>({});
+  const load = useCallback(() => api.get<{ items: typeof items; pending: number; bySource: Record<string, number> }>(`/api/suppressions${qs({ q, review: onlyReview ? "1" : undefined })}`).then((r) => { setItems(r.items); setPending(r.pending); setBySource(r.bySource); }).catch((e) => toast.error(e.message)), [q, onlyReview]);
   useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [load]);
+  async function review(id: string, action: "confirm" | "dismiss") {
+    try { await api.post(`/api/suppressions/${id}/review`, { action, note: note[id] ?? "" }); toast.success(action === "confirm" ? "ההסרה אושרה" : "הבקשה נדחתה והדיוור שוחרר"); load(); } catch (e) { toast.error((e as Error).message); }
+  }
+  const SOURCE: Record<string, string> = { whatsapp: "WhatsApp", sms: "SMS", email: "אימייל", manual: "נציג", import: "ייבוא", phone: "טלפון", api: "API" };
   return (
     <Panel title="הסרות מדיוור (מקור אמת גלובלי)">
-      <p className="text-xs text-muted mb-3">כל בקשת הסרה מ-WhatsApp, SMS, אימייל, נציג או ייבוא חוסמת דיוור שיווקי בכל הערוצים לכל הטלפונים והאימיילים של איש הקשר. היקף &quot;לא ליצור קשר&quot; חוסם גם הודעות שירות ושיחות יוצאות. חזרה לדיוור נעשית מכרטיס הלקוח עם תיעוד הסכמה.</p>
+      <p className="text-xs text-muted mb-3">כל בקשת הסרה מ-WhatsApp, SMS, אימייל, נציג או ייבוא חוסמת דיוור שיווקי בכל הערוצים לכל הטלפונים והאימיילים של איש הקשר. היקף &quot;לא ליצור קשר&quot; חוסם גם הודעות שירות ושיחות יוצאות. חזרה לדיוור נעשית מכרטיס הלקוח עם תיעוד הסכמה. ייבוא מחדש, החלפת ספק או שולח אינם מבטלים חסימה.</p>
+      <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+        {Object.entries(bySource).map(([s, n]) => <Badge key={s} tone="neutral">{SOURCE[s] ?? s}: {n}</Badge>)}
+        {pending > 0 && <Badge tone="warn">ממתינות לבדיקה: {pending}</Badge>}
+        <label className="flex items-center gap-1 ms-auto"><input type="checkbox" checked={onlyReview} onChange={(e) => setOnlyReview(e.target.checked)} />רק בקשות לבדיקה</label>
+      </div>
       <Input placeholder="חיפוש לפי טלפון / אימייל" value={q} onChange={(e) => setQ(e.target.value)} className="mb-3 max-w-sm" />
       <table className="w-full text-sm"><thead className="text-xs text-muted"><tr><th className="text-start h-8 font-medium">מזהה</th><th className="text-start font-medium">איש קשר</th><th className="text-start font-medium">היקף</th><th className="text-start font-medium">מקור</th><th className="text-start font-medium">סיבה</th><th className="text-start font-medium">מועד</th></tr></thead>
-        <tbody className="divide-y divide-line">{items.map((s) => <tr key={s.id}><td className="h-9"><Phone value={s.identifierType === "phone" ? formatPhone(s.identifier) : s.identifier} /></td><td>{s.contact ? <a href={`/contacts/${s.contact.id}`} className="hover:underline">{s.contact.fullName}</a> : "—"}</td><td>{s.scope === "all" ? <Badge tone="bad">לא ליצור קשר</Badge> : <Badge tone="warn">שיווקי</Badge>}</td><td className="text-muted">{s.source}</td><td className="text-muted max-w-xs truncate">{s.reason ?? "—"}</td><td className="text-muted text-xs tabular">{formatDateTime(s.createdAt)} · {s.createdBy?.fullName ?? "מערכת"}</td></tr>)}
+        <tbody className="divide-y divide-line">{items.map((s) => <tr key={s.id} className={s.pendingReview ? "bg-amber-500/5" : ""}><td className="h-9"><Phone value={s.identifierType === "phone" ? formatPhone(s.identifier) : s.identifier} /></td><td>{s.contact ? <a href={`/contacts/${s.contact.id}`} className="hover:underline">{s.contact.fullName}</a> : "—"}</td><td>{s.pendingReview ? <Badge tone="warn">ממתין לבדיקה</Badge> : s.scope === "all" ? <Badge tone="bad">לא ליצור קשר</Badge> : <Badge tone="warn">שיווקי</Badge>}</td><td className="text-muted">{SOURCE[s.source] ?? s.source}</td><td className="text-muted max-w-xs"><div className="truncate">{s.reason ?? "—"}</div>{s.pendingReview && <div className="mt-1 flex flex-wrap items-center gap-1"><Input placeholder="נימוק" value={note[s.id] ?? ""} onChange={(e) => setNote({ ...note, [s.id]: e.target.value })} className="h-7 w-40" /><Button size="sm" onClick={() => review(s.id, "confirm")}>אשר הסרה</Button><Button size="sm" variant="ghost" onClick={() => review(s.id, "dismiss")}>לא בקשת הסרה</Button></div>}</td><td className="text-muted text-xs tabular">{formatDateTime(s.createdAt)} · {s.createdBy?.fullName ?? "מערכת"}</td></tr>)}
         {items.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-muted">אין הסרות פעילות</td></tr>}</tbody></table>
     </Panel>
   );

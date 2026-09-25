@@ -12,6 +12,8 @@ const STATUS_ICON: Record<MessageItem["status"], React.ReactNode> = {
   DELIVERED: <CheckCheck className="h-3 w-3" />,
   READ: <CheckCheck className="h-3 w-3 text-blue-500" />,
   FAILED: <span className="text-destructive">!</span>,
+  BOUNCED: <span className="text-destructive" title="האימייל הוקפץ (bounce)">↩</span>,
+  CANCELLED: <span className="text-muted-foreground" title="בוטל לפני העברה לספק">✕</span>,
 };
 
 export function MessageBubble({ message }: { message: MessageItem }) {

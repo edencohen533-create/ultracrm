@@ -16,6 +16,15 @@ export function audienceWhere(node: AudienceNode, now = new Date()): Prisma.Cont
     case "source": return { AND: [{ source: { not: null } }, { source: { [node.operator]: node.value, mode: "insensitive" } }] };
     case "custom": return node.operator === "equals" ? { customFields: { path: [node.key], equals: node.value } } : { customFields: { path: [node.key], string_contains: node.value } };
     case "agent": return { conversations: { some: { assignedAgentId: node.value } } };
+    case "owner": {
+      if (node.operator === "is") return { ownerUserId: node.value };
+      // "is not X" must keep unowned contacts (SQL NOT would drop NULL owners).
+      return node.value === null ? { ownerUserId: { not: null } } : { OR: [{ ownerUserId: null }, { ownerUserId: { not: node.value } }] };
+    }
+    case "leadStatus": {
+      const w: Prisma.ContactWhereInput = node.value === "none" ? { leads: { none: {} } } : { leads: { some: { status: node.value } } };
+      return node.operator === "is" ? w : { NOT: w };
+    }
     case "consent": return { consentStatus: node.value };
     case "blocked": return { isBlocked: node.value };
     case "marketingEligible": return node.value ? marketingEligibilityWhere(now) : { NOT: marketingEligibilityWhere(now) };
@@ -32,10 +41,10 @@ export function audienceWhere(node: AudienceNode, now = new Date()): Prisma.Cont
 }
 export async function validateAudienceReferences(tx: Prisma.TransactionClient, node: AudienceNode) {
   const rules = audienceRules(node);
-  for (const field of ["tag", "agent", "campaign"] as const) {
-    const ids = [...new Set(rules.filter((rule) => rule.field === field).map((rule) => String(rule.value)))];
+  for (const field of ["tag", "agent", "owner", "campaign"] as const) {
+    const ids = [...new Set(rules.filter((rule) => rule.field === field).map((rule) => rule.value).filter((v): v is string => typeof v === "string" && v.length > 0))];
     if (!ids.length) continue;
-    const count = field === "tag" ? await tx.tag.count({ where: { id: { in: ids } } }) : field === "agent" ? await tx.user.count({ where: { id: { in: ids } } }) : await tx.campaign.count({ where: { id: { in: ids } } });
+    const count = field === "tag" ? await tx.tag.count({ where: { id: { in: ids } } }) : field === "agent" || field === "owner" ? await tx.user.count({ where: { id: { in: ids } } }) : await tx.campaign.count({ where: { id: { in: ids } } });
     if (count !== ids.length) throw new AudienceError("אחד מפריטי הקהל אינו נגיש בעסק זה");
   }
 }

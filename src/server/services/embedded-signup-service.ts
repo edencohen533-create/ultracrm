@@ -223,7 +223,7 @@ export async function completeSignup(user: SessionUser, input: CompleteInput) {
     ...(input.label !== undefined ? { label: input.label } : {}), ...(input.teamId !== undefined ? { teamId: input.teamId } : {}),
   };
   const credential = await prisma.$transaction(async (tx) => {
-    const hasDefault = await tx.providerCredential.findFirst({ where: { isActive: true, isDefault: true, id: { not: existing?.id } }, select: { id: true } });
+    const hasDefault = await tx.providerCredential.findFirst({ where: { isActive: true, isDefault: true, channel: "whatsapp", id: { not: existing?.id } }, select: { id: true } });
     const row = existing
       ? await tx.providerCredential.update({ where: { id: existing.id }, data: { ...base, isDefault: existing.isDefault || !hasDefault } })
       : await tx.providerCredential.create({ data: { businessId: user.businessId, channel: "whatsapp", provider: "meta_whatsapp_cloud_api", isDefault: !hasDefault, ...base } });
@@ -324,7 +324,7 @@ export async function disconnectConnection(user: SessionUser, credentialId: stri
   await prisma.$transaction(async (tx) => {
     await tx.providerCredential.update({ where: { id: c.id }, data: { isActive: false, isDefault: false, status: "disconnected", subscribedAt: unsubscribed ? null : c.subscribedAt, lastConnectionError: warning } });
     if (c.isDefault) {
-      const next = await tx.providerCredential.findFirst({ where: { isActive: true, id: { not: c.id } }, orderBy: { createdAt: "asc" } });
+      const next = await tx.providerCredential.findFirst({ where: { isActive: true, channel: "whatsapp", id: { not: c.id } }, orderBy: { createdAt: "asc" } });
       if (next) await tx.providerCredential.update({ where: { id: next.id }, data: { isDefault: true } });
     }
   });

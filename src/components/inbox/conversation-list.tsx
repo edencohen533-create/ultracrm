@@ -130,7 +130,7 @@ export function ConversationListPane({ initialConversations }: { initialConversa
                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
                   <Ltr>{conversation.contact.phoneE164}</Ltr>
                 </div>
-                {conversation.providerCredential && <p className="text-xs text-muted-foreground">דרך: {conversation.providerCredential.label || conversation.providerCredential.displayPhoneNumber || "WhatsApp"}</p>}
+                {conversation.providerCredential && <p className="text-xs text-muted-foreground">{conversation.channel && conversation.channel !== "whatsapp" ? <span className="me-1 rounded border px-1 text-[10px] uppercase">{conversation.channel === "sms" ? "SMS" : "אימייל"}</span> : null}דרך: {conversation.providerCredential.label || conversation.providerCredential.displayPhoneNumber || "WhatsApp"}</p>}
                 {lastMessage?.body && (
                   <p className="mt-1 truncate text-xs text-muted-foreground">{lastMessage.body}</p>
                 )}

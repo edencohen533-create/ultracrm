@@ -6,7 +6,7 @@ export function templateFingerprint(template: { body: string; language: string; 
 }
 export async function activeSenderSnapshot(credentialId?: string | null) {
   if (credentialId === null) return await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api" }, select: { id: true } }) ? "blocked:mock" : "mock";
-  const active = await prisma.providerCredential.findFirst({ where: credentialId ? { id: credentialId } : { isActive: true }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] });
+  const active = await prisma.providerCredential.findFirst({ where: credentialId ? { id: credentialId } : { isActive: true, channel: "whatsapp" }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] });
   if (!active) return credentialId ? "blocked:missing" : "mock";
   if (!active.isActive) return `blocked:${active.id}`;
   if (active.sendingBlocked) return `blocked:${active.id}`;

@@ -29,6 +29,9 @@ export type DomainEventType =
   | "message.sent"
   | "contact.suppressed"
   | "contact.resubscribed"
+  | "contact.tag_added"
+  | "message.delivery_failed"
+  | "sequence.step_sent"
   | "task.created";
 
 export type EventSource = "user" | "system" | "automation" | "webhook" | "import";

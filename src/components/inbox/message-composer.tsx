@@ -23,6 +23,11 @@ export function MessageComposer({ conversationId, disabled, disabledReason, send
   const [value, setValue] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [templates, setTemplates] = useState<Template[] | null>(null);
+  const [canned, setCanned] = useState<Array<{ id: string; title: string; body: string; shortcut: string | null }> | null>(null);
+  async function loadCanned() {
+    if (canned) return;
+    try { const r = await fetch("/api/canned-replies"); if (!r.ok) throw new Error(); setCanned((await r.json()).data.items); } catch { toast.error("טעינת התשובות השמורות נכשלה"); }
+  }
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateId, setTemplateId] = useState("");
   const [variables, setVariables] = useState<Record<string, string>>({});
@@ -88,7 +93,10 @@ export function MessageComposer({ conversationId, disabled, disabledReason, send
   return <div className="space-y-2 border-t p-3">
     {senderUnavailable && <p role="alert" className="text-sm text-destructive">{senderUnavailable}</p>}
     {disabled && <p className="text-sm text-muted-foreground">{disabledReason ?? "חלון המענה הסתיים — יש להשתמש בתבנית מאושרת."}</p>}
-    <Button size="sm" variant="outline" onClick={loadTemplates}>{showTemplates ? "סגור תבניות" : "שליחת תבנית מאושרת"}</Button>
+    <div className="flex flex-wrap items-center gap-2">
+      <Button size="sm" variant="outline" onClick={loadTemplates}>{showTemplates ? "סגור תבניות" : "שליחת תבנית מאושרת"}</Button>
+      {!showTemplates && !disabled && <select aria-label="תשובה שמורה" className="rounded-md border bg-background p-1.5 text-xs" onFocus={loadCanned} onChange={(e) => { const c = canned?.find((x) => x.id === e.target.value); if (c) { draftEdited.current = true; setValue((v) => (v ? `${v}\n${c.body}` : c.body)); } e.target.value = ""; }} defaultValue=""><option value="">תשובה שמורה…</option>{(canned ?? []).map((c) => <option key={c.id} value={c.id}>{c.shortcut ? `/${c.shortcut} · ` : ""}{c.title}</option>)}</select>}
+    </div>
     {showTemplates ? <div className="space-y-2">
       <select aria-label="תבנית הודעה" className="w-full rounded-md border bg-background p-2" value={templateId} onChange={(e) => { setTemplateId(e.target.value); setVariables({}); requestId.current = null; }}><option value="">בחר תבנית</option>{templates?.map((t) => <option key={t.id} value={t.id}>{t.name}{t.language ? ` (${t.language})` : ""}</option>)}</select>
       {templates?.length === 0 && <p className="text-sm text-muted-foreground">אין תבניות מאושרות לשליחה.</p>}

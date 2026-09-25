@@ -150,7 +150,7 @@ export default function ListPage({ params }: { params: Promise<{ id: string }> }
                 <td className="px-3 text-muted">{OUTCOMES.find((o) => o.key === r.lastOutcome)?.label ?? (r.lastSkipReason ? `דילוג: ${r.lastSkipReason}` : "—")}</td>
                 <td className="px-3 text-muted text-xs tabular">{formatDateTime(r.lastAttemptAt)}</td>
                 <td className="px-3 text-muted text-xs tabular">{formatDateTime(r.nextAttemptAt)}</td>
-                {isManager && <td className="px-3 text-end">{r.status !== "in_call" && <button onClick={() => transfer(r.id)} className="text-xs text-[#aab3ff] hover:underline">העבר</button>}</td>}
+                {isManager && <td className="px-3 text-end">{r.status !== "in_call" && <button onClick={() => transfer(r.id)} className="text-xs text-accent underline hover:underline">העבר</button>}</td>}
               </tr>
             ))}
           </tbody>

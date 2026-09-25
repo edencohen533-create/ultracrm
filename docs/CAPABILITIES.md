@@ -9,6 +9,8 @@
 | התחברות אחת לכל העסקים (Account ↔ User/חברות, תפקידים owner/manager/agent) | `src/lib/auth.ts`, `/api/auth/*` | ממומש ונבדק | smoke §1–2, browser B1/B13/B14 |
 | הקשר עסק מאומת + הרחבת Prisma שמסננת כל מודל עסקי; מודלי CRM/דיוור מסרבים לרוץ ללא הקשר | `src/lib/tenant.ts`, `src/lib/db.ts` | ממומש ונבדק | `tests/integration/tenant-isolation.test.ts`, smoke §6 (מזהה עסק מזויף בגוף הבקשה מתעלם) |
 | מודולים ומכסות לפי חבילה (Plan / Business.modules / UsageCounter), אכיפה בשרת | `src/lib/modules.ts`, `withAuth({ module })` | ממומש ונבדק | smoke §6 (`module_disabled`), browser B14 (עסק Starter ללא טלפוניה) |
+| Row-Level Security ב-PostgreSQL לכל 48 טבלאות העסק/הילד (תפקיד `ultracrm_runtime`, transaction-local, בטוח מאחורי pooler); `withoutBusiness` לקריאות זהות חוצות-עסקים | `src/lib/db-rls.ts`, `prisma/migrations/20260925090000_rls_session_version` | ממומש ונבדק | `tests/integration/rls.test.ts` – קריאה/כתיבה/raw SQL/transaction חוצי-עסק נחסמים במסד |
+| פסילת סשנים אחרי שינוי סיסמה (`Account.sessionVersion` ב-JWT) + שינוי סיסמה עצמי לכל תפקיד | `src/lib/auth.ts`, `/api/auth/password`, הגדרות → החשבון שלי | ממומש ונבדק | `tests/integration/rls.test.ts` |
 | Audit Log לפעולות ניהול ושינויים רגישים | `audit_logs` | ממומש | הגדרות → היסטוריית שינויים |
 | חוזה אירועים + outbox + מטפלים אידמפוטנטיים | `src/lib/events/*`, `domain_events`, `automation_jobs` | ממומש ונבדק | `tests/integration/events.test.ts` |
 | הסרה גלובלית מכל הדיוור (כל המזהים, כל הערוצים, בדיקה ב-worker, ייבוא לא מבטל, חזרה עם תיעוד) | `src/lib/suppression.ts`, `suppressions` | ממומש ונבדק | `tests/integration/suppression.test.ts`, smoke §9, browser B11 |
@@ -25,6 +27,19 @@
 | הערות, ציר פעילות משותף (שיחות, הודעות, הערות, משימות, לידים, עסקאות, אירועים) | `/api/contacts/:id/timeline` | ממומש ונבדק (browser B9/B10) |
 | חיוג ושליחת WhatsApp מכרטיס הלקוח | `/contacts/[id]` | ממומש ונבדק (browser B6/B10) |
 | דשבורד חוצה מודולים | `/dashboard` | ממומש |
+
+## השלמת WhatsApp – מטריצת 199 הדרישות (ענף feat/whatsapp-completion)
+
+ראו `docs/WHATSAPP_COMPLETION.md` ו-`docs/qa/whatsapp-requirements-matrix.md` (125 מומש ונבדק / 65 חלקי / 0 חסר / 9 חסום ל-Meta חי).
+
+| יכולת | מיקום | מצב |
+|---|---|---|
+| סיווג שגיאות Meta, retry אוטומטי עם backoff (retryable בלבד, requestKey לכל ניסיון), UNKNOWN לעולם לא אוטומטי, retry ידני מבוקר | `src/lib/meta/errors.ts`, `src/jobs/campaign-runner.ts`, `campaign-service.retryRecipient` | ממומש ונבדק (אינטגרציה + דפדפן W6) |
+| תבניות עם כותרת מדיה וכפתורים, PAUSED/DISABLED, משתנים עם ברירות מחדל ושדות מותאמים, מדיה/כפתורים בקמפיין, preflight snapshot | `template-sync-service.ts`, `meta-whatsapp-provider.ts`, `src/lib/campaigns.ts` | ממומש ונבדק (סימולציה; לא מול Meta חי) |
+| שליחת בדיקה רק ל-allowlist של החיבור, מחיר ידני לשיחה, cron בריאות חיבור יומי, לדג׳ר סטטוסים + סיבות כשל | `embedded-signup-service.ts`, `/api/jobs/whatsapp-health`, `message-status-service.ts` | ממומש ונבדק |
+| מיזוג כפילויות עם שמירת כל הקשרים והסכמה מחמירה | `src/lib/crm/contacts.ts#mergeContacts`, `/contacts/duplicates` | ממומש ונבדק |
+| רצפים: טריגר ליד חדש / שינוי סטטוס, שלב משימה, תנאי שלב; אוטומציות: משימה / שדה מותאם / מחוץ לשעות | `sequence-service.ts`, `automation-service.ts` | ממומש (ליד חדש/משימה/תנאים נבדקו; סטטוס ליד ומחוץ לשעות – ללא בדיקה אוטומטית) |
+| מדיניות שמירה (הודעות/audit), magic bytes, קישורי קליקים חתומים באימייל, ייצוא CSV נמענים, סינוני inbox, תשובות שמורות, אנליטיקה לפי טווח ומספר | `/api/jobs/retention`, `src/lib/media.ts`, `src/app/r/[token]`, … | ממומש ונבדק |
 
 ## דיוור (מ-solinainbox)
 

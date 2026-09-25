@@ -202,7 +202,7 @@ export function LiveFloor() {
                     <tr className={cx("hover:bg-white/3", r.status === "in_call" && "bg-good/5")}>
                       <td className="px-3 h-12">
                         <div className="flex items-center gap-2">
-                          <span className="w-8 h-8 rounded-full bg-accent/30 text-[#aab3ff] text-xs font-semibold flex items-center justify-center shrink-0">{r.fullName.split(" ").map((p) => p[0]).slice(0, 2).join("")}</span>
+                          <span className="w-8 h-8 rounded-full bg-accent/30 text-accent underline text-xs font-semibold flex items-center justify-center shrink-0">{r.fullName.split(" ").map((p) => p[0]).slice(0, 2).join("")}</span>
                           <div className="min-w-0">
                             <p className="font-medium truncate">{r.fullName}</p>
                             <p className="text-[11px] text-muted truncate">{r.team?.name ?? (r.role === "manager" ? "מנהל" : "")}{!r.connected && r.call ? " · דפדפן מנותק, השיחה חיה אצל הספק" : ""}</p>

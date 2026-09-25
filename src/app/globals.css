@@ -11,55 +11,57 @@
  * component sets render as one product.
  */
 :root {
-  --bg: #0b0e14;
-  --panel: #131722;
-  --panel-2: #1a1f2e;
-  --line: rgba(255, 255, 255, 0.08);
-  --text: #e6e9ef;
-  --muted: #8b93a7;
-  --accent: #5b6cff;
-  --accent-2: #4353e0;
-  --good: #22c55e;
-  --warn: #f59e0b;
-  --bad: #ef4444;
-  --info: #38bdf8;
+  color-scheme: light;
+  /* Black & white theme (user request 2026-09-25): white surfaces, black text and actions, gray for secondary text. */
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f4f4f5;
+  --line: rgba(0, 0, 0, 0.12);
+  --text: #111111;
+  --muted: #6b7280;      /* secondary TEXT (dialer utilities: text-muted) */
+  --muted-bg: #f4f4f5;   /* secondary SURFACE (shadcn: bg-muted) */
+  --accent: #111111;
+  --accent-2: #333333;
+  --good: #15803d;
+  --warn: #b45309;
+  --bad: #b91c1c;
+  --info: #1d4ed8;
 
   /* shadcn tokens */
   --background: var(--bg);
   --foreground: var(--text);
   --card: var(--panel);
   --card-foreground: var(--text);
-  --popover: var(--panel-2);
+  --popover: #ffffff;
   --popover-foreground: var(--text);
   --primary: var(--accent);
   --primary-foreground: #ffffff;
   --secondary: var(--panel-2);
   --secondary-foreground: var(--text);
-  --muted: var(--panel-2);
-  --muted-foreground: #8b93a7;
+  --muted-foreground: #6b7280;
   --accent-foreground: #ffffff;
   --destructive: var(--bad);
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.12);
-  --ring: var(--accent);
-  --chart-1: #5b6cff;
-  --chart-2: #22c55e;
-  --chart-3: #f59e0b;
-  --chart-4: #38bdf8;
-  --chart-5: #ef4444;
+  --border: rgba(0, 0, 0, 0.14);
+  --input: rgba(0, 0, 0, 0.2);
+  --ring: #111111;
+  --chart-1: #111111;
+  --chart-2: #15803d;
+  --chart-3: #b45309;
+  --chart-4: #1d4ed8;
+  --chart-5: #b91c1c;
   --radius: 0.625rem;
-  --sidebar: var(--panel);
+  --sidebar: #fafafa;
   --sidebar-foreground: var(--text);
   --sidebar-primary: var(--accent);
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: rgba(255, 255, 255, 0.06);
+  --sidebar-accent: rgba(0, 0, 0, 0.05);
   --sidebar-accent-foreground: var(--text);
   --sidebar-border: var(--line);
   --sidebar-ring: var(--accent);
 }
 
 .dark {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -69,6 +71,7 @@
   --color-line: var(--line);
   --color-text: var(--text);
   --color-muted: var(--muted);
+  --color-muted-bg: var(--muted-bg);
   --color-accent: var(--accent);
   --color-accent-2: var(--accent-2);
   --color-good: var(--good);
@@ -188,3 +191,21 @@ button:focus-visible {
 table {
   border-color: var(--line);
 }
+
+/* Light-theme adjustments for utilities that were written against the old dark palette. */
+@layer utilities {
+  .bg-muted { background-color: var(--muted-bg); }
+  .bg-muted\/30 { background-color: rgba(0, 0, 0, 0.03); }
+  .bg-muted\/40 { background-color: rgba(0, 0, 0, 0.04); }
+  .bg-muted\/50 { background-color: rgba(0, 0, 0, 0.05); }
+  .bg-white\/3 { background-color: rgba(0, 0, 0, 0.03); }
+  .bg-white\/5 { background-color: rgba(0, 0, 0, 0.05); }
+  .bg-white\/6 { background-color: rgba(0, 0, 0, 0.06); }
+  .bg-white\/8 { background-color: rgba(0, 0, 0, 0.08); }
+  .bg-white\/10 { background-color: rgba(0, 0, 0, 0.1); }
+  .bg-white\/12 { background-color: rgba(0, 0, 0, 0.12); }
+  .hover\:bg-white\/5:hover { background-color: rgba(0, 0, 0, 0.05); }
+  .hover\:bg-white\/8:hover { background-color: rgba(0, 0, 0, 0.08); }
+  .hover\:bg-white\/10:hover { background-color: rgba(0, 0, 0, 0.1); }
+}
+

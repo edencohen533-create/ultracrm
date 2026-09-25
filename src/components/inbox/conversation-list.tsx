@@ -37,6 +37,10 @@ export function ConversationListPane({ initialConversations }: { initialConversa
 
   const filter = searchParams.get("filter");
   const [senderFilter, setSenderFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [channelFilter, setChannelFilter] = useState("");
+  const [tags, setTags] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => { fetch("/api/tags").then((r) => (r.ok ? r.json() : null)).then((d) => { const items = d?.data?.items ?? d?.items ?? d?.data ?? []; if (Array.isArray(items)) setTags(items.map((t: { id: string; name: string }) => ({ id: t.id, name: t.name }))); }).catch(() => undefined); }, []);
   const [senders, setSenders] = useState<{ id: string; label: string }[]>([]);
   useEffect(() => { fetch("/api/whatsapp/senders").then((res) => res.ok ? res.json() : null).then((data) => { if (data) setSenders(data.senders); }).catch(() => {}); }, []);
   const search = searchParams.get("search") ?? "";
@@ -53,6 +57,8 @@ export function ConversationListPane({ initialConversations }: { initialConversa
     try {
     const params = new URLSearchParams();
     if (senderFilter) params.set("providerCredentialId", senderFilter);
+    if (tagFilter) params.set("tagId", tagFilter);
+    if (channelFilter) params.set("channel", channelFilter);
     if (search) params.set("search", search);
     if (statusParam === "open") params.set("status", "OPEN");
     if (statusParam === "pending") params.set("status", "PENDING");
@@ -66,20 +72,20 @@ export function ConversationListPane({ initialConversations }: { initialConversa
     const data = await res.json();
     setConversations(data.conversations);
     } finally { fetching.current = false; }
-  }, [statusParam, search, senderFilter]);
+  }, [statusParam, search, senderFilter, tagFilter, channelFilter]);
 
   // Skip the redundant initial fetch when unfiltered — the server already
   // rendered that exact data into `initialConversations`. Any other filter
   // (or a later change back to unfiltered) still fetches normally.
   const skippedInitialFetch = useRef(false);
   useEffect(() => {
-    if (!skippedInitialFetch.current && statusParam === undefined && !search && !senderFilter) {
+    if (!skippedInitialFetch.current && statusParam === undefined && !search && !senderFilter && !tagFilter && !channelFilter) {
       skippedInitialFetch.current = true;
       return;
     }
     skippedInitialFetch.current = true;
     void fetchConversations().catch(() => {});
-  }, [fetchConversations, statusParam, search, senderFilter]);
+  }, [fetchConversations, statusParam, search, senderFilter, tagFilter, channelFilter]);
 
   useRealtimeChannel(
     INBOX_CHANNEL,
@@ -90,7 +96,11 @@ export function ConversationListPane({ initialConversations }: { initialConversa
 
   return (
     <div className={cn("h-full w-full shrink-0 flex-col overflow-hidden border-e md:flex md:w-80", activeId ? "hidden" : "flex")}>
-      {senders.length > 0 && <select aria-label="סינון שיחות לפי מספר" className="m-2 rounded border p-2 text-sm" value={senderFilter} onChange={(event) => setSenderFilter(event.target.value)}><option value="">כל המספרים הנגישים</option>{senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label}</option>)}</select>}
+      <div className="flex flex-wrap gap-1 px-2 pt-2">
+        {senders.length > 0 && <select aria-label="סינון שיחות לפי מספר" className="rounded border p-1.5 text-xs" value={senderFilter} onChange={(event) => setSenderFilter(event.target.value)}><option value="">כל המספרים הנגישים</option>{senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label}</option>)}</select>}
+        {tags.length > 0 && <select aria-label="סינון שיחות לפי תגית" className="rounded border p-1.5 text-xs" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="">כל התגיות</option>{tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
+        <select aria-label="סינון שיחות לפי ערוץ" className="rounded border p-1.5 text-xs" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}><option value="">כל הערוצים</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">אימייל</option></select>
+      </div>
       <div className="flex-1 overflow-y-auto">
         {conversations === null && (
           <div className="space-y-2 p-3">
@@ -130,7 +140,7 @@ export function ConversationListPane({ initialConversations }: { initialConversa
                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
                   <Ltr>{conversation.contact.phoneE164}</Ltr>
                 </div>
-                {conversation.providerCredential && <p className="text-xs text-muted-foreground">{conversation.channel && conversation.channel !== "whatsapp" ? <span className="me-1 rounded border px-1 text-[10px] uppercase">{conversation.channel === "sms" ? "SMS" : "אימייל"}</span> : null}דרך: {conversation.providerCredential.label || conversation.providerCredential.displayPhoneNumber || "WhatsApp"}</p>}
+                {conversation.providerCredential && <p className="text-xs text-muted-foreground">{conversation.channel && conversation.channel !== "whatsapp" ? <span className="me-1 rounded border px-1 text-[10px] uppercase">{conversation.channel === "sms" ? "SMS" : "אימייל"}</span> : null}דרך: {conversation.providerCredential.label || conversation.providerCredential.displayPhoneNumber || "WhatsApp"}{conversation.providerCredential.isActive === false ? <span className="ms-1 text-amber-700">(מספר מנותק)</span> : null}</p>}
                 {lastMessage?.body && (
                   <p className="mt-1 truncate text-xs text-muted-foreground">{lastMessage.body}</p>
                 )}

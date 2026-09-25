@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db";
 
-export function templateFingerprint(template: { body: string; language: string; name: string; category?: string; providerAccountId: string | null; providerTemplateId: string | null }) {
-  return createHash("sha256").update(JSON.stringify([template.body, template.language, template.name, template.providerAccountId, template.providerTemplateId, template.category])).digest("hex");
+export function templateFingerprint(template: { body: string; language: string; name: string; category?: string; providerAccountId: string | null; providerTemplateId: string | null; headerFormat?: string | null; buttons?: unknown; status?: string }) {
+  // A header/button change at Meta is a content change too – campaigns drafted against the old structure pause.
+  return createHash("sha256").update(JSON.stringify([template.body, template.language, template.name, template.providerAccountId, template.providerTemplateId, template.category, template.headerFormat ?? null, template.buttons ?? null])).digest("hex");
 }
 export async function activeSenderSnapshot(credentialId?: string | null) {
   if (credentialId === null) return await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api" }, select: { id: true } }) ? "blocked:mock" : "mock";

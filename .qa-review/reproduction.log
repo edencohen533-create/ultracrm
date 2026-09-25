@@ -1,0 +1,216 @@
+
+ RUN  v4.1.11 /Users/edencohen/ultracrm
+
+stdout | .qa-review/review.test.ts > R09: merging two contacts with same-agent drafts must succeed
+prisma:error 
+Invalid `prisma.noteDraft.updateMany()` invocation:
+
+
+Unique constraint failed on the constraint: `note_drafts_user_id_contact_id_key`
+
+ ❯ .qa-review/review.test.ts (10 tests | 10 failed) 835ms
+   × R01: searching leads must preserve agent visibility 83ms
+   × R02: searching deals must preserve agent visibility 32ms
+   × R03: contact timeline must not expose a denied conversation 87ms
+   × R04: agent must not convert another agents lead 54ms
+   × R05: note must not reference another business conversation 22ms
+   × R06: text conversation search must exclude unmatched phone numbers 16ms
+   × R07: CRM module disabled must reject lead API 51ms
+   × R08: OPTED_OUT plus isBlocked false must preserve marketing suppression 60ms
+   × R09: merging two contacts with same-agent drafts must succeed 95ms
+   × R10: updateContact must return the saved consent state 8ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  .qa-review/review.test.ts > R01: searching leads must preserve agent visibility
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ .qa-review/review.test.ts:18:352
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  .qa-review/review.test.ts > R02: searching deals must preserve agent visibility
+AssertionError: expected [ { …(17) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ .qa-review/review.test.ts:19:181
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  .qa-review/review.test.ts > R03: contact timeline must not expose a denied conversation
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ .qa-review/review.test.ts:20:311
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  .qa-review/review.test.ts > R04: agent must not convert another agents lead
+AssertionError: promise resolved "{ …(17) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "amount": "0",
++   "businessId": "cmugfsmc20000q2ejpe8hy33d",
++   "closedAt": null,
++   "contact": {
++     "company": null,
++     "fullName": "Secret Customer",
++     "id": "cmugfsme0000aq2ejap4w4bl3",
++     "phoneE164": "+972501234501",
++   },
++   "contactId": "cmugfsme0000aq2ejap4w4bl3",
++   "createdAt": 2026-09-25T04:04:28.876Z,
++   "currency": "ILS",
++   "expectedCloseAt": null,
++   "id": "cmugfsmks000fq2ejncp0w724",
++   "leadId": "cmugfsme7000bq2ejwmmcc1an",
++   "notes": null,
++   "owner": {
++     "fullName": "other",
++     "id": "cmugfsmdy0009q2ejgzw7ndex",
++   },
++   "ownerUserId": "cmugfsmdy0009q2ejgzw7ndex",
++   "stage": "new",
++   "status": "open",
++   "title": "Restricted Lead",
++   "updatedAt": 2026-09-25T04:04:28.876Z,
+  }
+
+ ❯ .qa-review/review.test.ts:21:122
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  .qa-review/review.test.ts > R05: note must not reference another business conversation
+AssertionError: promise resolved "{ …(10) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "author": {
++     "fullName": "agent",
++     "id": "cmugfsmdv0007q2ejw2yk4lku",
++   },
++   "authorId": "cmugfsmdv0007q2ejw2yk4lku",
++   "body": "CROSS TENANT INJECTION",
++   "businessId": "cmugfsmc20000q2ejpe8hy33d",
++   "contactId": "cmugfsme0000aq2ejap4w4bl3",
++   "conversationId": "cmugfsmlw000jq2ej3yjl6r8t",
++   "createdAt": 2026-09-25T04:04:28.920Z,
++   "dealId": null,
++   "id": "cmugfsmm0000kq2ejue84ly9c",
++   "mentionedUserIds": [],
+  }
+
+ ❯ .qa-review/review.test.ts:22:407
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  .qa-review/review.test.ts > R06: text conversation search must exclude unmatched phone numbers
+AssertionError: expected [ { …(21) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ .qa-review/review.test.ts:23:207
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  .qa-review/review.test.ts > R07: CRM module disabled must reject lead API
+AssertionError: expected 200 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 200
+
+ ❯ .qa-review/review.test.ts:24:490
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  .qa-review/review.test.ts > R08: OPTED_OUT plus isBlocked false must preserve marketing suppression
+AssertionError: expected 'OPTED_IN' to be 'OPTED_OUT' // Object.is equality
+
+Expected: "OPTED_OUT"
+Received: "OPTED_IN"
+
+ ❯ .qa-review/review.test.ts:25:430
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  .qa-review/review.test.ts > R09: merging two contacts with same-agent drafts must succeed
+AssertionError: promise rejected "PrismaClientKnownRequestError{ …(7) }" instead of resolving
+ ❯ .qa-review/review.test.ts:26:406
+
+
+Caused by: PrismaClientKnownRequestError: 
+Invalid `prisma.noteDraft.updateMany()` invocation:
+
+
+Unique constraint failed on the constraint: `note_drafts_user_id_contact_id_key`
+ ❯ vn.handleRequestError node_modules/@prisma/client/runtime/client.js:65:8643
+ ❯ vn.handleAndLogRequestError node_modules/@prisma/client/runtime/client.js:65:7932
+ ❯ vn.request node_modules/@prisma/client/runtime/client.js:65:7639
+ ❯ a node_modules/@prisma/client/runtime/client.js:99:6935
+ ❯ prisma.$transaction.timeout src/lib/crm/contacts.ts:419:5
+ ❯ Proxy._transactionWithCallback node_modules/@prisma/client/runtime/client.js:99:4868
+ ❯ Module.mergeContacts src/lib/crm/contacts.ts:396:3
+ ❯ src/lib/tenant.ts:34:27
+ ❯ .qa-review/review.test.ts:26:339
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'P2002', meta: { driverAdapterError: { stack: 'DriverAdapterError: UniqueConstraintViolation\n    at PgTransaction.onError (file:///Users/edencohen/ultracrm/node_modules/@prisma/adapter-pg/dist/index.mjs:666:11)\n    at PgTransaction.performIO (file:///Users/edencohen/ultracrm/node_modules/@prisma/adapter-pg/dist/index.mjs:661:12)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at PgTransaction.executeRaw (file:///Users/edencohen/ultracrm/node_modules/@prisma/adapter-pg/dist/index.mjs:634:13)\n    at /Users/edencohen/ultracrm/node_modules/@prisma/client/runtime/client.js:11:70205\n    at e.run (/Users/edencohen/ultracrm/node_modules/@prisma/client/runtime/client.js:11:69220)\n    at execute (/Users/edencohen/ultracrm/node_modules/@prisma/client/runtime/client.js:57:815)\n    at yr.request (/Users/edencohen/ultracrm/node_modules/@prisma/client/runtime/client.js:58:2425)\n    at Object.singleLoader (/Users/edencohen/ultracrm/node_modules/@prisma/client/runtime/client.js:65:6920)', message: 'UniqueConstraintViolation', name: 'DriverAdapterError', cause: { originalCode: '23505', originalMessage: 'duplicate key value violates unique constraint "note_drafts_user_id_contact_id_key"', kind: 'UniqueConstraintViolation', constraint: { index: 'note_drafts_user_id_contact_id_key' }, table: 'note_drafts' }, constructor: 'Function<DriverAdapterError>', toString: 'Function<toString>' }, modelName: 'NoteDraft' }, clientVersion: '7.10.0', batchRequestIdx: undefined }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+ FAIL  .qa-review/review.test.ts > R10: updateContact must return the saved consent state
+AssertionError: expected 'UNKNOWN' to be 'OPTED_IN' // Object.is equality
+
+Expected: "OPTED_IN"
+Received: "UNKNOWN"
+
+ ❯ .qa-review/review.test.ts:27:440
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed (10)
+   Start at  07:04:26
+   Duration  2.34s (transform 466ms, setup 0ms, import 1.17s, tests 835ms, environment 0ms)
+

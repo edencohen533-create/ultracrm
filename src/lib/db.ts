@@ -1,6 +1,7 @@
 import { PrismaClient, type Prisma } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { currentBusinessId } from "@/lib/tenant";
+import { createTenantPool } from "@/lib/db-rls";
 
 export function dbSchema(): string {
   try {
@@ -16,7 +17,9 @@ function createClient() {
   const url = new URL(connectionString);
   const schema = url.searchParams.get("schema") ?? "public";
   url.searchParams.delete("schema");
-  const adapter = new PrismaPg({ connectionString: url.toString(), max: Number(process.env.DATABASE_POOL_MAX ?? 10) }, { schema });
+  // Pool clients are wrapped so tenant statements run under PostgreSQL row-level security (see db-rls.ts).
+  const pool = createTenantPool({ connectionString: url.toString(), max: Number(process.env.DATABASE_POOL_MAX ?? 10) });
+  const adapter = new PrismaPg(pool, { schema });
   return new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],

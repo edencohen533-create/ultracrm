@@ -19,6 +19,7 @@ import crypto from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import type { WaConnectionStatus } from "@/generated/prisma/enums";
 import { db, prisma } from "@/lib/db";
+import { withoutBusiness } from "@/lib/tenant";
 import { ApiError } from "@/lib/response";
 import { audit } from "@/lib/audit";
 import { appAccessToken, embeddedSignupReadiness, graph, GraphError, metaAppEnv, metaConfigOf, sealMetaConfig, GRAPH_VERSION } from "@/lib/meta/graph";
@@ -204,7 +205,8 @@ export async function completeSignup(user: SessionUser, input: CompleteInput) {
   } catch (err) { await fail(err, "verify_assets"); throw err; }
 
   // Conflicts: the phone (globally unique) must not belong to another business; one WABA per business.
-  const foreign = await db.providerCredential.findFirst({ where: { phoneNumberId: input.phoneNumberId, businessId: { not: user.businessId } }, select: { id: true } });
+  // Global-uniqueness read across businesses → outside the tenant scope (RLS would hide the other business).
+  const foreign = await withoutBusiness(() => db.providerCredential.findFirst({ where: { phoneNumberId: input.phoneNumberId, businessId: { not: user.businessId } }, select: { id: true } }));
   if (foreign) { await fail(new Error("phone bound to another business"), "conflict"); throw new SignupError("המספר הזה כבר מחובר לעסק אחר במערכת. יש לנתק אותו שם לפני חיבור כאן", 409, "phone_bound_elsewhere"); }
   const otherWaba = await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api", wabaId: { not: input.wabaId } }, select: { id: true, wabaId: true } });
   if (otherWaba) { await fail(new Error("another WABA active"), "conflict"); throw new SignupError("בעסק זה כבר מחובר חשבון WhatsApp אחר. נתק אותו לפני חיבור חשבון חדש", 409, "waba_conflict"); }
@@ -276,7 +278,7 @@ export async function runSetupSteps(user: SessionUser, credentialId: string, acc
 }
 
 /** "בדוק חיבור": re-validate token, scopes, subscription and phone state at Meta. Never fakes success. */
-export async function checkConnection(user: SessionUser, credentialId: string) {
+export async function checkConnection(user: { id: string | null; businessId: string }, credentialId: string) {
   const c = await prisma.providerCredential.findFirst({ where: { id: credentialId, provider: "meta_whatsapp_cloud_api" } });
   if (!c || !c.wabaId || !c.phoneNumberId) throw new SignupError("החיבור לא נמצא", 404, "not_found");
   const cfg = metaConfigOf(c.config);
@@ -347,6 +349,9 @@ export async function applyAccountUpdate(wabaId: string, event: string, detail?:
 export async function sendTestMessage(user: SessionUser, credentialId: string, toE164: string) {
   const c = await prisma.providerCredential.findFirst({ where: { id: credentialId, provider: "meta_whatsapp_cloud_api", isActive: true } });
   if (!c || !c.phoneNumberId) throw new SignupError("החיבור לא נמצא או אינו פעיל", 404, "not_found");
+  // Test sends go only to numbers explicitly allow-listed on this connection – never to customers.
+  const allowed = (c.testRecipients as string[] | null) ?? [];
+  if (!allowed.includes(toE164)) throw new SignupError("שליחת בדיקה מותרת רק למספרי בדיקה שהוגדרו במפורש בחיבור", 403, "test_recipient_not_allowed", { allowed });
   const cfg = metaConfigOf(c.config);
   try {
     const r = await graph<{ messages?: Array<{ id: string }> }>(`${c.phoneNumberId}/messages`, { method: "POST", token: cfg.accessToken, body: { messaging_product: "whatsapp", to: toE164.replace(/^\+/, ""), type: "template", template: { name: "hello_world", language: { code: "en_US" } } } });
@@ -376,6 +381,7 @@ export async function connectionOverview() {
         qualityRating: c.qualityRating, codeVerificationStatus: c.codeVerificationStatus, platformType: c.platformType, grantedScopes: c.grantedScopes, isDefault: c.isDefault, isActive: c.isActive,
         team: c.team, subscribedAt: c.subscribedAt, registeredAt: c.registeredAt, tokenCheckedAt: c.tokenCheckedAt, lastCheckedAt: c.lastCheckedAt, lastWebhookAt: c.lastWebhookAt,
         lastOutboundTestAt: c.lastOutboundTestAt, lastError: c.lastConnectionError, sendingBlocked: c.sendingBlocked, createdAt: c.createdAt,
+        testRecipients: (c.testRecipients as string[] | null) ?? [], unitPrice: c.unitPrice ? Number(c.unitPrice) : null, unitPriceCurrency: c.unitPriceCurrency,
       };
     }),
   };
@@ -390,3 +396,14 @@ export const STATUS_LABEL: Record<WaConnectionStatus, string> = {
   revoked: "ההרשאה בוטלה – נדרש חיבור מחדש",
   error: "תקלה",
 };
+
+/** Test-number allowlist and manual unit price (cost estimates) for a WhatsApp connection. Owner/manager. */
+export async function updateConnectionSettings(user: SessionUser, credentialId: string, input: { testRecipients?: string[]; unitPrice?: number | null; unitPriceCurrency?: string | null }) {
+  const c = await prisma.providerCredential.findFirst({ where: { id: credentialId, channel: "whatsapp" } });
+  if (!c) throw new SignupError("החיבור לא נמצא", 404, "not_found");
+  const { normalizePhone } = await import("@/lib/phone");
+  const testRecipients = input.testRecipients?.map((t) => normalizePhone(t)).filter((t): t is string => Boolean(t)).slice(0, 10);
+  const updated = await prisma.providerCredential.update({ where: { id: c.id }, data: { ...(testRecipients ? { testRecipients } : {}), ...(input.unitPrice !== undefined ? { unitPrice: input.unitPrice } : {}), ...(input.unitPriceCurrency !== undefined ? { unitPriceCurrency: input.unitPriceCurrency } : {}) } });
+  await audit(user.businessId, user.id, "whatsapp", c.id, "whatsapp.settings_updated", { testRecipients: updated.testRecipients, unitPrice: updated.unitPrice ? Number(updated.unitPrice) : null });
+  return { testRecipients: updated.testRecipients, unitPrice: updated.unitPrice ? Number(updated.unitPrice) : null, unitPriceCurrency: updated.unitPriceCurrency };
+}

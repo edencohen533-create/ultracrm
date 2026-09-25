@@ -10,6 +10,9 @@ export interface ConversationListFilter {
   assignedTo?: "me" | "unassigned" | "all";
   search?: string;
   providerCredentialId?: string;
+  tagId?: string;
+  teamId?: string;
+  channel?: "whatsapp" | "sms" | "email";
 }
 
 /**
@@ -28,6 +31,9 @@ export function buildConversationScope(session: Session, filter: ConversationLis
   }
 
   if (filter.providerCredentialId) clauses.push({ providerCredentialId: filter.providerCredentialId });
+  if (filter.tagId) clauses.push({ tags: { some: { tagId: filter.tagId } } });
+  if (filter.teamId) clauses.push({ OR: [{ providerCredential: { teamId: filter.teamId } }, { assignedAgent: { teamId: filter.teamId } }] });
+  if (filter.channel) clauses.push({ channel: filter.channel });
 
   if (filter.status) {
     clauses.push({ status: filter.status });

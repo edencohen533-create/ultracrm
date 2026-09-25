@@ -83,7 +83,7 @@ export default function DashboardPage() {
       )}
 
       <div className="grid lg:grid-cols-3 gap-4">
-        <Panel title="לידים אחרונים" actions={<Link href="/leads" className="text-xs text-[#aab3ff] hover:underline">הכול</Link>} bodyClassName="p-0">
+        <Panel title="לידים אחרונים" actions={<Link href="/leads" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
           {d.recentLeads.length === 0 ? <EmptyState title="אין לידים עדיין" hint="לידים נוצרים מאנשי קשר, מייבוא או אוטומטית מהודעות ושיחות" /> : (
             <ul className="divide-y divide-line">
               {d.recentLeads.map((l) => (
@@ -98,7 +98,7 @@ export default function DashboardPage() {
             </ul>
           )}
         </Panel>
-        <Panel title="המשימות הקרובות" actions={<Link href="/tasks" className="text-xs text-[#aab3ff] hover:underline">הכול</Link>} bodyClassName="p-0">
+        <Panel title="המשימות הקרובות" actions={<Link href="/tasks" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
           {d.myTasks.length === 0 ? <EmptyState title="אין משימות פתוחות" /> : (
             <ul className="divide-y divide-line">
               {d.myTasks.map((t) => {

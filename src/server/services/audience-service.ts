@@ -28,7 +28,14 @@ export function audienceWhere(node: AudienceNode, now = new Date()): Prisma.Cont
     case "consent": return { consentStatus: node.value };
     case "blocked": return { isBlocked: node.value };
     case "marketingEligible": return node.value ? marketingEligibilityWhere(now) : { NOT: marketingEligibilityWhere(now) };
-    case "campaign": return { campaignRecipients: { some: { campaignId: node.value, ...(node.result === "ANY" ? {} : { status: node.result }) } } };
+    case "campaign": {
+      // Delivery outcomes come from the provider status of the recipient's message (not just "handed over").
+      if (node.result === "DELIVERED") return { campaignRecipients: { some: { campaignId: node.value, message: { status: { in: ["DELIVERED", "READ"] } } } } };
+      if (node.result === "READ") return { campaignRecipients: { some: { campaignId: node.value, message: { status: "READ" } } } };
+      if (node.result === "NOT_DELIVERED") return { campaignRecipients: { some: { campaignId: node.value, OR: [{ status: { in: ["FAILED", "UNKNOWN"] } }, { message: { status: { in: ["FAILED", "BOUNCED", "CANCELLED"] } } }] } } };
+      if (node.result === "REPLIED") return { campaignRecipients: { some: { campaignId: node.value, message: { conversation: { messages: { some: { direction: "INBOUND", createdAt: { gte: new Date(0) } } } } } } }, conversations: { some: { messages: { some: { direction: "INBOUND" } } } } };
+      return { campaignRecipients: { some: { campaignId: node.value, ...(node.result === "ANY" ? {} : { status: node.result }) } } };
+    }
     default: {
       const direction = node.field === "lastInbound" ? "INBOUND" : node.field === "lastOutbound" ? "OUTBOUND" : undefined;
       const hasMessage = (createdAt?: Prisma.DateTimeFilter): Prisma.ContactWhereInput => ({ conversations: { some: { messages: { some: { ...(direction ? { direction } : {}), ...(createdAt ? { createdAt } : {}) } } } } });

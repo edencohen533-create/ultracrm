@@ -33,7 +33,7 @@ export default function SettingsPage() {
           </div>
         ))}
       </div>
-      {tab === "business" && <BusinessTab isAdmin={isAdmin} />}
+      {tab === "business" && <><BusinessTab isAdmin={isAdmin} /><AccountPanel /></>}
       {tab === "connections" && <ConnectionsTab modules={modules} />}
       {tab === "plan" && <PlanTab isAdmin={isAdmin} />}
       {tab === "automations" && <AutomationsTab isAdmin={isAdmin} messaging={modules.messaging} />}
@@ -285,6 +285,25 @@ function HistoryTab() {
 }
 
 
+function AccountPanel() {
+  const [current, setCurrent] = useState(""); const [next, setNext] = useState(""); const [busy, setBusy] = useState(false);
+  async function change() {
+    if (next.length < 8) { toast.error("סיסמה חדשה: לפחות 8 תווים"); return; }
+    setBusy(true);
+    try { await api.post("/api/auth/password", { currentPassword: current, newPassword: next }); toast.success("הסיסמה שונתה. חיבורים אחרים של החשבון נותקו"); setCurrent(""); setNext(""); }
+    catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  }
+  return (
+    <Panel title="החשבון שלי – שינוי סיסמה" actions={<Button size="sm" disabled={busy || !current || !next} onClick={change} data-testid="account-change-password">שנה סיסמה</Button>}>
+      <p className="text-xs text-muted mb-2">הסיסמה שייכת לחשבון הכניסה שלך בכל העסקים. שינוי מנתק כל חיבור אחר של החשבון.</p>
+      <div className="grid md:grid-cols-2 gap-3">
+        <Input label="סיסמה נוכחית" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+        <Input label="סיסמה חדשה (8+ תווים)" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
+      </div>
+    </Panel>
+  );
+}
+
 function BusinessTab({ isAdmin }: { isAdmin: boolean }) {
   const [b, setB] = useState<{ name: string; timezone: string } | null>(null);
   useEffect(() => { api.get<{ business: { name: string; timezone: string } }>("/api/settings").then((r) => setB(r.business)).catch((e) => toast.error(e.message)); }, []);
@@ -325,10 +344,10 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
           <li className="flex flex-wrap items-center gap-2">
             <b>WhatsApp (Meta Cloud API)</b>
             {!modules.messaging ? <Badge tone="neutral">המודול כבוי בחבילה</Badge> : waDenied ? <Badge tone="neutral">פרטי החיבור זמינים לבעלים בלבד</Badge> : wa ? (wa.provider === "mock" ? <Badge tone="warn">מצב הדגמה – אין שליחה אמיתית</Badge> : wa.sendingBlocked ? <Badge tone="bad">חסום – בדוק Token</Badge> : <Badge tone="good">מחובר</Badge>) : <Spinner className="w-4 h-4" />}
-            {modules.messaging && <a href="/settings/whatsapp" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור וואטסאפ →</a>}
+            {modules.messaging && <a href="/settings/whatsapp" className="text-accent underline hover:underline ms-auto text-xs">ניהול חיבור וואטסאפ →</a>}
           </li>
-          <li className="flex flex-wrap items-center gap-2"><b>SMS</b>{modules.messaging ? <ChannelStatus channel="sms" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/sms" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור SMS →</a>}</li>
-          <li className="flex flex-wrap items-center gap-2"><b>אימייל</b>{modules.messaging ? <ChannelStatus channel="email" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/email" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור אימייל →</a>}</li>
+          <li className="flex flex-wrap items-center gap-2"><b>SMS</b>{modules.messaging ? <ChannelStatus channel="sms" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/sms" className="text-accent underline hover:underline ms-auto text-xs">ניהול חיבור SMS →</a>}</li>
+          <li className="flex flex-wrap items-center gap-2"><b>אימייל</b>{modules.messaging ? <ChannelStatus channel="email" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/email" className="text-accent underline hover:underline ms-auto text-xs">ניהול חיבור אימייל →</a>}</li>
         </ul>
       </Panel>
       {modules.telephony && <TelephonyTab />}
@@ -411,16 +430,24 @@ function AutomationsTab({ isAdmin, messaging }: { isAdmin: boolean; messaging: b
 
 function MarketingTab({ isAdmin }: { isAdmin: boolean }) {
   const [m, setM] = useState<{ window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number } | null>(null);
+  const [ret, setRet] = useState<{ messagesDays: number; auditDays: number }>({ messagesDays: 0, auditDays: 0 });
   const [tz, setTz] = useState("");
-  useEffect(() => { api.get<{ business: { timezone?: string }; settings: { marketing: { window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number } } }>("/api/settings").then((r) => { setM(r.settings.marketing); setTz(r.business.timezone ?? ""); }).catch((e) => toast.error(e.message)); }, []);
+  useEffect(() => { api.get<{ business: { timezone?: string }; settings: { marketing: { window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number }; retention?: { messagesDays: number; auditDays: number } } }>("/api/settings").then((r) => { setM(r.settings.marketing); setRet(r.settings.retention ?? { messagesDays: 0, auditDays: 0 }); setTz(r.business.timezone ?? ""); }).catch((e) => toast.error(e.message)); }, []);
   if (!m) return <Spinner />;
   const days = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
   async function save() {
-    try { await api.patch("/api/settings", { settings: { marketing: m } }); toast.success("נשמר"); } catch (e) { toast.error((e as Error).message); }
+    try { await api.patch("/api/settings", { settings: { marketing: m, retention: ret } }); toast.success("נשמר"); } catch (e) { toast.error((e as Error).message); }
   }
-  return (
-    <Panel title="דיוור SMS ואימייל – חלון שליחה, קצב ותדירות">
-      <p className="text-xs text-muted mb-3">קמפיינים ורצפים ב-SMS ובאימייל נשלחים רק בתוך חלון השליחה (באזור הזמן של העסק{tz ? `: ${tz}` : ""}). מגבלת התדירות משותפת לכל הערוצים כולל WhatsApp.</p>
+  return (<>
+    <Panel title="שמירה ומחיקת מידע" className="mb-4">
+      <p className="text-xs text-muted mb-3">מדיניות שמירה לעסק: תוכן הודעות וקבצים מצורפים ישנים נמחקים בעבודת רקע יומית (השיחות, הספירות ויומן הביקורת של המחיקה נשמרים). 0 = לשמור לתמיד. המחיקה אינה הפיכה.</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Input label="מחיקת תוכן הודעות ומדיה אחרי (ימים)" type="number" value={String(ret.messagesDays)} onChange={(e) => setRet({ ...ret, messagesDays: Number(e.target.value) })} disabled={!isAdmin} />
+        <Input label="מחיקת יומן ביקורת אחרי (ימים)" type="number" value={String(ret.auditDays)} onChange={(e) => setRet({ ...ret, auditDays: Number(e.target.value) })} disabled={!isAdmin} />
+      </div>
+    </Panel>
+    <Panel title="דיוור – חלון שליחה, קצב ותדירות (כל הערוצים)">
+      <p className="text-xs text-muted mb-3">קמפיינים שיווקיים ורצפים בכל הערוצים נשלחים רק בתוך חלון השליחה (באזור הזמן של העסק{tz ? `: ${tz}` : ""}). מגבלת התדירות משותפת לכל הערוצים כולל WhatsApp.</p>
       <div className="grid gap-3 sm:grid-cols-3">
         <Input label="תחילת חלון (HH:MM)" value={m.window.start} onChange={(e) => setM({ ...m, window: { ...m.window, start: e.target.value } })} disabled={!isAdmin} ltr />
         <Input label="סוף חלון (HH:MM)" value={m.window.end} onChange={(e) => setM({ ...m, window: { ...m.window, end: e.target.value } })} disabled={!isAdmin} ltr />
@@ -430,7 +457,7 @@ function MarketingTab({ isAdmin }: { isAdmin: boolean }) {
       </div>
       {isAdmin && <Button className="mt-3" onClick={save}>שמור</Button>}
     </Panel>
-  );
+  </>);
 }
 
 function SuppressionsTab() {

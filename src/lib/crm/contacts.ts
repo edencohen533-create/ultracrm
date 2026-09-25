@@ -87,7 +87,11 @@ export async function findOrCreateContactByPhone(businessId: string, e164: strin
   const existingId = await contactForIdentifier(businessId, e164, db);
   if (existingId) return db.contact.findUniqueOrThrow({ where: { id: existingId } });
   try {
-    return await db.contact.create({ data: { businessId, fullName: create.fullName, phoneE164: e164, phoneRaw: create.phoneRaw, source: create.source, ownerUserId: create.ownerUserId ?? null } });
+    const created = await db.contact.create({ data: { businessId, fullName: create.fullName, phoneE164: e164, phoneRaw: create.phoneRaw, source: create.source, ownerUserId: create.ownerUserId ?? null } });
+    // New lead from an inbound channel → sequences with a CONTACT_CREATED trigger (optionally filtered by source). CSV imports never emit this.
+    const { emitEvent } = await import("@/lib/events");
+    await emitEvent(db, { businessId, type: "contact.created", contactId: created.id, source: "system", dedupeKey: `contact.created:${created.id}`, payload: { source: create.source } }).catch(() => undefined);
+    return created;
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       const again = await contactForIdentifier(businessId, e164, db);
@@ -176,6 +180,8 @@ export async function createContact(user: SessionUser, input: ContactInput) {
     });
     await syncTags(tx, businessId, c.id, input.tagIds, input.tagNames);
     await audit(businessId, user.id, "contact", c.id, "contact.created", { fullName: c.fullName }, tx);
+    const { emitEvent } = await import("@/lib/events");
+    await emitEvent(tx, { businessId, type: "contact.created", contactId: c.id, actorUserId: user.id, source: "user", dedupeKey: `contact.created:${c.id}`, payload: { source: c.source ?? null } });
     return c;
   });
   if (input.consentStatus === "OPTED_OUT") await suppressContact({ businessId, contactId: contact.id, scope: "marketing", source: "manual", reason: input.consentEvidence ?? "created as opted out", actorId: user.id });
@@ -368,4 +374,72 @@ export async function importContacts(user: SessionUser, rows: ContactInput[], de
   }
   await audit(businessId, user.id, "contact", "import", "contact.imported", { created, updated, invalid });
   return { created, updated, invalid, errors: errors.slice(0, 200) };
+}
+
+/**
+ * Merge `duplicateId` INTO `primaryId` (2.04 / 9.08). Never automatic – a manager chooses the survivor.
+ * Moves phones, emails, tags, leads, deals, tasks, notes, conversations (+messages), calls, queue leads,
+ * campaign recipients, suppressions, sequence runs and events; fills blank primary fields from the duplicate;
+ * consent/blocking take the more restrictive value (an opt-out is never lost); deletes the duplicate row and
+ * records a full snapshot in the audit log. Unique conflicts (same list, same campaign) keep the primary's row.
+ */
+export async function mergeContacts(user: SessionUser, primaryId: string, duplicateId: string) {
+  const businessId = user.businessId;
+  if (primaryId === duplicateId) throw new ApiError("לא ניתן למזג איש קשר עם עצמו", 400, "same_contact");
+  if (!["owner", "manager"].includes(user.role)) throw new ApiError("מיזוג אנשי קשר – למנהלים בלבד", 403, "forbidden");
+  const [primary, duplicate] = await Promise.all([
+    prisma.contact.findFirst({ where: { id: primaryId, businessId }, include: { phones: true, emails: true, tags: true } }),
+    prisma.contact.findFirst({ where: { id: duplicateId, businessId }, include: { phones: true, emails: true, tags: true, leads: true, deals: true, tasks: true, conversations: true, suppressions: true } }),
+  ]);
+  if (!primary || !duplicate) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
+  const snapshot = JSON.parse(JSON.stringify({ ...duplicate, phones: duplicate.phones.map((p) => p.e164), emails: duplicate.emails.map((e) => e.email) })) as Record<string, unknown>;
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "contacts" WHERE id IN (${primaryId}, ${duplicateId}) FOR UPDATE`;
+    // Identifiers: the duplicate's primary phone/email become extra identifiers of the survivor.
+    const knownPhones = new Set([primary.phoneE164, ...primary.phones.map((p) => p.e164)]);
+    // Move (not copy) the duplicate's extra identifiers – [businessId, e164] is unique, so a copy before the delete would collide.
+    await tx.contactPhone.deleteMany({ where: { contactId: duplicateId, e164: { in: [...knownPhones] } } });
+    await tx.contactPhone.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId, label: "ממיזוג" } });
+    if (!knownPhones.has(duplicate.phoneE164) && !await tx.contactPhone.findFirst({ where: { businessId, e164: duplicate.phoneE164 } })) await tx.contactPhone.create({ data: { businessId, contactId: primaryId, e164: duplicate.phoneE164, label: "ממיזוג" } });
+    const knownEmails = new Set([primary.email, ...primary.emails.map((e) => e.email)].filter((e): e is string => Boolean(e)));
+    await tx.contactEmail.deleteMany({ where: { contactId: duplicateId, email: { in: [...knownEmails] } } });
+    await tx.contactEmail.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId, label: "ממיזוג" } });
+    if (duplicate.email && !knownEmails.has(duplicate.email) && !await tx.contactEmail.findFirst({ where: { businessId, email: duplicate.email } })) await tx.contactEmail.create({ data: { businessId, contactId: primaryId, email: duplicate.email, label: "ממיזוג" } });
+    // Tags: union.
+    const primaryTags = new Set(primary.tags.map((t) => t.tagId));
+    for (const t of duplicate.tags) if (!primaryTags.has(t.tagId)) await tx.contactTag.create({ data: { contactId: primaryId, tagId: t.tagId } });
+    await tx.contactTag.deleteMany({ where: { contactId: duplicateId } });
+    // Relations that simply move.
+    await tx.lead.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    await tx.deal.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    await tx.task.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    await tx.note.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    await tx.conversation.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    await tx.call.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    await tx.noteDraft.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    await tx.suppression.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    await tx.domainEvent.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    // Unique-per-contact rows: keep the survivor's row when both exist.
+    const primaryLists = new Set((await tx.listLead.findMany({ where: { contactId: primaryId }, select: { listId: true } })).map((l) => l.listId));
+    for (const l of await tx.listLead.findMany({ where: { contactId: duplicateId } })) { if (primaryLists.has(l.listId)) await tx.listLead.delete({ where: { id: l.id } }); else await tx.listLead.update({ where: { id: l.id }, data: { contactId: primaryId } }); }
+    const primaryCampaigns = new Set((await tx.campaignRecipient.findMany({ where: { contactId: primaryId }, select: { campaignId: true } })).map((r) => r.campaignId));
+    for (const r of await tx.campaignRecipient.findMany({ where: { contactId: duplicateId } })) { if (primaryCampaigns.has(r.campaignId)) await tx.campaignRecipient.delete({ where: { id: r.id } }); else await tx.campaignRecipient.update({ where: { id: r.id }, data: { contactId: primaryId } }); }
+    const primaryLists2 = new Set((await tx.distributionListMember.findMany({ where: { contactId: primaryId }, select: { listId: true } })).map((m) => m.listId));
+    for (const m of await tx.distributionListMember.findMany({ where: { contactId: duplicateId } })) { if (primaryLists2.has(m.listId)) await tx.distributionListMember.delete({ where: { listId_contactId: { listId: m.listId, contactId: m.contactId } } }); else await tx.distributionListMember.update({ where: { listId_contactId: { listId: m.listId, contactId: m.contactId } }, data: { contactId: primaryId } }); }
+    const primaryRuns = new Set((await tx.sequenceRun.findMany({ where: { contactId: primaryId }, select: { sequenceId: true, sourceKey: true } })).map((r) => `${r.sequenceId}:${r.sourceKey}`));
+    for (const r of await tx.sequenceRun.findMany({ where: { contactId: duplicateId } })) { if (primaryRuns.has(`${r.sequenceId}:${r.sourceKey}`)) await tx.sequenceRun.delete({ where: { id: r.id } }); else await tx.sequenceRun.update({ where: { id: r.id }, data: { contactId: primaryId } }); }
+    // Fields: fill blanks; consent/blocking = most restrictive; custom fields: primary wins.
+    const restrictive = primary.consentStatus === "OPTED_OUT" || duplicate.consentStatus === "OPTED_OUT" ? "OPTED_OUT" : primary.consentStatus === "OPTED_IN" || duplicate.consentStatus === "OPTED_IN" ? "OPTED_IN" : "UNKNOWN";
+    await tx.contact.update({ where: { id: primaryId }, data: {
+      email: primary.email ?? duplicate.email ?? undefined, company: primary.company ?? duplicate.company, city: primary.city ?? duplicate.city, source: primary.source ?? duplicate.source, notes: [primary.notes, duplicate.notes].filter(Boolean).join("\n---\n") || null,
+      ownerUserId: primary.ownerUserId ?? duplicate.ownerUserId, customFields: { ...((duplicate.customFields ?? {}) as object), ...((primary.customFields ?? {}) as object) },
+      consentStatus: restrictive, consentAt: restrictive !== primary.consentStatus ? (duplicate.consentAt ?? new Date()) : primary.consentAt, consentSource: restrictive !== primary.consentStatus ? (duplicate.consentSource ?? "merge") : primary.consentSource, consentEvidence: restrictive !== primary.consentStatus ? (duplicate.consentEvidence ?? "ממיזוג") : primary.consentEvidence,
+      isBlocked: primary.isBlocked || duplicate.isBlocked, emailStatus: primary.emailStatus ?? duplicate.emailStatus, lastActivityAt: [primary.lastActivityAt, duplicate.lastActivityAt].filter(Boolean).sort().at(-1) ?? null,
+    } });
+    await tx.contact.delete({ where: { id: duplicateId } });
+    await tx.auditLog.create({ data: { businessId, actorId: user.id, action: "contact.merged", entityType: "Contact", entityId: primaryId, payload: { duplicateId, duplicate: snapshot } as Prisma.InputJsonValue } });
+    const { emitEvent } = await import("@/lib/events");
+    await emitEvent(tx, { businessId, type: "contact.merged", contactId: primaryId, actorUserId: user.id, source: "user", dedupeKey: `contact.merged:${primaryId}:${duplicateId}`, payload: { duplicateId, duplicateName: duplicate.fullName, phones: snapshot.phones, emails: snapshot.emails } });
+  }, { timeout: 30000 });
+  return prisma.contact.findUniqueOrThrow({ where: { id: primaryId }, include: CONTACT_CARD_INCLUDE });
 }

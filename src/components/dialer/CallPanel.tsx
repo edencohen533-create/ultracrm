@@ -184,7 +184,7 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
                   <p className="truncate">{r.contact?.fullName ?? "לא מזוהה"}</p>
                   <p className="text-muted"><Phone value={formatPhone(r.toE164)} /> · {relativeTime(r.createdAt)} · {r.telephonyResult ? TELEPHONY_RESULT_LABEL[r.telephonyResult] : ""}</p>
                 </div>
-                <button onClick={() => onDialManual(r.toE164)} disabled={inProgress || !connOk} className="text-[#aab3ff] hover:underline disabled:opacity-40 shrink-0">חייג שוב</button>
+                <button onClick={() => onDialManual(r.toE164)} disabled={inProgress || !connOk} className="text-accent underline hover:underline disabled:opacity-40 shrink-0">חייג שוב</button>
               </li>
             ))}
           </ul>

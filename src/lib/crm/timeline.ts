@@ -20,16 +20,22 @@ export interface TimelineItem {
 export async function contactTimeline(user: SessionUser, contactId: string, limit = 100): Promise<TimelineItem[]> {
   const ids = await visibleUserIds(user);
   const businessId = user.businessId;
-  const [calls, messages, notes, tasks, leads, deals, events] = await Promise.all([
+  const [calls, messages, notes, tasks, leads, deals, events, runs] = await Promise.all([
     prisma.call.findMany({ where: { contactId, businessId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, direction: true, answeredAt: true, endedAt: true, talkSeconds: true, telephonyResult: true, outcome: true, outcomeNote: true, callbackAt: true, recordingStatus: true, user: { select: { fullName: true } } } }),
     prisma.message.findMany({ where: { businessId, conversation: { contactId } }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, direction: true, type: true, body: true, status: true, category: true, channel: true, conversationId: true, subject: true, toIdentifier: true, openedAt: true, clickedAt: true, bounceType: true, errorReason: true, campaignRecipient: { select: { campaign: { select: { id: true, name: true } } } }, sentByUser: { select: { fullName: true } } } }),
     prisma.note.findMany({ where: { businessId, contactId }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, body: true, conversationId: true, author: { select: { fullName: true } } } }),
     prisma.task.findMany({ where: { businessId, contactId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, dueAt: true, status: true, type: true, title: true, note: true, doneAt: true, user: { select: { fullName: true } } } }),
     prisma.lead.findMany({ where: { businessId, contactId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, status: true, title: true, source: true, closedAt: true, owner: { select: { fullName: true } } } }),
     prisma.deal.findMany({ where: { businessId, contactId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, title: true, stage: true, status: true, amount: true, currency: true, closedAt: true, owner: { select: { fullName: true } } } }),
-    prisma.domainEvent.findMany({ where: { businessId, contactId, type: { in: ["contact.suppressed", "contact.resubscribed", "lead.status_changed", "deal.won"] } }, orderBy: { occurredAt: "desc" }, take: 30, select: { id: true, occurredAt: true, type: true, payload: true, source: true } }),
+    prisma.domainEvent.findMany({ where: { businessId, contactId, type: { in: ["contact.suppressed", "contact.resubscribed", "lead.status_changed", "deal.won", "contact.merged"] } }, orderBy: { occurredAt: "desc" }, take: 30, select: { id: true, occurredAt: true, type: true, payload: true, source: true } }),
+    prisma.sequenceRun.findMany({ where: { businessId, contactId }, orderBy: { startedAt: "desc" }, take: 20, select: { id: true, startedAt: true, status: true, stopReason: true, stepIndex: true, log: true, completedAt: true, sequence: { select: { name: true } } } }),
   ]);
   const items: TimelineItem[] = [];
+  for (const r of runs) {
+    const log = Array.isArray(r.log) ? (r.log as Array<{ step: number; channel: string; messageId: string | null; skipped: string | null; at: string }>) : [];
+    const st: Record<string, string> = { PENDING: "ממתין לשלב הבא", RUNNING: "בביצוע", COMPLETED: "הושלם", STOPPED: "נעצר", FAILED: "נכשל" };
+    items.push({ id: `sequence:${r.id}`, kind: "event", at: r.startedAt.toISOString(), title: `רצף אוטומטי · ${r.sequence.name} · ${st[r.status] ?? r.status}${r.stopReason ? ` (${r.stopReason})` : ""}`, body: log.map((l) => `שלב ${l.step + 1} (${l.channel}): ${l.skipped ? `דולג – ${l.skipped}` : l.messageId ? "נשלח" : "בוצע"}`).join("\n") || null, meta: { status: r.status, stepIndex: r.stepIndex } });
+  }
   for (const c of calls) {
     const result = c.telephonyResult ? ({ answered: "נענתה", no_answer: "אין מענה", busy: "תפוס", failed: "נכשלה", cancelled: "בוטלה", rejected: "נדחתה" } as Record<string, string>)[c.telephonyResult] : "בתהליך";
     items.push({ id: `call:${c.id}`, kind: "call", at: c.createdAt.toISOString(), title: `${c.direction === "inbound" ? "שיחה נכנסת" : "שיחה יוצאת"} · ${result}${c.outcome ? ` · ${OUTCOME_BY_KEY[c.outcome]?.label ?? c.outcome}` : ""}`, body: c.outcomeNote, actor: c.user.fullName, meta: { talkSeconds: c.talkSeconds, callbackAt: c.callbackAt?.toISOString() ?? null, recording: c.recordingStatus === "saved" ? `/api/recordings/${c.id}` : null, ended: Boolean(c.endedAt) } });

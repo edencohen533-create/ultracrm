@@ -5,8 +5,10 @@ import { CampaignError, createCampaign, listCampaigns } from "@/server/services/
 
 export const GET = organizationRequest(async function(request: Request) {
   if (!await campaignActor()) return Response.json({ error: "אין הרשאה" }, { status: 403 });
-  const channel = new URL(request.url).searchParams.get("channel");
-  return Response.json({ campaigns: await listCampaigns(["whatsapp", "sms", "email"].includes(channel ?? "") ? (channel as "whatsapp" | "sms" | "email") : undefined) });
+  const url = new URL(request.url);
+  const channel = url.searchParams.get("channel");
+  const q = url.searchParams.get("q")?.slice(0, 100) ?? undefined;
+  return Response.json({ campaigns: await listCampaigns(["whatsapp", "sms", "email"].includes(channel ?? "") ? (channel as "whatsapp" | "sms" | "email") : undefined, q) });
 });
 export const POST = organizationRequest(async function(request: Request) {
   const actor = await campaignActor();

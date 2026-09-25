@@ -20,6 +20,8 @@ npm run dev                    # http://localhost:3000
 |---|---|---|
 | `DATABASE_URL` | משותף | חיבור pooled ל-PostgreSQL של UltraCRM (**מסד נפרד**; לא `dialer`, לא `solinainbox`). |
 | `DATABASE_URL_UNPOOLED` | משותף | חיבור ישיר ל-`prisma migrate`. |
+| `QUICK_LOGIN_EMAIL` + `NEXT_PUBLIC_QUICK_LOGIN=1` | **זמני** | כפתור "כניסה מהירה" במסך הכניסה שמחבר את החשבון הנתון ללא סיסמה. **כבוי בייצור** מאז 25.9.2026 לבקשת המשתמש (המשתנים נמחקו); להפעלה זמנית מגדירים את שניהם ופורסים מחדש. **כל מי שמגיע לכתובת נכנס כבעלים כשזה פעיל.** |
+| `DB_RLS` | משותף | ברירת מחדל פעיל. `off` מכבה את מעטפת ה-RLS (רק למסד שהמיגרציה `20260925090000_rls_session_version` טרם הוחלה עליו). |
 | `DATABASE_POOL_MAX` | משותף | חיבורים לכל instance (ברירת מחדל 10). |
 | `JWT_SECRET` | משותף | חתימת עוגיית הסשן (`ultracrm_session`, HS256, 12 שעות). |
 | `CRON_SECRET` | משותף | `Authorization: Bearer` לנתיבי `/api/jobs/*`. Vercel Cron שולח אוטומטית. |
@@ -39,7 +41,7 @@ npm run dev                    # http://localhost:3000
 |---|---|---|---|
 | Telnyx Call Control | `POST https://<domain>/api/webhooks/telnyx` | חתימת Ed25519 (`TELNYX_PUBLIC_KEY`) + חלון זמן 5 דקות | אירועים כפולים/בסדר שגוי מטופלים (מזהה אירוע ייחודי, מכונת מצבים קדימה בלבד). |
 | Meta WhatsApp Cloud API | `GET/POST https://<domain>/api/webhooks/whatsapp` | `hub.verify_token` = `META_WEBHOOK_VERIFY_TOKEN`; `X-Hub-Signature-256` עם App Secret של האפליקציה (נפילה לאחור: App Secret של חיבור ידני) | הודעות מנותבות לפי `phone_number_id` (ייחודי גלובלית), אירועי חשבון (`account_update`…) לפי `waba_id`; כל החתימות נבדקות לפני כל גישה לנתוני עסק. שדות לרישום: messages, account_update, account_review_update, phone_number_quality_update, phone_number_name_update, business_capability_update. |
-| Vercel Cron | `/api/jobs/events` (כל דקה), `/api/jobs/campaigns` (כל דקה), `/api/jobs/automations` (כל 2 דקות), `/api/jobs/retention` (יומי) | `CRON_SECRET` | מוגדר ב-`vercel.json`. ניתן להפעיל מכל מתזמן חיצוני. |
+| Vercel Cron | `/api/jobs/events` (כל דקה), `/api/jobs/campaigns` (כל דקה), `/api/jobs/automations` (כל 2 דקות), `/api/jobs/retention` (יומי – הקלטות + מדיניות שמירת הודעות/audit לפי הגדרות העסק), `/api/jobs/numbers` (יומי), `/api/jobs/whatsapp-health` (יומי 03:15 – בדיקת חיבורי Meta פעילים) | `CRON_SECRET` | מוגדר ב-`vercel.json`. ניתן להפעיל מכל מתזמן חיצוני. |
 
 | Telnyx Messaging (SMS) | `POST https://<domain>/api/webhooks/sms/telnyx/<credentialId>` | Ed25519 (`telnyx-signature-ed25519` + `telnyx-timestamp`) עם המפתח הציבורי של העסק | ה-credentialId בכתובת בוחר את מפתח האימות של עסק אחד; אירועים כפולים נדחים לפי `provider+eventId`. |
 | Resend (אימייל) | `POST https://<domain>/api/webhooks/email/resend/<credentialId>` | Svix (`svix-id`, `svix-timestamp`, `svix-signature`) עם ה-signing secret של העסק | כנ"ל; bounces/תלונות מזינים את ההסרה הגלובלית. |
@@ -48,9 +50,12 @@ npm run dev                    # http://localhost:3000
 
 ## התאמת סביבת האירוח
 
-הפריסה המתוכננת היא Vercel (serverless). התאמה:
+**פרוס בייצור (2026-09-25):** https://ultracrm-eta.vercel.app – פרויקט Vercel `ultracrm`, ענף `main` (שרשרת PR ‎#1–#4 מוזגה 25.9.2026), מסד Neon `ultracrm` (מיגרציות RLS הוחלו), ספקי טלפוניה/מספרים/WhatsApp במצב הדמיה (אין מפתחות Telnyx/Meta ב-Vercel). משתמשי הדמו מהזריעה (Demo1234!) עדיין פעילים – יש להחליף לפני שימוש אמיתי. הפריסה היא Vercel (serverless). התאמה:
 
 - **חיבורים מתמשכים**: החיבור הקולי המתמשך היחיד הוא WebRTC בין דפדפן הנציג ל-Telnyx; השרת אינו מחזיק sockets. מצב שיחה/תיבה מתעדכן ב-polling מאומת (1.2–6 שניות בחייגן, 5 שניות בתיבה) – אין Supabase Realtime ואין SSE.
+- **בידוד דיירים בשלוש שכבות**: הקשר עסק בשרת (AsyncLocalStorage) → סינון Prisma אוטומטי → **Row-Level Security ב-PostgreSQL**: כל statement בתוך הקשר עסק רץ כתפקיד `ultracrm_runtime` (ללא BYPASSRLS) עם `app.business_id` שנקבע transaction-locally (`src/lib/db-rls.ts`), ולכן בטוח גם דרך ה-pooler של Neon. קוד ללא הקשר (login, ניתוב webhook, cron) רץ כבעל החיבור. **כל טבלה חדשה עם `business_id` (או טבלת-ילד) חייבת policy במיגרציה שלה** – ראו `prisma/migrations/20260925090000_rls_session_version/migration.sql`. קריאות זהות חוצות-עסקים (בדיקת ייחודיות גלובלית של מספר, חברות בעסקים אחרים) עוברות דרך `withoutBusiness`. **דרישות**: `DATABASE_URL` ו-`DATABASE_URL_UNPOOLED` חייבים להשתמש באותו משתמש PostgreSQL (המיגרציה מעניקה את התפקיד ל-`CURRENT_USER`; משתמש אחר יקבל `permission denied to set role`) – הבדיקה `tests/integration/rls.test.ts` מאמתת חברות בתפקיד. עלות: statement בודד בתוך הקשר עסק = 3 סבבים (BEGIN+setup, השאילתה, COMMIT); ב-fra1 מול Neon eu-central-1 זה מילישניות בודדות לשאילתה.
+- **סשנים**: JWT ל-12 שעות + אימות מול המסד בכל בקשה (משתמש/עסק/חשבון פעילים, תפקיד עדכני, `Account.sessionVersion`). שינוי סיסמה – עצמי (`/api/auth/password`, הגדרות → החשבון שלי) או איפוס על ידי בעלים – מעלה את הגרסה ומנתק כל סשן אחר של החשבון.
+- **זמן אמת**: תיבת ההודעות מתרעננת ב-polling (5 שניות) – אין Supabase Realtime/pub-sub חיצוני ב-Vercel; זהו הבדל מכוון מול solinainbox.
 - **תהליכי רקע**: outbox אירועים, קמפיינים ואוטומציות מתוזמנות רצים כ-cron עם נעילות CAS במסד, ולכן בטוחים להפעלה מקבילית ולריצות קצרות (עד 60 שניות לקריאה, `maxDuration`). לאחר כל שינוי עסקי המערכת גם "מקפיצה" עיבוד אירועים ב-`after()` של Next – ה-cron הוא רשת ביטחון.
 - **מגבלות**: תור חיוג Predictive, IVR ותא קולי אינם ממומשים (כמו במקור). אם נדרש worker רציף (למשל עיבוד בזמן אמת של אלפי אירועים בשנייה), יש להריץ את `/api/jobs/*` משירות worker ייעודי (Railway/Fly/Container) עם אותו `CRON_SECRET` – הקוד אינו תלוי ב-Vercel.
 - **מסד נתונים**: Neon/Supabase Postgres עם pooler. חביון של ~200ms לכל שאילתה (מדידה מהסביבה המקומית לאירופה) מאט מסכים מרובי שאילתות; בפריסה באותו region החביון יורד לכמה מילישניות.

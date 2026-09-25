@@ -122,7 +122,7 @@ export function LeadCard({
               <h2 className="text-xl font-semibold truncate">{contact.fullName}</h2>
             )}
             <div className="flex items-center gap-3 mt-1 text-sm">
-              <Phone value={formatPhone(contact.phoneE164)} className="text-[#aab3ff] text-base font-medium" />
+              <Phone value={formatPhone(contact.phoneE164)} className="text-accent underline text-base font-medium" />
               {contact.isDnc && <Badge tone="bad">לא ליצור קשר</Badge>}
               {lead && (
                 <span className="text-xs text-muted">
@@ -132,7 +132,7 @@ export function LeadCard({
               )}
             </div>
             {lead?.claimReason && (
-              <p className="mt-1 text-xs text-[#aab3ff]" title={lead.claimScore != null ? `ציון תעדוף ${lead.claimScore}` : undefined}>
+              <p className="mt-1 text-xs text-accent underline" title={lead.claimScore != null ? `ציון תעדוף ${lead.claimScore}` : undefined}>
                 למה עכשיו: {lead.claimReason}
               </p>
             )}
@@ -214,14 +214,14 @@ export function LeadCard({
                 <Badge tone={c.answeredAt ? "good" : "neutral"}>{c.telephonyResult ? TELEPHONY_RESULT_LABEL[c.telephonyResult] : "—"}</Badge>
                 {c.answeredAt && <span className="tabular text-muted">{formatDuration(c.talkSeconds)}</span>}
                 <span className={cx("font-medium", c.outcome === "sale" && "text-good", c.outcome === "dnc" && "text-bad")}>{outcomeLabel(c.outcome)}</span>
-                {c.recordingStatus === "saved" && <a href={`/api/recordings/${c.id}`} target="_blank" className="text-[#aab3ff] hover:underline">הקלטה</a>}
+                {c.recordingStatus === "saved" && <a href={`/api/recordings/${c.id}`} target="_blank" className="text-accent underline hover:underline">הקלטה</a>}
                 {c.outcomeNote && <span className="w-full text-muted whitespace-pre-wrap">{c.outcomeNote}</span>}
               </li>
             ))}
           </ul>
         )}
         {contact.calls.length > historyLimit && (
-          <button onClick={() => setHistoryLimit((n) => n + 10)} className="mt-2 text-xs text-[#aab3ff] hover:underline">הצג עוד</button>
+          <button onClick={() => setHistoryLimit((n) => n + 10)} className="mt-2 text-xs text-accent underline hover:underline">הצג עוד</button>
         )}
       </div>
     </div>

@@ -344,10 +344,10 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
           <li className="flex flex-wrap items-center gap-2">
             <b>WhatsApp (Meta Cloud API)</b>
             {!modules.messaging ? <Badge tone="neutral">המודול כבוי בחבילה</Badge> : waDenied ? <Badge tone="neutral">פרטי החיבור זמינים לבעלים בלבד</Badge> : wa ? (wa.provider === "mock" ? <Badge tone="warn">מצב הדגמה – אין שליחה אמיתית</Badge> : wa.sendingBlocked ? <Badge tone="bad">חסום – בדוק Token</Badge> : <Badge tone="good">מחובר</Badge>) : <Spinner className="w-4 h-4" />}
-            {modules.messaging && <a href="/settings/whatsapp" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור וואטסאפ →</a>}
+            {modules.messaging && <a href="/settings/whatsapp" className="text-accent underline hover:underline ms-auto text-xs">ניהול חיבור וואטסאפ →</a>}
           </li>
-          <li className="flex flex-wrap items-center gap-2"><b>SMS</b>{modules.messaging ? <ChannelStatus channel="sms" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/sms" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור SMS →</a>}</li>
-          <li className="flex flex-wrap items-center gap-2"><b>אימייל</b>{modules.messaging ? <ChannelStatus channel="email" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/email" className="text-[#aab3ff] hover:underline ms-auto text-xs">ניהול חיבור אימייל →</a>}</li>
+          <li className="flex flex-wrap items-center gap-2"><b>SMS</b>{modules.messaging ? <ChannelStatus channel="sms" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/sms" className="text-accent underline hover:underline ms-auto text-xs">ניהול חיבור SMS →</a>}</li>
+          <li className="flex flex-wrap items-center gap-2"><b>אימייל</b>{modules.messaging ? <ChannelStatus channel="email" /> : <Badge tone="neutral">המודול כבוי בחבילה</Badge>}{modules.messaging && <a href="/settings/email" className="text-accent underline hover:underline ms-auto text-xs">ניהול חיבור אימייל →</a>}</li>
         </ul>
       </Panel>
       {modules.telephony && <TelephonyTab />}

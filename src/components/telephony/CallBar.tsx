@@ -56,7 +56,7 @@ export function CallBar() {
           <Button size="sm" variant="danger" onClick={hangup} loading={busy === "hangup"}>
             נתק
           </Button>
-          <Link href="/dialer" className="text-xs text-[#aab3ff] hover:underline">
+          <Link href="/dialer" className="text-xs text-accent underline hover:underline">
             למסך החיוג
           </Link>
         </div>

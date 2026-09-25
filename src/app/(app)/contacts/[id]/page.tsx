@@ -140,7 +140,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
     <div className="p-5 space-y-4 max-w-6xl">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">{c.fullName}</h1>
-        <Phone value={formatPhone(c.phoneE164)} className="text-[#aab3ff]" />
+        <Phone value={formatPhone(c.phoneE164)} className="text-accent underline" />
         {c.company && <span className="text-muted text-sm">{c.company}</span>}
         {c.suppression.fullyBlocked ? <Badge tone="bad">לא ליצור קשר</Badge> : c.suppression.marketingBlocked ? <Badge tone="bad">הוסר מדיוור שיווקי</Badge> : c.consentStatus === "OPTED_IN" ? <Badge tone="good">הסכמה לדיוור</Badge> : <Badge tone="neutral">ללא הסכמה לדיוור</Badge>}
         {c.isDnc && !c.suppression.fullyBlocked && <Badge tone="bad">DNC שיחות{c.dncReason ? ` · ${c.dncReason}` : ""}</Badge>}
@@ -223,10 +223,10 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
 
         <div className="lg:col-span-2 space-y-4">
           <div className="grid md:grid-cols-2 gap-4">
-            <Panel title={`לידים (${openLeads.length} פתוחים)`} actions={<Link href="/leads" className="text-xs text-[#aab3ff] hover:underline">הכול</Link>} bodyClassName="p-0">
+            <Panel title={`לידים (${openLeads.length} פתוחים)`} actions={<Link href="/leads" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
               {c.leads.length === 0 ? <p className="p-4 text-xs text-muted">אין לידים</p> : <ul className="divide-y divide-line text-sm">{c.leads.slice(0, 5).map((l) => <li key={l.id} className="px-4 py-2 flex items-center gap-2"><Link href={`/leads/${l.id}`} className="hover:underline flex-1 min-w-0 truncate">{l.title ?? l.source ?? "ליד"}</Link><span className="text-xs text-muted">{l.owner?.fullName ?? "ללא נציג"}</span><Badge tone={l.status === "new" ? "info" : l.status === "qualified" ? "good" : ["lost", "unqualified"].includes(l.status) ? "bad" : "neutral"}>{LEAD_STATUS_LABEL[l.status as keyof typeof LEAD_STATUS_LABEL]}</Badge></li>)}</ul>}
             </Panel>
-            <Panel title={`עסקאות (${c.deals.length})`} actions={<Link href="/deals" className="text-xs text-[#aab3ff] hover:underline">הכול</Link>} bodyClassName="p-0">
+            <Panel title={`עסקאות (${c.deals.length})`} actions={<Link href="/deals" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
               {c.deals.length === 0 ? <p className="p-4 text-xs text-muted">אין עסקאות</p> : <ul className="divide-y divide-line text-sm">{c.deals.slice(0, 5).map((d) => <li key={d.id} className="px-4 py-2 flex items-center gap-2"><Link href={`/deals/${d.id}`} className="hover:underline flex-1 min-w-0 truncate">{d.title}</Link><span className="text-xs tabular">{Number(d.amount).toLocaleString("he-IL")} {d.currency}</span><Badge tone={d.stage === "won" ? "good" : d.stage === "lost" ? "bad" : "neutral"}>{DEAL_STAGE_LABEL[d.stage as keyof typeof DEAL_STAGE_LABEL]}</Badge></li>)}</ul>}
             </Panel>
           </div>

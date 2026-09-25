@@ -1,0 +1,192 @@
+
+> ultracrm@0.1.0 build
+> prisma generate && next build --webpack
+
+◇ injected env (12) from .env
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma/schema.prisma.
+
+✔ Generated Prisma Client (7.10.0) to ./src/generated/prisma in 433ms
+
+▲ Next.js 16.3.6 (webpack)
+- Environments: .env
+✓ Running next.config.ts took 28ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 7.8s
+  Running TypeScript ...
+  Finished TypeScript in 12.7s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/22) ...
+  Generating static pages using 7 workers (5/22) 
+  Generating static pages using 7 workers (10/22) 
+  Generating static pages using 7 workers (16/22) 
+✓ Generating static pages using 7 workers (22/22) in 821ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ƒ /
+├ ○ /_not-found
+├ ƒ /analytics
+├ ƒ /api/attachments/[id]
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/auth/me
+├ ƒ /api/auth/password
+├ ƒ /api/auth/switch
+├ ƒ /api/automations
+├ ƒ /api/automations/preview
+├ ƒ /api/automations/rules/[id]
+├ ƒ /api/automations/stop
+├ ƒ /api/calls
+├ ƒ /api/campaigns
+├ ƒ /api/campaigns/[id]
+├ ƒ /api/campaigns/[id]/duplicate
+├ ƒ /api/campaigns/[id]/export
+├ ƒ /api/campaigns/[id]/report
+├ ƒ /api/campaigns/[id]/test
+├ ƒ /api/canned-replies
+├ ƒ /api/channels/[channel]
+├ ƒ /api/channels/[channel]/[id]
+├ ƒ /api/channels/[channel]/preview
+├ ƒ /api/channels/[channel]/templates
+├ ƒ /api/channels/[channel]/test
+├ ƒ /api/contacts
+├ ƒ /api/contacts/[id]
+├ ƒ /api/contacts/[id]/emails
+├ ƒ /api/contacts/[id]/merge
+├ ƒ /api/contacts/[id]/phones
+├ ƒ /api/contacts/[id]/suppress
+├ ƒ /api/contacts/[id]/timeline
+├ ƒ /api/contacts/duplicates
+├ ƒ /api/contacts/export
+├ ƒ /api/contacts/import
+├ ƒ /api/conversations
+├ ƒ /api/conversations/[id]
+├ ƒ /api/conversations/[id]/assign
+├ ƒ /api/conversations/[id]/draft
+├ ƒ /api/conversations/[id]/media
+├ ƒ /api/conversations/[id]/messages
+├ ƒ /api/conversations/[id]/notes
+├ ƒ /api/conversations/[id]/tags
+├ ƒ /api/dashboard
+├ ƒ /api/deals
+├ ƒ /api/deals/[id]
+├ ƒ /api/demo/simulate-inbound
+├ ƒ /api/dev/simulate-inbound
+├ ƒ /api/dialer/call
+├ ƒ /api/dialer/call/[id]
+├ ƒ /api/dialer/call/[id]/accept
+├ ƒ /api/dialer/call/[id]/dtmf
+├ ƒ /api/dialer/call/[id]/hangup
+├ ƒ /api/dialer/call/[id]/outcome
+├ ƒ /api/dialer/call/[id]/reject
+├ ƒ /api/dialer/draft
+├ ƒ /api/dialer/heartbeat
+├ ƒ /api/dialer/next-lead
+├ ƒ /api/dialer/recent
+├ ƒ /api/dialer/session
+├ ƒ /api/dialer/session/summary
+├ ƒ /api/dialer/skip
+├ ƒ /api/dialer/state
+├ ƒ /api/distribution-lists
+├ ƒ /api/distribution-lists/[id]
+├ ƒ /api/distribution-lists/import
+├ ƒ /api/distribution-lists/preview
+├ ƒ /api/dnc
+├ ƒ /api/jobs/automations
+├ ƒ /api/jobs/campaigns
+├ ƒ /api/jobs/events
+├ ƒ /api/jobs/numbers
+├ ƒ /api/jobs/retention
+├ ƒ /api/jobs/whatsapp-health
+├ ƒ /api/leads
+├ ƒ /api/leads/[id]
+├ ƒ /api/leads/[id]/convert
+├ ƒ /api/lists
+├ ƒ /api/lists/[id]
+├ ƒ /api/lists/[id]/agents
+├ ƒ /api/lists/[id]/duplicate
+├ ƒ /api/lists/[id]/leads
+├ ƒ /api/lists/[id]/refresh
+├ ƒ /api/manager/dashboard
+├ ƒ /api/manager/live
+├ ƒ /api/manager/monitor
+├ ƒ /api/manager/monitor/[id]
+├ ƒ /api/manager/pause
+├ ƒ /api/notes
+├ ƒ /api/numbers
+├ ƒ /api/phone-numbers
+├ ƒ /api/phone-numbers/[id]
+├ ƒ /api/queue/[id]/transfer
+├ ƒ /api/recordings/[callId]
+├ ƒ /api/scripts
+├ ƒ /api/scripts/[id]
+├ ƒ /api/sequences
+├ ƒ /api/sequences/[id]
+├ ƒ /api/settings
+├ ƒ /api/settings/history
+├ ƒ /api/settings/plan
+├ ƒ /api/settings/teams
+├ ƒ /api/settings/whatsapp
+├ ƒ /api/settings/whatsapp/[id]
+├ ƒ /api/settings/whatsapp/check
+├ ƒ /api/settings/whatsapp/mock
+├ ƒ /api/suppressions
+├ ƒ /api/suppressions/[id]/review
+├ ƒ /api/tags
+├ ƒ /api/tasks
+├ ƒ /api/tasks/[id]
+├ ƒ /api/telephony/status
+├ ƒ /api/telephony/token
+├ ƒ /api/templates
+├ ƒ /api/templates/sync
+├ ƒ /api/unsubscribe
+├ ƒ /api/users
+├ ƒ /api/users/[id]
+├ ƒ /api/webhooks/email/[provider]/[credentialId]
+├ ƒ /api/webhooks/sms/[provider]/[credentialId]
+├ ƒ /api/webhooks/telnyx
+├ ƒ /api/webhooks/whatsapp
+├ ƒ /api/whatsapp/connection
+├ ƒ /api/whatsapp/connection/[id]
+├ ƒ /api/whatsapp/senders
+├ ƒ /api/whatsapp/signup/cancel
+├ ƒ /api/whatsapp/signup/complete
+├ ƒ /api/whatsapp/signup/start
+├ ƒ /automations
+├ ƒ /automations/history
+├ ƒ /campaigns
+├ ƒ /contacts
+├ ƒ /contacts/[id]
+├ ƒ /contacts/duplicates
+├ ƒ /dashboard
+├ ƒ /deals
+├ ƒ /deals/[id]
+├ ƒ /dialer
+├ ƒ /inbox
+├ ƒ /inbox/[conversationId]
+├ ƒ /leads
+├ ƒ /leads/[id]
+├ ƒ /lists
+├ ƒ /lists/[id]
+├ ○ /login
+├ ƒ /manager
+├ ƒ /manager/calls
+├ ƒ /numbers
+├ ƒ /r/[token]
+├ ƒ /settings
+├ ƒ /settings/demo-simulator
+├ ƒ /settings/email
+├ ƒ /settings/sms
+├ ƒ /settings/whatsapp
+├ ƒ /tasks
+├ ƒ /templates
+└ ƒ /u/[token]
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

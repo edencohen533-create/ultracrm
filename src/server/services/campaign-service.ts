@@ -95,10 +95,6 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
 }
 
 export async function changeCampaignStatus(id: string, action: "start" | "pause" | "resume" | "cancel", scheduledAt?: string, actorUserId?: string, scheduledTimezone?: string) {
-  if (action === "start") {
-    try { await consumeQuota(requireBusinessId(), "campaigns_started"); }
-    catch (error) { if (error instanceof ApiError) throw new CampaignError(error.message); throw error; }
-  }
   let snapshot: Record<string, unknown> | null = null;
   if (action === "start" || action === "resume") {
     // A template paused/changed at Meta after the draft was saved must be known before dispatch.
@@ -125,6 +121,10 @@ export async function changeCampaignStatus(id: string, action: "start" | "pause"
       data: { status, statusReason: null, ...((action === "start" || action === "resume") ? { scheduledAt: date, ...(scheduledTimezone ? { scheduledTimezone } : {}), preflightSnapshot: snapshot as Prisma.InputJsonValue } : {}) },
     });
     if (!result.count) throw new CampaignError("לא ניתן לבצע פעולה זו במצב הנוכחי של הקמפיין");
+    if (action === "start") {
+      try { await consumeQuota(requireBusinessId(), "campaigns_started", 1, tx); }
+      catch (error) { if (error instanceof ApiError) throw new CampaignError(error.message); throw error; }
+    }
     if (action === "cancel") {
       await tx.campaignRecipient.updateMany({ where: { campaignId: id, status: "QUEUED" }, data: { status: "SKIPPED", error: "הקמפיין בוטל", completedAt: new Date() } });
       // Messages persisted but not yet handed to the provider are cancelled; accepted ones are never re-labelled.

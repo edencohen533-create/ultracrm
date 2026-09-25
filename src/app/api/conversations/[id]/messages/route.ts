@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { auth } from "@/lib/auth-compat";
 import { getConversationForUser, buildConversationScope } from "@/server/services/conversation-service";
-import { createOutboundMessage, MessagePolicyError } from "@/server/services/message-service";
+import { createOutboundMessage, MessageOutcomeUnknownError, MessagePolicyError } from "@/server/services/message-service";
 
 const sendMessageSchema = z.object({
   requestId: z.uuid().optional(),
@@ -24,7 +24,7 @@ export const POST = organizationRequest(async function(request: Request, { param
     if (result.message.status === "FAILED") return Response.json({ error: "הספק דחה את שליחת ההודעה", messageId: result.message.id }, { status: 502 });
     return Response.json({ messageId: result.message.id, message: result.message });
   } catch (error) {
-    if (error instanceof MessagePolicyError) return Response.json({ error: error.message }, { status: 409 });
+    if (error instanceof MessagePolicyError || error instanceof MessageOutcomeUnknownError) return Response.json({ error: error.message }, { status: 409 });
     console.error("Message send failed", error instanceof Error ? error.name : "Unknown");
     return Response.json({ error: "לא ניתן לאמת את השליחה. יש לבדוק את השיחה לפני ניסיון נוסף" }, { status: 502 });
   }

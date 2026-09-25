@@ -29,7 +29,8 @@ export function CallBar() {
   const call = state?.activeCall;
   const wrap = state?.wrapUpCall;
   useTicker(Boolean(call));
-  if (pathname === "/dialer") return null;
+  // The dialer workspace (with its own call panel and outcome form) is rendered inside /leads while a call/session is live.
+  if (pathname === "/leads" || pathname === "/dialer") return null;
   if (!call && !wrap) return null;
 
   if (call) {
@@ -56,7 +57,7 @@ export function CallBar() {
           <Button size="sm" variant="danger" onClick={hangup} loading={busy === "hangup"}>
             נתק
           </Button>
-          <Link href="/dialer" className="text-xs text-accent underline hover:underline">
+          <Link href="/leads" className="text-xs text-accent underline hover:underline">
             למסך החיוג
           </Link>
         </div>
@@ -67,7 +68,7 @@ export function CallBar() {
     <div className="sticky top-0 z-40 flex items-center gap-3 px-4 h-12 border-b border-line bg-warn/10">
       <span className="w-2.5 h-2.5 rounded-full bg-warn" />
       <span className="font-medium">שיחה עם {wrap!.contact?.fullName ?? formatPhone(wrap!.toE164)} ממתינה לתיעוד</span>
-      <Link href="/dialer" className="ms-auto">
+      <Link href="/leads" className="ms-auto">
         <Button size="sm" variant="warn">
           תעד עכשיו
         </Button>

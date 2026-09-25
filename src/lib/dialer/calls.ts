@@ -413,6 +413,14 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
     });
     if (input.contactUpdates && call.contactId) {
       const cu = Object.fromEntries(Object.entries(input.contactUpdates).filter(([, v]) => v !== undefined));
+      if (cu.email !== undefined) {
+        const { findDuplicateByEmail } = await import("@/lib/crm/contacts");
+        const email = cu.email.trim().toLowerCase() || null;
+        if (email && await findDuplicateByEmail(user.businessId, email, call.contactId, tx)) throw new ApiError("האימייל שייך לאיש קשר אחר", 409, "duplicate_email");
+        const contact = await tx.contact.findUniqueOrThrow({ where: { id: call.contactId }, select: { email: true } });
+        await tx.contact.update({ where: { id: call.contactId }, data: { email, ...(email !== contact.email ? { emailStatus: null, emailBouncedAt: null } : {}) } });
+        delete cu.email;
+      }
       if (Object.keys(cu).length) await tx.contact.update({ where: { id: call.contactId }, data: cu });
     }
     if (def.requiresCallbackTime && call.contactId) {

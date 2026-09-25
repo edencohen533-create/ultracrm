@@ -1,9 +1,11 @@
 
  RUN  v4.1.11 /Users/edencohen/ultracrm
 
+(node:35999) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
 
- Test Files  9 passed (9)
-      Tests  86 passed (86)
-   Start at  07:04:51
-   Duration  14.19s (transform 1.40s, setup 1.09s, import 2.58s, tests 9.75s, environment 0ms)
+ Test Files  11 passed (11)
+      Tests  117 passed (117)
+   Start at  07:27:35
+   Duration  17.05s (transform 866ms, setup 1.26s, import 2.45s, tests 12.48s, environment 1ms)
 

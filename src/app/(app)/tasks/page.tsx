@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/client/api";
 import { useDialer } from "@/components/telephony/DialerProvider";
@@ -13,12 +14,18 @@ interface Task { id: string; title: string | null; type: string; dueAt: string; 
 const TYPE_LABEL: Record<string, string> = { callback: "חזרה טלפונית", follow_up: "מעקב", todo: "משימה" };
 
 export default function TasksPage() {
+  return <Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}><TasksView /></Suspense>;
+}
+
+function TasksView() {
+  const params = useSearchParams();
   const { dial, state } = useDialer();
   const me = useMe();
   const [items, setItems] = useState<Task[] | null>(null);
   const [assignees, setAssignees] = useState<Array<{ id: string; fullName: string }>>([]);
   const [status, setStatus] = useState("open");
-  const [type, setType] = useState("");
+  const [type, setType] = useState(params.get("type") ?? "");
+  const [due, setDue] = useState<"" | "today" | "overdue">((params.get("due") as "today" | "overdue" | null) ?? "");
   const [userId, setUserId] = useState("");
   const [now, setNow] = useState(() => Date.now());
 
@@ -43,13 +50,14 @@ export default function TasksPage() {
         <h1 className="text-lg font-semibold">משימות</h1>
         <div className="ms-auto flex gap-2">
           {me?.user.role !== "agent" && <Select value={userId} onChange={(e) => setUserId(e.target.value)} className="w-40"><option value="">כל הנציגים</option>{assignees.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}</Select>}
+          <Select value={due} onChange={(e) => setDue(e.target.value as "" | "today" | "overdue")} className="w-32" aria-label="מועד"><option value="">כל המועדים</option><option value="today">עד סוף היום</option><option value="overdue">באיחור</option></Select>
           <Select value={type} onChange={(e) => setType(e.target.value)} className="w-36"><option value="">כל הסוגים</option><option value="callback">חזרות טלפוניות</option><option value="follow_up">מעקבים</option><option value="todo">משימות</option></Select>
           <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-32"><option value="open">פתוחות</option><option value="done">בוצעו</option><option value="cancelled">בוטלו</option></Select>
         </div>
       </div>
       {!items ? <div className="flex justify-center p-10"><Spinner /></div> : items.length === 0 ? <EmptyState title="אין משימות" hint="משימות נוצרות מכרטיס לקוח, מתוצאות שיחה, מלידים חדשים ומהתיבה" /> : (
         <ul className="space-y-2">
-          {items.map((t) => {
+          {items.filter((t) => { if (!due) return true; const d = new Date(t.dueAt).getTime(); const end = new Date(now); end.setHours(23, 59, 59, 999); return due === "overdue" ? d < now && t.status === "open" : d <= end.getTime(); }).map((t) => {
             const overdue = t.status === "open" && new Date(t.dueAt).getTime() < now;
             const soon = t.status === "open" && !overdue && new Date(t.dueAt).getTime() - now < 3600_000;
             return (

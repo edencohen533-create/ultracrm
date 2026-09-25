@@ -4,6 +4,7 @@
  */
 import { prisma } from "@/lib/db";
 import { visibleUserIds, type SessionUser } from "@/lib/auth";
+import { conversationScope, noteScope, ownerScope } from "./access";
 import { OUTCOME_BY_KEY } from "@/lib/outcomes";
 
 export interface TimelineItem {
@@ -22,12 +23,12 @@ export async function contactTimeline(user: SessionUser, contactId: string, limi
   const businessId = user.businessId;
   const [calls, messages, notes, tasks, leads, deals, events, runs] = await Promise.all([
     prisma.call.findMany({ where: { contactId, businessId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, direction: true, answeredAt: true, endedAt: true, talkSeconds: true, telephonyResult: true, outcome: true, outcomeNote: true, callbackAt: true, recordingStatus: true, user: { select: { fullName: true } } } }),
-    prisma.message.findMany({ where: { businessId, conversation: { contactId } }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, direction: true, type: true, body: true, status: true, category: true, channel: true, conversationId: true, subject: true, toIdentifier: true, openedAt: true, clickedAt: true, bounceType: true, errorReason: true, campaignRecipient: { select: { campaign: { select: { id: true, name: true } } } }, sentByUser: { select: { fullName: true } } } }),
-    prisma.note.findMany({ where: { businessId, contactId }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, body: true, conversationId: true, author: { select: { fullName: true } } } }),
+    prisma.message.findMany({ where: { businessId, conversation: { contactId, ...conversationScope(user) } }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, direction: true, type: true, body: true, status: true, category: true, channel: true, conversationId: true, subject: true, toIdentifier: true, openedAt: true, clickedAt: true, bounceType: true, errorReason: true, campaignRecipient: { select: { campaign: { select: { id: true, name: true } } } }, sentByUser: { select: { fullName: true } } } }),
+    prisma.note.findMany({ where: { businessId, contactId, ...noteScope(user, ids) }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, body: true, conversationId: true, author: { select: { fullName: true } } } }),
     prisma.task.findMany({ where: { businessId, contactId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, dueAt: true, status: true, type: true, title: true, note: true, doneAt: true, user: { select: { fullName: true } } } }),
-    prisma.lead.findMany({ where: { businessId, contactId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, status: true, title: true, source: true, closedAt: true, owner: { select: { fullName: true } } } }),
-    prisma.deal.findMany({ where: { businessId, contactId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, title: true, stage: true, status: true, amount: true, currency: true, closedAt: true, owner: { select: { fullName: true } } } }),
-    prisma.domainEvent.findMany({ where: { businessId, contactId, type: { in: ["contact.suppressed", "contact.resubscribed", "lead.status_changed", "deal.won", "contact.merged"] } }, orderBy: { occurredAt: "desc" }, take: 30, select: { id: true, occurredAt: true, type: true, payload: true, source: true } }),
+    prisma.lead.findMany({ where: { businessId, contactId, ...ownerScope(ids) }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, status: true, title: true, source: true, closedAt: true, owner: { select: { fullName: true } } } }),
+    prisma.deal.findMany({ where: { businessId, contactId, ...ownerScope(ids) }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, title: true, stage: true, status: true, amount: true, currency: true, closedAt: true, owner: { select: { fullName: true } } } }),
+    prisma.domainEvent.findMany({ where: { businessId, contactId, type: { in: ["contact.suppressed", "contact.resubscribed", ...(ids ? [] : ["lead.status_changed", "deal.won"]), "contact.merged"] } }, orderBy: { occurredAt: "desc" }, take: 30, select: { id: true, occurredAt: true, type: true, payload: true, source: true } }),
     prisma.sequenceRun.findMany({ where: { businessId, contactId }, orderBy: { startedAt: "desc" }, take: 20, select: { id: true, startedAt: true, status: true, stopReason: true, stepIndex: true, log: true, completedAt: true, sequence: { select: { name: true } } } }),
   ]);
   const items: TimelineItem[] = [];

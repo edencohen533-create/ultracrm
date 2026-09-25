@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { use, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/client/api";
@@ -11,6 +11,8 @@ import { Badge, Button, EmptyState, Input, Modal, Panel, Phone, Select, Spinner,
 import { formatDateTime, formatDuration, formatPhone, relativeTime, toLocalInputValue } from "@/lib/client/format";
 import { DEAL_STAGE_LABEL, LEAD_STATUS_LABEL } from "@/lib/crm/labels";
 import type { TimelineItem } from "@/lib/crm/timeline";
+import { ContactChat } from "@/components/contacts/ContactChat";
+import { LEAD_STATUSES } from "@/lib/crm/labels";
 
 interface Card {
   id: string; fullName: string; phoneE164: string; email: string | null; company: string | null; city: string | null; source: string | null; notes: string | null; createdAt: string; lastActivityAt: string | null;
@@ -34,7 +36,6 @@ const KIND_ICON: Record<TimelineItem["kind"], string> = { call: "📞", message:
 
 export default function ContactPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
   const { dial, state } = useDialer();
   const me = useMe();
   const [c, setC] = useState<Card | null>(null);
@@ -56,7 +57,10 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const [extra, setExtra] = useState({ phone: "", email: "", label: "" });
   const [suppressOpen, setSuppressOpen] = useState<"marketing" | "all" | "revoke" | null>(null);
   const [suppressText, setSuppressText] = useState("");
-  const [waBusy, setWaBusy] = useState(false);
+  const search = useSearchParams();
+  const focusLeadId = search.get("lead");
+  const [leadEdit, setLeadEdit] = useState<{ id: string; title: string; status: string; source: string; priority: number; ownerUserId: string; notes: string } | null>(null);
+  const [showChat, setShowChat] = useState(search.get("tab") === "chat");
 
   const load = useCallback(async () => {
     try {
@@ -66,10 +70,15 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
       setNow(Date.now());
       setForm({ fullName: r.fullName, phone: r.phoneE164, email: r.email ?? "", company: r.company ?? "", city: r.city ?? "", source: r.source ?? "", notes: r.notes ?? "", ownerUserId: r.owner?.id ?? "" });
       setCustom(Object.entries(r.customFields ?? {}).map(([key, value]) => ({ key, value: value === null || value === undefined ? "" : String(value) })));
+      const focus = (focusLeadId && r.leads.find((l) => l.id === focusLeadId)) || r.leads.find((l) => ["new", "contacted", "qualified"].includes(l.status)) || null;
+      if (focus) {
+        const full = await api.get<{ id: string; title: string | null; status: string; source: string | null; priority: number; notes: string | null; owner: { id: string } | null }>(`/api/leads/${focus.id}`);
+        setLeadEdit({ id: full.id, title: full.title ?? "", status: full.status, source: full.source ?? "", priority: full.priority, ownerUserId: full.owner?.id ?? "", notes: full.notes ?? "" });
+      } else setLeadEdit(null);
     } catch (e) {
       toast.error((e as Error).message);
     }
-  }, [id]);
+  }, [id, focusLeadId]);
   useEffect(() => { load(); }, [load, state?.wrapUpCall?.id, state?.activeCall?.id]);
   useEffect(() => { api.get<{ items: Array<{ id: string; fullName: string }> }>("/api/users").then((r) => setUsers(r.items)).catch(() => undefined); }, []);
 
@@ -121,14 +130,9 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
       setSuppressOpen(null); setSuppressText(""); load();
     } catch (e) { toast.error((e as Error).message); }
   }
-  async function openWhatsApp() {
-    setWaBusy(true);
-    try {
-      const r = await fetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contactId: id }) });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "פתיחת השיחה נכשלה");
-      router.push(`/inbox/${d.conversation.id}`);
-    } catch (e) { toast.error((e as Error).message); } finally { setWaBusy(false); }
+  async function saveLead() {
+    if (!leadEdit) return;
+    try { await api.patch(`/api/leads/${leadEdit.id}`, { title: leadEdit.title, status: leadEdit.status, source: leadEdit.source, priority: leadEdit.priority, notes: leadEdit.notes, ownerUserId: leadEdit.ownerUserId || null }); toast.success("הליד נשמר"); load(); } catch (e) { toast.error((e as Error).message); }
   }
 
   if (!c) return <div className="flex justify-center p-10"><Spinner /></div>;
@@ -149,7 +153,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
           <Button variant="secondary" size="sm" onClick={() => setTaskOpen(true)}>+ משימה</Button>
           <Button variant="secondary" size="sm" onClick={() => { setLead({ title: "", source: c.source ?? "", ownerUserId: "" }); setLeadOpen(true); }}>+ ליד</Button>
           <Button variant="secondary" size="sm" onClick={() => { setDeal({ title: `עסקה – ${c.fullName}`, amount: "", stage: "new" }); setDealOpen(true); }}>+ עסקה</Button>
-          {me?.modules.messaging && <Button variant="secondary" size="sm" loading={waBusy} disabled={c.suppression.fullyBlocked || c.isBlocked} onClick={openWhatsApp}>שלח WhatsApp</Button>}
+          {me?.modules.messaging && <Button variant="secondary" size="sm" disabled={c.suppression.fullyBlocked || c.isBlocked} onClick={() => setShowChat(true)} data-testid="card-whatsapp">שלח WhatsApp</Button>}
           {me?.modules.telephony && <Button variant="good" size="sm" disabled={!canDial} onClick={() => dial({ mode: "manual", contactId: c.id })}>חייג</Button>}
         </div>
       </div>
@@ -222,9 +226,26 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
         </div>
 
         <div className="lg:col-span-2 space-y-4">
+          {leadEdit && (
+            <Panel title="הליד" actions={<div className="flex items-center gap-2"><Badge tone={leadEdit.status === "new" ? "info" : leadEdit.status === "qualified" ? "good" : ["lost", "unqualified"].includes(leadEdit.status) ? "bad" : "neutral"}>{LEAD_STATUS_LABEL[leadEdit.status as keyof typeof LEAD_STATUS_LABEL]}</Badge><Button size="sm" onClick={saveLead} data-testid="lead-save">שמור</Button></div>}>
+              <div className="grid md:grid-cols-3 gap-2">
+                <Input label="כותרת" value={leadEdit.title} onChange={(e) => setLeadEdit({ ...leadEdit, title: e.target.value })} />
+                <Select label="סטטוס" value={leadEdit.status} onChange={(e) => setLeadEdit({ ...leadEdit, status: e.target.value })} data-testid="lead-status">{LEAD_STATUSES.map((s) => <option key={s} value={s}>{LEAD_STATUS_LABEL[s]}</option>)}</Select>
+                <Input label="מקור" value={leadEdit.source} onChange={(e) => setLeadEdit({ ...leadEdit, source: e.target.value })} />
+                <Input label="עדיפות (0–100)" type="number" value={String(leadEdit.priority)} onChange={(e) => setLeadEdit({ ...leadEdit, priority: Number(e.target.value) })} />
+                {isManager ? <Select label="נציג אחראי" value={leadEdit.ownerUserId} onChange={(e) => setLeadEdit({ ...leadEdit, ownerUserId: e.target.value })}><option value="">ללא</option>{users.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select> : <Input label="נציג אחראי" value={users.find((u) => u.id === leadEdit.ownerUserId)?.fullName ?? "ללא"} disabled />}
+                <Textarea label="הערות לליד" rows={2} value={leadEdit.notes} onChange={(e) => setLeadEdit({ ...leadEdit, notes: e.target.value })} className="md:col-span-3" />
+              </div>
+            </Panel>
+          )}
+          {showChat && me?.modules.messaging && (
+            <Panel title="וואטסאפ" actions={<Button size="sm" variant="ghost" onClick={() => setShowChat(false)}>סגור</Button>} bodyClassName="p-0">
+              <ContactChat contactId={id} />
+            </Panel>
+          )}
           <div className="grid md:grid-cols-2 gap-4">
             <Panel title={`לידים (${openLeads.length} פתוחים)`} actions={<Link href="/leads" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
-              {c.leads.length === 0 ? <p className="p-4 text-xs text-muted">אין לידים</p> : <ul className="divide-y divide-line text-sm">{c.leads.slice(0, 5).map((l) => <li key={l.id} className="px-4 py-2 flex items-center gap-2"><Link href={`/leads/${l.id}`} className="hover:underline flex-1 min-w-0 truncate">{l.title ?? l.source ?? "ליד"}</Link><span className="text-xs text-muted">{l.owner?.fullName ?? "ללא נציג"}</span><Badge tone={l.status === "new" ? "info" : l.status === "qualified" ? "good" : ["lost", "unqualified"].includes(l.status) ? "bad" : "neutral"}>{LEAD_STATUS_LABEL[l.status as keyof typeof LEAD_STATUS_LABEL]}</Badge></li>)}</ul>}
+              {c.leads.length === 0 ? <p className="p-4 text-xs text-muted">אין לידים</p> : <ul className="divide-y divide-line text-sm">{c.leads.slice(0, 5).map((l) => <li key={l.id} className="px-4 py-2 flex items-center gap-2"><Link href={`/contacts/${id}?lead=${l.id}`} className="hover:underline flex-1 min-w-0 truncate">{l.title ?? l.source ?? "ליד"}</Link><span className="text-xs text-muted">{l.owner?.fullName ?? "ללא נציג"}</span><Badge tone={l.status === "new" ? "info" : l.status === "qualified" ? "good" : ["lost", "unqualified"].includes(l.status) ? "bad" : "neutral"}>{LEAD_STATUS_LABEL[l.status as keyof typeof LEAD_STATUS_LABEL]}</Badge></li>)}</ul>}
             </Panel>
             <Panel title={`עסקאות (${c.deals.length})`} actions={<Link href="/deals" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
               {c.deals.length === 0 ? <p className="p-4 text-xs text-muted">אין עסקאות</p> : <ul className="divide-y divide-line text-sm">{c.deals.slice(0, 5).map((d) => <li key={d.id} className="px-4 py-2 flex items-center gap-2"><Link href={`/deals/${d.id}`} className="hover:underline flex-1 min-w-0 truncate">{d.title}</Link><span className="text-xs tabular">{Number(d.amount).toLocaleString("he-IL")} {d.currency}</span><Badge tone={d.stage === "won" ? "good" : d.stage === "lost" ? "bad" : "neutral"}>{DEAL_STAGE_LABEL[d.stage as keyof typeof DEAL_STAGE_LABEL]}</Badge></li>)}</ul>}

@@ -14,7 +14,7 @@ import type { OutcomeKey } from "@/lib/client/types";
 
 const SKIP_REASONS = ["לא זמן מתאים", "פרטים חסרים", "כבר דיברתי איתו", "ליד לא רלוונטי", "אחר"];
 
-export function DialerWorkspace() {
+export function DialerWorkspace({ embedded = false }: { embedded?: boolean } = {}) {
   const d = useDialer();
   const { state, loading, error, refresh, dial, hangup, skipLead, saveOutcome, busy, sessionTakenOver, countdown, cancelCountdown, sessionSummary, dismissSummary } = d;
   const [note, setNote] = useState("");
@@ -85,10 +85,10 @@ export function DialerWorkspace() {
   if (error && !state) return <ErrorState message={error} retry={refresh} />;
 
   return (
-    <div className="flex flex-col h-screen min-h-0">
+    <div className={embedded ? "flex flex-col h-full min-h-0" : "flex flex-col h-screen min-h-0"}>
       <header className="px-4 py-3 border-b border-line bg-panel/60 shrink-0">
         <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-base font-semibold">מסך עבודה</h1>
+          <h1 className="text-base font-semibold">{embedded ? "חייגן פעיל" : "מסך עבודה"}</h1>
           {state?.telephony.simulation && <Badge tone="warn">מצב הדמיה – השיחות אינן אמיתיות</Badge>}
           {error && <Badge tone="bad">אין חיבור לשרת – מנסה שוב</Badge>}
         </div>
@@ -109,7 +109,7 @@ export function DialerWorkspace() {
           {session?.listId ? (
             <LeadQueue listId={session.listId} currentLeadId={lead?.id} refreshKey={refreshKey} />
           ) : (
-            <div className="p-4 text-xs text-muted">בחר רשימה והתחל סשן כדי לראות את התור.</div>
+            <div className="p-4 text-xs text-muted">{session ? "סשן ידני – אין תור. חייג מהלוח או מכרטיס ליד." : "אין סשן פעיל. תעד את השיחה כדי לחזור לרשימת הלידים."}</div>
           )}
         </aside>
 

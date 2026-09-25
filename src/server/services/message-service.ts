@@ -129,6 +129,10 @@ export interface CreateOutboundMessageInput {
 }
 
 export class MessagePolicyError extends Error {}
+/** Dispatch may have succeeded; never treat this as a policy skip or auto-resend it. */
+export class MessageOutcomeUnknownError extends ApiError {
+  constructor(message: string) { super(message, 409, "send_outcome_unknown"); }
+}
 /** The shared 24h/N-hour marketing frequency cap is in use for this contact – defer, do not skip permanently. */
 export class FrequencyCapError extends MessagePolicyError {}
 /** The business's monthly message quota is exhausted – campaigns pause instead of skipping recipients. */
@@ -143,7 +147,7 @@ export async function createOutboundMessage(input: CreateOutboundMessageInput) {
       const existing = await prisma.message.findUnique({ where: { requestKey: input.requestKey }, include: { attachments: true } });
       if (existing) {
         if (existing.conversationId !== input.conversationId || existing.sentByUserId !== input.sentByUserId) throw new MessagePolicyError("מזהה בקשה אינו תקין");
-        if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessagePolicyError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
+        if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessageOutcomeUnknownError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
         return { conversation: await prisma.conversation.findUniqueOrThrow({ where: { id: input.conversationId } }), message: existing };
       }
     }

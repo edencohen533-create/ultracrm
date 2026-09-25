@@ -41,7 +41,7 @@ await step("B1 login (single login for every module)", async () => {
   await page.fill('input[type="email"]', "owner@demo.local");
   await page.fill('input[type="password"]', "Demo1234!");
   await page.click('button[type="submit"]');
-  await page.waitForURL("**/dashboard", { timeout: 30000 });
+  await page.waitForURL("**/leads", { timeout: 60000 });
   await page.waitForSelector("text=דשבורד");
   await shot(page, "B1-dashboard");
   return { url: page.url() };
@@ -57,7 +57,7 @@ await step("B1a cleanup: finish any call left by a previous run (server truth vi
 });
 
 await step("B1b warm up dev compilation of every screen", async () => {
-  for (const p of ["/contacts", "/leads", "/deals", "/tasks", "/inbox", "/campaigns", "/templates", "/automations", "/dialer", "/lists", "/manager", "/settings", "/dashboard"]) {
+  for (const p of ["/contacts", "/leads", "/deals", "/tasks", "/inbox", "/campaigns", "/templates", "/automations", "/calls", "/reports", "/lists", "/manager", "/settings", "/dashboard"]) {
     await page.goto(`${BASE}${p}`, { waitUntil: "networkidle", timeout: 120000 }).catch(() => undefined);
   }
 });
@@ -134,7 +134,7 @@ await step("B8 dial button disabled while a call is live (no second call)", asyn
 });
 
 await step("B9 hang up and save outcome + note in the dialer screen; follow-up task created", async () => {
-  await page.goto(`${BASE}/dialer`);
+  await page.goto(`${BASE}/leads`); // the dialer workspace lives inside /leads while a call / wrap-up exists
   await page.waitForTimeout(8000); // let the simulated call answer (last digit ≠ 0/1/2 → answered)
   const hang = page.locator("main button", { hasText: /^נתק/ }).first();
   await hang.waitFor({ timeout: 30000 });
@@ -216,7 +216,7 @@ await step("B13 logout + login again → data persisted server-side", async () =
   await page.fill('input[type="email"]', "agent1@demo.local");
   await page.fill('input[type="password"]', "Demo1234!");
   await page.click('button[type="submit"]');
-  await page.waitForURL("**/dashboard", { timeout: 30000 });
+  await page.waitForURL("**/leads", { timeout: 60000 });
   const hasSettings = await page.locator('aside >> text=הגדרות').count();
   if (hasSettings) throw new Error("agent sees settings nav");
   await page.goto(`${BASE}/contacts/${contactId}`);
@@ -230,7 +230,7 @@ await step("B14 business switcher (owner belongs to two businesses; second has n
   await page.fill('input[type="email"]', "owner@demo.local");
   await page.fill('input[type="password"]', "Demo1234!");
   await page.click('button[type="submit"]');
-  await page.waitForURL("**/dashboard", { timeout: 30000 });
+  await page.waitForURL("**/leads", { timeout: 60000 });
   const switcher = page.locator('select[aria-label="בחירת עסק"]');
   await switcher.waitFor({ timeout: 10000 });
   const options = await switcher.locator("option").allTextContents();

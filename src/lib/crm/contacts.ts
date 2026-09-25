@@ -11,8 +11,9 @@ import { normalizePhone, phoneDigits } from "@/lib/phone";
 import { audit } from "@/lib/audit";
 import { consumeQuota } from "@/lib/modules";
 import { assertTenantReferences } from "@/lib/tenant-references";
-import { revokeSuppressions, suppressContact, suppressionSummary, contactForIdentifier } from "@/lib/suppression";
-import type { SessionUser } from "@/lib/auth";
+import { revokeSuppressions, releaseFullBlock, suppressContact, suppressionSummary, contactForIdentifier } from "@/lib/suppression";
+import { visibleUserIds, type SessionUser } from "@/lib/auth";
+import { ownerScope } from "./access";
 
 export const contactFilterSchema = z.object({
   q: z.string().max(100).optional(),
@@ -144,6 +145,15 @@ export const CONTACT_CARD_INCLUDE = {
   queueLeads: { include: { list: { select: { id: true, name: true } } } },
 } satisfies Prisma.ContactInclude;
 
+/** Apply the same lead/deal visibility used by their list and detail APIs. */
+export async function contactCardInclude(user: SessionUser) {
+  const scope = ownerScope(await visibleUserIds(user));
+  return { ...CONTACT_CARD_INCLUDE,
+    leads: { ...CONTACT_CARD_INCLUDE.leads, where: scope },
+    deals: { ...CONTACT_CARD_INCLUDE.deals, where: scope },
+  } satisfies Prisma.ContactInclude;
+}
+
 export async function createContact(user: SessionUser, input: ContactInput) {
   const businessId = user.businessId;
   const e164 = normalizePhone(input.phone);
@@ -185,7 +195,7 @@ export async function createContact(user: SessionUser, input: ContactInput) {
     return c;
   });
   if (input.consentStatus === "OPTED_OUT") await suppressContact({ businessId, contactId: contact.id, scope: "marketing", source: "manual", reason: input.consentEvidence ?? "created as opted out", actorId: user.id });
-  return prisma.contact.findUniqueOrThrow({ where: { id: contact.id }, include: CONTACT_CARD_INCLUDE });
+  return prisma.contact.findUniqueOrThrow({ where: { id: contact.id }, include: await contactCardInclude(user) });
 }
 
 /** Agents may edit contacts they own, hold in a dial list or have called; managers/owners edit all. */
@@ -231,29 +241,30 @@ export async function updateContact(user: SessionUser, id: string, input: z.infe
     data.phoneRaw = input.phone;
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const u = await tx.contact.update({ where: { id: c.id }, data });
+  if (input.isBlocked === true && input.consentStatus === "OPTED_IN") throw new ApiError("לא ניתן לחסום ולהסכים לדיוור באותה פעולה", 400, "conflicting_consent");
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "contacts" WHERE id = ${c.id} FOR UPDATE`;
+    await tx.contact.update({ where: { id: c.id }, data });
     await syncTags(tx, businessId, c.id, input.tagIds, input.tagNames);
     await audit(businessId, user.id, "contact", c.id, "contact.updated", { fields: Object.keys(input) }, tx);
-    return u;
+    let summary = await suppressionSummary(businessId, c.id, tx);
+    if (input.isBlocked === false && (summary.fullyBlocked || c.isBlocked)) {
+      await releaseFullBlock(businessId, c.id, user.id, input.consentEvidence ?? "", tx);
+      summary = await suppressionSummary(businessId, c.id, tx);
+    }
+    if (input.isBlocked === true) {
+      await suppressContact({ businessId, contactId: c.id, scope: "all", source: "manual", reason: input.consentEvidence || "חסימה מלאה על ידי נציג", actorId: user.id }, tx);
+    } else if (input.consentStatus === "OPTED_OUT") {
+      await suppressContact({ businessId, contactId: c.id, scope: "marketing", source: "manual", reason: input.consentEvidence || "הסרה על ידי נציג", actorId: user.id }, tx);
+    } else if (input.consentStatus === "OPTED_IN") {
+      if (summary.fullyBlocked) throw new ApiError("יש להסיר חסימה מלאה במפורש לפני הסכמה לדיוור", 400, "fully_blocked");
+      if (summary.marketingBlocked) await revokeSuppressions(businessId, c.id, user.id, input.consentEvidence ?? "", tx);
+      else await tx.contact.update({ where: { id: c.id }, data: { consentStatus: "OPTED_IN", consentAt: new Date(), consentSource: input.consentSource || "manual", consentScope: "marketing", consentEvidence: input.consentEvidence || null } });
+    } else if (input.consentStatus === "UNKNOWN" && !summary.marketingBlocked) {
+      await tx.contact.update({ where: { id: c.id }, data: { consentStatus: "UNKNOWN" } });
+    }
+    return tx.contact.findUniqueOrThrow({ where: { id: c.id } });
   });
-
-  // Consent / blocking changes go through the global suppression list.
-  const summary = await suppressionSummary(businessId, c.id);
-  if (input.isBlocked === true && !summary.fullyBlocked) {
-    await suppressContact({ businessId, contactId: c.id, scope: "all", source: "manual", reason: input.consentEvidence || "חסימה מלאה על ידי נציג", actorId: user.id });
-  } else if (input.consentStatus === "OPTED_OUT" && !summary.marketingBlocked) {
-    await suppressContact({ businessId, contactId: c.id, scope: "marketing", source: "manual", reason: input.consentEvidence || "הסרה על ידי נציג", actorId: user.id });
-  }
-  if ((input.consentStatus === "OPTED_IN" || input.isBlocked === false) && (summary.marketingBlocked || summary.fullyBlocked)) {
-    // Re-subscribing requires documented consent (throws without evidence).
-    await revokeSuppressions(businessId, c.id, user.id, input.consentEvidence ?? "");
-  } else if (input.consentStatus === "OPTED_IN" && !summary.marketingBlocked) {
-    await prisma.contact.update({ where: { id: c.id }, data: { consentStatus: "OPTED_IN", consentAt: new Date(), consentSource: input.consentSource || "manual", consentScope: "marketing", consentEvidence: input.consentEvidence || null } });
-  } else if (input.consentStatus === "UNKNOWN" && !summary.marketingBlocked) {
-    await prisma.contact.update({ where: { id: c.id }, data: { consentStatus: "UNKNOWN" } });
-  }
-  return updated;
 }
 
 export async function addContactPhone(user: SessionUser, contactId: string, phone: string, label?: string) {
@@ -366,6 +377,11 @@ export async function importContacts(user: SessionUser, rows: ContactInput[], de
         invalid++;
         continue;
       }
+      if (base.email && await findDuplicateByEmail(businessId, base.email)) {
+        errors.push({ row: i + 1, phone: r.phone, reason: "האימייל שייך לאיש קשר אחר" });
+        invalid++;
+        continue;
+      }
       const c = await prisma.contact.create({ data: { ...base, businessId, phoneE164: e164, phoneRaw: r.phone, source: r.source || defaultSource || "import", ownerUserId: r.ownerUserId || null, consentStatus: r.consentStatus ?? "UNKNOWN", consentSource: r.consentStatus ? "import" : null, consentAt: r.consentStatus && r.consentStatus !== "UNKNOWN" ? new Date() : null, consentScope: r.consentStatus ? "marketing" : null } });
       await syncTags(prisma, businessId, c.id, undefined, r.tagNames);
       if (r.consentStatus === "OPTED_OUT") await suppressContact({ businessId, contactId: c.id, scope: "marketing", source: "import", reason: "import flag", actorId: user.id });
@@ -416,7 +432,13 @@ export async function mergeContacts(user: SessionUser, primaryId: string, duplic
     await tx.note.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
     await tx.conversation.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
     await tx.call.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
-    await tx.noteDraft.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    for (const draft of await tx.noteDraft.findMany({ where: { contactId: duplicateId } })) {
+      const existing = await tx.noteDraft.findUnique({ where: { userId_contactId: { userId: draft.userId, contactId: primaryId } } });
+      if (existing) {
+        await tx.noteDraft.update({ where: { id: existing.id }, data: { body: [existing.body, draft.body].filter(Boolean).join("\n---\n") } });
+        await tx.noteDraft.delete({ where: { id: draft.id } });
+      } else await tx.noteDraft.update({ where: { id: draft.id }, data: { contactId: primaryId } });
+    }
     await tx.suppression.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
     await tx.domainEvent.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
     // Unique-per-contact rows: keep the survivor's row when both exist.
@@ -441,5 +463,5 @@ export async function mergeContacts(user: SessionUser, primaryId: string, duplic
     const { emitEvent } = await import("@/lib/events");
     await emitEvent(tx, { businessId, type: "contact.merged", contactId: primaryId, actorUserId: user.id, source: "user", dedupeKey: `contact.merged:${primaryId}:${duplicateId}`, payload: { duplicateId, duplicateName: duplicate.fullName, phones: snapshot.phones, emails: snapshot.emails } });
   }, { timeout: 30000 });
-  return prisma.contact.findUniqueOrThrow({ where: { id: primaryId }, include: CONTACT_CARD_INCLUDE });
+  return prisma.contact.findUniqueOrThrow({ where: { id: primaryId }, include: await contactCardInclude(user) });
 }

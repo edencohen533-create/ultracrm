@@ -49,7 +49,7 @@ export function buildConversationScope(session: Session, filter: ConversationLis
     clauses.push({
       OR: [
         { contact: { fullName: { contains: filter.search, mode: "insensitive" } } },
-        { contact: { phoneE164: { contains: filter.search.replace(/\D/g, "") } } },
+        ...(filter.search.replace(/\D/g, "").length >= 3 ? [{ contact: { phoneE164: { contains: filter.search.replace(/\D/g, "") } } }] : []),
         { contact: { email: { contains: filter.search, mode: "insensitive" } } },
         { messages: { some: { body: { contains: filter.search, mode: "insensitive" } } } },
       ],

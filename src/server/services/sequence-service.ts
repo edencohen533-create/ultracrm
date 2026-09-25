@@ -200,6 +200,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
             const contact = await prisma.contact.findUniqueOrThrow({ where: { id: run.contactId }, select: { fullName: true } });
             const conversation = await startConversationForAutomation(run.contactId, sender.id, seq.createdById ?? "");
             const { message } = await createOutboundMessage({ conversationId: conversation.id, body: "", templateId: step.templateId, templateVariables: personalizeVariables((step.variables as Record<string, string>) ?? {}, contact.fullName), sentByUserId: seq.createdById ?? "", automated: true, requireOptIn: true, requestKey, eventDepth: 1 });
+            if (!["ACCEPTED", "SENT", "DELIVERED", "READ"].includes(message.status)) throw new Error(message.errorReason ?? "הספק לא אישר את השליחה");
             messageId = message.id;
           }
         } catch (err) {
@@ -214,6 +215,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
         const { ChannelUnavailableError } = await import("@/server/channels/registry");
         try {
           const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId: step.templateId, variables: (step.variables as Record<string, string>) ?? {}, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1, sequenceRunId: run.id });
+          if (!["ACCEPTED", "SENT", "DELIVERED", "READ"].includes(message.status)) throw new Error(message.errorReason ?? "הספק לא אישר את השליחה");
           messageId = message.id;
         } catch (err) {
           if (err instanceof FrequencyCapError) deferUntil = new Date(Date.now() + 60 * 60_000);

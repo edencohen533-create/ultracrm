@@ -14,25 +14,10 @@ interface ListLite {
   stats: { dueNow: number; total: number };
 }
 
+/** Active-session bar (status, queue counters, countdown, pause/resume/end). The start form lives in StartSessionForm. */
 export function SessionControls() {
-  const { state, startSession, pauseSession, resumeSession, endSession, busy, countdown, cancelCountdown, sessionTakenOver } = useDialer();
-  const [lists, setLists] = useState<ListLite[]>([]);
-  const [mode, setMode] = useState<DialMode>("power");
-  const [listId, setListId] = useState("");
-  const [cd, setCd] = useState<number>(5);
+  const { state, pauseSession, resumeSession, endSession, busy, countdown, cancelCountdown, sessionTakenOver } = useDialer();
   const session = state?.session;
-
-  useEffect(() => {
-    api.get<ListLite[]>("/api/lists").then((l) => {
-      const active = l.filter((x) => x.isActive);
-      setLists(active);
-      if (!listId && active[0]) setListId(active[0].id);
-    }).catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => {
-    if (state?.settings) setCd(state.settings.autoDialCountdownSeconds);
-  }, [state?.settings]);
 
   if (session && session.status !== "ended") {
     const q = state?.queue;
@@ -76,8 +61,50 @@ export function SessionControls() {
     );
   }
 
+  return <StartSessionForm />;
+}
+
+/**
+ * Pre-flight for the auto dialer: which queue (dial list) will be dialed, how many leads are due in it right now,
+ * the mode and the pause between calls. Rendered inside the "הפעל חייגן" dialog on the leads screen.
+ */
+export function StartSessionForm({ onStarted, compact }: { onStarted?: () => void; compact?: boolean } = {}) {
+  const { state, startSession, busy } = useDialer();
+  const [lists, setLists] = useState<ListLite[] | null>(null);
+  const [mode, setMode] = useState<DialMode>("power");
+  const [listId, setListId] = useState("");
+  const [cd, setCd] = useState<number>(5);
+
+  useEffect(() => {
+    api.get<ListLite[]>("/api/lists").then((l) => {
+      const active = l.filter((x) => x.isActive).sort((a, b) => b.stats.dueNow - a.stats.dueNow);
+      setLists(active);
+      if (!listId && active[0]) setListId(active[0].id);
+    }).catch(() => setLists([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (state?.settings) setCd(state.settings.autoDialCountdownSeconds);
+  }, [state?.settings]);
+
+  const chosen = lists?.find((l) => l.id === listId) ?? null;
+  const blocked = Boolean(state?.activeCall || state?.wrapUpCall);
   return (
-    <div className="flex flex-wrap items-end gap-3">
+    <div className={compact ? "space-y-3" : "flex flex-wrap items-end gap-3"}>
+      {compact && (
+        <div className="rounded-lg border border-line bg-panel-2 p-3 text-sm space-y-1">
+          {lists === null ? <p className="text-muted">טוען רשימות…</p> : lists.length === 0 ? (
+            <p className="text-muted">אין רשימת חיוג פעילה שמשויכת אליך. מנהל יכול ליצור רשימה מהסינון במסך הלידים (ניהול ← רשימות חיוג).</p>
+          ) : chosen ? (
+            <>
+              <p>יחויגו לידים מהתור <b>{chosen.name}</b>.</p>
+              <p className="text-muted">זמינים לחיוג עכשיו: <b className="text-text tabular">{chosen.stats.dueNow}</b> מתוך <span className="tabular">{chosen.stats.total}</span>. לידים בטיפול אצל נציג אחר, חסומים (DNC), עם חזרה מתוזמנת עתידית או מחוץ לחלון החיוג אינם נכללים.</p>
+              {chosen.stats.dueNow === 0 && <p className="text-warn">אין כרגע לידים זמינים ברשימה זו.</p>}
+            </>
+          ) : null}
+          {blocked && <p className="text-warn">יש שיחה פעילה או שיחה שממתינה לתיעוד – סיים אותה לפני הפעלת החייגן.</p>}
+        </div>
+      )}
       <div className="flex rounded-lg border border-line overflow-hidden">
         {(["manual", "preview", "power"] as DialMode[]).map((m) => (
           <button key={m} onClick={() => setMode(m)} className={cx("h-10 px-4 text-sm transition-colors", mode === m ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-white/5")}>
@@ -87,8 +114,8 @@ export function SessionControls() {
       </div>
       {mode !== "manual" && (
         <Select label="רשימת חיוג" value={listId} onChange={(e) => setListId(e.target.value)} className="min-w-56">
-          {lists.length === 0 && <option value="">אין רשימות פעילות</option>}
-          {lists.map((l) => (
+          {(lists ?? []).length === 0 && <option value="">אין רשימות פעילות</option>}
+          {(lists ?? []).map((l) => (
             <option key={l.id} value={l.id}>
               {l.name} ({l.stats.dueNow} בתור)
             </option>
@@ -107,8 +134,8 @@ export function SessionControls() {
           </select>
         </label>
       )}
-      <Button size="md" variant="good" loading={busy === "session"} disabled={mode !== "manual" && !listId} onClick={() => startSession(mode, mode === "manual" ? undefined : listId, mode === "power" ? cd : undefined)}>
-        {mode === "power" ? "▶ התחל תותח שיחות" : mode === "preview" ? "▶ התחל Preview" : "▶ התחל סשן ידני"}
+      <Button size="md" variant="good" loading={busy === "session"} disabled={blocked || (mode !== "manual" && !listId)} data-testid="start-dialer" onClick={async () => { await startSession(mode, mode === "manual" ? undefined : listId, mode === "power" ? cd : undefined); onStarted?.(); }}>
+        {mode === "power" ? "▶ הפעל חיוג אוטומטי" : mode === "preview" ? "▶ התחל Preview" : "▶ התחל סשן ידני"}
       </Button>
     </div>
   );

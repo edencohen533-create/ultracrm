@@ -1,0 +1,291 @@
+
+> ultracrm@0.1.0 lint
+> eslint
+
+
+/Users/edencohen/ultracrm/src/app/(app)/contacts/[id]/page.tsx
+  73:21  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/app/(app)/contacts/[id]/page.tsx:73:21
+  71 |     }
+  72 |   }, [id]);
+> 73 |   useEffect(() => { load(); }, [load, state?.wrapUpCall?.id, state?.activeCall?.id]);
+     |                     ^^^^ Avoid calling setState() directly within an effect
+  74 |   useEffect(() => { api.get<{ items: Array<{ id: string; fullName: string }> }>("/api/users").then((r) => setUsers(r.items)).catch(() => undefined); }, []);
+  75 |
+  76 |   async function save() {  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/app/(app)/deals/page.tsx
+  30:46  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/app/(app)/deals/page.tsx:30:46
+  28 |   useEffect(() => { api.get<{ items: Array<{ id: string; fullName: string }> }>("/api/users").then((r) => setUsers(r.items)).catch(() => undefined); }, []);
+  29 |   useEffect(() => {
+> 30 |     if (!open || search.trim().length < 2) { setHits([]); return; }
+     |                                              ^^^^^^^ Avoid calling setState() directly within an effect
+  31 |     const t = setTimeout(() => api.get<{ items: typeof hits }>(`/api/contacts${qs({ q: search, limit: 8 })}`).then((r) => setHits(r.items)).catch(() => undefined), 250);
+  32 |     return () => clearTimeout(t);
+  33 |   }, [search, open]);  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/app/(app)/leads/page.tsx
+  34:46  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/app/(app)/leads/page.tsx:34:46
+  32 |   useEffect(() => { api.get<{ items: Array<{ id: string; fullName: string }> }>("/api/users").then((r) => setUsers(r.items)).catch(() => undefined); }, []);
+  33 |   useEffect(() => {
+> 34 |     if (!open || search.trim().length < 2) { setHits([]); return; }
+     |                                              ^^^^^^^ Avoid calling setState() directly within an effect
+  35 |     const t = setTimeout(() => api.get<{ items: ContactHit[] }>(`/api/contacts${qs({ q: search, limit: 8 })}`).then((r) => setHits(r.items)).catch(() => undefined), 250);
+  36 |     return () => clearTimeout(t);
+  37 |   }, [search, open]);  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/app/(app)/lists/[id]/page.tsx
+  68:192  warning  Do not use `window.location.href` to navigate to internal Next.js pages. Use `redirect()` in the render phase, or `useRouter().push()` in Client Components' event handlers instead. See: https://nextjs.org/docs/messages/no-location-assign-relative-destination  @next/next/no-location-assign-relative-destination
+
+/Users/edencohen/ultracrm/src/app/(app)/lists/page.tsx
+  33:5  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/app/(app)/lists/page.tsx:33:5
+  31 |   }, []);
+  32 |   useEffect(() => {
+> 33 |     load();
+     |     ^^^^ Avoid calling setState() directly within an effect
+  34 |     api.get<{ user: { role: string } }>("/api/auth/me").then((m) => setMe(m.user)).catch(() => undefined);
+  35 |     api.get<{ items: Array<{ id: string; fullName: string; role: string }> }>("/api/users").then((u) => setUsers(u.items)).catch(() => undefined);
+  36 |     api.get<Array<{ id: string; title: string }>>("/api/scripts").then(setScripts).catch(() => undefined);  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/app/(app)/manager/page.tsx
+  58:5  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/app/(app)/manager/page.tsx:58:5
+  56 |
+  57 |   useEffect(() => {
+> 58 |     load();
+     |     ^^^^ Avoid calling setState() directly within an effect
+  59 |     const i = setInterval(load, 4000);
+  60 |     return () => clearInterval(i);
+  61 |   }, [load]);  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/app/(app)/tasks/page.tsx
+  33:21  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/app/(app)/tasks/page.tsx:33:21
+  31 |     } catch (e) { toast.error((e as Error).message); }
+  32 |   }, [status, type, userId]);
+> 33 |   useEffect(() => { load(); }, [load, state?.wrapUpCall?.id]);
+     |                     ^^^^ Avoid calling setState() directly within an effect
+  34 |
+  35 |   async function setTask(id: string, s: "done" | "cancelled" | "open") {
+  36 |     try { await api.patch(`/api/tasks/${id}`, { status: s }); load(); } catch (e) { toast.error((e as Error).message); }  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/app/login/page.tsx
+  21:13  warning  'u' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/edencohen/ultracrm/src/components/campaigns/campaign-dashboard.tsx
+   51:121  warning  'marketingWindow' is defined but never used                                                                                                                                                                                                                                              @typescript-eslint/no-unused-vars
+  233:594  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/edencohen/ultracrm/src/components/channels/channel-connection-card.tsx
+  43:56  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/components/channels/channel-connection-card.tsx:43:56
+  41 |   const [testTo, setTestTo] = useState("");
+  42 |   const [testTemplate, setTestTemplate] = useState(templates[0]?.id ?? "");
+> 43 |   useEffect(() => { if (!testTemplate && templates[0]) setTestTemplate(templates[0].id); }, [templates, testTemplate]);
+     |                                                        ^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  44 |
+  45 |   async function refresh() { const r = await api.get<{ items: CredentialView[] }>(`/api/channels/${channel}`); setC(r.items.find((x) => x.isActive) ?? null); router.refresh(); }
+  46 |   async function save() {  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/components/dialer/DialerWorkspace.tsx
+  33:5  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/components/dialer/DialerWorkspace.tsx:33:5
+  31 |
+  32 |   useEffect(() => {
+> 33 |     setRefreshKey((k) => k + 1);
+     |     ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  34 |   }, [call?.id, call?.endedAt, wrapUp?.id, lead?.id]);
+  35 |
+  36 |   const dialLead = useCallback(async () => {  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/components/dialer/LeadCard.tsx
+  63:5  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/components/dialer/LeadCard.tsx:63:5
+  61 |
+  62 |   useEffect(() => {
+> 63 |     load();
+     |     ^^^^ Avoid calling setState() directly within an effect
+  64 |   }, [load, refreshKey]);
+  65 |
+  66 |   // Restore draft (server first, then localStorage) when the contact changes  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/components/dialer/OutcomePanel.tsx
+  25:5  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/components/dialer/OutcomePanel.tsx:25:5
+  23 |   // Sensible default from the provider's result – the agent can still change it.
+  24 |   useEffect(() => {
+> 25 |     setSelected(call.telephonyResult === "busy" ? "busy" : call.telephonyResult === "no_answer" ? "no_answer" : null);
+     |     ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  26 |     setCallbackAt("");
+  27 |   }, [call.id, call.telephonyResult]);
+  28 |  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/components/dialer/SessionControls.tsx
+  34:26  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/components/dialer/SessionControls.tsx:34:26
+  32 |   }, []);
+  33 |   useEffect(() => {
+> 34 |     if (state?.settings) setCd(state.settings.autoDialCountdownSeconds);
+     |                          ^^^^^ Avoid calling setState() directly within an effect
+  35 |   }, [state?.settings]);
+  36 |
+  37 |   if (session && session.status !== "ended") {  react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/components/telephony/DialerProvider.tsx
+  217:21  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/components/telephony/DialerProvider.tsx:217:21
+  215 |
+  216 |   useEffect(() => {
+> 217 |     if (!enabled) { setLoading(false); return; }
+      |                     ^^^^^^^^^^ Avoid calling setState() directly within an effect
+  218 |     let alive = true;
+  219 |     let timer: ReturnType<typeof setTimeout>;
+  220 |     const loop = async () => {                                                        react-hooks/set-state-in-effect
+  397:18  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/components/telephony/DialerProvider.tsx:397:18
+  395 |
+  396 |   useEffect(() => {
+> 397 |     if (enabled) connectPhone();
+      |                  ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  398 |     return () => {
+  399 |       // Invalidate all pending registrations, including reconnects started after mount.
+  400 |       // eslint-disable-next-line react-hooks/exhaustive-deps  react-hooks/set-state-in-effect
+  446:14  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/edencohen/ultracrm/src/components/telephony/DialerProvider.tsx:446:14
+  444 |       const m = localStorage.getItem("dialer.micId");
+  445 |       const s = localStorage.getItem("dialer.speakerId");
+> 446 |       if (m) setMicId(m);
+      |              ^^^^^^^^ Avoid calling setState() directly within an effect
+  447 |       if (s) setSpeakerId(s);
+  448 |     } catch {
+  449 |       /* ignore */                                react-hooks/set-state-in-effect
+
+/Users/edencohen/ultracrm/src/lib/client/api.ts
+  25:7  warning  Do not use `window.location.assign()` to navigate to internal Next.js pages. Use `redirect()` in the render phase, or `useRouter().push()` in Client Components' event handlers instead. See: https://nextjs.org/docs/messages/no-location-assign-relative-destination  @next/next/no-location-assign-relative-destination
+
+/Users/edencohen/ultracrm/src/server/channels/mock.ts
+  49:14  warning  '_input' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/edencohen/ultracrm/src/server/services/campaign-service.ts
+  85:22  warning  '_c' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  85:36  warning  '_s' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/edencohen/ultracrm/src/server/services/channel-send-service.ts
+  25:35  warning  'ChannelUnavailableError' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/edencohen/ultracrm/src/server/services/channel-template-service.ts
+  48:25  warning  '_b' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/edencohen/ultracrm/tests/integration/multichannel.test.ts
+   9:14  warning  'prisma' is defined but never used           @typescript-eslint/no-unused-vars
+  52:7   warning  'listId' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/edencohen/ultracrm/tests/integration/suppression.test.ts
+  2:14  warning  'prisma' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/edencohen/ultracrm/tests/integration/whatsapp-completion.test.ts
+  10:14  warning  'prisma' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 28 problems (0 errors, 28 warnings)
+

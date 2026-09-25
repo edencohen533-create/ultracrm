@@ -46,40 +46,37 @@ const ICON = {
 const ALL: Role[] = ["agent", "manager", "owner"];
 const MGMT: Role[] = ["manager", "owner"];
 
+/**
+ * Navigation around the lead: agents get four items and nothing else. Managers add reports and the live floor,
+ * plus a collapsed "ניהול" group with everything operational (connections, numbers, dial lists, campaigns,
+ * templates, automations, users). Every route below still exists – only the menu is shorter.
+ */
 const SECTIONS: Section[] = [
   {
-    title: "CRM",
+    title: "עבודה",
     items: [
-      { href: "/dashboard", label: "דשבורד", roles: ALL, icon: ICON.dashboard },
-      { href: "/contacts", label: "אנשי קשר", roles: ALL, module: "crm", icon: ICON.contacts },
-      { href: "/leads", label: "לידים", roles: ALL, module: "crm", icon: ICON.leads },
+      { href: "/leads", label: "לידים", roles: ALL, module: "crm", icon: ICON.leads, match: (p) => p === "/leads" || p.startsWith("/leads/") || p.startsWith("/contacts") || p === "/dialer" },
+      { href: "/inbox", label: "שיחות", roles: ALL, icon: ICON.inbox, match: (p) => p.startsWith("/inbox") || p.startsWith("/calls") },
       { href: "/deals", label: "עסקאות", roles: ALL, module: "crm", icon: ICON.deals },
       { href: "/tasks", label: "משימות", roles: ALL, module: "crm", icon: ICON.tasks },
     ],
   },
   {
-    title: "דיוור",
+    title: "מנהלים",
     items: [
-      { href: "/inbox", label: "תיבת הודעות", roles: ALL, module: "messaging", icon: ICON.inbox },
-      { href: "/campaigns", label: "קמפיינים וקהלים", roles: MGMT, module: "messaging", icon: ICON.campaigns },
-      { href: "/templates", label: "תבניות", roles: ALL, module: "messaging", icon: ICON.templates },
-      { href: "/automations", label: "אוטומציות דיוור", roles: MGMT, module: "messaging", icon: ICON.automations },
+      { href: "/reports", label: "דוחות", roles: MGMT, icon: ICON.manager, match: (p) => p.startsWith("/reports") || p.startsWith("/analytics") || p === "/manager/calls" },
+      { href: "/manager", label: "מוקד בזמן אמת", roles: MGMT, module: "telephony", icon: ICON.history, match: (p) => p === "/manager" },
     ],
   },
-  {
-    title: "טלפוניה",
-    items: [
-      { href: "/dialer", label: "חייגן", roles: ALL, module: "telephony", icon: ICON.dialer },
-      { href: "/lists", label: "רשימות חיוג", roles: ALL, module: "telephony", icon: ICON.lists },
-      { href: "/manager", label: "מוקד בזמן אמת", roles: MGMT, module: "telephony", icon: ICON.manager, match: (p) => p === "/manager" },
-      { href: "/manager/calls", label: "היסטוריית שיחות", roles: MGMT, module: "telephony", icon: ICON.history },
-      { href: "/numbers", label: "מספרים יוצאים", roles: MGMT, module: "telephony", icon: ICON.settings },
-    ],
-  },
-  {
-    title: "ניהול",
-    items: [{ href: "/settings", label: "הגדרות", roles: MGMT, icon: ICON.settings }],
-  },
+];
+
+const MANAGEMENT: Item[] = [
+  { href: "/settings", label: "הגדרות וחיבורים", roles: MGMT, icon: ICON.settings },
+  { href: "/lists", label: "רשימות חיוג", roles: MGMT, module: "telephony", icon: ICON.lists },
+  { href: "/numbers", label: "מספרים יוצאים", roles: MGMT, module: "telephony", icon: ICON.dialer },
+  { href: "/campaigns", label: "קמפיינים וקהלים", roles: MGMT, module: "messaging", icon: ICON.campaigns },
+  { href: "/templates", label: "תבניות", roles: MGMT, module: "messaging", icon: ICON.templates },
+  { href: "/automations", label: "אוטומציות", roles: MGMT, module: "messaging", icon: ICON.automations },
 ];
 
 export function Sidebar({ user, businessName, businesses, modules, planName }: { user: { fullName: string; role: string }; businessName: string; businesses: Array<{ id: string; name: string; active: boolean }>; modules: Record<ModuleKey, boolean>; planName: string | null }) {
@@ -87,6 +84,9 @@ export function Sidebar({ user, businessName, businesses, modules, planName }: {
   const router = useRouter();
   const { state, phone } = useDialer();
   const [switching, setSwitching] = useState(false);
+  const [mgmtOpen, setMgmtOpen] = useState<boolean>(() => { try { return localStorage.getItem("nav.mgmt") === "1"; } catch { return false; } });
+  const mgmtItems = MANAGEMENT.filter((i) => i.roles.includes(user.role as Role) && (!i.module || modules[i.module]));
+  const mgmtActive = mgmtItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
   const presence = state?.presence ?? "offline";
   const presenceTone = presence === "in_call" ? "good" : presence === "available" ? "info" : presence === "wrap_up" ? "warn" : presence === "paused" ? "warn" : "neutral";
 
@@ -99,7 +99,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName }: {
     setSwitching(true);
     try {
       await api.post("/api/auth/switch", { businessId });
-      router.push("/dashboard");
+      router.push("/leads");
       router.refresh();
     } catch (e) {
       toast.error((e as Error).message);
@@ -154,6 +154,26 @@ export function Sidebar({ user, businessName, businesses, modules, planName }: {
             </div>
           );
         })}
+        {mgmtItems.length > 0 && (
+          <div>
+            <button onClick={() => { const v = !mgmtOpen; setMgmtOpen(v); try { localStorage.setItem("nav.mgmt", v ? "1" : "0"); } catch { /* ignore */ } }} className="w-full flex items-center justify-between px-3 pb-1 text-[10px] uppercase tracking-wider text-muted/70 hover:text-text" aria-expanded={mgmtOpen || mgmtActive} data-testid="nav-mgmt">
+              <span>ניהול</span><span aria-hidden>{mgmtOpen || mgmtActive ? "▾" : "▸"}</span>
+            </button>
+            {(mgmtOpen || mgmtActive) && (
+              <div className="space-y-0.5">
+                {mgmtItems.map((i) => {
+                  const active = pathname === i.href || pathname.startsWith(i.href + "/");
+                  return (
+                    <Link key={i.href} href={i.href} className={cx("flex items-center gap-3 px-3 h-9 rounded-lg text-sm transition-colors", active ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-white/5")}>
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={i.icon} /></svg>
+                      {i.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
       <div className="p-3 border-t border-line space-y-2">
         <div className="flex items-center justify-between gap-2">

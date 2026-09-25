@@ -4,7 +4,7 @@
  * (`withAuth({ module })`, `consumeQuota`) and mirrored in the UI (sidebar).
  * No billing / payment integration exists at this stage.
  */
-import { db } from "@/lib/db";
+import { db, type Db } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 
 export type ModuleKey = "crm" | "messaging" | "telephony";
@@ -83,20 +83,22 @@ export async function currentUsage(businessId: string, metric: QuotaMetric): Pro
  * Reserve `amount` units of a quota. Throws `quota_exceeded` (HTTP 429) when the
  * plan limit would be crossed. Monthly metrics are incremented atomically.
  */
-export async function consumeQuota(businessId: string, metric: QuotaMetric, amount = 1) {
+export async function consumeQuota(businessId: string, metric: QuotaMetric, amount = 1, transaction?: Db) {
   const ent = await getEntitlements(businessId);
   const limit = ent.quotas[metric];
   if (MONTHLY.includes(metric)) {
-    const period = currentPeriod();
-    const row = await db.usageCounter.upsert({
-      where: { businessId_metric_period: { businessId, metric, period } },
-      create: { businessId, metric, period, value: amount },
-      update: { value: { increment: amount } },
-    });
-    if (limit !== null && row.value > limit) {
-      await db.usageCounter.update({ where: { id: row.id }, data: { value: { decrement: amount } } });
-      throw new ApiError(`חריגה ממכסת ${QUOTA_LABEL[metric]} (${limit}) של החבילה`, 429, "quota_exceeded", { metric, limit });
-    }
+    const reserve = async (tx: Db) => {
+      const period = currentPeriod();
+      const row = await tx.usageCounter.upsert({
+        where: { businessId_metric_period: { businessId, metric, period } },
+        create: { businessId, metric, period, value: amount },
+        update: { value: { increment: amount } },
+      });
+      if (limit !== null && row.value > limit) throw new ApiError(`חריגה ממכסת ${QUOTA_LABEL[metric]} (${limit}) של החבילה`, 429, "quota_exceeded", { metric, limit });
+    };
+    // A rejected reservation rolls back with the operation that requested it.
+    if (transaction) await reserve(transaction);
+    else await db.$transaction(reserve);
     return;
   }
   if (limit === null) return;

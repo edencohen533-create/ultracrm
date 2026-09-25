@@ -243,7 +243,7 @@ describe("multi-channel marketing (simulated providers)", () => {
     expect(m2after.status).not.toBe("READ"); // an open is never "read"
   });
 
-  it("provider unreachable pauses the campaign and requeues instead of failing recipients; suppression still works while the provider is down", async () => {
+  it("a connection failure during dispatch preserves UNKNOWN; suppression still works while the provider is down", async () => {
     const tel = await run(a.session, () => saveChannelCredential(a.session, "sms", { provider: "telnyx_sms", label: "telnyx", apiKey: "KEY", messagingProfileId: "mp-1", publicKey: "x", senders: [{ value: "MyBrand", type: "alphanumeric", inbound: false }] }));
     expect(tel.report.ok).toBe(false); // no network → check fails honestly
     await db.providerCredential.update({ where: { id: tel.credential.id }, data: { sendingBlocked: false, status: "connected", senders: [{ id: "MyBrand", type: "alphanumeric", value: "MyBrand", inbound: false }] } });
@@ -254,15 +254,14 @@ describe("multi-channel marketing (simulated providers)", () => {
     await run(a.session, () => changeCampaignStatus(campaign.id, "start", undefined, a.user.id));
     await run(a.session, () => processDueCampaigns());
     const camp = await db.campaign.findUniqueOrThrow({ where: { id: campaign.id } });
-    expect(camp.status).toBe("PAUSED");
-    expect(camp.statusReason).toMatch(/אינו זמין/);
+    expect(camp.status).toBe("COMPLETED");
     const rec = await db.campaignRecipient.findFirstOrThrow({ where: { campaignId: campaign.id } });
-    expect(rec.status).toBe("QUEUED");
-    expect(await db.message.count({ where: { requestKey: `campaign:${rec.id}`, status: "ACCEPTED" } })).toBe(0);
+    expect(rec.status).toBe("UNKNOWN");
+    expect(await db.message.findUnique({ where: { requestKey: `campaign:${rec.id}` } })).toMatchObject({ status: "UNKNOWN" });
     // Unsubscribe while the provider is down: local block applies immediately.
     await run(a.session, () => suppressContact({ businessId: a.business.id, contactId: c.id, source: "manual", reason: "t", actorId: a.user.id }));
     expect(await run(a.session, () => sendBlockReason(a.business.id, c.id, "marketing"))).toMatch(/הוסר/);
-    expect((await db.campaignRecipient.findUniqueOrThrow({ where: { id: rec.id } })).status).toBe("SKIPPED");
+    expect((await db.campaignRecipient.findUniqueOrThrow({ where: { id: rec.id } })).status).toBe("UNKNOWN");
     vi.unstubAllGlobals();
     // Restore the simulation credential as the active SMS provider.
     await db.providerCredential.update({ where: { id: tel.credential.id }, data: { isActive: false, isDefault: false } });
@@ -305,18 +304,21 @@ describe("multi-channel marketing (simulated providers)", () => {
   });
 
   describe("regressions found in review", () => {
-    it("provider outage → retry sends exactly once and never marks a recipient SENT on a cancelled message", async () => {
+    it("provider blocked before dispatch → resume sends exactly once", async () => {
       const c = await run(a.session, () => createContact(a.session, { fullName: "רטרי", phone: "0501000041", consentStatus: "OPTED_IN", consentEvidence: "t" }));
       const list = await db.distributionList.create({ data: { businessId: a.business.id, name: "retry", members: { create: [{ contactId: c.id }] } } });
       const campaign = await run(a.session, () => createCampaign({ channel: "sms", name: "retry", listId: list.id, templateId: smsTpl, variables: {}, providerCredentialId: sms.id, senderId: "+972501110000" }, a.user.id));
       await run(a.session, () => changeCampaignStatus(campaign.id, "start", undefined, a.user.id));
-      const spy = vi.spyOn(MockSmsProvider.prototype, "send").mockRejectedValueOnce(new TypeError("fetch failed"));
+      const spy = vi.spyOn(MockSmsProvider.prototype, "send");
+      await db.providerCredential.update({ where: { id: sms.id }, data: { sendingBlocked: true } });
       await run(a.session, () => processDueCampaigns());
       const rec = await db.campaignRecipient.findFirstOrThrow({ where: { campaignId: campaign.id } });
       expect(rec.status).toBe("QUEUED");
       expect(rec.messageId).toBeNull();
       expect(await db.message.count({ where: { requestKey: `campaign:${rec.id}` } })).toBe(0); // nothing left behind
       expect((await db.contact.findUniqueOrThrow({ where: { id: c.id } })).lastMarketingAt).toBeNull(); // cap slot released
+      expect(spy).not.toHaveBeenCalled();
+      await db.providerCredential.update({ where: { id: sms.id }, data: { sendingBlocked: false } });
       // Provider back: resume → sends once, recipient SENT on an ACCEPTED message.
       await run(a.session, () => changeCampaignStatus(campaign.id, "resume", undefined, a.user.id));
       await run(a.session, () => processDueCampaigns());
@@ -325,7 +327,7 @@ describe("multi-channel marketing (simulated providers)", () => {
       expect(after.status).toBe("SENT");
       expect(after.message?.status).toBe("ACCEPTED");
       expect(await db.message.count({ where: { requestKey: `campaign:${rec.id}` } })).toBe(1);
-      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenCalledTimes(1);
       spy.mockRestore();
     });
 

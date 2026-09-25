@@ -1529,6 +1529,7 @@ model AutomationRun {
   triggerPayload Json                @default("{}") @map("trigger_payload")
   result         Json?
   error          String?
+  claimedAt      DateTime?           @map("claimed_at")
   attempts       Int                 @default(0)
   createdAt      DateTime            @default(now()) @map("created_at")
   completedAt    DateTime?           @map("completed_at")

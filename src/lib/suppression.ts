@@ -235,6 +235,17 @@ export async function revokeSuppressions(businessId: string, contactId: string, 
   return { revoked: r.count };
 }
 
+/** Removing a full block allows service/calls only; marketing opt-out remains active. */
+export async function releaseFullBlock(businessId: string, contactId: string, actorId: string, evidence: string, db: Db = prisma) {
+  if (evidence.trim().length < 5) throw new ApiError("נדרש תיעוד לביטול חסימה (לפחות 5 תווים)", 400, "evidence_required");
+  const ids = await contactIdentifiers(contactId, db);
+  await db.suppression.updateMany({ where: { businessId, identifier: { in: [...ids.phones, ...ids.emails] }, scope: "all", revokedAt: null }, data: { scope: "marketing" } });
+  await db.contact.update({ where: { id: contactId }, data: { isBlocked: false } });
+  const { removeFromDnc } = await import("@/lib/dialer/queue");
+  for (const phone of ids.phones) await removeFromDnc(businessId, actorId, phone, db);
+  await audit(businessId, actorId, "contact", contactId, "contact.full_block_removed", { evidence: evidence.trim(), marketingConsentUnchanged: true }, db);
+}
+
 /** Summary for a contact card. */
 export async function suppressionSummary(businessId: string, contactId: string, db: Db = prisma) {
   const ids = await contactIdentifiers(contactId, db);

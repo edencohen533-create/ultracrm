@@ -79,6 +79,7 @@ export async function runRule(ruleId: string, context: TriggerContext): Promise<
       ruleId: rule.id,
       conversationId: context.conversationId ?? null,
       status: AutomationRunStatus.RUNNING,
+      claimedAt: new Date(),
       triggerPayload: context as Prisma.InputJsonValue,
     },
   });

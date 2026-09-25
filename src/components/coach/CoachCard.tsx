@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/client/api";
 import { Badge, Button, Input, cx } from "@/components/ui";
+import { CoachChat } from "@/components/coach/CoachChat";
 
 type Providers = { llm: string; stt: string; embeddings: string; mock: boolean };
 type Status = { enabled: boolean; reason?: string; providers: Providers; live: boolean };
@@ -117,7 +118,8 @@ export function CoachCard({ callId, answered, simulation, onStatus }: { callId: 
         {status.providers.mock && <Badge tone="warn">ספק AI מדומה</Badge>}
         {simulation && <Badge tone="warn">הדמיה – אין אודיו</Badge>}
         {!simulation && capture === "on" && <span className="text-[11px] text-good">מקליט לתמלול</span>}
-        {rec?.latencyMs != null && <span className="text-[11px] text-muted ms-auto tabular" title="מסיום משפט הלקוח ועד ההמלצה">{(rec.latencyMs / 1000).toFixed(1)} שנ׳</span>}
+        {rec?.latencyMs != null && <span className="text-[11px] text-muted tabular" title="מסיום משפט הלקוח ועד ההמלצה">{(rec.latencyMs / 1000).toFixed(1)} שנ׳</span>}
+        <span className="ms-auto"><CoachChat callId={callId} disabledReason={status.live ? null : status.reason ?? "המאמן לא זמין"} mock={status.providers.mock} /></span>
       </div>
       {state === "unavailable" && <p className="text-xs text-bad">{status.reason ?? "המאמן לא זמין"}</p>}
       {capture === "error" && !simulation && <p className="text-xs text-warn">תמלול חי לא פעיל: {captureError}</p>}

@@ -9,10 +9,10 @@ import { useDialer } from "@/components/telephony/DialerProvider";
 import { useMe } from "@/lib/client/use-me";
 import { Badge, Button, EmptyState, Input, Modal, Panel, Phone, Select, Spinner, Textarea, cx } from "@/components/ui";
 import { formatDateTime, formatDuration, formatPhone, relativeTime, toLocalInputValue } from "@/lib/client/format";
-import { DEAL_STAGE_LABEL, LEAD_STATUS_LABEL } from "@/lib/crm/labels";
+import { DEAL_STAGE_LABEL } from "@/lib/crm/labels";
+import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 import type { TimelineItem } from "@/lib/crm/timeline";
 import { ContactChat } from "@/components/contacts/ContactChat";
-import { LEAD_STATUSES } from "@/lib/crm/labels";
 
 interface Card {
   id: string; fullName: string; phoneE164: string; email: string | null; company: string | null; city: string | null; source: string | null; notes: string | null; createdAt: string; lastActivityAt: string | null;
@@ -38,6 +38,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const { id } = use(params);
   const { dial, state } = useDialer();
   const me = useMe();
+  const statuses = useLeadStatuses();
   const [c, setC] = useState<Card | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[] | null>(null);
   const [edit, setEdit] = useState(false);
@@ -227,10 +228,10 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
 
         <div className="lg:col-span-2 space-y-4">
           {leadEdit && (
-            <Panel title="הליד" actions={<div className="flex items-center gap-2"><Badge tone={leadEdit.status === "new" ? "info" : leadEdit.status === "qualified" ? "good" : ["lost", "unqualified"].includes(leadEdit.status) ? "bad" : "neutral"}>{LEAD_STATUS_LABEL[leadEdit.status as keyof typeof LEAD_STATUS_LABEL]}</Badge><Button size="sm" onClick={saveLead} data-testid="lead-save">שמור</Button></div>}>
+            <Panel title="הליד" actions={<div className="flex items-center gap-2"><Badge tone={leadEdit.status === "new" ? "info" : leadEdit.status === "qualified" ? "good" : ["lost", "unqualified"].includes(leadEdit.status) ? "bad" : "neutral"}>{statuses.label(leadEdit.status)}</Badge><Button size="sm" onClick={saveLead} data-testid="lead-save">שמור</Button></div>}>
               <div className="grid md:grid-cols-3 gap-2">
                 <Input label="כותרת" value={leadEdit.title} onChange={(e) => setLeadEdit({ ...leadEdit, title: e.target.value })} />
-                <Select label="סטטוס" value={leadEdit.status} onChange={(e) => setLeadEdit({ ...leadEdit, status: e.target.value })} data-testid="lead-status">{LEAD_STATUSES.map((s) => <option key={s} value={s}>{LEAD_STATUS_LABEL[s]}</option>)}</Select>
+                <Select label="סטטוס" value={leadEdit.status} onChange={(e) => setLeadEdit({ ...leadEdit, status: e.target.value })} data-testid="lead-status">{statuses.items.map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</Select>
                 <Input label="מקור" value={leadEdit.source} onChange={(e) => setLeadEdit({ ...leadEdit, source: e.target.value })} />
                 <Input label="עדיפות (0–100)" type="number" value={String(leadEdit.priority)} onChange={(e) => setLeadEdit({ ...leadEdit, priority: Number(e.target.value) })} />
                 {isManager ? <Select label="נציג אחראי" value={leadEdit.ownerUserId} onChange={(e) => setLeadEdit({ ...leadEdit, ownerUserId: e.target.value })}><option value="">ללא</option>{users.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select> : <Input label="נציג אחראי" value={users.find((u) => u.id === leadEdit.ownerUserId)?.fullName ?? "ללא"} disabled />}
@@ -245,7 +246,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
           )}
           <div className="grid md:grid-cols-2 gap-4">
             <Panel title={`לידים (${openLeads.length} פתוחים)`} actions={<Link href="/leads" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
-              {c.leads.length === 0 ? <p className="p-4 text-xs text-muted">אין לידים</p> : <ul className="divide-y divide-line text-sm">{c.leads.slice(0, 5).map((l) => <li key={l.id} className="px-4 py-2 flex items-center gap-2"><Link href={`/contacts/${id}?lead=${l.id}`} className="hover:underline flex-1 min-w-0 truncate">{l.title ?? l.source ?? "ליד"}</Link><span className="text-xs text-muted">{l.owner?.fullName ?? "ללא נציג"}</span><Badge tone={l.status === "new" ? "info" : l.status === "qualified" ? "good" : ["lost", "unqualified"].includes(l.status) ? "bad" : "neutral"}>{LEAD_STATUS_LABEL[l.status as keyof typeof LEAD_STATUS_LABEL]}</Badge></li>)}</ul>}
+              {c.leads.length === 0 ? <p className="p-4 text-xs text-muted">אין לידים</p> : <ul className="divide-y divide-line text-sm">{c.leads.slice(0, 5).map((l) => <li key={l.id} className="px-4 py-2 flex items-center gap-2"><Link href={`/contacts/${id}?lead=${l.id}`} className="hover:underline flex-1 min-w-0 truncate">{l.title ?? l.source ?? "ליד"}</Link><span className="text-xs text-muted">{l.owner?.fullName ?? "ללא נציג"}</span><Badge tone={l.status === "new" ? "info" : l.status === "qualified" ? "good" : ["lost", "unqualified"].includes(l.status) ? "bad" : "neutral"}>{statuses.label(l.status)}</Badge></li>)}</ul>}
             </Panel>
             <Panel title={`עסקאות (${c.deals.length})`} actions={<Link href="/deals" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
               {c.deals.length === 0 ? <p className="p-4 text-xs text-muted">אין עסקאות</p> : <ul className="divide-y divide-line text-sm">{c.deals.slice(0, 5).map((d) => <li key={d.id} className="px-4 py-2 flex items-center gap-2"><Link href={`/deals/${d.id}`} className="hover:underline flex-1 min-w-0 truncate">{d.title}</Link><span className="text-xs tabular">{Number(d.amount).toLocaleString("he-IL")} {d.currency}</span><Badge tone={d.stage === "won" ? "good" : d.stage === "lost" ? "bad" : "neutral"}>{DEAL_STAGE_LABEL[d.stage as keyof typeof DEAL_STAGE_LABEL]}</Badge></li>)}</ul>}

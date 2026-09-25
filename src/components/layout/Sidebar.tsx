@@ -56,10 +56,7 @@ const SECTIONS: Section[] = [
     title: "CRM",
     items: [
       { href: "/leads", label: "לידים", roles: ALL, module: "crm", icon: ICON.leads, match: (p) => p === "/leads" || p.startsWith("/leads/") || p.startsWith("/contacts") || p === "/dialer" },
-      { href: "/inbox", label: "וואטסאפ ושיחות", roles: ALL, icon: ICON.inbox, match: (p) => p.startsWith("/inbox") || p.startsWith("/calls") },
-      { href: "/deals", label: "עסקאות", roles: ALL, module: "crm", icon: ICON.deals },
-      { href: "/crm-settings", label: "הגדרות CRM", roles: ALL, module: "crm", icon: ICON.settings },
-      { href: "/tasks", label: "משימות", roles: ALL, module: "crm", icon: ICON.tasks },
+      { href: "/inbox", label: "וואטסאפ", roles: ALL, module: "messaging", icon: ICON.inbox, match: (p) => p.startsWith("/inbox") },
     ],
   },
   {
@@ -74,7 +71,10 @@ const MANAGEMENT: Item[] = [
   { href: "/settings", label: "הגדרות וחיבורים", roles: MGMT, icon: ICON.settings },
   { href: "/lists", label: "רשימות חיוג", roles: MGMT, module: "telephony", icon: ICON.lists },
   { href: "/numbers", label: "מספרים יוצאים", roles: MGMT, module: "telephony", icon: ICON.dialer },
-  { href: "/campaigns", label: "קמפיינים וקהלים", roles: MGMT, module: "messaging", icon: ICON.campaigns },
+  { href: "/audiences", label: "קהלים ואנשי קשר", roles: MGMT, module: "messaging", icon: ICON.lists },
+  { href: "/campaigns/whatsapp", label: "קמפיין WhatsApp", roles: MGMT, module: "messaging", icon: ICON.campaigns },
+  { href: "/campaigns/email", label: "קמפיין אימייל", roles: MGMT, module: "messaging", icon: ICON.campaigns },
+  { href: "/campaigns/sms", label: "קמפיין SMS", roles: MGMT, module: "messaging", icon: ICON.campaigns },
   { href: "/templates", label: "תבניות", roles: MGMT, module: "messaging", icon: ICON.templates },
   { href: "/automations", label: "אוטומציות", roles: MGMT, module: "messaging", icon: ICON.automations },
 ];

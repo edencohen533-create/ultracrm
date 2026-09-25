@@ -133,6 +133,17 @@ function mockLlm(system: string, user: string): Omit<LlmResult, "latencyMs"> {
     }
     return { text: JSON.stringify({ examples: items, questions_asked: lines.filter((l) => /^agent:.*\?/.test(l)).map((l) => l.replace(/^agent:\s*/i, "")).slice(0, 5), closing: lines.some((l) => /^agent:.*(נסגור|להתקדם|לסגור)/.test(l)) ? "asked_for_close" : "none" }), usage, model: "mock" };
   }
+  if (user.includes("TASK: coach_chat")) {
+    const q = grab("agent_question");
+    const knowledge = grab("approved_knowledge");
+    const examples = grab("retrieved_examples");
+    const fromExamples = examples.match(/agent_response: (.+)/);
+    const fromKnowledge = knowledge.match(/objection: .*\n\s*response: (.+)/);
+    const price = /יקר|מחיר|עולה|תקציב/.test(q); const delay = /לחשוב|נחזור|לא עכשיו|אין לי זמן|תחזור/.test(q);
+    const sayNow = fromExamples?.[1] ?? fromKnowledge?.[1] ?? (price ? "מבין אותך לגמרי. לפני שנדבר על המחיר – מה הכי חשוב לך שזה ייתן לך?" : delay ? "ברור, קח את הזמן. רק כדי שאדע – מה הדבר שהיית רוצה לבדוק לפני שמחליטים?" : "שאלה טובה. מה בעצם הכי חשוב לך לפתור עכשיו?");
+    const followUp = price ? "אם אחלק לך את זה לתשלומים, זה משנה את התמונה?" : delay ? "מה יעזור לך להחליט – שאשלח סיכום קצר בוואטסאפ?" : null;
+    return { text: JSON.stringify({ say_now: sayNow.slice(0, 220), follow_up: followUp, why: fromExamples ? "מבוסס על דוגמה שנבדקה מהעסק" : fromKnowledge ? "מבוסס על הידע העסקי המאושר" : "ניסוח כללי – אין ידע או דוגמאות דומות בעסק", confidence: fromExamples || fromKnowledge ? 0.8 : 0.5 }), usage, model: "mock" };
+  }
   const last = grab("last_customer_utterance");
   const knowledge = grab("approved_knowledge");
   const examples = grab("retrieved_examples");

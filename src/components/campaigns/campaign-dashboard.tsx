@@ -31,6 +31,9 @@ interface Props {
   marketingWindow: { start: string; end: string; days: number[] };
   audienceOptions?: AudienceOptions;
   mock: boolean;
+  /** "audiences" = distribution lists + contacts import only; "campaigns" = one channel's campaigns only (with `fixedChannel`). */
+  mode?: "all" | "audiences" | "campaigns";
+  fixedChannel?: ChannelKey;
   senders?: { id: string; label: string; displayPhoneNumber: string | null; isDefault: boolean; sendingBlocked: boolean }[];
 }
 const selectClass = "w-full rounded-md border bg-background p-2 text-sm";
@@ -48,15 +51,15 @@ function zonedToIso(local: string, tz: string) {
   return new Date(guess - (asIf - guess)).toISOString();
 }
 
-export function CampaignDashboard({ initialCampaigns, lists, contacts, templates, channelTemplates, channels, timezone, marketingWindow, mock, senders = [], audienceOptions = { tags: [], agents: [], campaigns: [] } }: Props) {
+export function CampaignDashboard({ initialCampaigns, lists, contacts, templates, channelTemplates, channels, timezone, marketingWindow, mock, senders = [], audienceOptions = { tags: [], agents: [], campaigns: [] }, mode = "all", fixedChannel }: Props) {
   const router = useRouter();
   const [review, setReview] = useState<{ campaign: Campaign; action: string; eligible: number; totalQueued: number; audienceExcluded?: number; exclusions: Record<string, number>; blockers: string[]; samples: { name: string; body: string; subject?: string; phone: string }[]; sender: string; cost: { total: number | null; currency: string | null; known: boolean; units: number; segments: number | null } | null; sendWindow: { start: string; end: string; days: number[]; timezone: string; maxPerMinute: number } | null; simulated: boolean; timezone: string } | null>(null);
   const [campaignSearch, setCampaignSearch] = useState("");
-  const [channelFilter, setChannelFilter] = useState<"all" | ChannelKey>("all");
+  const [channelFilter, setChannelFilter] = useState<"all" | ChannelKey>(fixedChannel ?? "all");
   const [campaigns, setCampaigns] = useState(initialCampaigns);
-  const [tab, setTab] = useState<"campaigns" | "lists">("campaigns");
+  const [tab, setTab] = useState<"campaigns" | "lists">(mode === "audiences" ? "lists" : "campaigns");
   const [busy, setBusy] = useState(false);
-  const [channel, setChannel] = useState<ChannelKey>("whatsapp");
+  const [channel, setChannel] = useState<ChannelKey>(fixedChannel ?? "whatsapp");
   const [name, setName] = useState("");
   const [providerCredentialId, setProviderCredentialId] = useState(senders.find((sender) => sender.isDefault)?.id || senders[0]?.id || "");
   const [senderId, setSenderId] = useState(channels.sms?.senders[0]?.value ?? "");
@@ -178,7 +181,7 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
   const estimateText = (e: Campaign["estimate"]) => !e ? null : e.known && e.total !== null ? `אומדן עלות: ${e.total} ${e.currency ?? ""} (${e.units} יחידות)` : `עלות: לא ידועה (${e.units} יחידות – הגדר מחיר ליחידה בחיבור)`;
 
   return <div className="mx-auto max-w-6xl space-y-6 p-6" dir="rtl">
-    <div><h1 className="text-2xl font-bold">קמפיינים ורשימות תפוצה</h1><p className="mt-1 text-sm text-muted-foreground">WhatsApp, SMS ואימייל – אותם אנשי קשר, אותה רשימת הסרה גלובלית, תזמון לפי אזור הזמן של העסק ({timezone}).</p></div>
+    <div><h1 className="text-2xl font-bold">{mode === "audiences" ? "קהלים ואנשי קשר" : fixedChannel ? `קמפיין ${CHANNEL_LABELS[fixedChannel]}` : "קמפיינים ורשימות תפוצה"}</h1><p className="mt-1 text-sm text-muted-foreground">{mode === "audiences" ? "רשימות תפוצה, פילוחים וייבוא אנשי קשר – משמשים את כל הערוצים (WhatsApp, SMS ואימייל) עם אותה רשימת הסרה גלובלית." : `אותם אנשי קשר, אותה רשימת הסרה גלובלית, תזמון לפי אזור הזמן של העסק (${timezone}).`}{mode === "campaigns" && <> קהלים: <a className="underline" href="/audiences">קהלים ואנשי קשר</a>.</>}</p></div>
     {review && <section role="region" aria-label="סיכום לפני שליחה" className="space-y-3 rounded-xl border-2 p-5" data-testid="campaign-review"><h2 className="font-semibold">סיכום לפני שליחה — {review.campaign.name} · {CHANNEL_LABELS[review.campaign.channel]}</h2><p>{review.eligible} זכאים מתוך {review.totalQueued} שטרם נשלחו. שולח: {review.sender}{review.simulated && <strong> · הדמיה – לא נשלחות הודעות אמיתיות</strong>}</p>{!!review.audienceExcluded && <p>{review.audienceExcluded} הוחרגו בעת יצירת הטיוטה ונשמרו במצב דולג.</p>}<p>מועד: {schedule[review.campaign.id] || "מיידי"} · אזור זמן העסק: {review.timezone}{review.sendWindow ? ` · חלון שליחה ${review.sendWindow.start}–${review.sendWindow.end}${review.sendWindow.maxPerMinute ? ` · עד ${review.sendWindow.maxPerMinute} לדקה` : ""}` : ""}</p><p>הקהל הוקפא בעת יצירת הטיוטה. חסימות, הסרות והסכמה נבדקות שוב לפני כל שליחה. מגבלת תדירות משותפת לכל הערוצים.</p>{review.cost && <p data-testid="review-cost">{review.cost.known && review.cost.total !== null ? `אומדן עלות: ${review.cost.total} ${review.cost.currency ?? ""} (${review.cost.units} יחידות${review.cost.segments ? `, ${review.cost.segments} מקטעים לנמען` : ""}) – אומדן בלבד לפי מחיר יחידה שהוגדר ידנית` : `עלות: לא ידועה – לא הוגדר מחיר יחידה בחיבור (${review.cost.units} יחידות)`}</p>}{Object.entries(review.exclusions).map(([reason, count]) => <p key={reason}>{reason}: {count}</p>)}{review.blockers.map((reason) => <p key={reason} role="alert" className="text-destructive">{reason}</p>)}{review.samples.map((sample, i) => <div key={i} className="whitespace-pre-wrap rounded bg-muted p-3"><strong>{sample.name}</strong> <span dir="ltr" className="text-xs text-muted-foreground">{sample.phone}</span>{sample.subject && <p className="font-medium">נושא: {sample.subject}</p>}<p>{sample.body}</p></div>)}<Button disabled={busy || !!review.blockers.length || !review.eligible} onClick={() => action(review.campaign, review.action, true)}>אשר והפעל</Button><Button variant="ghost" onClick={() => setReview(null)}>סגור סיכום</Button></section>}
     {report && <section className="space-y-3 rounded-xl border-2 p-5" data-testid="campaign-report"><div className="flex items-center justify-between"><h2 className="font-semibold">דוח — {report.name} · {CHANNEL_LABELS[report.channel]}{report.simulated && " · הדמיה"}</h2><Button variant="ghost" onClick={() => setReport(null)}>סגור</Button></div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
@@ -190,7 +193,7 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
       <ul className="list-disc pe-5 text-xs text-muted-foreground">{report.notes.map((n) => <li key={n}>{n}</li>)}</ul>
     </section>}
     {mock && channel === "whatsapp" && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">מצב הדגמה פעיל ב-WhatsApp — הודעות מדומות בלבד. לשליחה אמיתית יש לחבר WhatsApp בהגדרות.</div>}
-    <div className="flex gap-2"><Button variant={tab === "campaigns" ? "default" : "outline"} onClick={() => setTab("campaigns")}>קמפיינים</Button><Button variant={tab === "lists" ? "default" : "outline"} onClick={() => setTab("lists")}>רשימות תפוצה ({lists.length})</Button></div>
+    {mode === "all" && <div className="flex gap-2"><Button variant={tab === "campaigns" ? "default" : "outline"} onClick={() => setTab("campaigns")}>קמפיינים</Button><Button variant={tab === "lists" ? "default" : "outline"} onClick={() => setTab("lists")}>רשימות תפוצה ({lists.length})</Button></div>}
     {tab === "lists" ? <div className="grid gap-6 lg:grid-cols-2">
       <section className="space-y-4 rounded-xl border p-5"><h2 className="font-semibold">{editingList ? "עריכת רשימת תפוצה" : "רשימת תפוצה חדשה"}</h2>
         <label className="block space-y-1"><span>שם הרשימה</span><Input aria-label="שם רשימת תפוצה" value={listName} onChange={(e) => setListName(e.target.value)} maxLength={120} /></label>
@@ -211,7 +214,7 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
     </div> : <>
       <section className="grid gap-5 rounded-xl border p-5 lg:grid-cols-2">
         <div className="space-y-3"><h2 className="font-semibold">קמפיין חדש</h2>
-          <div className="flex gap-2" role="tablist" aria-label="ערוץ">{(["whatsapp", "sms", "email"] as ChannelKey[]).map((ch) => <Button key={ch} type="button" size="sm" variant={channel === ch ? "default" : "outline"} onClick={() => { setChannel(ch); setTemplateId(""); setVariables({}); }} data-testid={`channel-${ch}`}>{CHANNEL_LABELS[ch]}</Button>)}</div>
+          {!fixedChannel && <div className="flex gap-2" role="tablist" aria-label="ערוץ">{(["whatsapp", "sms", "email"] as ChannelKey[]).map((ch) => <Button key={ch} type="button" size="sm" variant={channel === ch ? "default" : "outline"} onClick={() => { setChannel(ch); setTemplateId(""); setVariables({}); }} data-testid={`channel-${ch}`}>{CHANNEL_LABELS[ch]}</Button>)}</div>}
           {channel === "sms" && !channels.sms && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">אין ספק SMS מחובר. <a className="underline" href="/settings/sms">חבר ספק בהגדרות</a>.</p>}
           {channel === "email" && !channels.email && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">אין ספק אימייל מחובר. <a className="underline" href="/settings/email">חבר ספק בהגדרות</a>.</p>}
           {channel === "email" && channels.email && !channels.email.simulated && channels.email.domainStatus !== "verified" && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">הדומיין השולח טרם אומת ({channels.email.domainStatus ?? "לא הוגדר"}). שליחה אמיתית תיחסם עד לאימות.</p>}
@@ -237,7 +240,7 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
           {channel !== "whatsapp" && <p className="text-xs text-muted-foreground">בדיקת שליחה: לאחר שמירת הטיוטה, שלח לנמען בדיקה שהוגדר בחיבור ({(channel === "sms" ? channels.sms?.testRecipients : channels.email?.testRecipients)?.join(", ") || "לא הוגדרו נמעני בדיקה"}).</p>}
         </div>
       </section>
-      <div className="space-y-3"><div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">הקמפיינים שלי</h2><div className="flex gap-1 ms-auto">{(["all", "whatsapp", "sms", "email"] as const).map((k) => <Button key={k} size="sm" variant={channelFilter === k ? "default" : "outline"} onClick={() => setChannelFilter(k)} data-testid={`filter-${k}`}>{k === "all" ? "הכל" : CHANNEL_LABELS[k]}</Button>)}</div></div>{!campaigns.length && <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">עדיין אין קמפיינים. בחר רשימה ותבנית כדי ליצור את הראשון.</p>}
+      <div className="space-y-3"><div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">הקמפיינים שלי</h2>{!fixedChannel && <div className="flex gap-1 ms-auto">{(["all", "whatsapp", "sms", "email"] as const).map((k) => <Button key={k} size="sm" variant={channelFilter === k ? "default" : "outline"} onClick={() => setChannelFilter(k)} data-testid={`filter-${k}`}>{k === "all" ? "הכל" : CHANNEL_LABELS[k]}</Button>)}</div>}</div>{!campaigns.length && <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">עדיין אין קמפיינים. בחר רשימה ותבנית כדי ליצור את הראשון.</p>}
         <Input aria-label="חיפוש בקמפיינים האחרונים" placeholder="חיפוש בשם קמפיין, רשימה או תבנית (100 אחרונים)" value={campaignSearch} onChange={(e) => setCampaignSearch(e.target.value)} />
         {visible.map((campaign) => <article key={campaign.id} className="space-y-3 rounded-xl border p-5" data-testid={`campaign-${campaign.id}`}>
           <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{campaign.name} <span className="rounded-full border px-2 py-0.5 text-xs">{CHANNEL_LABELS[campaign.channel]}</span></h3><p className="text-sm text-muted-foreground">{campaign.list.name} · {campaign.template.name} · {campaign._count.recipients} נמענים{campaign.lastTestAt ? ` · בדיקה נשלחה ${new Date(campaign.lastTestAt).toLocaleString("he-IL")}` : ""}</p>{estimateText(campaign.estimate) && <p className="text-xs text-muted-foreground">{estimateText(campaign.estimate)}</p>}</div><span className="rounded-full bg-secondary px-3 py-1 text-sm">{campaignStatusLabels[campaign.status]}</span></div>

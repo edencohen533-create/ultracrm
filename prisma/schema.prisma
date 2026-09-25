@@ -1908,9 +1908,32 @@ model CoachSession {
   call            Call                  @relation(fields: [callId], references: [id], onDelete: Cascade)
   segments        CoachSegment[]
   recommendations CoachRecommendation[]
+  chatMessages    CoachChatMessage[]
 
   @@index([businessId, createdAt])
   @@map("coach_sessions")
+}
+
+/// "נתקעתי? שאל את ה-AI" – the agent's free-text questions during a call and the coach's answers (per call).
+model CoachChatMessage {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  sessionId  String   @map("session_id")
+  callId     String   @map("call_id")
+  role       String
+  text       String
+  followUp   String?  @map("follow_up")
+  why        String?
+  basis      String?
+  /// which real sources fed the answer: { transcriptLines, lead, whatsapp, outcomes, examples, knowledge, model, latencyMs }
+  sources    Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  session CoachSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([businessId, createdAt])
+  @@map("coach_chat_messages")
 }
 
 model CoachSegment {

@@ -1,5 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { DEFAULT_LEAD_STATUSES, mergeLeadStatuses, type LeadStatusConfig } from "@/lib/lead-statuses";
 
 export interface DialWindow {
   start: string; // "09:00"
@@ -55,8 +56,22 @@ export interface CoachSettings {
   learnFromRecordings: boolean;
 }
 
+export { DEFAULT_LEAD_STATUSES, mergeLeadStatuses, type LeadStatusKey, type LeadStatusConfig } from "@/lib/lead-statuses";
+/** How new leads without an owner are handed to agents. */
+export interface LeadAssignmentSettings {
+  mode: "least_loaded" | "round_robin";
+  /** 0 = no cap. Agents at the cap are skipped; if everyone is capped the lead stays unassigned. */
+  maxOpenLeadsPerAgent: number;
+  /** Empty = every active agent/manager. */
+  agentIds: string[];
+  /** Round-robin pointer: the user who received the previous lead. */
+  lastAssignedUserId: string | null;
+}
+
 export interface BusinessSettings {
   coach: CoachSettings;
+  leadStatuses: LeadStatusConfig[];
+  leadAssignment: LeadAssignmentSettings;
   marketing: MarketingSettings;
   retention: RetentionSettings;
   wrapUpSeconds: number;
@@ -123,6 +138,8 @@ export const DEFAULT_PRIORITIZATION: PrioritizationWeights = {
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
   coach: { enabled: false, learnFromRecordings: false },
+  leadStatuses: DEFAULT_LEAD_STATUSES,
+  leadAssignment: { mode: "least_loaded", maxOpenLeadsPerAgent: 0, agentIds: [], lastAssignedUserId: null },
   retention: { messagesDays: 0, auditDays: 0 },
   marketing: { window: { start: "08:00", end: "21:00", days: [0, 1, 2, 3, 4, 5, 6], timezone: "Asia/Jerusalem" }, maxPerMinute: 60, minHoursBetweenMarketing: 24 },
   wrapUpSeconds: 60,
@@ -157,6 +174,8 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     marketing: { ...DEFAULT_SETTINGS.marketing, ...(r.marketing ?? {}), window: { ...DEFAULT_SETTINGS.marketing.window, ...(r.marketing?.window ?? {}) } },
     retention: { ...DEFAULT_SETTINGS.retention, ...(r.retention ?? {}) },
     coach: { ...DEFAULT_SETTINGS.coach, ...(r.coach ?? {}) },
+    leadStatuses: mergeLeadStatuses(r.leadStatuses),
+    leadAssignment: { ...DEFAULT_SETTINGS.leadAssignment, ...(r.leadAssignment ?? {}), agentIds: Array.isArray(r.leadAssignment?.agentIds) ? r.leadAssignment!.agentIds : [] },
     prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },
     inbound: { ...DEFAULT_SETTINGS.inbound, ...(r.inbound ?? {}) },
     automations: {

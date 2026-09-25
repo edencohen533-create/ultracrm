@@ -37,3 +37,19 @@ export const PATCH = organizationRequest(async function(request: Request, { para
   });
   return NextResponse.json({ rule });
 });
+
+/** Delete a rule (managers). Pending scheduled runs of the rule are cancelled; history (audit + completed runs) is kept. */
+export const DELETE = organizationRequest(async function(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  if (!hasRole(session, ROLES_ADMIN_MANAGER)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const { id } = await params;
+  const existing = await prisma.automationRule.findUnique({ where: { id } });
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  await prisma.$transaction(async (tx) => {
+    await tx.automationRun.deleteMany({ where: { ruleId: id, status: "PENDING" } });
+    await tx.automationRule.delete({ where: { id } });
+    await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: session!.user.id, action: "automation.deleted", entityType: "AutomationRule", entityId: id, payload: { name: existing.name, trigger: existing.trigger, actionType: existing.actionType } } });
+  });
+  return NextResponse.json({ ok: true });
+});
+

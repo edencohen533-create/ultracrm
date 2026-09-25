@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, qs } from "@/lib/client/api";
 import { Badge, EmptyState, Input, Phone, Spinner, cx } from "@/components/ui";
-import { LEAD_STATUS_LABEL, formatPhone, relativeTime } from "@/lib/client/format";
+import { formatPhone, relativeTime } from "@/lib/client/format";
+import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 
 interface Row {
   id: string;
@@ -28,6 +29,7 @@ const toneFor: Record<string, "neutral" | "good" | "warn" | "bad" | "info" | "ac
 };
 
 export function LeadQueue({ listId, currentLeadId, refreshKey }: { listId: string; currentLeadId?: string | null; refreshKey: number }) {
+  const statuses = useLeadStatuses();
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -63,7 +65,7 @@ export function LeadQueue({ listId, currentLeadId, refreshKey }: { listId: strin
         <div className="flex gap-2">
           <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="h-8 flex-1 px-2 rounded-md bg-bg border border-line text-xs">
             <option value="">כל הסטטוסים</option>
-            {Object.entries(LEAD_STATUS_LABEL).map(([k, v]) => (
+            {statuses.items.map(({ key: k, label: v }) => (
               <option key={k} value={k}>{v}</option>
             ))}
           </select>
@@ -89,7 +91,7 @@ export function LeadQueue({ listId, currentLeadId, refreshKey }: { listId: strin
               <li key={r.id} className={cx("px-3 py-2 text-xs", r.id === currentLeadId && "bg-accent/10 border-s-2 border-accent")}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium text-sm truncate">{r.contact.fullName}</span>
-                  <Badge tone={toneFor[r.status] ?? "neutral"}>{LEAD_STATUS_LABEL[r.status] ?? r.status}</Badge>
+                  <Badge tone={toneFor[r.status] ?? "neutral"}>{statuses.label(r.status)}</Badge>
                 </div>
                 <div className="flex items-center justify-between gap-2 text-muted mt-0.5">
                   <Phone value={formatPhone(r.contact.phoneE164)} />

@@ -29,6 +29,8 @@ export const leadPatchSchema = leadInputSchema.partial().omit({ contactId: true 
 
 export const leadFilterSchema = z.object({
   status: z.enum(LEAD_STATUSES).optional(),
+  /** Only leads whose contact is in this dial list (the list screen reuses the leads workspace). */
+  listId: z.string().optional(),
   ownerUserId: z.string().optional(),
   q: z.string().max(100).optional(),
   source: z.string().max(100).optional(),
@@ -58,6 +60,7 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
     AND: [ownerScope(ids), ...metadata],
     ...(f.q ? { OR: [{ title: { contains: f.q, mode: "insensitive" } }, { contact: { fullName: { contains: f.q, mode: "insensitive" } } }, { contact: { email: { contains: f.q, mode: "insensitive" } } }, ...(f.q.replace(/\D/g, "").length >= 3 ? [{ contact: { phoneE164: { contains: f.q.replace(/\D/g, "") } } }] : [])] } : {}),
   };
+  if (f.listId) where.contact = { ...(where.contact as Prisma.ContactWhereInput | undefined ?? {}), queueLeads: { some: { listId: f.listId } } };
   const order: Prisma.LeadOrderByWithRelationInput = f.sort === "name" ? { contact: { fullName: f.direction } } : f.sort === "owner" ? { owner: { fullName: f.direction } } : { [f.sort]: f.direction };
   const [total, items, byStatus, byOwner, sources, deals, owners] = await Promise.all([
     prisma.lead.count({ where }),

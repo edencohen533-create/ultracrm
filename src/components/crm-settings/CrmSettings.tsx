@@ -10,7 +10,7 @@ const tabs = [{ id: "general", label: "כללי" }, { id: "calls", label: "הג�
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return <label className="crm-setting-toggle"><input type="checkbox" role="switch" checked={checked} onChange={e => onChange(e.target.checked)} /><span className="crm-switch" aria-hidden /><span>{label}</span></label>;
 }
-export function CrmSettings() {
+export function CrmSettings({ embedded = false }: { embedded?: boolean } = {}) {
   const [data, setData] = useState<Data | null>(null);
   const [draft, setDraft] = useState<AgentSettings | null>(null);
   const [target, setTarget] = useState("");
@@ -47,8 +47,8 @@ export function CrmSettings() {
       <button aria-label={`מחק שלב ${i + 1} ${title}`} disabled={rows.length === 1} onClick={() => change(key, rows.filter((_, j) => i !== j))}>×</button>
     </div>)}<button className="crm-add-stage" disabled={rows.length >= 10 || rows.at(-1)!.through >= 50} onClick={() => change(key, [...rows, { through: Math.min(50, rows.at(-1)!.through + 5), delay: 1, unit: "days" }])}>+ הוספת שלב</button><div className="crm-retry-marker">לאחר {rows.at(-1)!.through} ניסיונות – הליד יוצא מתור החיוג</div></section>;
   }
-  return <div className="crm-settings-page" dir="rtl"><div className="crm-settings-shell">
-    <header><div><h1>הגדרות CRM</h1>{data && <p>{data.target.fullName}</p>}</div><Link href="/leads" aria-label="סגור הגדרות" onClick={e => { if (dirty && !window.confirm("לצאת ללא שמירת השינויים?")) e.preventDefault(); }}>×</Link></header>
+  return <div className={embedded ? "crm-settings-embedded" : "crm-settings-page"} dir="rtl"><div className="crm-settings-shell">
+    <header><div><h1>{embedded ? "הגדרות חייגן" : "הגדרות CRM"}</h1>{data && <p>{data.target.fullName}</p>}</div>{!embedded && <Link href="/leads" aria-label="סגור הגדרות" onClick={e => { if (dirty && !window.confirm("לצאת ללא שמירת השינויים?")) e.preventDefault(); }}>×</Link>}</header>
     <div className="crm-settings-agent"><label>הגדרות עבור <select aria-label="הגדרות עבור" value={data?.target.id ?? ""} disabled={loading || saving} onChange={e => { if (dirty && !window.confirm("להחליף נציג ללא שמירת השינויים?")) return; setLoading(true); setTarget(e.target.value); }}>{data?.agents.map(a => <option key={a.id} value={a.id}>{a.fullName}</option>)}</select></label><span>ההגדרות נשמרות בנפרד לכל נציג</span></div>
     <nav aria-label="לשוניות הגדרות" role="tablist">{tabs.map(t => <button role="tab" id={`tab-${t.id}`} aria-controls={`panel-${t.id}`} aria-selected={tab === t.id} key={t.id} onClick={() => setTab(t.id)}>{t.label}</button>)}</nav>
     <main id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>

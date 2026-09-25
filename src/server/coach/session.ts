@@ -62,7 +62,7 @@ export async function addSegments(callId: string, input: SegmentInput[], opts: {
   return { session, created: created.length, analyzed };
 }
 
-async function loadContext(sessionId: string) {
+export async function loadContext(sessionId: string) {
   const session = await prisma.coachSession.findUniqueOrThrow({ where: { id: sessionId } });
   const [segments, knowledge, contact, lead, calls, messages] = await Promise.all([
     prisma.coachSegment.findMany({ where: { sessionId }, orderBy: { createdAt: "asc" } }),

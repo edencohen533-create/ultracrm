@@ -98,6 +98,8 @@ await step("L7 manual dial from a lead row, then hang up and record the outcome 
   const dialBtn = page.locator("table button", { hasText: /^חייג$/ }).first();
   await dialBtn.click();
   await page.waitForSelector('[data-testid="dialer-embedded"]', { timeout: 60000 });
+  await page.waitForFunction(async () => { const r = await fetch("/api/dialer/state"); const d = (await r.json()).data; return Boolean(d.activeCall || d.wrapUpCall); }, null, { timeout: 60000, polling: 1500 });
+  await page.waitForTimeout(6000); // simulated call answers after ~4.5s
   // The simulated call may end on its own; hang up only while it is still live, then the outcome form must appear.
   const hang = page.locator("button", { hasText: /^נתק/ }).first();
   try { await hang.waitFor({ timeout: 20000 }); await hang.click({ timeout: 10000 }); } catch { /* already ended */ }
@@ -106,6 +108,20 @@ await step("L7 manual dial from a lead row, then hang up and record the outcome 
   await noAnswer.click();
   await page.click("button:has-text('שמור תוצאה והמשך')");
   await page.waitForSelector('[data-testid="open-dialer"]', { timeout: 90000 });
+});
+
+await step("L7a 'הלידים שלי': the pre-flight builds a personal queue from the agent's open leads without a manager list", async () => {
+  await page.goto(`${BASE}/leads`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector('[data-testid="open-dialer"]:not([disabled])');
+  await page.click('[data-testid="open-dialer"]');
+  await page.click('[data-testid="source-mine"]');
+  await page.waitForSelector("text=הלידים של", { timeout: 60000 });
+  const txt = await page.textContent('div[role="dialog"]');
+  if (!/זמינים לחיוג עכשיו/.test(txt)) throw new Error("personal queue has no due-count line");
+  await page.keyboard.press("Escape");
+  const lists = await api("/api/lists");
+  const mine = (lists.json.data ?? lists.json).find((l) => l.name.startsWith("הלידים של"));
+  if (!mine) throw new Error("personal list not created");
 });
 
 await step("L7b lead card: lead panel edits the lead in place; WhatsApp thread opens inside the card (no send)", async () => {

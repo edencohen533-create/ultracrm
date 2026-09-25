@@ -27,6 +27,8 @@ export const contactFilterSchema = z.object({
   neverCalled: z.enum(["true", "false"]).optional(),
   notInListId: z.string().optional(),
   hasOpenLead: z.enum(["true", "false"]).optional(),
+  /** Contacts that have an open lead owned by this user (personal dial queue). */
+  leadOwnerUserId: z.string().optional(),
 });
 export type ContactFilter = z.infer<typeof contactFilterSchema>;
 
@@ -53,6 +55,7 @@ export function contactWhere(businessId: string, f: ContactFilter): Prisma.Conta
   if (f.neverCalled === "true") where.calls = { none: {} };
   if (f.notInListId) where.queueLeads = { none: { listId: f.notInListId } };
   if (f.hasOpenLead === "true") where.leads = { some: { status: { in: ["new", "contacted", "qualified"] } } };
+  if (f.leadOwnerUserId) where.leads = { some: { status: { in: ["new", "contacted", "qualified"] }, ownerUserId: f.leadOwnerUserId } };
   return where;
 }
 

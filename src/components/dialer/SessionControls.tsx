@@ -76,27 +76,46 @@ export function StartSessionForm({ onStarted, compact }: { onStarted?: () => voi
   const [mode, setMode] = useState<DialMode>("power");
   const [listId, setListId] = useState("");
   const [cd, setCd] = useState<number>(5);
+  const [source, setSource] = useState<"list" | "mine">("list");
+  const [mine, setMine] = useState<ListLite | null>(null);
+  const [mineBusy, setMineBusy] = useState(false);
+
+  // Personal queue: build/refresh the agent's own dynamic list from their open leads (idempotent).
+  const loadMine = async () => {
+    setMineBusy(true);
+    try { const r = await api.post<ListLite & { added: number }>("/api/dialer/personal-list", {}); setMine({ id: r.id, name: r.name, isActive: true, stats: r.stats }); }
+    catch { setMine(null); }
+    finally { setMineBusy(false); }
+  };
 
   useEffect(() => {
     api.get<ListLite[]>("/api/lists").then((l) => {
       const active = l.filter((x) => x.isActive).sort((a, b) => b.stats.dueNow - a.stats.dueNow);
       setLists(active);
       if (!listId && active[0]) setListId(active[0].id);
-    }).catch(() => setLists([]));
+      if (active.length === 0) { setSource("mine"); void loadMine(); }
+    }).catch(() => { setLists([]); setSource("mine"); void loadMine(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (state?.settings) setCd(state.settings.autoDialCountdownSeconds);
   }, [state?.settings]);
 
-  const chosen = lists?.find((l) => l.id === listId) ?? null;
+  const chosen = source === "mine" ? mine : (lists?.find((l) => l.id === listId) ?? null);
+  const effectiveListId = source === "mine" ? (mine?.id ?? "") : listId;
   const blocked = Boolean(state?.activeCall || state?.wrapUpCall);
   return (
     <div className={compact ? "space-y-3" : "flex flex-wrap items-end gap-3"}>
       {compact && (
         <div className="rounded-lg border border-line bg-panel-2 p-3 text-sm space-y-1">
-          {lists === null ? <p className="text-muted">טוען רשימות…</p> : lists.length === 0 ? (
-            <p className="text-muted">אין רשימת חיוג פעילה שמשויכת אליך. מנהל יכול ליצור רשימה מהסינון במסך הלידים (ניהול ← רשימות חיוג).</p>
+          <div className="flex rounded-lg border border-line overflow-hidden w-fit mb-1" role="radiogroup" aria-label="מקור התור">
+            <button role="radio" aria-checked={source === "mine"} onClick={() => { setSource("mine"); if (!mine) void loadMine(); }} className={cx("h-8 px-3 text-xs", source === "mine" ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid="source-mine">הלידים שלי</button>
+            <button role="radio" aria-checked={source === "list"} onClick={() => setSource("list")} disabled={!lists?.length} className={cx("h-8 px-3 text-xs disabled:opacity-40", source === "list" ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid="source-list">רשימת חיוג</button>
+          </div>
+          {source === "mine" && mineBusy && !mine ? <p className="text-muted">בונה את התור מהלידים הפתוחים שלך…</p> : source === "mine" && !mine ? (
+            <p className="text-muted">לא נמצאו לידים פתוחים ששייכים לך. ליד שמשויך אליך בסטטוס חדש/נוצר קשר/מתאים ייכנס לתור אוטומטית.</p>
+          ) : source === "list" && lists === null ? <p className="text-muted">טוען רשימות…</p> : source === "list" && lists?.length === 0 ? (
+            <p className="text-muted">אין רשימת חיוג פעילה שמשויכת אליך – בחר &quot;הלידים שלי&quot;.</p>
           ) : chosen ? (
             <>
               <p>יחויגו לידים מהתור <b>{chosen.name}</b>.</p>
@@ -114,7 +133,7 @@ export function StartSessionForm({ onStarted, compact }: { onStarted?: () => voi
           </button>
         ))}
       </div>
-      {mode !== "manual" && (
+      {mode !== "manual" && source === "list" && (
         <Select label="רשימת חיוג" value={listId} onChange={(e) => setListId(e.target.value)} className="min-w-56">
           {(lists ?? []).length === 0 && <option value="">אין רשימות פעילות</option>}
           {(lists ?? []).map((l) => (
@@ -136,7 +155,7 @@ export function StartSessionForm({ onStarted, compact }: { onStarted?: () => voi
           </select>
         </label>
       )}
-      <Button size="md" variant="good" loading={busy === "session"} disabled={blocked || (mode !== "manual" && !listId)} data-testid="start-dialer" onClick={async () => { await startSession(mode, mode === "manual" ? undefined : listId, mode === "power" ? cd : undefined); onStarted?.(); }}>
+      <Button size="md" variant="good" loading={busy === "session"} disabled={blocked || mineBusy || (mode !== "manual" && !effectiveListId)} data-testid="start-dialer" onClick={async () => { await startSession(mode, mode === "manual" ? undefined : effectiveListId, mode === "power" ? cd : undefined); onStarted?.(); }}>
         {mode === "power" ? "▶ הפעל חיוג אוטומטי" : mode === "preview" ? "▶ התחל Preview" : "▶ התחל סשן ידני"}
       </Button>
     </div>

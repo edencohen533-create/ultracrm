@@ -39,10 +39,9 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
   if (existing) return existing;
 
   // Contact (unknown numbers get a placeholder card so the history is kept)
-  let contact = fromE164 ? await prisma.contact.findUnique({ where: { businessId_phoneE164: { businessId, phoneE164: fromE164 } } }) : null;
-  if (!contact && fromE164) {
-    contact = await prisma.contact.create({ data: { businessId, fullName: "מתקשר לא מזוהה", phoneE164: fromE164, phoneRaw: ev.from ?? fromE164, source: "inbound" } });
-  }
+  // CRM is the source of truth: match any linked phone of a contact; unknown callers get one card (race-safe).
+  const { findOrCreateContactByPhone } = await import("@/lib/crm/contacts");
+  const contact = fromE164 ? await findOrCreateContactByPhone(businessId, fromE164, { fullName: "מתקשר לא מזוהה", phoneRaw: ev.from ?? fromE164, source: "inbound" }) : null;
 
   // Business hours
   if (settings.inbound.respectDialWindow && !isWithinDialWindow(settings.dialWindow)) {
@@ -119,7 +118,7 @@ async function missed(businessId: string, businessNumber: string, fromE164: stri
   const telephony = getTelephony();
   // Assign the record to the contact owner or the first manager so it is visible somewhere.
   const owner = contactId ? (await prisma.contact.findUnique({ where: { id: contactId }, select: { ownerUserId: true } }))?.ownerUserId : null;
-  const fallback = owner ?? (await prisma.user.findFirst({ where: { businessId, isActive: true, role: { in: ["manager", "admin"] } }, select: { id: true } }))?.id;
+  const fallback = owner ?? (await prisma.user.findFirst({ where: { businessId, isActive: true, role: { in: ["manager", "owner"] } }, select: { id: true } }))?.id;
   if (!fallback) return null;
   const call = await prisma.call.create({
     data: {

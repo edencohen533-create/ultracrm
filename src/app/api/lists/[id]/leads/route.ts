@@ -2,7 +2,7 @@ import { z } from "zod";
 import { withAuth, parseBody, parseQuery } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
-import { contactFilterSchema } from "@/lib/contacts";
+import { contactFilterSchema } from "@/lib/crm/contacts";
 import { addLeadsToList } from "@/lib/lists";
 import { phoneDigits } from "@/lib/phone";
 import type { Prisma } from "@/generated/prisma/client";
@@ -47,7 +47,7 @@ export const GET = withAuth(async ({ req, user, params }) => {
     }),
   ]);
   return ok({ items, total, page: f.page, limit: f.limit });
-});
+}, { module: "telephony" });
 
 const addSchema = z.object({ filter: contactFilterSchema.optional(), contactIds: z.array(z.string()).max(10000).optional() });
 
@@ -57,7 +57,7 @@ export const POST = withAuth(async ({ req, user, params }) => {
   if (!list) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
   const added = await addLeadsToList(user.businessId, list.id, b.filter, b.contactIds);
   return ok({ added });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });
 
 const patchSchema = z.object({ leadIds: z.array(z.string()).min(1).max(1000), action: z.enum(["remove", "requeue", "priority"]), priority: z.number().int().min(0).max(100).optional() });
 
@@ -70,4 +70,4 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   else if (b.action === "requeue") await prisma.listLead.updateMany({ where: { ...where, status: { notIn: ["in_call", "dnc"] } }, data: { status: "pending", nextAttemptAt: null, attempts: 0, lockedByUserId: null, lockToken: null, lockExpiresAt: null } });
   else await prisma.listLead.updateMany({ where, data: { priority: b.priority ?? 0 } });
   return ok({ updated: true });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

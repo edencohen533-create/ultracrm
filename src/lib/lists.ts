@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { prisma } from "@/lib/db";
-import { contactFilterSchema, contactWhere } from "@/lib/contacts";
+import { contactFilterSchema, contactWhere } from "@/lib/crm/contacts";
 import type { Prisma } from "@/generated/prisma/client";
 
 /** Insert contacts into a list. Duplicates (same contact) and DNC numbers are skipped. */

@@ -48,4 +48,4 @@ export const GET = withAuth(async ({ req, user }) => {
   });
   const nextCursor = items.length > f.limit ? items[f.limit - 1].id : null;
   return ok({ items: items.slice(0, f.limit), nextCursor });
-});
+}, { module: "telephony" });

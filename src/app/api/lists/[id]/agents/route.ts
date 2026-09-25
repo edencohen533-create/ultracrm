@@ -18,4 +18,4 @@ export const PUT = withAuth(async ({ req, user, params }) => {
     prisma.dialListAgent.createMany({ data: users.map((u) => ({ listId: list.id, userId: u.id })) }),
   ]);
   return ok({ agentIds: users.map((u) => u.id) });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

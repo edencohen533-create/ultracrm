@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const GET = withAuth(async ({ user }) => {
   const items = await prisma.phoneNumber.findMany({ where: { businessId: user.businessId }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] });
   return ok(items);
-});
+}, { module: "telephony" });
 
 const schema = z.object({ phone: z.string().min(3), label: z.string().max(80).optional(), isDefault: z.boolean().optional() });
 
@@ -26,4 +26,4 @@ export const POST = withAuth(async ({ req, user }) => {
     return tx.phoneNumber.create({ data: { businessId: user.businessId, e164, label: b.label || null, isDefault: Boolean(b.isDefault) || count === 0 } });
   });
   return ok(n, 201);
-}, { minRole: "admin" });
+}, { minRole: "owner", module: "telephony" });

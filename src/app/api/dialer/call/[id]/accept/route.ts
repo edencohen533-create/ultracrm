@@ -10,4 +10,4 @@ export const POST = withAuth(async ({ user, params }) => {
   const c = await acceptInbound(user.id, params.id);
   if (!c) throw new ApiError("שיחה לא נמצאה", 404, "not_found");
   return ok(await reconcileCall(c.id));
-});
+}, { module: "telephony" });

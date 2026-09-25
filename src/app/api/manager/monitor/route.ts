@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, z.object({ callId: z.string() }));
   return ok(await startMonitor(user, b.callId));
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });
 
 /** The caller's active monitor, if any. */
-export const GET = withAuth(async ({ user }) => ok(await activeMonitorFor(user.id)), { minRole: "manager" });
+export const GET = withAuth(async ({ user }) => ok(await activeMonitorFor(user.id)), { minRole: "manager", module: "telephony" });

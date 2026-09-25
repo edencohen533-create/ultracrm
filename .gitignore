@@ -44,3 +44,6 @@ next-env.d.ts
 .qa-keys.json
 qa-results-*.json
 .qa-local/
+
+# Tracked on purpose: documented example without secrets
+!.env.example

@@ -15,7 +15,7 @@ export const GET = withAuth(async ({ req, user }) => {
     prisma.dncEntry.findMany({ where, orderBy: { createdAt: "desc" }, skip: (f.page - 1) * f.limit, take: f.limit, include: { createdBy: { select: { id: true, fullName: true } } } }),
   ]);
   return ok({ items, total, page: f.page, limit: f.limit });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });
 
 export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, z.object({ phone: z.string().min(3), reason: z.string().max(200).optional() }));
@@ -23,7 +23,7 @@ export const POST = withAuth(async ({ req, user }) => {
   if (!e164) throw new ApiError("מספר טלפון לא תקין", 400, "invalid_phone");
   await addToDnc(user.businessId, user.id, e164, b.reason ?? "manual");
   return ok({ phoneE164: e164 }, 201);
-});
+}, { module: "telephony" });
 
 export const DELETE = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, z.object({ phone: z.string().min(3) }));
@@ -31,4 +31,4 @@ export const DELETE = withAuth(async ({ req, user }) => {
   if (!e164) throw new ApiError("מספר טלפון לא תקין", 400, "invalid_phone");
   await removeFromDnc(user.businessId, user.id, e164);
   return ok({ removed: true });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

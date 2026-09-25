@@ -10,4 +10,4 @@ const schema = z.object({ sessionId: z.string().nullable(), browserSessionId: z.
 export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, schema);
   return ok(await heartbeat(user, b.sessionId, b.browserSessionId));
-});
+}, { module: "telephony" });

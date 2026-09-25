@@ -13,4 +13,4 @@ export const POST = withAuth(async ({ user }) => {
     await prisma.user.update({ where: { id: user.id }, data: { sipUsername: t.sipUsername } });
   }
   return ok({ provider: telephony.name, simulation: telephony.simulation, token: t.token, sipUsername: t.sipUsername, expiresAt: t.expiresAt.toISOString() });
-});
+}, { module: "telephony" });

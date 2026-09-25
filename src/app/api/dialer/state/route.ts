@@ -52,4 +52,4 @@ export const GET = withAuth(async ({ req, user }) => {
     settings: { wrapUpSeconds: settings.wrapUpSeconds, autoDialCountdownSeconds: settings.autoDialCountdownSeconds, lockTtlSeconds: settings.lockTtlSeconds, dialWindow: settings.dialWindow },
     telephony: telephonyStatus(),
   });
-});
+}, { module: "telephony" });

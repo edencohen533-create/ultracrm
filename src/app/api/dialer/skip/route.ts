@@ -11,4 +11,4 @@ export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, schema);
   await skipLead(user.businessId, user.id, b.leadId, b.lockToken, b.reason);
   return ok({ skipped: true });
-});
+}, { module: "telephony" });

@@ -29,4 +29,4 @@ export const POST = withAuth(async ({ req, user }) => {
   });
   const call = r.callId ? await prisma.call.findUnique({ where: { id: r.callId }, select: { id: true, userId: true, status: true, routingNote: true, telephonyResult: true, contactId: true } }) : null;
   return ok(call);
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

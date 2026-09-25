@@ -15,7 +15,7 @@ const startSchema = z.object({
 export const POST = withAuth(async ({ req, user }) => {
   const body = await parseBody(req, startSchema);
   return ok(await startSession(user, body));
-});
+}, { module: "telephony" });
 
 const patchSchema = z.object({ sessionId: z.string(), browserSessionId: z.string(), action: z.enum(["pause", "resume"]) });
 
@@ -24,7 +24,7 @@ export const PATCH = withAuth(async ({ req, user }) => {
   if (b.action === "pause") await pauseSession(user, b.sessionId, b.browserSessionId);
   else await resumeSession(user, b.sessionId, b.browserSessionId);
   return ok({ status: b.action === "pause" ? "paused" : "active" });
-});
+}, { module: "telephony" });
 
 const endSchema = z.object({ sessionId: z.string(), browserSessionId: z.string() });
 
@@ -32,4 +32,4 @@ export const DELETE = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, endSchema);
   await endSession(user, b.sessionId, b.browserSessionId);
   return ok({ status: "ended" });
-});
+}, { module: "telephony" });

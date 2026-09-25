@@ -3,7 +3,7 @@ import { ok, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { addLeadsToList } from "@/lib/lists";
 import { audit } from "@/lib/audit";
-import type { ContactFilter } from "@/lib/contacts";
+import type { ContactFilter } from "@/lib/crm/contacts";
 
 export const dynamic = "force-dynamic";
 
@@ -16,4 +16,4 @@ export const POST = withAuth(async ({ user, params }) => {
   await prisma.dialList.update({ where: { id: list.id }, data: { lastRefreshedAt: new Date() } });
   await audit(user.businessId, user.id, "automation", list.id, "automation.list_refreshed", { trigger: "manual_refresh", added, result: "ok" });
   return ok({ added });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

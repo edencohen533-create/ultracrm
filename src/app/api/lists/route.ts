@@ -4,7 +4,7 @@ import { withAuth, parseBody } from "@/lib/api";
 import { ok } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { listQueueStats } from "@/lib/dialer/queue";
-import { contactFilterSchema } from "@/lib/contacts";
+import { contactFilterSchema } from "@/lib/crm/contacts";
 import { addLeadsToList } from "@/lib/lists";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -22,7 +22,7 @@ export const GET = withAuth(async ({ user }) => {
   });
   const stats = await Promise.all(lists.map((l) => listQueueStats(l.id)));
   return ok(lists.map((l, i) => ({ ...l, stats: stats[i] })));
-});
+}, { module: "telephony" });
 
 const createSchema = z.object({
   name: z.string().min(1).max(120),
@@ -64,4 +64,4 @@ export const POST = withAuth(async ({ req, user }) => {
     added = await addLeadsToList(user.businessId, list.id, b.filter, b.contactIds);
   }
   return ok({ ...list, added }, 201);
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

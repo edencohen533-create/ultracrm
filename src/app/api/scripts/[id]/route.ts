@@ -16,7 +16,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
     return tx.script.update({ where: { id: s.id }, data: { ...(b.title ? { title: b.title.trim() } : {}), ...(b.body !== undefined ? { body: b.body } : {}), ...(b.isDefault !== undefined ? { isDefault: b.isDefault } : {}) } });
   });
   return ok(updated);
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });
 
 export const DELETE = withAuth(async ({ user, params }) => {
   const s = await prisma.script.findFirst({ where: { id: params.id, businessId: user.businessId } });
@@ -24,4 +24,4 @@ export const DELETE = withAuth(async ({ user, params }) => {
   await prisma.dialList.updateMany({ where: { scriptId: s.id }, data: { scriptId: null } });
   await prisma.script.delete({ where: { id: s.id } });
   return ok({ deleted: true });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

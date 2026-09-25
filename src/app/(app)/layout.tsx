@@ -1,27 +1,39 @@
 import { redirect } from "next/navigation";
-import { getSessionFromCookies } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { getValidSession, membershipsForAccount } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { getEntitlements } from "@/lib/modules";
 import { DialerProvider } from "@/components/telephony/DialerProvider";
 import { CallBar } from "@/components/telephony/CallBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Shared shell for every module. The DialerProvider lives here, so navigating
+ * between CRM, inbox and dialer screens never drops the telephony connection
+ * or an active call.
+ */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const session = await getSessionFromCookies();
+  const session = await getValidSession();
   if (!session) redirect("/login");
-  const [user, business] = await Promise.all([
-    prisma.user.findUnique({ where: { id: session.id }, select: { fullName: true, role: true, isActive: true } }),
-    prisma.business.findUnique({ where: { id: session.businessId }, select: { name: true } }),
+  const [business, memberships, entitlements] = await Promise.all([
+    db.business.findUnique({ where: { id: session.businessId }, select: { name: true } }),
+    membershipsForAccount(session.accountId),
+    getEntitlements(session.businessId),
   ]);
-  if (!user || !user.isActive) redirect("/login");
   return (
-    <DialerProvider>
+    <DialerProvider enabled={entitlements.modules.telephony}>
       <div className="flex min-h-screen">
-        <Sidebar user={{ fullName: user.fullName, role: user.role }} businessName={business?.name ?? "Dialer"} />
+        <Sidebar
+          user={{ fullName: session.fullName, role: session.role }}
+          businessName={business?.name ?? "UltraCRM"}
+          businesses={memberships.map((m) => ({ id: m.business.id, name: m.business.name, active: m.businessId === session.businessId }))}
+          modules={entitlements.modules}
+          planName={entitlements.planName}
+        />
         <div className="flex-1 min-w-0 flex flex-col">
-          <CallBar />
-          <main className="flex-1 min-w-0">{children}</main>
+          {entitlements.modules.telephony && <CallBar />}
+          <main className="flex-1 min-w-0 min-h-0">{children}</main>
         </div>
       </div>
     </DialerProvider>

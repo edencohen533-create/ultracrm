@@ -16,7 +16,10 @@ interface ContactFull extends ContactLite {
   owner: { id: string; fullName: string } | null;
   calls: Array<{ id: string; createdAt: string; answeredAt: string | null; talkSeconds: number | null; telephonyResult: string | null; outcome: string | null; outcomeNote: string | null; callbackAt: string | null; recordingStatus: string; user: { fullName: string } }>;
   tasks: Array<{ id: string; dueAt: string; note: string | null; user: { fullName: string } }>;
-  leads: Array<{ id: string; status: string; list: { id: string; name: string } }>;
+  /** CRM leads (pipeline) – not dial-list rows. */
+  leads: Array<{ id: string; title: string | null; status: string }>;
+  /** Dial-list rows (the queues this contact sits in). */
+  queueLeads?: Array<{ id: string; status: string; list: { id: string; name: string } }>;
   isDnc: boolean;
 }
 
@@ -167,8 +170,8 @@ export function LeadCard({
           <Field label="מקור">{contact.source || "—"}</Field>
           <Field label="נציג אחראי">{contact.owner?.fullName ?? "—"}</Field>
           <Field label="נוצר">{formatDateTime(contact.createdAt)}</Field>
-          {lead && <Field label="רשימה">{lead.list.name}</Field>}
-          {contact.leads.length > 1 && <Field label="רשימות נוספות">{contact.leads.filter((l) => l.id !== lead?.id).map((l) => l.list.name).join(", ")}</Field>}
+          {lead && <Field label="רשימה">{lead.list?.name ?? "—"}</Field>}
+          {(contact.queueLeads?.filter((l) => l.id !== lead?.id).length ?? 0) > 0 && <Field label="רשימות נוספות">{contact.queueLeads!.filter((l) => l.id !== lead?.id).map((l) => l.list?.name ?? "").filter(Boolean).join(", ")}</Field>}
         </dl>
         {contact.notes && (
           <p className="mt-3 text-xs text-muted bg-white/5 rounded-md p-2 whitespace-pre-wrap">

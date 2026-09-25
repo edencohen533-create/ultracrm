@@ -20,6 +20,7 @@ npm run dev                    # http://localhost:3000
 |---|---|---|
 | `DATABASE_URL` | משותף | חיבור pooled ל-PostgreSQL של UltraCRM (**מסד נפרד**; לא `dialer`, לא `solinainbox`). |
 | `DATABASE_URL_UNPOOLED` | משותף | חיבור ישיר ל-`prisma migrate`. |
+| `QUICK_LOGIN_EMAIL` + `NEXT_PUBLIC_QUICK_LOGIN=1` | **זמני** | כפתור "כניסה מהירה" במסך הכניסה שמחבר את החשבון הנתון ללא סיסמה (בקשת המשתמש 25.9.2026). **כל מי שמגיע לכתובת נכנס כבעלים** – להסיר את שני המשתנים ולפרוס מחדש כשכבר לא נדרש. |
 | `DB_RLS` | משותף | ברירת מחדל פעיל. `off` מכבה את מעטפת ה-RLS (רק למסד שהמיגרציה `20260925090000_rls_session_version` טרם הוחלה עליו). |
 | `DATABASE_POOL_MAX` | משותף | חיבורים לכל instance (ברירת מחדל 10). |
 | `JWT_SECRET` | משותף | חתימת עוגיית הסשן (`ultracrm_session`, HS256, 12 שעות). |

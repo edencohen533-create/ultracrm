@@ -73,6 +73,13 @@ export function patchClient(client: pg.Client) {
       await orig(`BEGIN; ${setupSql(businessId, currentAccountId())}`);
       try {
         const r = await orig(...args);
+        if (/^\s*SELECT\b/i.test(sql)) {
+          // Read-only statement: the result is already in hand and COMMIT of a read cannot change data, so do not
+          // wait for its round trip. pg serialises queries per client, so anything queued next on this connection
+          // (including another tenant's BEGIN) runs strictly after this COMMIT.
+          void orig("COMMIT").catch(() => undefined);
+          return r;
+        }
         await orig("COMMIT");
         return r;
       } catch (e) {

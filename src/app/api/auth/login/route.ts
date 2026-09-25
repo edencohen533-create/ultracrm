@@ -8,7 +8,12 @@ import { parseBody } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
-const schema = z.object({ email: z.string().email(), password: z.string().min(1), businessId: z.string().optional() });
+const schema = z.object({ email: z.string().email().optional(), password: z.string().min(1).optional(), businessId: z.string().optional(), quick: z.boolean().optional() });
+/**
+ * TEMPORARY quick login without credentials (user request, 2026-09-25): when QUICK_LOGIN_EMAIL is set, `{ quick: true }`
+ * signs in that account with no password. Remove by deleting QUICK_LOGIN_EMAIL + NEXT_PUBLIC_QUICK_LOGIN from the environment.
+ */
+const QUICK_LOGIN_EMAIL = process.env.QUICK_LOGIN_EMAIL?.toLowerCase().trim() || null;
 
 /** Best-effort brute-force protection (per server instance): 5 failures per email or 30 per IP within 15 minutes. */
 const WINDOW_MS = 15 * 60_000;
@@ -29,13 +34,16 @@ function record(key: string) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const { email, password, businessId } = await parseBody(req, schema);
+    const body = await parseBody(req, schema);
+    const quick = body.quick === true && QUICK_LOGIN_EMAIL !== null;
+    if (!quick && (!body.email || !body.password)) return fail("יש להזין אימייל וסיסמה", 400, undefined, "missing_credentials");
+    const { businessId } = body;
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
-    const normalized = email.toLowerCase().trim();
+    const normalized = quick ? QUICK_LOGIN_EMAIL! : body.email!.toLowerCase().trim();
     const emailKey = `e:${normalized}`;
     if (hit(emailKey, 5) || hit(`ip:${ip}`, 30)) return fail("יותר מדי ניסיונות – נסה שוב בעוד כמה דקות", 429, undefined, "rate_limited");
     const account = await db.account.findUnique({ where: { email: normalized } });
-    if (!account || !account.isActive || !(await bcrypt.compare(password, account.passwordHash))) {
+    if (!account || !account.isActive || (!quick && !(await bcrypt.compare(body.password!, account.passwordHash)))) {
       record(emailKey);
       record(`ip:${ip}`);
       return fail("אימייל או סיסמה שגויים", 401, undefined, "bad_credentials");

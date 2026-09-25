@@ -49,7 +49,7 @@ npm run dev                    # http://localhost:3000
 
 ## התאמת סביבת האירוח
 
-הפריסה המתוכננת היא Vercel (serverless). התאמה:
+**פרוס בייצור (2026-09-25):** https://ultracrm-eta.vercel.app – פרויקט Vercel `ultracrm`, ענף `feat/whatsapp-completion`, מסד Neon `ultracrm` (מיגרציות RLS הוחלו), ספקי טלפוניה/מספרים/WhatsApp במצב הדמיה (אין מפתחות Telnyx/Meta ב-Vercel). משתמשי הדמו מהזריעה (Demo1234!) עדיין פעילים – יש להחליף לפני שימוש אמיתי. הפריסה היא Vercel (serverless). התאמה:
 
 - **חיבורים מתמשכים**: החיבור הקולי המתמשך היחיד הוא WebRTC בין דפדפן הנציג ל-Telnyx; השרת אינו מחזיק sockets. מצב שיחה/תיבה מתעדכן ב-polling מאומת (1.2–6 שניות בחייגן, 5 שניות בתיבה) – אין Supabase Realtime ואין SSE.
 - **בידוד דיירים בשלוש שכבות**: הקשר עסק בשרת (AsyncLocalStorage) → סינון Prisma אוטומטי → **Row-Level Security ב-PostgreSQL**: כל statement בתוך הקשר עסק רץ כתפקיד `ultracrm_runtime` (ללא BYPASSRLS) עם `app.business_id` שנקבע transaction-locally (`src/lib/db-rls.ts`), ולכן בטוח גם דרך ה-pooler של Neon. קוד ללא הקשר (login, ניתוב webhook, cron) רץ כבעל החיבור. **כל טבלה חדשה עם `business_id` (או טבלת-ילד) חייבת policy במיגרציה שלה** – ראו `prisma/migrations/20260925090000_rls_session_version/migration.sql`. קריאות זהות חוצות-עסקים (בדיקת ייחודיות גלובלית של מספר, חברות בעסקים אחרים) עוברות דרך `withoutBusiness`. **דרישות**: `DATABASE_URL` ו-`DATABASE_URL_UNPOOLED` חייבים להשתמש באותו משתמש PostgreSQL (המיגרציה מעניקה את התפקיד ל-`CURRENT_USER`; משתמש אחר יקבל `permission denied to set role`) – הבדיקה `tests/integration/rls.test.ts` מאמתת חברות בתפקיד. עלות: statement בודד בתוך הקשר עסק = 3 סבבים (BEGIN+setup, השאילתה, COMMIT); ב-fra1 מול Neon eu-central-1 זה מילישניות בודדות לשאילתה.

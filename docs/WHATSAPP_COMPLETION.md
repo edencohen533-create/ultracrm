@@ -52,7 +52,7 @@
 `prisma/migrations/20260924110000_whatsapp_completion/migration.sql` – הוחלה על מסד הפיתוח `ultracrm` (`prisma migrate deploy`). additive בלבד: ערכי enum (PAUSED, DISABLED, CREATE_TASK, SET_CUSTOM_FIELD, CONTACT_CREATED, LEAD_STATUS_CHANGED), עמודות `Message.errorCode/retryable`, `CampaignRecipient.attempts/nextAttemptAt`, `Template.components/headerFormat/buttons`, `Campaign.mediaUrl/buttonParams/preflightSnapshot`, `SequenceStep.action`.
 המיגרציה `20260924021819_whatsapp_crm_ownership.sql` שייכת ל-solinainbox ואינה חלק ממסד UltraCRM – לא הוחלה ולא נדרשת.
 
-**לא בוצעה פריסה לייצור.**
+**פריסה:** 2026-09-25 נפרס ל-Vercel לבקשת המשתמש – https://ultracrm-eta.vercel.app (ראו DEPLOYMENT.md). עד אז לא הייתה פריסה.
 
 ## בדיקות שבוצעו
 

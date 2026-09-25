@@ -39,13 +39,13 @@ export const GET = withAuth(async ({ user }) => {
 
   const [agents, liveCalls, sessions, metrics, monitor, todayFailed] = await Promise.all([
     prisma.user.findMany({
-      where: { businessId: user.businessId, isActive: true, role: { in: ["agent", "manager"] }, ...(visible ? { id: { in: visible } } : {}) },
+      where: { businessId: user.businessId, isActive: true, ...(visible ? { id: { in: visible } } : {}) },
       select: { id: true, fullName: true, role: true, presence: true, presenceAt: true, lastSeenAt: true, team: { select: { id: true, name: true } } },
       orderBy: { fullName: "asc" },
     }),
     prisma.call.findMany({
       where: { businessId: user.businessId, endedAt: null, ...(visible ? { userId: { in: visible } } : {}) },
-      select: { id: true, userId: true, status: true, direction: true, toE164: true, createdAt: true, ringingAt: true, answeredAt: true, conferenceId: true, agentLegId: true, contactId: true, contact: { select: { id: true, fullName: true } }, list: { select: { id: true, name: true } }, lastEventAt: true, monitors: { where: { endedAt: null }, select: { id: true, managerId: true, mode: true, status: true, manager: { select: { fullName: true } } } } },
+      select: { id: true, userId: true, status: true, direction: true, toE164: true, createdAt: true, ringingAt: true, answeredAt: true, conferenceId: true, agentLegId: true, contactId: true, contact: { select: { id: true, fullName: true, customFields: true } }, list: { select: { id: true, name: true } }, lastEventAt: true, monitors: { where: { endedAt: null }, select: { id: true, managerId: true, mode: true, status: true, manager: { select: { fullName: true } } } } },
     }),
     prisma.dialerSession.findMany({ where: { businessId: user.businessId, status: { in: ["active", "paused"] }, ...(visible ? { userId: { in: visible } } : {}) }, select: { userId: true, mode: true, status: true, lastHeartbeatAt: true, list: { select: { id: true, name: true } } } }),
     cachedMetrics(`${user.businessId}:${startOfToday.toISOString()}:${visible ? visible.join(",") : "*"}`, { businessId: user.businessId, userIds: visible, from: startOfToday }),
@@ -97,7 +97,7 @@ export const GET = withAuth(async ({ user }) => {
       sinceAt,
       session: sess ? { mode: sess.mode, status: sess.status, list: sess.list } : null,
       call: call
-        ? { id: call.id, status: call.status, direction: call.direction, toE164: call.toE164, contact: call.contact, list: call.list, createdAt: call.createdAt, ringingAt: call.ringingAt, answeredAt: call.answeredAt, canMonitor: Boolean(call.answeredAt) && (Boolean(call.conferenceId) || telephonyStatus().simulation) && call.userId !== user.id, monitors: call.monitors }
+        ? { id: call.id, status: call.status, direction: call.direction, toE164: call.toE164, contact: call.contact ? { id: call.contact.id, fullName: call.contact.fullName } : null, campaign: typeof (call.contact?.customFields as Record<string, unknown> | null)?.campaign === "string" ? (call.contact!.customFields as Record<string, string>).campaign : null, list: call.list, createdAt: call.createdAt, ringingAt: call.ringingAt, answeredAt: call.answeredAt, canMonitor: Boolean(call.answeredAt) && (Boolean(call.conferenceId) || telephonyStatus().simulation) && call.userId !== user.id, monitors: call.monitors }
         : null,
       today: m ?? null,
     };

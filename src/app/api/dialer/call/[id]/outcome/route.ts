@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 const schema = z.object({
   outcome: z.enum(["answered_interested", "answered_not_interested", "callback", "no_answer", "busy", "wrong_number", "sale", "dnc"]),
   note: z.string().max(4000).optional(),
+  callbackUserId: z.string().min(1).optional(),
   callbackAt: z.string().datetime({ offset: true }).optional(),
   contactUpdates: z
     .object({ fullName: z.string().min(1).max(120).optional(), email: z.string().email().or(z.literal("")).optional(), company: z.string().max(120).optional(), city: z.string().max(80).optional() })
@@ -20,6 +21,7 @@ export const POST = withAuth(async ({ req, user, params }) => {
     callId: params.id,
     outcome: b.outcome,
     note: b.note,
+    callbackUserId: b.callbackUserId,
     callbackAt: b.callbackAt ? new Date(b.callbackAt) : undefined,
     contactUpdates: b.contactUpdates,
   });

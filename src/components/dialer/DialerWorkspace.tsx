@@ -15,7 +15,7 @@ import type { OutcomeKey } from "@/lib/client/types";
 
 const SKIP_REASONS = ["לא זמן מתאים", "פרטים חסרים", "כבר דיברתי איתו", "ליד לא רלוונטי", "אחר"];
 
-export function DialerWorkspace({ embedded = false }: { embedded?: boolean } = {}) {
+export function DialerWorkspace({ embedded = false, compact = false }: { embedded?: boolean; compact?: boolean } = {}) {
   const d = useDialer();
   const { state, loading, error, refresh, dial, hangup, skipLead, saveOutcome, busy, sessionTakenOver, countdown, cancelCountdown, sessionSummary, dismissSummary } = d;
   const [note, setNote] = useState("");
@@ -50,10 +50,10 @@ export function DialerWorkspace({ embedded = false }: { embedded?: boolean } = {
   );
 
   const onSave = useCallback(
-    async (outcome: OutcomeKey, callbackAt?: Date) => {
+    async (outcome: OutcomeKey, callbackAt?: Date, callbackUserId?: string) => {
       if (!wrapUp) return;
       try {
-        await saveOutcome(wrapUp.id, outcome, { note, callbackAt });
+        await saveOutcome(wrapUp.id, outcome, { note, callbackAt, callbackUserId });
         setNote("");
         if (wrapUp.contactId) {
           try {
@@ -104,9 +104,9 @@ export function DialerWorkspace({ embedded = false }: { embedded?: boolean } = {
         )}
       </header>
 
-      <div className="flex-1 min-h-0 grid grid-cols-[300px_minmax(0,1fr)_320px]">
+      <div className={compact ? "compact-dialer-content flex-1 min-h-0 overflow-y-auto flex flex-col" : "flex-1 min-h-0 grid grid-cols-[300px_minmax(0,1fr)_320px]"}>
         {/* Queue (right in RTL) */}
-        <aside className="border-s-0 border-e border-line bg-panel min-h-0">
+        <aside className={compact ? "hidden" : "border-s-0 border-e border-line bg-panel min-h-0"}>
           {session?.listId ? (
             <LeadQueue listId={session.listId} currentLeadId={lead?.id} refreshKey={refreshKey} />
           ) : (
@@ -115,7 +115,7 @@ export function DialerWorkspace({ embedded = false }: { embedded?: boolean } = {
         </aside>
 
         {/* Active lead */}
-        <section className="min-h-0 flex flex-col">
+        <section className={compact ? "min-h-[330px] flex flex-col order-2 shrink-0" : "min-h-0 flex flex-col"}>
           {call && (
             <div className="p-3 border-b border-line shrink-0">
               <CoachCard callId={call.id} answered={call.status === "answered"} simulation={Boolean(state?.telephony.simulation)} />
@@ -137,7 +137,7 @@ export function DialerWorkspace({ embedded = false }: { embedded?: boolean } = {
         </section>
 
         {/* Call panel (left in RTL) */}
-        <aside className="border-s border-line bg-panel min-h-0">
+        <aside className={compact ? "bg-panel order-1 shrink-0" : "border-s border-line bg-panel min-h-0"}>
           <CallPanel onDialManual={dialManual} canDialLead={canDialLead} onDialLead={dialLead} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />
         </aside>
       </div>

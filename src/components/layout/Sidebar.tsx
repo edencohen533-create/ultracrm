@@ -53,19 +53,19 @@ const MGMT: Role[] = ["manager", "owner"];
  */
 const SECTIONS: Section[] = [
   {
-    title: "עבודה",
+    title: "CRM",
     items: [
       { href: "/leads", label: "לידים", roles: ALL, module: "crm", icon: ICON.leads, match: (p) => p === "/leads" || p.startsWith("/leads/") || p.startsWith("/contacts") || p === "/dialer" },
-      { href: "/inbox", label: "שיחות", roles: ALL, icon: ICON.inbox, match: (p) => p.startsWith("/inbox") || p.startsWith("/calls") },
+      { href: "/inbox", label: "וואטסאפ ושיחות", roles: ALL, icon: ICON.inbox, match: (p) => p.startsWith("/inbox") || p.startsWith("/calls") },
       { href: "/deals", label: "עסקאות", roles: ALL, module: "crm", icon: ICON.deals },
+      { href: "/crm-settings", label: "הגדרות CRM", roles: ALL, module: "crm", icon: ICON.settings },
       { href: "/tasks", label: "משימות", roles: ALL, module: "crm", icon: ICON.tasks },
     ],
   },
   {
     title: "מנהלים",
     items: [
-      { href: "/reports", label: "דוחות", roles: MGMT, icon: ICON.manager, match: (p) => p.startsWith("/reports") || p.startsWith("/analytics") || p === "/manager/calls" },
-      { href: "/manager", label: "מוקד בזמן אמת", roles: MGMT, module: "telephony", icon: ICON.history, match: (p) => p === "/manager" },
+      { href: "/reports", label: "ביצועי נציגים", roles: MGMT, icon: ICON.manager, match: (p) => p.startsWith("/reports") || p.startsWith("/analytics") || p === "/manager/calls" },
     ],
   },
 ];
@@ -109,14 +109,14 @@ export function Sidebar({ user, businessName, businesses, modules, planName }: {
   }
 
   return (
-    <aside className="w-[228px] shrink-0 h-screen sticky top-0 bg-panel border-s border-line flex flex-col">
-      <div className="px-4 h-14 flex items-center gap-3 border-b border-line">
-        <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center text-white font-bold">U</div>
+    <aside className="app-sidebar w-[256px] shrink-0 h-screen sticky top-0 bg-panel border-e border-line flex flex-col">
+      <div className="px-5 h-[74px] flex items-center gap-3 border-b border-line">
+
         <div className="min-w-0">
           {businesses.length > 1 ? (
             <select
               aria-label="בחירת עסק"
-              className="bg-transparent font-semibold text-sm leading-tight truncate w-full outline-none"
+              className="bg-transparent font-bold text-xl leading-tight truncate text-accent w-full outline-none"
               value={businesses.find((b) => b.active)?.id}
               disabled={switching}
               onChange={(e) => switchBusiness(e.target.value)}
@@ -126,23 +126,23 @@ export function Sidebar({ user, businessName, businesses, modules, planName }: {
               ))}
             </select>
           ) : (
-            <p className="font-semibold text-sm leading-tight truncate">{businessName}</p>
+            <p className="font-bold text-xl leading-tight truncate text-accent">{businessName}</p>
           )}
-          <p className="text-[11px] text-muted">UltraCRM{planName ? ` · ${planName}` : ""}</p>
+          <p className="text-[11px] text-muted">CRM + תקשורת{planName ? ` · ${planName}` : ""}</p>
         </div>
       </div>
-      <nav className="flex-1 p-2 space-y-3 overflow-y-auto">
+      <nav className="flex-1 px-2.5 py-5 space-y-5 overflow-y-auto">
         {SECTIONS.map((section) => {
           const items = section.items.filter((i) => i.roles.includes(user.role as Role) && (!i.module || modules[i.module]));
           if (!items.length) return null;
           return (
             <div key={section.title}>
-              <p className="px-3 pb-1 text-[10px] uppercase tracking-wider text-muted/70">{section.title}</p>
+              <p className="px-3 pb-1 text-xs font-semibold text-muted">{section.title}</p>
               <div className="space-y-0.5">
                 {items.map((i) => {
                   const active = i.match ? i.match(pathname) : pathname === i.href || pathname.startsWith(i.href + "/");
                   return (
-                    <Link key={i.href} href={i.href} className={cx("flex items-center gap-3 px-3 h-9 rounded-lg text-sm transition-colors", active ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-white/5")}>
+                    <Link key={i.href} href={i.href} className={cx("flex items-center gap-3 px-3 h-10 rounded-lg text-sm transition-colors", active ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-panel-2")}>
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                         <path d={i.icon} />
                       </svg>
@@ -156,7 +156,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName }: {
         })}
         {mgmtItems.length > 0 && (
           <div>
-            <button onClick={() => { const v = !mgmtOpen; setMgmtOpen(v); try { localStorage.setItem("nav.mgmt", v ? "1" : "0"); } catch { /* ignore */ } }} className="w-full flex items-center justify-between px-3 pb-1 text-[10px] uppercase tracking-wider text-muted/70 hover:text-text" aria-expanded={mgmtOpen || mgmtActive} data-testid="nav-mgmt">
+            <button onClick={() => { const v = !mgmtOpen; setMgmtOpen(v); try { localStorage.setItem("nav.mgmt", v ? "1" : "0"); } catch { /* ignore */ } }} className="w-full flex items-center justify-between px-3 pb-1 text-xs font-semibold text-muted hover:text-text" aria-expanded={mgmtOpen || mgmtActive} data-testid="nav-mgmt">
               <span>ניהול</span><span aria-hidden>{mgmtOpen || mgmtActive ? "▾" : "▸"}</span>
             </button>
             {(mgmtOpen || mgmtActive) && (
@@ -164,7 +164,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName }: {
                 {mgmtItems.map((i) => {
                   const active = pathname === i.href || pathname.startsWith(i.href + "/");
                   return (
-                    <Link key={i.href} href={i.href} className={cx("flex items-center gap-3 px-3 h-9 rounded-lg text-sm transition-colors", active ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-white/5")}>
+                    <Link key={i.href} href={i.href} className={cx("flex items-center gap-3 px-3 h-10 rounded-lg text-sm transition-colors", active ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-panel-2")}>
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={i.icon} /></svg>
                       {i.label}
                     </Link>
@@ -195,7 +195,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName }: {
             </span>
           </div>
         )}
-        <button onClick={logout} className="w-full h-8 rounded-md text-xs text-muted hover:text-text hover:bg-white/5">
+        <button onClick={logout} className="w-full h-8 rounded-md text-xs text-muted hover:text-text hover:bg-panel-2">
           התנתקות
         </button>
       </div>

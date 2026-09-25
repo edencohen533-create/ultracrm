@@ -11,7 +11,7 @@ import { useDialer } from "@/components/telephony/DialerProvider";
 import { Badge, Button, cx } from "@/components/ui";
 import { formatDuration } from "@/lib/client/format";
 
-export function MonitorPanel({ onClose, agentName, contactName, callAnsweredAt, callEnded, onOpenContact }: { onClose: () => void; agentName: string; contactName: string; callAnsweredAt: string | null; callEnded: boolean; onOpenContact?: () => void }) {
+export function MonitorPanel({ onClose, agentName, contactName, callAnsweredAt, callEnded, onOpenContact, embedded = false }: { embedded?: boolean; onClose: () => void; agentName: string; contactName: string; callAnsweredAt: string | null; callEnded: boolean; onOpenContact?: () => void }) {
   const { supervisor, phone } = useDialer();
   const { monitor, media } = supervisor;
   const [now, setNow] = useState(() => Date.now());
@@ -80,7 +80,7 @@ export function MonitorPanel({ onClose, agentName, contactName, callAnsweredAt, 
   }
 
   return (
-    <aside className={cx("w-[340px] shrink-0 border-s border-line bg-panel flex flex-col", display === "whispering" && "ring-2 ring-warn")}>
+    <aside className={cx("shrink-0 border-s border-line bg-panel flex flex-col", embedded ? "w-full" : "w-[340px]", display === "whispering" && "ring-2 ring-warn")}>
       <header className="px-4 h-12 flex items-center justify-between border-b border-line">
         <h3 className="font-semibold">האזנה לשיחה</h3>
         <button onClick={leave} className="text-muted hover:text-text text-xl leading-none" aria-label="יציאה מהאזנה">×</button>

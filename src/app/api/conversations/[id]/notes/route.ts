@@ -14,7 +14,7 @@ export const POST = organizationRequest(async function(request: Request, { param
   try {
     const note = await prisma.$transaction(async (tx) => {
       // Lock the conversation before checking ownership; transfer cannot race the write.
-      await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "conversations" WHERE id = ${id} AND business_id = ${requireBusinessId()} FOR UPDATE`;
       const conversation = await tx.conversation.findFirst({ where: { id, ...buildConversationScope(session) }, select: { contactId: true } });
       if (!conversation) return null;
       const note = await tx.note.create({ data: { businessId: requireBusinessId(), body: parsed.data.body, conversationId: id, contactId: conversation.contactId, authorId: session.user.id }, include: { author: { select: { id: true, fullName: true } } } });

@@ -1,3 +1,5 @@
+import { getAgentSettings, followUpPeers } from "@/lib/agent-settings";
+import { businessDayStart } from "@/lib/business-day";
 /**
  * Call lifecycle: start (idempotent), state poll + reconciliation, hangup,
  * outcome, DTMF. The provider is the source of truth for "answered".
@@ -172,6 +174,11 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
         if (lead.list.isPaused || !lead.list.isActive || lead.list.archivedAt) throw new ApiError("הרשימה אינה זמינה לחיוג", 409, "list_paused");
       }
       if (await tx.dncEntry.findUnique({ where: { businessId_phoneE164: { businessId: user.businessId, phoneE164: toE164 } } })) throw new ApiError("המספר חסום", 403, "dnc_blocked");
+      const personal = await getAgentSettings(user.businessId, user.id, tx);
+      if (personal && input.mode !== "manual") {
+        const unanswered = await tx.call.count({ where: { businessId: user.businessId, toE164, direction: "outbound", mode: { not: "manual" }, createdAt: { gte: businessDayStart(settings.timezone) }, answeredAt: null, telephonyResult: { in: ["no_answer", "busy", "rejected"] } } });
+        if (unanswered >= personal.maxDailyUnanswered) throw new ApiError("הושגה מגבלת הניסיונות היומית ללא מענה לליד", 409, "daily_unanswered_limit");
+      }
       // Caller id is chosen under the number-pool lock, in the same transaction as the call row.
       const selection = await selectOutboundNumber(tx, { businessId: user.businessId, userId: user.id, listId, phoneNumberId: input.phoneNumberId, toE164, simulation: telephony.simulation });
       const from = selection.number;
@@ -196,11 +203,13 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
         include: CALL_INCLUDE,
       });
       if (leadId) {
+        const cycle = await tx.listLead.findUniqueOrThrow({ where: { id: leadId }, select: { followUpAttempts: true } });
         const claimed = await tx.listLead.updateMany({
           where: { id: leadId, status: "locked", lockedByUserId: user.id, lockToken: input.lockToken, lockExpiresAt: { gte: new Date() } },
           data: {
             status: "in_call",
             attempts: { increment: 1 },
+            ...(cycle.followUpAttempts !== null ? { followUpAttempts: { increment: 1 } } : {}),
             lastAttemptAt: new Date(),
             lockExpiresAt: new Date(Date.now() + (settings.lockTtlSeconds + 3600) * 1000),
           },
@@ -385,6 +394,7 @@ export interface SaveOutcomeInput {
   outcome: OutcomeKey;
   note?: string;
   callbackAt?: Date;
+  callbackUserId?: string;
   contactUpdates?: { fullName?: string; email?: string; company?: string; city?: string };
 }
 
@@ -406,6 +416,15 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
     await lockAgent(tx, user.id);
     const fresh = await tx.call.findUniqueOrThrow({ where: { id: call.id }, include: CALL_INCLUDE });
     if (fresh.outcomeSavedAt) return fresh;
+    const callbackUserId = input.callbackUserId || user.id;
+    if (def.requiresCallbackTime && callbackUserId !== user.id) {
+      const preferences = await getAgentSettings(user.businessId, user.id, tx);
+      if (!preferences?.assignFollowUps || !(await followUpPeers(user)).some(p => p.id === callbackUserId)) throw new ApiError("אין הרשאה לשייך פולו־אפ לנציג זה", 403, "forbidden");
+      if (call.listId) {
+        const assignments = await tx.dialListAgent.findMany({ where: { listId: call.listId } });
+        if (assignments.length && !assignments.some(a => a.userId === callbackUserId)) throw new ApiError("לנציג אין גישה לרשימת החיוג", 403, "forbidden");
+      }
+    }
     const u = await tx.call.update({
       where: { id: call.id },
       data: { outcome: input.outcome, outcomeNote: input.note?.trim() || null, outcomeSavedAt: new Date(), callbackAt: input.callbackAt ?? null },
@@ -427,7 +446,7 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
       await tx.task.create({
         data: {
           businessId: user.businessId,
-          userId: user.id,
+          userId: callbackUserId,
           contactId: call.contactId,
           listLeadId: call.leadId,
           callId: call.id,
@@ -439,7 +458,7 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
     }
     if (call.contactId) await tx.noteDraft.deleteMany({ where: { userId: user.id, contactId: call.contactId } });
     if (call.leadId) {
-      await applyOutcomeToLead({ businessId: user.businessId, userId: user.id, leadId: call.leadId, outcome: input.outcome, callbackAt: input.callbackAt, note: input.note }, tx);
+      await applyOutcomeToLead({ businessId: user.businessId, userId: user.id, leadId: call.leadId, outcome: input.outcome, callbackAt: input.callbackAt, callbackUserId, note: input.note }, tx);
     } else if (def.addsToDnc) {
       const { addToDnc } = await import("@/lib/dialer/queue");
       await addToDnc(user.businessId, user.id, call.toE164, `outcome:${input.outcome}`, tx);

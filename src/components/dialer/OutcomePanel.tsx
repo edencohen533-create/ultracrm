@@ -5,6 +5,7 @@ import { Badge, Button, Input, Kbd, cx } from "@/components/ui";
 import { OUTCOMES } from "@/lib/outcomes";
 import { TELEPHONY_RESULT_LABEL, formatDuration, toLocalInputValue } from "@/lib/client/format";
 import type { CallDto, OutcomeKey } from "@/lib/client/types";
+import { api } from "@/lib/client/api";
 import { useHotkeys } from "./useHotkeys";
 
 const toneCls: Record<string, string> = {
@@ -14,9 +15,16 @@ const toneCls: Record<string, string> = {
   danger: "border-bad/40 hover:bg-bad/15 data-[sel=true]:bg-bad data-[sel=true]:text-white",
 };
 
-export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; note: string; onSave: (outcome: OutcomeKey, callbackAt?: Date) => Promise<void>; saving: boolean }) {
+export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; note: string; onSave: (outcome: OutcomeKey, callbackAt?: Date, callbackUserId?: string) => Promise<void>; saving: boolean }) {
   const [selected, setSelected] = useState<OutcomeKey | null>(null);
   const [callbackAt, setCallbackAt] = useState("");
+  const [callbackUserId, setCallbackUserId] = useState("");
+  const [peers, setPeers] = useState<{ id: string; fullName: string }[]>([]);
+  useEffect(() => {
+    let active = true;
+    api.get<{ peers: { id: string; fullName: string }[]; allowed: boolean }>("/api/crm-settings/follow-ups?peers=1").then(r => { if (active) setPeers(r.allowed ? r.peers : []); }).catch(() => {});
+    return () => { active = false; };
+  }, [call.id]);
   const answered = Boolean(call.answeredAt);
   const [minLocal] = useState(() => toLocalInputValue(new Date()));
 
@@ -24,6 +32,7 @@ export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; no
   useEffect(() => {
     setSelected(call.telephonyResult === "busy" ? "busy" : call.telephonyResult === "no_answer" ? "no_answer" : null);
     setCallbackAt("");
+    setCallbackUserId("");
   }, [call.id, call.telephonyResult]);
 
   const def = useMemo(() => OUTCOMES.find((o) => o.key === selected) ?? null, [selected]);
@@ -32,9 +41,9 @@ export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; no
   const hotkeys = useMemo(() => {
     const m: Record<string, () => void> = {};
     for (const o of OUTCOMES) m[o.hotkey] = () => setSelected(o.key);
-    m.Enter = () => { if (canSave && def) onSave(def.key, callbackAt ? new Date(callbackAt) : undefined); };
+    m.Enter = () => { if (canSave && def) onSave(def.key, callbackAt ? new Date(callbackAt) : undefined, callbackUserId || undefined); };
     return m;
-  }, [canSave, def, onSave, callbackAt]);
+  }, [canSave, def, onSave, callbackAt, callbackUserId]);
   useHotkeys(hotkeys);
 
   const quickCallback = (hours: number) => {
@@ -69,6 +78,7 @@ export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; no
       </div>
       {def?.requiresCallbackTime && (
         <div className="mt-3 flex flex-wrap items-end gap-2">
+          {peers.length > 0 && <label>נציג לחזרה<select aria-label="נציג לחזרה" value={callbackUserId} onChange={e => setCallbackUserId(e.target.value)} className="border border-line rounded-lg p-2"><option value="">אני</option>{peers.map(p => <option key={p.id} value={p.id}>{p.fullName}</option>)}</select></label>}
           <Input label="מועד חזרה" type="datetime-local" value={callbackAt} onChange={(e) => setCallbackAt(e.target.value)} min={minLocal} className="h-9" ltr />
           {[1, 3, 24, 72].map((h) => (
             <Button key={h} size="sm" variant="secondary" onClick={() => quickCallback(h)}>
@@ -81,7 +91,7 @@ export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; no
       {!note.trim() && def && (def.key === "answered_interested" || def.key === "sale") && <p className="mt-2 text-xs text-warn">מומלץ להוסיף הערה לפני השמירה.</p>}
       <div className="mt-3 flex items-center justify-between">
         <span className="text-xs text-muted">ההערות מהכרטיס יישמרו יחד עם התוצאה</span>
-        <Button size="lg" disabled={!canSave} loading={saving} onClick={() => def && onSave(def.key, callbackAt ? new Date(callbackAt) : undefined)}>
+        <Button size="lg" disabled={!canSave} loading={saving} onClick={() => def && onSave(def.key, callbackAt ? new Date(callbackAt) : undefined, callbackUserId || undefined)}>
           שמור תוצאה והמשך
         </Button>
       </div>

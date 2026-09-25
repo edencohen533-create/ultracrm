@@ -59,9 +59,7 @@ export async function saveSequence(user: SessionUser, input: SequenceInput, id?:
       ? await tx.marketingSequence.update({ where: { id }, data })
       : await tx.marketingSequence.create({ data: { ...data, businessId: user.businessId, createdById: user.id } });
     await tx.sequenceStep.deleteMany({ where: { sequenceId: seq.id } });
-    // Task steps have no template; the relation is required, so they reference a placeholder-free path via a nullable-like sentinel: we store the first template of the sequence when present, otherwise refuse.
-    for (const s of input.steps) if (s.action === "task" && !s.templateId) { const any = templates[0]?.id ?? (await tx.template.findFirst({ select: { id: true } }))?.id; if (!any) throw new ApiError("שלב משימה דורש שתהיה לפחות תבנית אחת במערכת (שדה טכני)", 400, "template_required"); s.templateId = any; }
-    await tx.sequenceStep.createMany({ data: input.steps.map((s, position) => ({ sequenceId: seq.id, position, action: s.action, channel: s.channel, templateId: s.templateId!, waitMinutes: s.waitMinutes, variables: { ...s.variables, ...(s.taskTitle ? { __taskTitle: s.taskTitle, __taskDueHours: String(s.taskDueHours ?? 24) } : {}) } as Prisma.InputJsonValue, condition: s.condition as Prisma.InputJsonValue })) });
+    await tx.sequenceStep.createMany({ data: input.steps.map((s, position) => ({ sequenceId: seq.id, position, action: s.action, channel: s.channel, templateId: s.action === "task" ? null : s.templateId!, waitMinutes: s.waitMinutes, variables: { ...s.variables, ...(s.taskTitle ? { __taskTitle: s.taskTitle, __taskDueHours: String(s.taskDueHours ?? 24) } : {}) } as Prisma.InputJsonValue, condition: s.condition as Prisma.InputJsonValue })) });
     return seq;
   });
   await audit(user.businessId, user.id, "sequence", row.id, id ? "sequence.updated" : "sequence.created", { trigger: input.trigger, steps: input.steps.length });
@@ -175,6 +173,8 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
         await finish("PENDING", { stepIndex: run.stepIndex + 1, nextAt: new Date(Date.now() + next.waitMinutes * 60_000), lockedAt: null, log: [...log, entry] as Prisma.InputJsonValue });
         continue;
       }
+      const templateId = step.templateId ?? "";
+      if (step.action !== "task" && !templateId) throw new Error("שלב שליחה ללא תבנית");
       const requestKey = `seq:${run.id}:${step.position}`;
       let messageId: string | null = null;
       let skipped: string | null = null;
@@ -199,7 +199,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
           else {
             const contact = await prisma.contact.findUniqueOrThrow({ where: { id: run.contactId }, select: { fullName: true } });
             const conversation = await startConversationForAutomation(run.contactId, sender.id, seq.createdById ?? "");
-            const { message } = await createOutboundMessage({ conversationId: conversation.id, body: "", templateId: step.templateId, templateVariables: personalizeVariables((step.variables as Record<string, string>) ?? {}, contact.fullName), sentByUserId: seq.createdById ?? "", automated: true, requireOptIn: true, requestKey, eventDepth: 1 });
+            const { message } = await createOutboundMessage({ conversationId: conversation.id, body: "", templateId, templateVariables: personalizeVariables((step.variables as Record<string, string>) ?? {}, contact.fullName), sentByUserId: seq.createdById ?? "", automated: true, requireOptIn: true, requestKey, eventDepth: 1 });
             if (!["ACCEPTED", "SENT", "DELIVERED", "READ"].includes(message.status)) throw new Error(message.errorReason ?? "הספק לא אישר את השליחה");
             messageId = message.id;
           }
@@ -214,7 +214,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
         const { MessagePolicyError, FrequencyCapError } = await import("@/server/services/message-service");
         const { ChannelUnavailableError } = await import("@/server/channels/registry");
         try {
-          const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId: step.templateId, variables: (step.variables as Record<string, string>) ?? {}, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1, sequenceRunId: run.id });
+          const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId, variables: (step.variables as Record<string, string>) ?? {}, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1, sequenceRunId: run.id });
           if (!["ACCEPTED", "SENT", "DELIVERED", "READ"].includes(message.status)) throw new Error(message.errorReason ?? "הספק לא אישר את השליחה");
           messageId = message.id;
         } catch (err) {

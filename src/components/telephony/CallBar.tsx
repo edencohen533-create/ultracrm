@@ -36,15 +36,15 @@ export function CallBar() {
   if (call) {
     const answered = call.status === "answered";
     return (
-      <div className={cx("sticky top-0 z-40 flex items-center gap-3 px-4 h-12 border-b border-line", answered ? "bg-good/10" : "bg-panel-2")}>
+      <div className={cx("sticky top-0 z-40 flex flex-wrap items-center gap-2 px-3 py-2 min-h-12 border-b border-line", answered ? "bg-[#ecf9ef]" : "bg-panel-2")}>
         <span className={cx("w-2.5 h-2.5 rounded-full", answered ? "bg-good pulse-good" : "bg-warn animate-pulse")} />
         <span className="font-semibold truncate">{call.contact?.fullName ?? "שיחה"}</span>
-        <Phone value={formatPhone(call.toE164)} className="text-muted" />
+        <Phone value={formatPhone(call.toE164)} className="text-muted whitespace-nowrap" />
         <Badge tone={answered ? "good" : "warn"}>{CALL_STATUS_LABEL[call.status]}</Badge>
         {answered && <span className="tabular font-mono text-sm">{formatDuration(callElapsed(call))}</span>}
         {state?.telephony.simulation && <Badge tone="warn">הדמיה</Badge>}
         {call.direction === "inbound" && !call.answeredAt && <Badge tone="info">שיחה נכנסת</Badge>}
-        <div className="ms-auto flex items-center gap-2">
+        <div className="ms-auto flex flex-wrap items-center gap-2">
           {call.direction === "inbound" && !call.answeredAt && (
             <>
               <Button size="sm" variant="good" onClick={acceptInbound} loading={busy === "accept"}>קבל</Button>
@@ -65,7 +65,7 @@ export function CallBar() {
     );
   }
   return (
-    <div className="sticky top-0 z-40 flex items-center gap-3 px-4 h-12 border-b border-line bg-warn/10">
+    <div className="sticky top-0 z-40 flex flex-wrap items-center gap-2 px-3 py-2 min-h-12 border-b border-line bg-[#fff5df]">
       <span className="w-2.5 h-2.5 rounded-full bg-warn" />
       <span className="font-medium">שיחה עם {wrap!.contact?.fullName ?? formatPhone(wrap!.toE164)} ממתינה לתיעוד</span>
       <Link href="/leads" className="ms-auto">

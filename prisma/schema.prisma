@@ -418,6 +418,7 @@ model User {
   role       UserRole       @default(agent)
   teamId     String?        @map("team_id")
   isActive   Boolean        @default(true) @map("is_active")
+  crmSettings Json? @map("crm_settings")
   avatarUrl  String?        @map("avatar_url")
   presence   PresenceStatus @default(offline)
   presenceAt DateTime       @default(now()) @map("presence_at")
@@ -945,6 +946,7 @@ model ListLead {
   contactId       String          @map("contact_id")
   status          QueueLeadStatus @default(pending)
   priority        Int             @default(0)
+  followUpAttempts Int? @map("follow_up_attempts")
   attempts        Int             @default(0)
   lastAttemptAt   DateTime?       @map("last_attempt_at")
   nextAttemptAt   DateTime?       @map("next_attempt_at")
@@ -1063,6 +1065,7 @@ model Call {
 
   @@index([businessId, createdAt])
   @@index([businessId, phoneNumberId, createdAt])
+  @@index([businessId, toE164, createdAt])
   @@index([userId, createdAt])
   @@index([contactId, createdAt])
   @@index([leadId])
@@ -1727,7 +1730,7 @@ model SequenceStep {
   sequenceId  String  @map("sequence_id")
   position    Int
   channel     Channel
-  templateId  String  @map("template_id")
+  templateId  String? @map("template_id")
   /// Delay before this step (minutes) – measured from the previous step / trigger.
   waitMinutes Int     @default(0) @map("wait_minutes")
   /// Extra condition: { requireNoReply?: true, requireConsent?: true }
@@ -1737,7 +1740,7 @@ model SequenceStep {
   variables   Json    @default("{}")
 
   sequence MarketingSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
-  template Template          @relation(fields: [templateId], references: [id])
+  template Template?         @relation(fields: [templateId], references: [id])
 
   @@unique([sequenceId, position])
   @@map("sequence_steps")

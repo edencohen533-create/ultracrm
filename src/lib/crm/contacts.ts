@@ -369,7 +369,8 @@ export async function importContacts(user: SessionUser, rows: ContactInput[], de
         const dupEmail = await findDuplicateByEmail(businessId, base.email, existingId);
         if (dupEmail) { errors.push({ row: i + 1, phone: r.phone, reason: "האימייל שייך לאיש קשר אחר" }); invalid++; continue; }
       }
-      await prisma.contact.update({ where: { id: existingId }, data: { fullName: base.fullName, email: base.email ?? undefined, company: base.company ?? undefined, city: base.city ?? undefined, notes: base.notes ?? undefined, customFields: base.customFields, source: r.source || undefined, ownerUserId: r.ownerUserId || undefined } });
+      const existing = await prisma.contact.findUniqueOrThrow({ where: { id: existingId }, select: { email: true } });
+      await prisma.contact.update({ where: { id: existingId }, data: { ...(base.email && base.email !== existing.email ? { emailStatus: null, emailBouncedAt: null } : {}), fullName: base.fullName, email: base.email ?? undefined, company: base.company ?? undefined, city: base.city ?? undefined, notes: base.notes ?? undefined, customFields: base.customFields, source: r.source || undefined, ownerUserId: r.ownerUserId || undefined } });
       await syncTags(prisma, businessId, existingId, undefined, r.tagNames);
       updated++;
     } else {

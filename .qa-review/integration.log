@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/edencohen/ultracrm
+
+
+ Test Files  9 passed (9)
+      Tests  86 passed (86)
+   Start at  07:04:51
+   Duration  14.19s (transform 1.40s, setup 1.09s, import 2.58s, tests 9.75s, environment 0ms)
+

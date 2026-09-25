@@ -20,7 +20,7 @@ npm run dev                    # http://localhost:3000
 |---|---|---|
 | `DATABASE_URL` | משותף | חיבור pooled ל-PostgreSQL של UltraCRM (**מסד נפרד**; לא `dialer`, לא `solinainbox`). |
 | `DATABASE_URL_UNPOOLED` | משותף | חיבור ישיר ל-`prisma migrate`. |
-| `QUICK_LOGIN_EMAIL` + `NEXT_PUBLIC_QUICK_LOGIN=1` | **זמני** | כפתור "כניסה מהירה" במסך הכניסה שמחבר את החשבון הנתון ללא סיסמה (בקשת המשתמש 25.9.2026). **כל מי שמגיע לכתובת נכנס כבעלים** – להסיר את שני המשתנים ולפרוס מחדש כשכבר לא נדרש. |
+| `QUICK_LOGIN_EMAIL` + `NEXT_PUBLIC_QUICK_LOGIN=1` | **זמני** | כפתור "כניסה מהירה" במסך הכניסה שמחבר את החשבון הנתון ללא סיסמה. **כבוי בייצור** מאז 25.9.2026 לבקשת המשתמש (המשתנים נמחקו); להפעלה זמנית מגדירים את שניהם ופורסים מחדש. **כל מי שמגיע לכתובת נכנס כבעלים כשזה פעיל.** |
 | `DB_RLS` | משותף | ברירת מחדל פעיל. `off` מכבה את מעטפת ה-RLS (רק למסד שהמיגרציה `20260925090000_rls_session_version` טרם הוחלה עליו). |
 | `DATABASE_POOL_MAX` | משותף | חיבורים לכל instance (ברירת מחדל 10). |
 | `JWT_SECRET` | משותף | חתימת עוגיית הסשן (`ultracrm_session`, HS256, 12 שעות). |
@@ -50,7 +50,7 @@ npm run dev                    # http://localhost:3000
 
 ## התאמת סביבת האירוח
 
-**פרוס בייצור (2026-09-25):** https://ultracrm-eta.vercel.app – פרויקט Vercel `ultracrm`, ענף `feat/whatsapp-completion`, מסד Neon `ultracrm` (מיגרציות RLS הוחלו), ספקי טלפוניה/מספרים/WhatsApp במצב הדמיה (אין מפתחות Telnyx/Meta ב-Vercel). משתמשי הדמו מהזריעה (Demo1234!) עדיין פעילים – יש להחליף לפני שימוש אמיתי. הפריסה היא Vercel (serverless). התאמה:
+**פרוס בייצור (2026-09-25):** https://ultracrm-eta.vercel.app – פרויקט Vercel `ultracrm`, ענף `main` (שרשרת PR ‎#1–#4 מוזגה 25.9.2026), מסד Neon `ultracrm` (מיגרציות RLS הוחלו), ספקי טלפוניה/מספרים/WhatsApp במצב הדמיה (אין מפתחות Telnyx/Meta ב-Vercel). משתמשי הדמו מהזריעה (Demo1234!) עדיין פעילים – יש להחליף לפני שימוש אמיתי. הפריסה היא Vercel (serverless). התאמה:
 
 - **חיבורים מתמשכים**: החיבור הקולי המתמשך היחיד הוא WebRTC בין דפדפן הנציג ל-Telnyx; השרת אינו מחזיק sockets. מצב שיחה/תיבה מתעדכן ב-polling מאומת (1.2–6 שניות בחייגן, 5 שניות בתיבה) – אין Supabase Realtime ואין SSE.
 - **בידוד דיירים בשלוש שכבות**: הקשר עסק בשרת (AsyncLocalStorage) → סינון Prisma אוטומטי → **Row-Level Security ב-PostgreSQL**: כל statement בתוך הקשר עסק רץ כתפקיד `ultracrm_runtime` (ללא BYPASSRLS) עם `app.business_id` שנקבע transaction-locally (`src/lib/db-rls.ts`), ולכן בטוח גם דרך ה-pooler של Neon. קוד ללא הקשר (login, ניתוב webhook, cron) רץ כבעל החיבור. **כל טבלה חדשה עם `business_id` (או טבלת-ילד) חייבת policy במיגרציה שלה** – ראו `prisma/migrations/20260925090000_rls_session_version/migration.sql`. קריאות זהות חוצות-עסקים (בדיקת ייחודיות גלובלית של מספר, חברות בעסקים אחרים) עוברות דרך `withoutBusiness`. **דרישות**: `DATABASE_URL` ו-`DATABASE_URL_UNPOOLED` חייבים להשתמש באותו משתמש PostgreSQL (המיגרציה מעניקה את התפקיד ל-`CURRENT_USER`; משתמש אחר יקבל `permission denied to set role`) – הבדיקה `tests/integration/rls.test.ts` מאמתת חברות בתפקיד. עלות: statement בודד בתוך הקשר עסק = 3 סבבים (BEGIN+setup, השאילתה, COMMIT); ב-fra1 מול Neon eu-central-1 זה מילישניות בודדות לשאילתה.

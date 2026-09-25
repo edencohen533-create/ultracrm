@@ -105,7 +105,7 @@ describe("WhatsApp completion (simulated Meta)", () => {
     await db.campaignRecipient.update({ where: { id: retried!.id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } });
     await run(a.session, () => processDueCampaigns());
     const after = await db.campaignRecipient.findUniqueOrThrow({ where: { id: retried!.id }, include: { message: true } });
-    expect(after.status).toBe("SENT"); expect(after.attempts).toBe(2); expect(["ACCEPTED", "SENT"]).toContain(after.message?.status);
+    expect(after.status).toBe("SENT"); expect(after.attempts).toBe(2); expect(["ACCEPTED", "SENT", "DELIVERED", "READ"]).toContain(after.message?.status);
     expect(await db.message.count({ where: { requestKey: { in: [`campaign:${retried!.id}`, `campaign:${retried!.id}:a1`] } } })).toBe(2);
     expect(await db.message.count({ where: { requestKey: `campaign:${retried!.id}`, status: "FAILED", retryable: true, errorCode: "130429" } })).toBe(1);
     // Permanent failure → FAILED, no auto retry.
@@ -127,10 +127,31 @@ describe("WhatsApp completion (simulated Meta)", () => {
     expect((await db.campaign.findUniqueOrThrow({ where: { id: c2.id } })).status).toBe("RUNNING");
     await run(a.session, () => processDueCampaigns());
     const manual = await db.campaignRecipient.findUniqueOrThrow({ where: { id: perm.id }, include: { message: true } });
-    expect(manual.status).toBe("SENT"); expect(["ACCEPTED", "SENT"]).toContain(manual.message?.status);
+    expect(manual.status).toBe("SENT"); expect(["ACCEPTED", "SENT", "DELIVERED", "READ"]).toContain(manual.message?.status);
     expect(await db.auditLog.count({ where: { businessId: a.business.id, action: "campaign.recipient_retry" } })).toBe(1);
     spy.mockRestore();
   }, 400_000);
+
+  it("1.09/6.09: a pre-flight refusal by the connection (disconnected/blocked) pauses the campaign, requeues the recipient and releases the 24h slot", async () => {
+    const { ProviderUnavailableError } = await import("@/server/providers/provider-registry");
+    const list = await db.distributionList.create({ data: { businessId: a.business.id, name: "one-b", members: { create: [{ contactId: contacts[1] }] } } });
+    await db.contact.update({ where: { id: contacts[1] }, data: { lastMarketingAt: null } });
+    const c = await run(a.session, () => createCampaign({ channel: "whatsapp", name: "refused", listId: list.id, templateId: tpl, variables: { "1": "{name}", "2": "x" }, providerCredentialId: waCred }, a.user.id));
+    await run(a.session, () => changeCampaignStatus(c.id, "start", undefined, a.user.id));
+    const spy = vi.spyOn(MockWhatsAppProvider.prototype, "sendTemplate").mockRejectedValueOnce(new ProviderUnavailableError("החיבור השתנה או שהשליחה חסומה"));
+    await run(a.session, () => processDueCampaigns());
+    spy.mockRestore();
+    const camp = await db.campaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(camp.status).toBe("PAUSED"); expect(camp.statusReason).toMatch(/הספק אינו זמין/);
+    const rec = await db.campaignRecipient.findFirstOrThrow({ where: { campaignId: c.id } });
+    expect(rec.status).toBe("QUEUED"); expect(rec.messageId).toBeNull();
+    expect((await db.contact.findUniqueOrThrow({ where: { id: contacts[1] } })).lastMarketingAt).toBeNull(); // slot released – no UNKNOWN, no burned budget
+    expect(await db.message.count({ where: { requestKey: `campaign:${rec.id}` } })).toBe(0);
+    // Resume → sends normally with the same key (nothing was ever sent).
+    await run(a.session, () => changeCampaignStatus(c.id, "resume", undefined, a.user.id));
+    await run(a.session, () => processDueCampaigns());
+    expect((await db.campaignRecipient.findUniqueOrThrow({ where: { id: rec.id } })).status).toBe("SENT");
+  }, 300_000);
 
   it("7.07: provider status with a failure reason updates the message and emits delivery_failed; late/duplicate statuses do not regress", async () => {
     const conv = (await db.conversation.findFirst({ where: { businessId: a.business.id } })) ?? (await db.conversation.create({ data: { businessId: a.business.id, contactId: contacts[0], channel: "whatsapp" } }));
@@ -155,6 +176,9 @@ describe("WhatsApp completion (simulated Meta)", () => {
     const tag = await db.tag.create({ data: { businessId: a.business.id, name: `wc-${Date.now()}` } });
     await db.contactTag.create({ data: { contactId: dup, tagId: tag.id } });
     const dupPhone = (await db.contact.findUniqueOrThrow({ where: { id: dup } })).phoneE164;
+    // Extra identifiers on the duplicate ([businessId, e164] / [businessId, email] are unique → must be moved, not copied).
+    await db.contactPhone.create({ data: { businessId: a.business.id, contactId: dup, e164: "+972501000777", label: "נוסף" } });
+    await db.contactEmail.create({ data: { businessId: a.business.id, contactId: dup, email: "extra-dup@example.test", label: "נוסף" } });
     const convBefore = await db.conversation.count({ where: { contactId: dup } });
     const cross = await mergeRoute(await authed(`/api/contacts/${keep}/merge`, b.session, { duplicateId: dup }), { params: Promise.resolve({ id: keep }) });
     expect(cross.status).toBe(404);
@@ -162,6 +186,8 @@ describe("WhatsApp completion (simulated Meta)", () => {
     expect(merged.id).toBe(keep);
     expect(await db.contact.count({ where: { id: dup } })).toBe(0);
     expect(await db.contactPhone.count({ where: { contactId: keep, e164: dupPhone } })).toBe(1);
+    expect(await db.contactPhone.count({ where: { contactId: keep, e164: "+972501000777" } })).toBe(1);
+    expect(await db.contactEmail.count({ where: { contactId: keep, email: "extra-dup@example.test" } })).toBe(1);
     expect(await db.conversation.count({ where: { contactId: keep } })).toBeGreaterThanOrEqual(convBefore);
     expect(await db.task.count({ where: { contactId: keep } })).toBeGreaterThanOrEqual(1);
     expect(await db.contactTag.count({ where: { contactId: keep, tagId: tag.id } })).toBe(1);

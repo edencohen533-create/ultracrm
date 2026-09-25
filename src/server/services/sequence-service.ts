@@ -143,6 +143,8 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
   const bid = businessId ?? (await import("@/lib/tenant")).requireBusinessId();
   const settings = await getBusinessSettings(bid);
   if (!isWithinDialWindow({ ...settings.marketing.window, timezone: settings.marketing.window.timezone ?? settings.timezone })) return { processed: 0, skipped: "outside marketing window" };
+  // A worker killed mid-step leaves RUNNING + lockedAt; steps are idempotent (seq:{run}:{step}) so reclaiming is safe.
+  await prisma.sequenceRun.updateMany({ where: { status: "RUNNING", lockedAt: { lt: new Date(Date.now() - 10 * 60_000) } }, data: { status: "PENDING", lockedAt: null } });
   const due = await prisma.sequenceRun.findMany({ where: { status: "PENDING", nextAt: { lte: new Date() } }, orderBy: { nextAt: "asc" }, take: 25 });
   let processed = 0;
   for (const run of due) {
@@ -176,6 +178,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       const requestKey = `seq:${run.id}:${step.position}`;
       let messageId: string | null = null;
       let skipped: string | null = null;
+      let deferUntil: Date | null = null; // frequency cap / provider outage: try the same step later instead of losing it
       if (step.action === "task") {
         const vars = (step.variables ?? {}) as Record<string, string>;
         const contact = await prisma.contact.findUniqueOrThrow({ where: { id: run.contactId }, select: { ownerUserId: true, fullName: true } });
@@ -188,7 +191,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       } else if (step.channel === "whatsapp") {
         const { resolveSender, ProviderUnavailableError } = await import("@/server/providers/provider-registry");
         const { startConversationForAutomation } = await import("@/server/services/conversation-service");
-        const { createOutboundMessage, MessagePolicyError } = await import("@/server/services/message-service");
+        const { createOutboundMessage, MessagePolicyError, FrequencyCapError } = await import("@/server/services/message-service");
         const { personalizeVariables } = await import("@/lib/campaigns");
         try {
           const sender = await resolveSender(undefined);
@@ -199,20 +202,27 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
             const { message } = await createOutboundMessage({ conversationId: conversation.id, body: "", templateId: step.templateId, templateVariables: personalizeVariables((step.variables as Record<string, string>) ?? {}, contact.fullName), sentByUserId: seq.createdById ?? "", automated: true, requireOptIn: true, requestKey, eventDepth: 1 });
             messageId = message.id;
           }
-        } catch (err) { if (err instanceof MessagePolicyError || err instanceof ProviderUnavailableError) skipped = err.message; else throw err; }
+        } catch (err) {
+          if (err instanceof FrequencyCapError) deferUntil = new Date(Date.now() + 60 * 60_000);
+          else if (err instanceof ProviderUnavailableError) deferUntil = new Date(Date.now() + 15 * 60_000);
+          else if (err instanceof MessagePolicyError) skipped = err.message;
+          else throw err;
+        }
       } else {
         const { sendChannelMessage } = await import("@/server/services/channel-send-service");
-        const { MessagePolicyError } = await import("@/server/services/message-service");
+        const { MessagePolicyError, FrequencyCapError } = await import("@/server/services/message-service");
         const { ChannelUnavailableError } = await import("@/server/channels/registry");
         try {
           const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId: step.templateId, variables: (step.variables as Record<string, string>) ?? {}, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1, sequenceRunId: run.id });
           messageId = message.id;
         } catch (err) {
-          if (err instanceof MessagePolicyError) skipped = err.message;
-          else if (err instanceof ChannelUnavailableError) { await finish("PENDING", { nextAt: new Date(Date.now() + 15 * 60_000), lockedAt: null }); continue; }
+          if (err instanceof FrequencyCapError) deferUntil = new Date(Date.now() + 60 * 60_000);
+          else if (err instanceof MessagePolicyError) skipped = err.message;
+          else if (err instanceof ChannelUnavailableError) deferUntil = new Date(Date.now() + 15 * 60_000);
           else throw err;
         }
       }
+      if (deferUntil) { await finish("PENDING", { nextAt: deferUntil, lockedAt: null }); continue; }
       const entry = { step: step.position, channel: step.channel, messageId, skipped, at: new Date().toISOString() };
       const nextStep = seq.steps[run.stepIndex + 1];
       await audit(bid, null, "sequence", seq.id, "sequence.step", { runId: run.id, contactId: run.contactId, ...entry });

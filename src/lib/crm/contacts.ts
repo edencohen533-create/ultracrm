@@ -87,7 +87,11 @@ export async function findOrCreateContactByPhone(businessId: string, e164: strin
   const existingId = await contactForIdentifier(businessId, e164, db);
   if (existingId) return db.contact.findUniqueOrThrow({ where: { id: existingId } });
   try {
-    return await db.contact.create({ data: { businessId, fullName: create.fullName, phoneE164: e164, phoneRaw: create.phoneRaw, source: create.source, ownerUserId: create.ownerUserId ?? null } });
+    const created = await db.contact.create({ data: { businessId, fullName: create.fullName, phoneE164: e164, phoneRaw: create.phoneRaw, source: create.source, ownerUserId: create.ownerUserId ?? null } });
+    // New lead from an inbound channel → sequences with a CONTACT_CREATED trigger (optionally filtered by source). CSV imports never emit this.
+    const { emitEvent } = await import("@/lib/events");
+    await emitEvent(db, { businessId, type: "contact.created", contactId: created.id, source: "system", dedupeKey: `contact.created:${created.id}`, payload: { source: create.source } }).catch(() => undefined);
+    return created;
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       const again = await contactForIdentifier(businessId, e164, db);
@@ -393,11 +397,14 @@ export async function mergeContacts(user: SessionUser, primaryId: string, duplic
     await tx.$queryRaw`SELECT id FROM "contacts" WHERE id IN (${primaryId}, ${duplicateId}) FOR UPDATE`;
     // Identifiers: the duplicate's primary phone/email become extra identifiers of the survivor.
     const knownPhones = new Set([primary.phoneE164, ...primary.phones.map((p) => p.e164)]);
-    for (const e164 of [duplicate.phoneE164, ...duplicate.phones.map((p) => p.e164)]) if (!knownPhones.has(e164)) { await tx.contactPhone.create({ data: { businessId, contactId: primaryId, e164, label: "ממיזוג" } }); knownPhones.add(e164); }
-    await tx.contactPhone.deleteMany({ where: { contactId: duplicateId } });
-    const knownEmails = new Set([primary.email, ...primary.emails.map((e) => e.email)].filter(Boolean));
-    for (const email of [duplicate.email, ...duplicate.emails.map((e) => e.email)].filter((e): e is string => Boolean(e))) if (!knownEmails.has(email)) { await tx.contactEmail.create({ data: { businessId, contactId: primaryId, email, label: "ממיזוג" } }); knownEmails.add(email); }
-    await tx.contactEmail.deleteMany({ where: { contactId: duplicateId } });
+    // Move (not copy) the duplicate's extra identifiers – [businessId, e164] is unique, so a copy before the delete would collide.
+    await tx.contactPhone.deleteMany({ where: { contactId: duplicateId, e164: { in: [...knownPhones] } } });
+    await tx.contactPhone.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId, label: "ממיזוג" } });
+    if (!knownPhones.has(duplicate.phoneE164) && !await tx.contactPhone.findFirst({ where: { businessId, e164: duplicate.phoneE164 } })) await tx.contactPhone.create({ data: { businessId, contactId: primaryId, e164: duplicate.phoneE164, label: "ממיזוג" } });
+    const knownEmails = new Set([primary.email, ...primary.emails.map((e) => e.email)].filter((e): e is string => Boolean(e)));
+    await tx.contactEmail.deleteMany({ where: { contactId: duplicateId, email: { in: [...knownEmails] } } });
+    await tx.contactEmail.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId, label: "ממיזוג" } });
+    if (duplicate.email && !knownEmails.has(duplicate.email) && !await tx.contactEmail.findFirst({ where: { businessId, email: duplicate.email } })) await tx.contactEmail.create({ data: { businessId, contactId: primaryId, email: duplicate.email, label: "ממיזוג" } });
     // Tags: union.
     const primaryTags = new Set(primary.tags.map((t) => t.tagId));
     for (const t of duplicate.tags) if (!primaryTags.has(t.tagId)) await tx.contactTag.create({ data: { contactId: primaryId, tagId: t.tagId } });

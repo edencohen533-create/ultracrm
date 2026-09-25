@@ -33,7 +33,7 @@ export default function SettingsPage() {
           </div>
         ))}
       </div>
-      {tab === "business" && <BusinessTab isAdmin={isAdmin} />}
+      {tab === "business" && <><BusinessTab isAdmin={isAdmin} /><AccountPanel /></>}
       {tab === "connections" && <ConnectionsTab modules={modules} />}
       {tab === "plan" && <PlanTab isAdmin={isAdmin} />}
       {tab === "automations" && <AutomationsTab isAdmin={isAdmin} messaging={modules.messaging} />}
@@ -284,6 +284,25 @@ function HistoryTab() {
   );
 }
 
+
+function AccountPanel() {
+  const [current, setCurrent] = useState(""); const [next, setNext] = useState(""); const [busy, setBusy] = useState(false);
+  async function change() {
+    if (next.length < 8) { toast.error("סיסמה חדשה: לפחות 8 תווים"); return; }
+    setBusy(true);
+    try { await api.post("/api/auth/password", { currentPassword: current, newPassword: next }); toast.success("הסיסמה שונתה. חיבורים אחרים של החשבון נותקו"); setCurrent(""); setNext(""); }
+    catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  }
+  return (
+    <Panel title="החשבון שלי – שינוי סיסמה" actions={<Button size="sm" disabled={busy || !current || !next} onClick={change} data-testid="account-change-password">שנה סיסמה</Button>}>
+      <p className="text-xs text-muted mb-2">הסיסמה שייכת לחשבון הכניסה שלך בכל העסקים. שינוי מנתק כל חיבור אחר של החשבון.</p>
+      <div className="grid md:grid-cols-2 gap-3">
+        <Input label="סיסמה נוכחית" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+        <Input label="סיסמה חדשה (8+ תווים)" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
+      </div>
+    </Panel>
+  );
+}
 
 function BusinessTab({ isAdmin }: { isAdmin: boolean }) {
   const [b, setB] = useState<{ name: string; timezone: string } | null>(null);

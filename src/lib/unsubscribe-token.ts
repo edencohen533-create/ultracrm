@@ -81,7 +81,8 @@ export function rewriteTrackedLinks(html: string, messageId: string) {
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
   return html.replace(/href=(["'])(https?:\/\/[^"']+)\1/gi, (m, q, url) => {
     if (url.startsWith(`${base}/u/`) || url.startsWith(`${base}/r/`)) return m;
-    return `href=${q}${trackedUrl(messageId, url)}${q}`;
+    const decoded = url.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'");
+    return `href=${q}${trackedUrl(messageId, decoded)}${q}`;
   });
 }
 

@@ -4,9 +4,10 @@ import { requireBusinessId } from "@/lib/tenant";
 import { sendBlockReason } from "@/lib/suppression";
 import { personalizeVariablesForContact } from "@/lib/campaigns";
 import { getBusinessSettings, isWithinDialWindow } from "@/lib/settings";
-import { createOutboundMessage, MessagePolicyError } from "@/server/services/message-service";
+import { createOutboundMessage, MessagePolicyError, QuotaExceededError } from "@/server/services/message-service";
 import { sendChannelMessage } from "@/server/services/channel-send-service";
 import { ChannelUnavailableError } from "@/server/channels/registry";
+import { ProviderUnavailableError } from "@/server/providers/provider-registry";
 import { MAX_AUTO_ATTEMPTS, retryDelayMs } from "@/lib/meta/errors";
 import type { Message } from "@/generated/prisma/client";
 
@@ -21,7 +22,7 @@ import type { Message } from "@/generated/prisma/client";
  */
 export async function processDueCampaigns(deadline = Date.now() + 45_000) {
   await prisma.campaignRecipient.updateMany({
-    where: { status: "PROCESSING", claimedAt: { lt: new Date(Date.now() - 10 * 60_000) } },
+    where: { status: "PROCESSING", claimedAt: { lt: new Date(Date.now() - 10 * 60_000) }, campaign: { businessId: requireBusinessId() } },
     data: { status: "UNKNOWN", error: "העיבוד נקטע; יש לבדוק אצל הספק לפני שליחה נוספת", completedAt: new Date() },
   });
   await prisma.campaign.updateMany({ where: { status: "SCHEDULED", scheduledAt: { lte: new Date() } }, data: { status: "RUNNING" } });
@@ -30,7 +31,7 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
   const budget = settings.marketing.maxPerMinute > 0 ? settings.marketing.maxPerMinute : Number.MAX_SAFE_INTEGER;
   const now = new Date();
   const due = await prisma.campaignRecipient.findMany({
-    where: { status: "QUEUED", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }], campaign: { status: "RUNNING", ...(insideWindow ? {} : { template: { category: { not: "MARKETING" } } }) } },
+    where: { status: "QUEUED", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }], campaign: { businessId: requireBusinessId(), status: "RUNNING", ...(insideWindow ? {} : { template: { category: { not: "MARKETING" } } }) } },
     orderBy: [{ nextAttemptAt: "asc" }, { id: "asc" }], take: 50, include: { campaign: { select: { channel: true } } },
   });
   let processed = 0;
@@ -41,7 +42,7 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
     if (pausedCampaigns.has(recipient.campaignId)) continue;
     if (sends >= budget) break;
     const claimed = await prisma.campaignRecipient.updateMany({
-      where: { id: recipient.id, status: "QUEUED", campaign: { status: "RUNNING" } },
+      where: { id: recipient.id, status: "QUEUED", campaign: { businessId: requireBusinessId(), status: "RUNNING" } },
       data: { status: "PROCESSING", claimedAt: new Date() },
     });
     if (!claimed.count) continue;
@@ -122,6 +123,14 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
       });
       await settle(message, contact.phoneE164);
     } catch (error) {
+      if (error instanceof ChannelUnavailableError || error instanceof ProviderUnavailableError || error instanceof QuotaExceededError) {
+        // Nothing reached the provider: pause the campaign with the reason and requeue the recipient (no UNKNOWN, no burned slot).
+        const reason = error instanceof QuotaExceededError ? `המכסה החודשית נוצלה: ${error.message.slice(0, 160)}` : `הספק אינו זמין: ${error.message.slice(0, 160)}`;
+        await prisma.campaign.updateMany({ where: { id: recipient.campaignId, status: "RUNNING" }, data: { status: "PAUSED", statusReason: reason } });
+        await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "QUEUED", claimedAt: null, messageId: null, error: "הקמפיין הושהה – " + reason } });
+        pausedCampaigns.add(recipient.campaignId);
+        continue;
+      }
       await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: {
         status: error instanceof MessagePolicyError ? "SKIPPED" : "UNKNOWN",
         error: error instanceof MessagePolicyError ? error.message : "לא ניתן לאמת את השליחה; יש לבדוק לפני ניסיון נוסף", completedAt: new Date(),

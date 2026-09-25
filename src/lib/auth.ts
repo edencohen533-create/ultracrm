@@ -26,6 +26,8 @@ export interface SessionUser {
   fullName: string;
   role: UserRole;
   teamId: string | null;
+  /** Account.sessionVersion at sign-in; a password change bumps it and invalidates older tokens. */
+  sessionVersion?: number;
 }
 
 export async function signSession(user: SessionUser) {
@@ -49,6 +51,7 @@ async function verify(token: string): Promise<SessionUser | null> {
       fullName: String(payload.fullName),
       role: payload.role as UserRole,
       teamId: (payload.teamId as string | null) ?? null,
+      sessionVersion: typeof payload.sessionVersion === "number" ? payload.sessionVersion : 0,
     };
   } catch {
     return null;
@@ -84,9 +87,10 @@ export async function requireUser(req: NextRequest): Promise<SessionUser> {
 export async function revalidateSession(session: SessionUser): Promise<SessionUser> {
   const user = await db.user.findUnique({
     where: { id: session.id },
-    select: { id: true, isActive: true, role: true, teamId: true, businessId: true, accountId: true, fullName: true, email: true, business: { select: { isActive: true } }, account: { select: { isActive: true } } },
+    select: { id: true, isActive: true, role: true, teamId: true, businessId: true, accountId: true, fullName: true, email: true, business: { select: { isActive: true } }, account: { select: { sessionVersion: true, isActive: true } } },
   });
-  if (!user || !user.isActive || !user.business.isActive || !user.account.isActive || user.businessId !== session.businessId || user.accountId !== session.accountId) {
+  if (!user || !user.isActive || !user.business.isActive || !user.account.isActive || user.businessId !== session.businessId || user.accountId !== session.accountId
+    || user.account.sessionVersion !== (session.sessionVersion ?? 0)) {
     throw new ApiError("לא מחובר", 401, "unauthorized");
   }
   return { ...session, role: user.role, teamId: user.teamId, fullName: user.fullName, email: user.email };
@@ -147,6 +151,6 @@ export async function membershipsForAccount(accountId: string) {
   });
 }
 
-export function sessionFromMembership(m: { id: string; accountId?: string; businessId: string; role: UserRole; teamId: string | null; fullName: string; email: string }, accountId: string): SessionUser {
-  return { id: m.id, accountId, businessId: m.businessId, email: m.email, fullName: m.fullName, role: m.role, teamId: m.teamId };
+export function sessionFromMembership(m: { id: string; accountId?: string; businessId: string; role: UserRole; teamId: string | null; fullName: string; email: string }, accountId: string, sessionVersion = 0): SessionUser {
+  return { id: m.id, accountId, businessId: m.businessId, email: m.email, fullName: m.fullName, role: m.role, teamId: m.teamId, sessionVersion };
 }

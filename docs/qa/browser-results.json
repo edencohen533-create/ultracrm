@@ -1,6 +1,6 @@
 {
   "base": "http://localhost:3210",
-  "ranAt": "2026-09-24T13:42:40.579Z",
+  "ranAt": "2026-09-25T02:42:14.569Z",
   "results": [
     {
       "name": "B1 login (single login for every module)",
@@ -32,8 +32,8 @@
       "name": "B3 create contact from the CRM screen",
       "status": "pass",
       "detail": {
-        "contactId": "cmufkuj1n006eqoejp8t05tkm",
-        "phone": "0529979053"
+        "contactId": "cmugcll51006757ejt58le64o",
+        "phone": "0529960153"
       }
     },
     {
@@ -65,15 +65,13 @@
     },
     {
       "name": "B9 hang up and save outcome + note in the dialer screen; follow-up task created",
-      "status": "fail",
-      "detail": "page.waitForSelector: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=מעקב אחרי שיחה') to be visible\u001b[22m\n"
+      "status": "pass",
+      "detail": null
     },
     {
       "name": "B10 WhatsApp from the card → inbox conversation (mock provider) → message in card timeline",
-      "status": "pass",
-      "detail": {
-        "conversationId": "cmufkybx7007bqoej9nbalalv"
-      }
+      "status": "fail",
+      "detail": "page.waitForSelector: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=תודה, נחזור אליך') to be visible\u001b[22m\n"
     },
     {
       "name": "B11 unsubscribe via inbound 'הסר' → card shows suppression, WhatsApp marketing blocked",

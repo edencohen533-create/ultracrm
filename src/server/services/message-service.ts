@@ -4,7 +4,8 @@ import { sendBlockReason, suppressContact } from "@/lib/suppression";
 import { emitEvent, kickEventProcessing } from "@/lib/events";
 import { consumeQuota } from "@/lib/modules";
 import { ApiError } from "@/lib/response";
-import { eligibilityError, isUnsubscribe, MARKETING_INTERVAL_MS } from "@/lib/message-policy";
+import { eligibilityError, isUnsubscribe, marketingIntervalMs } from "@/lib/message-policy";
+import { getBusinessSettings } from "@/lib/settings";
 import { randomUUID } from "node:crypto";
 import { renderTemplate, validateTemplateVariables } from "@/lib/campaigns";
 import { prisma } from "@/lib/db";
@@ -128,6 +129,10 @@ export interface CreateOutboundMessageInput {
 }
 
 export class MessagePolicyError extends Error {}
+/** The shared 24h/N-hour marketing frequency cap is in use for this contact – defer, do not skip permanently. */
+export class FrequencyCapError extends MessagePolicyError {}
+/** The business's monthly message quota is exhausted – campaigns pause instead of skipping recipients. */
+export class QuotaExceededError extends MessagePolicyError {}
 
 export async function createOutboundMessage(input: CreateOutboundMessageInput) {
   let release: () => Promise<void>;
@@ -214,12 +219,14 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
   // the message, so retain the queued row and never retry automatically.
   const attachmentId = randomUUID();
   // Reserve the marketing budget across campaigns and automation workers.
+  const releaseSlot = async () => { if (marketing) await prisma.contact.updateMany({ where: { id: conversation.contact.id, lastMarketingAt: now }, data: { lastMarketingAt: null } }); };
   if (marketing) {
-    const reserved = await prisma.contact.updateMany({ where: { id: conversation.contact.id, isBlocked: false, consentStatus: "OPTED_IN", OR: [{ lastMarketingAt: null }, { lastMarketingAt: { lte: new Date(now.getTime() - MARKETING_INTERVAL_MS) } }] }, data: { lastMarketingAt: now } });
-    if (!reserved.count) throw new MessagePolicyError("אין זכאות לדיוור או שנוצלה מגבלת דיוור אחת לנמען ב־24 שעות");
+    const capMs = marketingIntervalMs((await getBusinessSettings(requireBusinessId())).marketing.minHoursBetweenMarketing);
+    const reserved = await prisma.contact.updateMany({ where: { id: conversation.contact.id, isBlocked: false, consentStatus: "OPTED_IN", OR: [{ lastMarketingAt: null }, { lastMarketingAt: { lte: new Date(now.getTime() - capMs) } }] }, data: { lastMarketingAt: now } });
+    if (!reserved.count) throw new FrequencyCapError(`אין זכאות לדיוור או שנוצלה מגבלת הדיוור המשותפת (דיוור אחד לנמען ב-${Math.round(capMs / 3600_000)} שעות)`);
   }
   try { await consumeQuota(requireBusinessId(), "messages_sent"); }
-  catch (error) { if (error instanceof ApiError) throw new MessagePolicyError(error.message); throw error; }
+  catch (error) { await releaseSlot(); if (error instanceof ApiError) throw new QuotaExceededError(error.message); throw error; }
   const queued = await prisma.message.create({
     data: {
       businessId: requireBusinessId(),
@@ -239,7 +246,7 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
         providerMediaId: uploaded.mediaId, mimeType: input.media.mimeType, fileName: input.media.fileName, sizeBytes: input.media.file.length,
       }] } } : {}),
     },
-  });
+  }).catch(async (error) => { await releaseSlot(); throw error; });
   if (input.campaignRecipientId) {
     await prisma.campaignRecipient.update({ where: { id: input.campaignRecipientId }, data: { messageId: queued.id } });
   }
@@ -256,6 +263,14 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
     }
     sendResult = input.templateId ? await provider.sendTemplate(outboundPayload) : await provider.sendMessage(outboundPayload);
   } catch (error) {
+    if (error instanceof ProviderUnavailableError) {
+      // Pre-flight refusal (connection disconnected/revoked/blocked): nothing reached Meta. Drop the queued row and
+      // release the frequency-cap slot so the campaign can be paused and resumed without manual attestation.
+      if (input.campaignRecipientId) await prisma.campaignRecipient.updateMany({ where: { id: input.campaignRecipientId, messageId: queued.id }, data: { messageId: null } });
+      await prisma.message.delete({ where: { id: queued.id } });
+      await releaseSlot();
+      throw error;
+    }
     if (!(error instanceof MessagePolicyError)) await prisma.message.update({ where: { id: queued.id }, data: { status: "UNKNOWN", errorReason: "תוצאה לא ודאית; אין לנסות שוב אוטומטית" } });
     throw error;
   }

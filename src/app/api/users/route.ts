@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { withAuth, parseBody } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
 import { db, prisma } from "@/lib/db";
+import { withoutBusiness } from "@/lib/tenant";
 import { visibleUserIds } from "@/lib/auth";
 import { consumeQuota } from "@/lib/modules";
 import { audit } from "@/lib/audit";
@@ -42,11 +43,13 @@ export const POST = withAuth(async ({ req, user }) => {
   const exists = await prisma.user.findUnique({ where: { businessId_email: { businessId: user.businessId, email } } });
   if (exists) throw new ApiError("אימייל זה כבר קיים בעסק", 409, "duplicate_email");
   await consumeQuota(user.businessId, "users");
-  let account = await db.account.findUnique({ where: { email } });
+  // Accounts are identity-level (may belong to other businesses) → outside the tenant scope.
+  let account = await withoutBusiness(() => db.account.findUnique({ where: { email } }));
   let createdAccount = false;
   if (!account) {
     if (!b.password) throw new ApiError("נדרשת סיסמה למשתמש חדש", 400, "password_required");
-    account = await db.account.create({ data: { email, fullName: b.fullName.trim(), passwordHash: await bcrypt.hash(b.password, 12) } });
+    const passwordHash = await bcrypt.hash(b.password, 12);
+    account = await withoutBusiness(() => db.account.create({ data: { email, fullName: b.fullName.trim(), passwordHash } }));
     createdAccount = true;
   }
   const u = await prisma.user.create({

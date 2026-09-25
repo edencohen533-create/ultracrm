@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const memberships = await membershipsForAccount(user.accountId);
     const target = memberships.find((m) => m.businessId === businessId);
     if (!target) return fail("אין לך גישה לעסק זה", 403, undefined, "forbidden");
-    const session = sessionFromMembership(target, user.accountId);
+    const session = sessionFromMembership(target, user.accountId, user.sessionVersion ?? 0);
     const token = await signSession(session);
     const res = NextResponse.json({ success: true, data: session });
     res.cookies.set(cookieName, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: cookieMaxAge, path: "/" });

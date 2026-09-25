@@ -201,7 +201,7 @@ export async function campaignPreflight(id: string) {
     : `${active?.senderName ?? ""} <${active?.senderEmail ?? ""}>${active?.provider.startsWith("mock") ? " (הדמיה)" : ""}`;
   const estimate = estimateCampaignCost(campaign.channel, active, campaign.template, eligible, marketing);
   const window = settings.marketing.window;
-  return { channel: campaign.channel, eligible, audienceExcluded: campaign.audienceExcludedCount, totalQueued: campaign.recipients.length, exclusions, blockers, samples, sender: senderLabel, audiencePolicy: "קהל מוקפא ביצירת הטיוטה; זכאות, הסכמה והסרות נבדקות מחדש בכל שליחה", cost: estimate, sendWindow: campaign.channel === "whatsapp" ? null : { ...window, timezone: window.timezone ?? settings.timezone, maxPerMinute: settings.marketing.maxPerMinute }, timezone: settings.timezone, simulated: Boolean(active?.provider.startsWith("mock")) || (campaign.channel === "whatsapp" && !active), lastTestAt: campaign.lastTestAt };
+  return { channel: campaign.channel, eligible, audienceExcluded: campaign.audienceExcludedCount, totalQueued: campaign.recipients.length, exclusions, blockers, samples, sender: senderLabel, audiencePolicy: "קהל מוקפא ביצירת הטיוטה; זכאות, הסכמה והסרות נבדקות מחדש בכל שליחה", cost: estimate, sendWindow: campaign.channel === "whatsapp" && campaign.template.category !== "MARKETING" ? null : { ...window, timezone: window.timezone ?? settings.timezone, maxPerMinute: settings.marketing.maxPerMinute }, timezone: settings.timezone, simulated: Boolean(active?.provider.startsWith("mock")) || (campaign.channel === "whatsapp" && !active), lastTestAt: campaign.lastTestAt };
 }
 
 /** Delivery / engagement / cost report. Every figure is labelled real, estimated or unavailable. */
@@ -281,6 +281,7 @@ export function campaignHash(c: { id: string; status: string }) { return createH
  * gets its own requestKey and the worker re-runs every eligibility check.
  */
 export async function retryRecipient(campaignId: string, recipientId: string, confirmNotSent: boolean, actorUserId: string | null) {
+  if (!await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true } })) throw new CampaignError("הקמפיין לא נמצא"); // tenant-scoped lookup first
   const recipient = await prisma.campaignRecipient.findFirst({ where: { id: recipientId, campaignId }, include: { campaign: { select: { status: true } }, message: { select: { status: true, errorReason: true } } } });
   if (!recipient) throw new CampaignError("הנמען לא נמצא");
   if (recipient.status === "UNKNOWN" && !confirmNotSent) throw new CampaignError("תוצאה לא ודאית: יש לוודא אצל הספק שההודעה לא נמסרה ולאשר זאת במפורש לפני ניסיון חוזר");
@@ -288,7 +289,7 @@ export async function retryRecipient(campaignId: string, recipientId: string, co
   if (recipient.attempts >= 10) throw new CampaignError("הגעת למספר הניסיונות המרבי לנמען זה");
   if (!["RUNNING", "PAUSED", "COMPLETED", "SCHEDULED"].includes(recipient.campaign.status)) throw new CampaignError("לא ניתן לנסות שוב בקמפיין שבוטל");
   await prisma.$transaction(async (tx) => {
-    await tx.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "QUEUED", claimedAt: null, completedAt: null, nextAttemptAt: null, attempts: Math.max(recipient.attempts, 1), error: `ניסיון חוזר ידני (${recipient.status})` } });
+    await tx.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "QUEUED", claimedAt: null, completedAt: null, nextAttemptAt: null, attempts: recipient.attempts + 1, error: `ניסיון חוזר ידני (${recipient.status})` } });
     if (recipient.campaign.status === "COMPLETED") await tx.campaign.update({ where: { id: campaignId }, data: { status: "RUNNING", statusReason: null } });
     await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: actorUserId, action: "campaign.recipient_retry", entityType: "Campaign", entityId: campaignId, payload: { recipientId, previousStatus: recipient.status, confirmNotSent, previousError: recipient.message?.errorReason ?? recipient.error ?? null } } });
   });

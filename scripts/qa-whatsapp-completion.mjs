@@ -108,7 +108,14 @@ await step("W5 campaign: start → runner (simulation) → report; recipients ta
   const detail = await api(`/api/campaigns/${campaignId}`);
   const recs = detail.json.recipients ?? [];
   if (!recs.length || recs.some((r) => typeof r.attempts !== "number")) throw new Error("recipients payload lacks attempts");
-  if (process.env.CRON_SECRET && !recs.some((r) => r.status === "SENT")) throw new Error(`no recipient reached SENT in simulation: ${recs.map((r) => r.status).join(",")}`);
+  if (process.env.CRON_SECRET && !recs.some((r) => r.status === "SENT")) {
+    // Outside the business's marketing window the worker must leave WhatsApp marketing QUEUED (6.02) – that is the correct outcome.
+    const pre = await api(`/api/campaigns/${campaignId}?preflight=1`);
+    const w = pre.json.sendWindow ?? pre.json.data?.sendWindow;
+    const hhmm = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: w?.timezone ?? "Asia/Jerusalem" }).format(new Date());
+    const outside = w && (hhmm < w.start || hhmm > w.end);
+    if (!outside || recs.some((r) => r.status !== "QUEUED")) throw new Error(`no recipient reached SENT in simulation: ${recs.map((r) => r.status).join(",")} (window ${JSON.stringify(w)})`);
+  }
   await shot("campaign-list");
 });
 
@@ -192,6 +199,17 @@ await step("W11 settings: WhatsApp card is honest (no Meta config → missing co
 await step("W12 tracked link: tampered token → 404, never an open redirect", async () => {
   const r = await page.request.get(`${BASE}/r/AAAA.BBBB`, { maxRedirects: 0 });
   if (r.status() === 302 || r.status() === 301) throw new Error("redirected on invalid token");
+});
+
+await step("W14 account: self-service password change validates the current password (no change made to the demo account)", async () => {
+  const wrong = await api("/api/auth/password", "POST", { currentPassword: "definitely-wrong", newPassword: "Another1234!" });
+  if (wrong.status !== 403) throw new Error(`wrong current password → ${wrong.status}`);
+  const same = await api("/api/auth/password", "POST", { currentPassword: "Demo1234!", newPassword: "Demo1234!" });
+  if (same.status !== 400) throw new Error(`same password → ${same.status}`);
+  const me = await api("/api/auth/me");
+  if (me.status !== 200) throw new Error("session must remain valid after rejected attempts");
+  await page.goto(`${BASE}/settings`, { waitUntil: "networkidle" });
+  await page.waitForSelector('[data-testid="account-change-password"]', { timeout: 30000 });
 });
 
 await step("W13 cleanup (QA rows only)", async () => {

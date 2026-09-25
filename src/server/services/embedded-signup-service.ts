@@ -19,6 +19,7 @@ import crypto from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import type { WaConnectionStatus } from "@/generated/prisma/enums";
 import { db, prisma } from "@/lib/db";
+import { withoutBusiness } from "@/lib/tenant";
 import { ApiError } from "@/lib/response";
 import { audit } from "@/lib/audit";
 import { appAccessToken, embeddedSignupReadiness, graph, GraphError, metaAppEnv, metaConfigOf, sealMetaConfig, GRAPH_VERSION } from "@/lib/meta/graph";
@@ -204,7 +205,8 @@ export async function completeSignup(user: SessionUser, input: CompleteInput) {
   } catch (err) { await fail(err, "verify_assets"); throw err; }
 
   // Conflicts: the phone (globally unique) must not belong to another business; one WABA per business.
-  const foreign = await db.providerCredential.findFirst({ where: { phoneNumberId: input.phoneNumberId, businessId: { not: user.businessId } }, select: { id: true } });
+  // Global-uniqueness read across businesses → outside the tenant scope (RLS would hide the other business).
+  const foreign = await withoutBusiness(() => db.providerCredential.findFirst({ where: { phoneNumberId: input.phoneNumberId, businessId: { not: user.businessId } }, select: { id: true } }));
   if (foreign) { await fail(new Error("phone bound to another business"), "conflict"); throw new SignupError("המספר הזה כבר מחובר לעסק אחר במערכת. יש לנתק אותו שם לפני חיבור כאן", 409, "phone_bound_elsewhere"); }
   const otherWaba = await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api", wabaId: { not: input.wabaId } }, select: { id: true, wabaId: true } });
   if (otherWaba) { await fail(new Error("another WABA active"), "conflict"); throw new SignupError("בעסק זה כבר מחובר חשבון WhatsApp אחר. נתק אותו לפני חיבור חשבון חדש", 409, "waba_conflict"); }

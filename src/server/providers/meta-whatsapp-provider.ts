@@ -6,6 +6,7 @@ import { MAX_DOWNLOAD_BYTES, safeMediaDownloadUrl } from "@/lib/media";
 import crypto from "node:crypto";
 import { GRAPH_VERSION } from "@/lib/meta/graph";
 import { classifyMetaError } from "@/lib/meta/errors";
+import { ProviderUnavailableError } from "@/server/providers/provider-registry";
 import { db } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
@@ -67,7 +68,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
 
   private async post(path: string, body: unknown) {
     // Re-check right before each send: the connection may have been disconnected, revoked or blocked meanwhile.
-    if (this.credentialId && !await prisma.providerCredential.findFirst({ where: { id: this.credentialId, isActive: true, sendingBlocked: false, phoneNumberId: this.config.phoneNumberId, status: { notIn: ["disconnected", "revoked", "error"] } }, select: { id: true } })) throw new Error("WhatsApp connection changed or sending is blocked");
+    if (this.credentialId && !await prisma.providerCredential.findFirst({ where: { id: this.credentialId, isActive: true, sendingBlocked: false, phoneNumberId: this.config.phoneNumberId, status: { notIn: ["disconnected", "revoked", "error"] } }, select: { id: true } })) throw new ProviderUnavailableError("החיבור השתנה או שהשליחה חסומה – הקמפיין יושהה עד לבדיקה");
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "POST",
       headers: {
@@ -256,7 +257,13 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
           catch (err) { if ((err as { code?: string }).code === "P2002") continue; throw err; }
           const failure = status.errors?.[0];
           const classified = failure ? classifyMetaError(failure.code, null, failure.message ?? failure.title) : null;
-          await updateProviderMessageStatus(status.id, mapped, providerTimestamp(status.timestamp), this.credentialId, classified ? { reason: classified.label, code: classified.code } : undefined);
+          try {
+            await updateProviderMessageStatus(status.id, mapped, providerTimestamp(status.timestamp), this.credentialId, classified ? { reason: classified.label, code: classified.code } : undefined);
+          } catch (err) {
+            // Do not keep a ledger row for a status that was never applied – Meta's retry must be able to re-deliver it.
+            await db.providerWebhookEvent.deleteMany({ where: { provider: "meta_whatsapp_cloud_api", eventId } }).catch(() => undefined);
+            throw err;
+          }
         }
       }
     }

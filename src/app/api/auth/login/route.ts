@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     const memberships = await membershipsForAccount(account.id);
     if (memberships.length === 0) return fail("החשבון אינו משויך לאף עסק פעיל", 403, undefined, "no_business");
     const chosen = (businessId ? memberships.find((m) => m.businessId === businessId) : undefined) ?? memberships[0];
-    const session = sessionFromMembership(chosen, account.id);
+    const session = sessionFromMembership(chosen, account.id, account.sessionVersion);
     const token = await signSession(session);
     const res = NextResponse.json({ success: true, data: { ...session, businesses: memberships.map((m) => ({ id: m.business.id, name: m.business.name, role: m.role })) } });
     res.cookies.set(cookieName, token, {

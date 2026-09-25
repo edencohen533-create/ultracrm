@@ -15,12 +15,13 @@ import { audit } from "@/lib/audit";
 import { emitEvent, kickEventProcessing } from "@/lib/events";
 import { consumeQuota } from "@/lib/modules";
 import { ApiError } from "@/lib/response";
-import { MARKETING_INTERVAL_MS } from "@/lib/message-policy";
+import { marketingIntervalMs } from "@/lib/message-policy";
+import { getBusinessSettings } from "@/lib/settings";
 import { sendBlockReason } from "@/lib/suppression";
 import { renderMergeTags, type MergeContact } from "@/lib/merge-tags";
 import { smsMetrics, SMS_MAX_SEGMENTS } from "@/lib/sms";
 import { rewriteTrackedLinks, signUnsubscribeToken, unsubscribeUrl } from "@/lib/unsubscribe-token";
-import { MessagePolicyError } from "./message-service";
+import { MessagePolicyError, FrequencyCapError, QuotaExceededError } from "./message-service";
 import { activeChannelCredential, ChannelUnavailableError, emailProviderFor, smsProviderFor } from "@/server/channels/registry";
 import { ChannelProviderError, ChannelRequestTimeout, type SmsSender } from "@/server/channels/types";
 import { Prisma, type Message, type ProviderCredential, type Template } from "@/generated/prisma/client";
@@ -94,12 +95,14 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
   if (input.channel === "email" && (!credential.senderEmail || !credential.senderName)) throw new MessagePolicyError("יש להגדיר שם וכתובת שולח לאימייל בהגדרות החיבור");
 
   const now = new Date();
+  const releaseSlot = async () => { if (marketing) await prisma.contact.updateMany({ where: { id: contact.id, lastMarketingAt: now }, data: { lastMarketingAt: null } }); };
   if (marketing) {
-    const reserved = await prisma.contact.updateMany({ where: { id: contact.id, isBlocked: false, consentStatus: "OPTED_IN", OR: [{ lastMarketingAt: null }, { lastMarketingAt: { lte: new Date(now.getTime() - MARKETING_INTERVAL_MS) } }] }, data: { lastMarketingAt: now } });
-    if (!reserved.count) throw new MessagePolicyError("אין זכאות לדיוור או שנוצלה מגבלת התדירות המשותפת (דיוור אחד לנמען ב-24 שעות בכל הערוצים)");
+    const capMs = marketingIntervalMs((await getBusinessSettings(businessId)).marketing.minHoursBetweenMarketing);
+    const reserved = await prisma.contact.updateMany({ where: { id: contact.id, isBlocked: false, consentStatus: "OPTED_IN", OR: [{ lastMarketingAt: null }, { lastMarketingAt: { lte: new Date(now.getTime() - capMs) } }] }, data: { lastMarketingAt: now } });
+    if (!reserved.count) throw new FrequencyCapError(`אין זכאות לדיוור או שנוצלה מגבלת התדירות המשותפת (דיוור אחד לנמען ב-${Math.round(capMs / 3600_000)} שעות בכל הערוצים)`);
   }
   try { await consumeQuota(businessId, "messages_sent"); }
-  catch (err) { if (err instanceof ApiError) throw new MessagePolicyError(err.message); throw err; }
+  catch (err) { await releaseSlot(); if (err instanceof ApiError) throw new QuotaExceededError(err.message); throw err; }
 
   const conversation = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "contacts" WHERE id = ${contact.id} FOR UPDATE`;
@@ -120,10 +123,12 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
   const rendered = renderChannelContent(template, mergeContact, extra, { marketing, sender, url });
   if (rendered.missing.length) {
     await prisma.message.update({ where: { id: queued.id }, data: { status: "CANCELLED", errorReason: `משתנים חסרים ללא ברירת מחדל: ${rendered.missing.join(", ")}`, failedAt: new Date() } });
+    await releaseSlot();
     throw new MessagePolicyError(`משתנים חסרים ללא ברירת מחדל: ${rendered.missing.join(", ")}`);
   }
   if (input.channel === "sms" && rendered.segments! > SMS_MAX_SEGMENTS) {
     await prisma.message.update({ where: { id: queued.id }, data: { status: "CANCELLED", errorReason: `ההודעה ארוכה מדי (${rendered.segments} מקטעים)`, failedAt: new Date() } });
+    await releaseSlot();
     throw new MessagePolicyError(`ההודעה ארוכה מדי (${rendered.segments} מקטעים, מותר עד ${SMS_MAX_SEGMENTS})`);
   }
   await prisma.message.update({ where: { id: queued.id }, data: { body: input.channel === "sms" ? rendered.body : rendered.text, subject: rendered.subject ?? null, segments: rendered.segments ?? null, encoding: rendered.encoding ?? null } });

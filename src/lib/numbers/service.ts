@@ -4,6 +4,7 @@
  * and reputation (manual reports only – no authorised Truecaller API).
  */
 import { db, prisma } from "@/lib/db";
+import { withoutBusiness } from "@/lib/tenant";
 import { Prisma } from "@/generated/prisma/client";
 import { audit } from "@/lib/audit";
 import { ApiError } from "@/lib/response";
@@ -52,7 +53,7 @@ export async function syncNumbers(businessId: string, provider: NumberProvider =
       await prisma.$transaction(async (tx) => {
         await lockNumberPool(tx, businessId);
         await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${"phone-number:" + item.e164}, 0))`);
-        if (await db.phoneNumber.findFirst({ where: { e164: item.e164, businessId: { not: businessId } } })) throw new ApiError("מספר הספק משויך לעסק אחר", 409, "number_tenant_conflict");
+        if (await withoutBusiness(() => db.phoneNumber.findFirst({ where: { e164: item.e164, businessId: { not: businessId } } }))) throw new ApiError("מספר הספק משויך לעסק אחר", 409, "number_tenant_conflict");
         const data = { providerNumberId: item.id, verificationStatus: item.status === "active" ? "verified" : "inactive", verifiedAt: new Date(), providerData: json(item) };
         await tx.phoneNumber.upsert({ where: { businessId_e164: { businessId, e164: item.e164 } }, create: { businessId, e164: item.e164, provider: provider.name === "mock" ? "mock" : "telnyx", isActive: item.status === "active", ...data }, update: data });
       });
@@ -76,7 +77,7 @@ export async function createNumberQuote(user: SessionUser, offer: { e164: string
     await lockNumberPool(tx, user.businessId);
     const existing = await tx.numberOrder.findUnique({ where: { businessId_provider_e164: { businessId: user.businessId, provider: provider.name, e164: fresh.e164 } } });
     if (existing && existing.state !== "quoted") return existing; // never reset an uncertain/submitted purchase
-    if (await db.phoneNumber.findFirst({ where: { e164: fresh.e164 } })) throw new ApiError("המספר כבר קיים במערכת", 409, "number_already_registered");
+    if (await withoutBusiness(() => db.phoneNumber.findFirst({ where: { e164: fresh.e164 } }))) throw new ApiError("המספר כבר קיים במערכת", 409, "number_already_registered");
     const data = { quote: json(fresh), expiresAt: new Date(Date.now() + 300000) };
     return existing ? tx.numberOrder.update({ where: { id: existing.id }, data }) : tx.numberOrder.create({ data: { businessId: user.businessId, provider: provider.name, e164: fresh.e164, ...data } });
   });

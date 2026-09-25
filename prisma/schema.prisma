@@ -392,6 +392,8 @@ model Account {
   passwordHash String    @map("password_hash")
   fullName     String    @map("full_name")
   isActive     Boolean   @default(true) @map("is_active")
+  /** Bumped on every password change – sessions issued before it are rejected (see auth.ts). */
+  sessionVersion Int     @default(0) @map("session_version")
   lastLoginAt  DateTime? @map("last_login_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")

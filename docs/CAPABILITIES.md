@@ -9,6 +9,8 @@
 | התחברות אחת לכל העסקים (Account ↔ User/חברות, תפקידים owner/manager/agent) | `src/lib/auth.ts`, `/api/auth/*` | ממומש ונבדק | smoke §1–2, browser B1/B13/B14 |
 | הקשר עסק מאומת + הרחבת Prisma שמסננת כל מודל עסקי; מודלי CRM/דיוור מסרבים לרוץ ללא הקשר | `src/lib/tenant.ts`, `src/lib/db.ts` | ממומש ונבדק | `tests/integration/tenant-isolation.test.ts`, smoke §6 (מזהה עסק מזויף בגוף הבקשה מתעלם) |
 | מודולים ומכסות לפי חבילה (Plan / Business.modules / UsageCounter), אכיפה בשרת | `src/lib/modules.ts`, `withAuth({ module })` | ממומש ונבדק | smoke §6 (`module_disabled`), browser B14 (עסק Starter ללא טלפוניה) |
+| Row-Level Security ב-PostgreSQL לכל 48 טבלאות העסק/הילד (תפקיד `ultracrm_runtime`, transaction-local, בטוח מאחורי pooler); `withoutBusiness` לקריאות זהות חוצות-עסקים | `src/lib/db-rls.ts`, `prisma/migrations/20260925090000_rls_session_version` | ממומש ונבדק | `tests/integration/rls.test.ts` – קריאה/כתיבה/raw SQL/transaction חוצי-עסק נחסמים במסד |
+| פסילת סשנים אחרי שינוי סיסמה (`Account.sessionVersion` ב-JWT) + שינוי סיסמה עצמי לכל תפקיד | `src/lib/auth.ts`, `/api/auth/password`, הגדרות → החשבון שלי | ממומש ונבדק | `tests/integration/rls.test.ts` |
 | Audit Log לפעולות ניהול ושינויים רגישים | `audit_logs` | ממומש | הגדרות → היסטוריית שינויים |
 | חוזה אירועים + outbox + מטפלים אידמפוטנטיים | `src/lib/events/*`, `domain_events`, `automation_jobs` | ממומש ונבדק | `tests/integration/events.test.ts` |
 | הסרה גלובלית מכל הדיוור (כל המזהים, כל הערוצים, בדיקה ב-worker, ייבוא לא מבטל, חזרה עם תיעוד) | `src/lib/suppression.ts`, `suppressions` | ממומש ונבדק | `tests/integration/suppression.test.ts`, smoke §9, browser B11 |

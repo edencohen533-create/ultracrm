@@ -1,5 +1,7 @@
 /** Application policy, not a claim about a provider's marketing limit. */
 export const MARKETING_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** Business setting (marketing.minHoursBetweenMarketing) → ms; the same value drives preflight and the send-time reservation. */
+export function marketingIntervalMs(hours?: number) { return (hours && hours > 0 ? hours : 24) * 3600_000; }
 export function isUnsubscribe(text: string) {
   const normalized = text.normalize("NFKC").trim().toLowerCase().replace(/[.!?]+$/u, "").trim();
   return ["הסר", "הסרה", "הסר אותי", "הסירו אותי", "הפסק", "stop", "unsubscribe", "stop all", "cancel", "remove me"].includes(normalized);

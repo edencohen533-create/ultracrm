@@ -37,6 +37,26 @@ export function withBusiness<T>(businessId: string, operation: () => T, session?
   });
 }
 
+/** Account of the authenticated session in the current scope (null for webhook / cron scopes). */
+export function currentAccountId(): string | null {
+  return storage.getStore()?.session?.accountId ?? null;
+}
+
+/**
+ * Run `operation` outside any business scope – for the few identity-level reads that must see every
+ * business (e.g. "is this account also a member elsewhere?"). Never use it for business data.
+ */
+export function withoutBusiness<T>(operation: () => T): T {
+  return storage.exit(() => {
+    const result = operation();
+    // Prisma queries run lazily on `.then` – settle them while still outside the scope (see withBusiness).
+    if (result && typeof (result as { then?: unknown }).then === "function") {
+      return (async () => await (result as unknown as Promise<unknown>))() as unknown as T;
+    }
+    return result;
+  });
+}
+
 /** The current business id or `null` when running outside a tenant scope (login, webhook routing, cron enumeration). */
 export function currentBusinessId(): string | null {
   return storage.getStore()?.businessId ?? null;

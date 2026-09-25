@@ -82,7 +82,7 @@ await step("L5 the session dials the next lead automatically (simulation), the l
 });
 
 await step("L6 hang up → outcome panel in the same screen → save outcome → next lead countdown; stop returns to the list", async () => {
-  const hang = page.locator("button", { hasText: /^נתק$/ });
+  const hang = page.locator("button", { hasText: /^נתק/ });
   if (await hang.count()) await hang.first().click();
   await page.waitForSelector("text=תוצאת שיחה", { timeout: 90000 });
   const noAnswer = page.locator("button", { hasText: /^אין מענה/ }).first();
@@ -99,7 +99,7 @@ await step("L7 manual dial from a lead row, then hang up and record the outcome 
   await dialBtn.click();
   await page.waitForSelector('[data-testid="dialer-embedded"]', { timeout: 60000 });
   // The simulated call may end on its own; hang up only while it is still live, then the outcome form must appear.
-  const hang = page.locator("button", { hasText: /^נתק$/ }).first();
+  const hang = page.locator("button", { hasText: /^נתק/ }).first();
   try { await hang.waitFor({ timeout: 20000 }); await hang.click({ timeout: 10000 }); } catch { /* already ended */ }
   await page.waitForSelector("text=תוצאת שיחה", { timeout: 90000 });
   const noAnswer = page.locator("button", { hasText: /^אין מענה/ }).first();

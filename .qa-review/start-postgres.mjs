@@ -1,0 +1,10 @@
+import EmbeddedPostgres from '/private/tmp/dialer-qa-runtime/node_modules/embedded-postgres/dist/index.js';
+import fs from 'node:fs';
+const dir='/private/tmp/ultracrm-review-20260925-pg';
+const pg=new EmbeddedPostgres({databaseDir:dir,user:'qa',password:'review-local-only',port:55449,persistent:true,initdbFlags:['--locale=C','--encoding=UTF8'],postgresFlags:['-h','127.0.0.1','-c','max_connections=100']});
+if(!fs.existsSync(dir+'/PG_VERSION')) await pg.initialise();
+await pg.start();
+const c=pg.getPgClient();await c.connect();
+if(!(await c.query("SELECT 1 FROM pg_database WHERE datname='ultracrm_review'")).rowCount)await pg.createDatabase('ultracrm_review');
+await c.end();console.log('REVIEW_DB_READY 127.0.0.1:55449/ultracrm_review');
+const timer=setInterval(()=>{},10000);process.on('SIGTERM',async()=>{clearInterval(timer);await pg.stop();process.exit(0)});

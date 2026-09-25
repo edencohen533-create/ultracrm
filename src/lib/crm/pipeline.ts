@@ -223,6 +223,9 @@ export async function updateDeal(user: SessionUser, id: string, input: z.infer<t
     if (stage === "won" && deal.stage !== "won") {
       await emitEvent(tx, { businessId: user.businessId, type: "deal.won", contactId: deal.contactId, actorUserId: user.id, source: "user", dedupeKey: `deal.won:${deal.id}`, payload: { dealId: deal.id, amount: Number(u.amount) } });
     }
+    if (stage === "lost" && deal.stage !== "lost") {
+      await emitEvent(tx, { businessId: user.businessId, type: "deal.lost", contactId: deal.contactId, actorUserId: user.id, source: "user", dedupeKey: `deal.lost:${deal.id}`, payload: { dealId: deal.id, leadId: deal.leadId } });
+    }
     return u;
   });
   kickEventProcessing(user.businessId);

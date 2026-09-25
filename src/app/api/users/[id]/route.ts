@@ -14,6 +14,7 @@ const schema = z.object({
   role: z.enum(["owner", "manager", "agent"]).optional(),
   teamId: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
+  coachEnabled: z.boolean().optional(),
   password: z.string().min(8).max(100).optional(),
 });
 
@@ -45,7 +46,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
       ...(b.teamId !== undefined ? { teamId: b.teamId } : {}),
       ...(b.isActive !== undefined ? { isActive: b.isActive } : {}),
     },
-    select: { id: true, fullName: true, email: true, role: true, isActive: true, teamId: true },
+    select: { id: true, fullName: true, email: true, role: true, isActive: true, coachEnabled: true, teamId: true },
   });
   if (b.isActive === false) {
     // Revoke live work: end sessions and unassign open conversations.

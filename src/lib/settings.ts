@@ -48,7 +48,15 @@ export interface RetentionSettings {
   /** Delete audit-log rows older than N days (0 = keep). */
   auditDays: number;
 }
+export interface CoachSettings {
+  /** Real-time sales coach for this business (agents can be switched off individually via User.coachEnabled). */
+  enabled: boolean;
+  /** Transcribe saved recordings after the call for learning (costs STT minutes). */
+  learnFromRecordings: boolean;
+}
+
 export interface BusinessSettings {
+  coach: CoachSettings;
   marketing: MarketingSettings;
   retention: RetentionSettings;
   wrapUpSeconds: number;
@@ -114,6 +122,7 @@ export const DEFAULT_PRIORITIZATION: PrioritizationWeights = {
 };
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
+  coach: { enabled: false, learnFromRecordings: false },
   retention: { messagesDays: 0, auditDays: 0 },
   marketing: { window: { start: "08:00", end: "21:00", days: [0, 1, 2, 3, 4, 5, 6], timezone: "Asia/Jerusalem" }, maxPerMinute: 60, minHoursBetweenMarketing: 24 },
   wrapUpSeconds: 60,
@@ -147,6 +156,7 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     dialWindow: { ...DEFAULT_SETTINGS.dialWindow, ...(r.dialWindow ?? {}) },
     marketing: { ...DEFAULT_SETTINGS.marketing, ...(r.marketing ?? {}), window: { ...DEFAULT_SETTINGS.marketing.window, ...(r.marketing?.window ?? {}) } },
     retention: { ...DEFAULT_SETTINGS.retention, ...(r.retention ?? {}) },
+    coach: { ...DEFAULT_SETTINGS.coach, ...(r.coach ?? {}) },
     prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },
     inbound: { ...DEFAULT_SETTINGS.inbound, ...(r.inbound ?? {}) },
     automations: {

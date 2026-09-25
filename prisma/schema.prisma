@@ -320,6 +320,9 @@ model Plan {
 }
 
 model Business {
+  coachKnowledge   CoachKnowledge?
+  coachSessions    CoachSession[]
+  coachExamples    CoachExample[]
   id                   String    @id @default(cuid())
   name                 String
   slug                 String    @unique
@@ -418,6 +421,8 @@ model User {
   avatarUrl  String?        @map("avatar_url")
   presence   PresenceStatus @default(offline)
   presenceAt DateTime       @default(now()) @map("presence_at")
+  /// Real-time sales coach shown to this agent (business-level switch in settings.coach). 
+  coachEnabled Boolean @default(true) @map("coach_enabled")
   lastSeenAt DateTime?      @map("last_seen_at")
 
   /// Telnyx telephony credential (one per business user).
@@ -991,6 +996,7 @@ model DialerSession {
 }
 
 model Call {
+  coachSession   CoachSession?
   id             String            @id @default(cuid())
   businessId     String            @map("business_id")
   userId         String            @map("user_id")
@@ -1807,4 +1813,179 @@ model NumberOrder {
   @@unique([businessId, provider, e164])
   @@index([businessId, createdAt])
   @@map("number_orders")
+}
+
+// ───────────────────────── Real-time sales coach (AI) ─────────────────────────
+
+enum CoachSpeaker {
+  customer
+  agent
+  unknown
+}
+
+enum CoachSegmentSource {
+  browser_stt
+  simulation
+  recording
+  telnyx_stream
+}
+
+enum CoachSessionStatus {
+  listening
+  analyzing
+  ready
+  unavailable
+  ended
+}
+
+enum CoachExampleStatus {
+  pending
+  approved
+  rejected
+}
+
+enum CoachOutcome {
+  won
+  lost
+  unknown
+}
+
+/// Per-business approved knowledge the coach may rely on (never invented by the model).
+model CoachKnowledge {
+  id              String   @id @default(cuid())
+  businessId      String   @unique @map("business_id")
+  description     String   @default("")
+  audience        String   @default("")
+  /// [{ name, price, notes }]
+  products        Json     @default("[]")
+  benefits        Json     @default("[]")
+  /// [{ question, answer }]
+  faqs            Json     @default("[]")
+  /// [{ objection, response }]
+  objections      Json     @default("[]")
+  forbiddenClaims Json     @default("[]") @map("forbidden_claims")
+  style           String   @default("")
+  callGoal        String   @default("") @map("call_goal")
+  updatedById     String?  @map("updated_by_id")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("coach_knowledge")
+}
+
+/// One coach session per call: rolling summary + conversation state + usage/cost.
+model CoachSession {
+  id             String             @id @default(cuid())
+  businessId     String             @map("business_id")
+  callId         String             @unique @map("call_id")
+  userId         String             @map("user_id")
+  contactId      String?            @map("contact_id")
+  leadId         String?            @map("lead_id")
+  status         CoachSessionStatus @default(listening)
+  summary        String             @default("")
+  stage          String?
+  customerGoal   String?            @map("customer_goal")
+  lastObjection  String?            @map("last_objection")
+  /// [{ text, by }] – promises / commitments made during the call
+  promises       Json               @default("[]")
+  segmentsCount  Int                @default(0) @map("segments_count")
+  lastSegmentAt  DateTime?          @map("last_segment_at")
+  sttSeconds     Float              @default(0) @map("stt_seconds")
+  tokensIn       Int                @default(0) @map("tokens_in")
+  tokensOut      Int                @default(0) @map("tokens_out")
+  costUsd        Decimal            @default(0) @db.Decimal(10, 5) @map("cost_usd")
+  latencyMsTotal Int                @default(0) @map("latency_ms_total")
+  latencySamples Int                @default(0) @map("latency_samples")
+  provider       String?
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  business        Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  call            Call                  @relation(fields: [callId], references: [id], onDelete: Cascade)
+  segments        CoachSegment[]
+  recommendations CoachRecommendation[]
+
+  @@index([businessId, createdAt])
+  @@map("coach_sessions")
+}
+
+model CoachSegment {
+  id         String             @id @default(cuid())
+  businessId String             @map("business_id")
+  sessionId  String             @map("session_id")
+  callId     String             @map("call_id")
+  speaker    CoachSpeaker       @default(unknown)
+  text       String
+  startMs    Int?               @map("start_ms")
+  endMs      Int?               @map("end_ms")
+  source     CoachSegmentSource
+  createdAt  DateTime           @default(now()) @map("created_at")
+
+  session CoachSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([businessId])
+  @@map("coach_segments")
+}
+
+model CoachRecommendation {
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  sessionId        String    @map("session_id")
+  callId           String    @map("call_id")
+  objection        String?
+  sayNow           String    @map("say_now")
+  why              String    @default("")
+  confidence       Float     @default(0)
+  stage            String?
+  /// examples = backed by this business's reviewed sales examples; knowledge_only = approved knowledge only; question = ask the agent
+  basis            String    @default("knowledge_only")
+  /// { exampleIds: [], knowledge: [], leadFacts: [] }
+  sources          Json      @default("{}")
+  triggerSegmentId String?   @map("trigger_segment_id")
+  latencyMs        Int?      @map("latency_ms")
+  shownAt          DateTime? @map("shown_at")
+  feedback         String?
+  supersededAt     DateTime? @map("superseded_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  session CoachSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([businessId, createdAt])
+  @@map("coach_recommendations")
+}
+
+/// Verifiable sales moments extracted from finished calls, linked to the deal outcome. Reviewed by managers.
+model CoachExample {
+  id             String             @id @default(cuid())
+  businessId     String             @map("business_id")
+  callId         String?            @map("call_id")
+  sessionId      String?            @map("session_id")
+  dealId         String?            @map("deal_id")
+  leadId         String?            @map("lead_id")
+  userId         String?            @map("user_id")
+  objection      String
+  agentResponse  String             @map("agent_response")
+  /// what the manager wants said instead (used when set)
+  editedResponse String?            @map("edited_response")
+  stage          String?
+  product        String?
+  outcome        CoachOutcome       @default(unknown)
+  /// verbatim excerpt from the transcript so the moment can be checked
+  quote          String             @default("")
+  segmentIds     Json               @default("[]") @map("segment_ids")
+  questions      Json               @default("[]")
+  embedding      Json?
+  status         CoachExampleStatus @default(pending)
+  reviewedById   String?            @map("reviewed_by_id")
+  reviewedAt     DateTime?          @map("reviewed_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([callId])
+  @@map("coach_examples")
 }

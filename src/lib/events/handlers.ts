@@ -201,4 +201,21 @@ const sequences: EventHandler = {
   },
 };
 
-export const HANDLERS: EventHandler[] = [leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences];
+/** Real-time sales coach: extract reviewable examples after a call, label them when the deal closes. Never blocks the call. */
+const coachLearning: EventHandler = {
+  name: "coach.learning",
+  types: ["call.ended", "deal.won", "deal.lost"],
+  async run(event) {
+    const { learnFromCall, attachDealOutcome } = await import("@/server/coach/learning");
+    if (event.type === "call.ended") {
+      const { callId } = payload<{ callId?: string }>(event);
+      if (!callId) return { skipped: "no callId" };
+      return (await learnFromCall(callId)) ?? {};
+    }
+    const { dealId } = payload<{ dealId?: string }>(event);
+    if (!dealId) return { skipped: "no dealId" };
+    return attachDealOutcome(dealId, event.type === "deal.won" ? "won" : "lost");
+  },
+};
+
+export const HANDLERS: EventHandler[] = [coachLearning, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences];

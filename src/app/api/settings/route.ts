@@ -50,6 +50,7 @@ const schema = z.object({
       }).partial().optional(),
       dialWindow: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
       retention: z.object({ messagesDays: z.number().int().min(0).max(3650).optional(), auditDays: z.number().int().min(0).max(3650).optional() }).optional(),
+      coach: z.object({ enabled: z.boolean().optional(), learnFromRecordings: z.boolean().optional() }).optional(),
       marketing: z.object({
         window: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
         maxPerMinute: z.number().int().min(0).max(600).optional(),
@@ -70,6 +71,7 @@ export const PATCH = withAuth(async ({ req, user }) => {
     automations: { ...before.automations, ...(b.settings?.automations ?? {}), followUpMessage: { ...before.automations.followUpMessage, ...(b.settings?.automations?.followUpMessage ?? {}) } },
     marketing: { ...before.marketing, ...(b.settings?.marketing ?? {}), window: { ...before.marketing.window, ...(b.settings?.marketing?.window ?? {}) } },
     retention: { ...before.retention, ...(b.settings?.retention ?? {}) },
+    coach: { ...before.coach, ...(b.settings?.coach ?? {}) },
   });
   const changed: Record<string, { from: unknown; to: unknown }> = {};
   for (const k of Object.keys(merged) as (keyof typeof merged)[]) {

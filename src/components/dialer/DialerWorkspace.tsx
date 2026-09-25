@@ -9,6 +9,7 @@ import { LeadQueue } from "./LeadQueue";
 import { LeadCard } from "./LeadCard";
 import { CallPanel } from "./CallPanel";
 import { OutcomePanel } from "./OutcomePanel";
+import { CoachCard } from "@/components/coach/CoachCard";
 import { useHotkeys } from "./useHotkeys";
 import type { OutcomeKey } from "@/lib/client/types";
 
@@ -115,6 +116,11 @@ export function DialerWorkspace({ embedded = false }: { embedded?: boolean } = {
 
         {/* Active lead */}
         <section className="min-h-0 flex flex-col">
+          {call && (
+            <div className="p-3 border-b border-line shrink-0">
+              <CoachCard callId={call.id} answered={call.status === "answered"} simulation={Boolean(state?.telephony.simulation)} />
+            </div>
+          )}
           <div className="flex-1 min-h-0">
             <LeadCard
               contactId={focusContactId}

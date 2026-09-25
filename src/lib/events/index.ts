@@ -23,6 +23,7 @@ export type DomainEventType =
   | "lead.status_changed"
   | "deal.created"
   | "deal.won"
+  | "deal.lost"
   | "call.ended"
   | "call.outcome_saved"
   | "message.received"

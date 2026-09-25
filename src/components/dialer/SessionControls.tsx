@@ -61,6 +61,8 @@ export function SessionControls() {
     );
   }
 
+  // A manual call (or its wrap-up) without a session: no start form in the workspace header – finish the call first.
+  if (state?.activeCall || state?.wrapUpCall) return <p className="text-xs text-muted">שיחה ידנית – תעד את התוצאה בסיום ותחזור לרשימת הלידים. הפעלת החייגן האוטומטי זמינה מראש מסך הלידים.</p>;
   return <StartSessionForm />;
 }
 

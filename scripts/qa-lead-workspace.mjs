@@ -119,10 +119,11 @@ await step("L7a 'הלידים שלי': the pre-flight builds a personal queue fr
   await page.goto(`${BASE}/leads`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="open-dialer"]:not([disabled])');
   await page.click('[data-testid="open-dialer"]');
+  await page.waitForSelector('[data-testid="source-mine"]', { timeout: 120000 });
   await page.click('[data-testid="source-mine"]');
-  await page.waitForSelector("text=הלידים של", { timeout: 60000 });
+  await page.waitForFunction(() => /זמינים לחיוג עכשיו/.test(document.querySelector('div[role="dialog"]')?.textContent ?? ""), null, { timeout: 120000 });
   const txt = await page.textContent('div[role="dialog"]');
-  if (!/זמינים לחיוג עכשיו/.test(txt)) throw new Error("personal queue has no due-count line");
+  if (!/הלידים של/.test(txt)) throw new Error("personal queue not named after the agent");
   await page.keyboard.press("Escape");
   const lists = await api("/api/lists");
   const mine = (lists.json.data ?? lists.json).find((l) => l.name.startsWith("הלידים של"));

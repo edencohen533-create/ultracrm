@@ -37,7 +37,7 @@ export function DialerScreen() {
       <main className="dialer-main">
         <div className="dialer-topbar"><Link href="/leads" className="dialer-back" data-testid="dialer-back"><ArrowRight size={16} /> חזרה ללידים</Link>{live && <span className="dialer-live-badge">החייגן פעיל</span>}</div>
         {live ? (
-          <section className="dialer-live" data-testid="dialer-embedded"><DialerWorkspace embedded /></section>
+          <section className="dialer-live" data-testid="dialer-embedded"><DialerWorkspace embedded minimal /></section>
         ) : (
           <section className="dialer-launcher" data-testid="dialer-launcher">
             <h1>הפעלת חייגן אוטומטי</h1>

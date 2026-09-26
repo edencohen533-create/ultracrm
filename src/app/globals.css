@@ -344,3 +344,12 @@ table {
 .perf-icon { width: 60px; height: 60px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #e6e9f0; background: #fafbfd; }
 .perf-icon.orange { color: #f28c28; } .perf-icon.green { color: #22a55b; } .perf-icon.yellow { color: #e7b52a; } .perf-icon.blue { color: #3b6fe0; } .perf-icon.indigo { color: #5b5fd6; }
 @media (max-width: 900px) { .dialer-screen { grid-template-columns: 1fr; } .dialer-perf { border-inline-start: 0; border-top: 1px solid #e3e7ef; } }
+
+/* Minimal call strip on the dialer screen */
+.call-strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #e3e7ef; background: #fafbfd; }
+.call-strip.answered { background: #eefaf1; }
+.call-strip-status { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.call-strip-status b { font-size: 18px; }
+.call-strip-status .dot { width: 10px; height: 10px; border-radius: 50%; background: #f0a030; }
+.call-strip-status .dot.on { background: #22a55b; }
+.call-strip-actions { display: flex; gap: 8px; }

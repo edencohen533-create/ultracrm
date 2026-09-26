@@ -15,6 +15,8 @@ export const campaignSchema = z.object({
   senderId: z.string().trim().min(1).max(40).nullable().optional(),
   name: z.string().trim().min(1).max(120),
   listId: z.string().min(1),
+  /** Additional audiences (union with listId). */
+  listIds: z.array(z.string().min(1)).max(20).optional(),
   templateId: z.string().min(1),
   /** WhatsApp: numbered template parameters. SMS/email: extra merge values (e.g. custom offers). */
   variables: z.record(z.string(), z.string().trim().min(1).max(1024)).default({}),
@@ -24,7 +26,7 @@ export const campaignSchema = z.object({
   buttonParams: z.record(z.string().regex(/^\d+$/), z.string().trim().min(1).max(500)).nullable().optional(),
 });
 export const campaignActionSchema = z.object({
-  action: z.enum(["start", "pause", "resume", "cancel", "retry_recipient"]),
+  action: z.enum(["start", "pause", "resume", "cancel", "unschedule", "retry_recipient"]),
   scheduledAt: z.iso.datetime({ offset: true }).optional(),
   /** IANA timezone the schedule was entered in (audit/display – the instant is authoritative). */
   scheduledTimezone: z.string().max(60).optional(),
@@ -81,3 +83,16 @@ export const recipientStatusLabels: Record<string, string> = {
 export const deliveryStatusLabels: Record<string, string> = {
   QUEUED: "בתור", UNKNOWN: "תוצאה לא ודאית", ACCEPTED: "הועבר לספק", SENT: "נשלח", DELIVERED: "נמסר", READ: "נקרא", FAILED: "נכשל", BOUNCED: "הוקפץ (bounce)", CANCELLED: "בוטל",
 };
+
+/** Campaign list filter buckets ("סינון לפי סטטוס"). "failed" = a campaign the system stopped (statusReason) or whose sends all failed. */
+export type CampaignBucket = "all" | "draft" | "scheduled" | "running" | "sent" | "failed";
+export const CAMPAIGN_BUCKET_LABELS: Record<CampaignBucket, string> = { all: "הכול", draft: "טיוטה", scheduled: "מתוזמן", running: "בתהליך", sent: "נשלח", failed: "נכשל" };
+export function campaignBucket(c: { status: string; statusReason?: string | null; counts?: Record<string, number> }): Exclude<CampaignBucket, "all"> | "cancelled" {
+  if (c.status === "DRAFT") return "draft";
+  if (c.status === "SCHEDULED") return "scheduled";
+  if (c.status === "RUNNING" || c.status === "PAUSED") return c.statusReason ? "failed" : "running";
+  if (c.status === "CANCELLED") return "cancelled";
+  const counts = c.counts ?? {};
+  const sent = counts.SENT ?? 0; const failed = (counts.FAILED ?? 0) + (counts.UNKNOWN ?? 0);
+  return sent === 0 && failed > 0 ? "failed" : "sent";
+}

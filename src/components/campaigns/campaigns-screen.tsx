@@ -6,6 +6,7 @@ import { listChannelCredentials } from "@/server/services/channel-credential-ser
 import { campaignActor } from "@/lib/campaign-auth";
 import { prisma } from "@/lib/db";
 import { CampaignDashboard } from "@/components/campaigns/campaign-dashboard";
+import { CampaignsList } from "@/components/campaigns/campaigns-list";
 import { listCampaigns } from "@/server/services/campaign-service";
 import { getActiveProviderSummary } from "@/server/services/provider-credential-service";
 import { getBusinessSettings } from "@/lib/settings";
@@ -16,6 +17,12 @@ type ChannelKey = "whatsapp" | "sms" | "email";
 /** Server loader shared by /audiences and /campaigns/{whatsapp,email,sms}: same data, different slice of the dashboard. */
 export const CampaignsScreen = organizationRequest(async function CampaignsScreen({ mode, fixedChannel }: { mode: "audiences" | "campaigns"; fixedChannel?: ChannelKey }) {
   if (!await campaignActor()) return <p className="p-6">הגישה לקמפיינים מיועדת למנהלים בלבד.</p>;
+  if (mode === "campaigns" && fixedChannel) {
+    const settings = await getBusinessSettings(requireBusinessId());
+    const biz = await prisma.business.findUnique({ where: { id: requireBusinessId() }, select: { timezone: true } });
+    void settings;
+    return <CampaignsList channel={fixedChannel} timezone={biz?.timezone ?? "Asia/Jerusalem"} />;
+  }
   const [campaigns, lists, contacts, templates, provider, senders, tags, agents, channelTemplates, smsCreds, emailCreds, settings] = await Promise.all([
     listCampaigns(),
     prisma.distributionList.findMany({ orderBy: { createdAt: "desc" }, include: { members: { select: { contactId: true } }, _count: { select: { members: true } } } }),

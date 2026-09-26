@@ -19,7 +19,7 @@ export const channelTemplateSchema = z.discriminatedUnion("channel", [
 export type ChannelTemplateInput = z.infer<typeof channelTemplateSchema>;
 
 export async function listChannelTemplates(channel?: "sms" | "email") {
-  return prisma.template.findMany({ where: { channel: channel ?? { in: ["sms", "email"] } }, orderBy: [{ channel: "asc" }, { name: "asc" }], select: { id: true, channel: true, name: true, category: true, status: true, body: true, subject: true, preheader: true, design: true, html: true, text: true, variables: true, updatedAt: true, _count: { select: { campaigns: true } } } });
+  return prisma.template.findMany({ where: { channel: channel ?? { in: ["sms", "email"] }, internal: false }, orderBy: [{ channel: "asc" }, { name: "asc" }], select: { id: true, channel: true, name: true, category: true, status: true, body: true, subject: true, preheader: true, design: true, html: true, text: true, variables: true, updatedAt: true, _count: { select: { campaigns: true } } } });
 }
 
 export async function saveChannelTemplate(user: SessionUser, input: ChannelTemplateInput) {

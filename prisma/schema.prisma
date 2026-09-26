@@ -381,6 +381,7 @@ model Business {
   automationRuns         AutomationRun[]
   distributionLists      DistributionList[]
   campaigns              Campaign[]
+  campaignDrafts         CampaignDraft[]
   conversationDrafts     ConversationDraft[]
   marketingSequences     MarketingSequence[]
   sequenceRuns           SequenceRun[]
@@ -1494,6 +1495,8 @@ model Template {
   design             Json?
   html               String?
   text               String?
+  /// Working copy owned by a campaign draft (hidden from the template gallery).
+  internal           Boolean          @default(false)
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 
@@ -1588,6 +1591,8 @@ model Campaign {
   providerCredentialId  String?        @map("provider_credential_id")
   variables             Json           @default("{}")
   excludedListIds       Json           @default("[]") @map("excluded_list_ids")
+  /// All selected audiences (listId is the first one – kept for the FK). Union of the lists' contacts.
+  listIds               Json           @default("[]") @map("list_ids")
   audienceSnapshot      Json?          @map("audience_snapshot")
   audienceExcludedCount Int            @default(0) @map("audience_excluded_count")
   senderSnapshot        String?        @map("sender_snapshot")
@@ -1619,12 +1624,38 @@ model Campaign {
   providerCredential ProviderCredential? @relation(fields: [providerCredentialId], references: [id], onDelete: Restrict)
   createdBy          User                @relation(fields: [createdById], references: [id])
   recipients         CampaignRecipient[]
+  drafts             CampaignDraft[]
 
   @@index([businessId, status, scheduledAt])
   @@index([businessId, channel, createdAt])
   @@index([listId])
   @@index([templateId])
   @@map("campaigns")
+}
+
+/// Step-by-step campaign builder state ("יצירת קמפיין"). A draft becomes a real Campaign when it is built at the
+/// review step; `campaignId` then points at that (DRAFT/SCHEDULED) campaign, and edits rebuild it.
+model CampaignDraft {
+  id          String   @id @default(cuid())
+  businessId  String   @map("business_id")
+  channel     Channel  @default(email)
+  name        String
+  /// info | audience | template | content | review
+  step        String   @default("info")
+  /// Everything the wizard collected: subject, preheader, senderCredentialId, replyTo, listIds, excludedListIds, templateId, design, body, variables, mediaUrl, buttonParams, schedule…
+  data        Json     @default("{}")
+  /// Working template row (email/sms) rendered from `data` – updated on every build/test.
+  templateId  String?  @map("template_id")
+  campaignId  String?  @map("campaign_id")
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, channel, updatedAt])
+  @@map("campaign_drafts")
 }
 
 model CampaignRecipient {

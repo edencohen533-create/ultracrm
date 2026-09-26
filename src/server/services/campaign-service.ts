@@ -241,7 +241,7 @@ export async function campaignReport(id: string) {
     cost: costCount ? (costCount === messages.length ? "real" : "partial") : (campaign.estimate as { known?: boolean } | null)?.known ? "estimated" : "unavailable",
   } as const;
   return {
-    id: campaign.id, name: campaign.name, channel: campaign.channel, status: campaign.status, statusReason: campaign.statusReason, template: campaign.template, simulated,
+    id: campaign.id, name: campaign.name, channel: campaign.channel, status: campaign.status, scheduledAt: campaign.scheduledAt, statusReason: campaign.statusReason, template: campaign.template, simulated,
     recipients: recipientCounts, delivery, engagement: { opened, clicked, complained, hardBounce, softBounce, replies, unsubscribes },
     cost: { actual: costCount ? { amount: Number(costSum.toFixed(4)), currency: costCurrency, messages: costCount } : null, estimate: campaign.estimate },
     availability,

@@ -9,7 +9,7 @@ export const EMAIL_STARTERS: Array<{ key: string; name: string; description: str
     { type: "footer", text: "שם העסק · כתובת · טלפון" },
   ] }) },
   { key: "promo", name: "מבצע", description: "תמונה גדולה, כותרת מבצע, כפתור ורשתות חברתיות", design: emailDesignSchema.parse({ blocks: [
-    { type: "image", src: "https://placehold.co/600x260/111111/ffffff?text=%D7%9E%D7%91%D7%A6%D7%A2", alt: "מבצע" },
+    { type: "image", src: "https://placehold.co/600x260/111111/ffffff?text=SALE", alt: "מבצע" },
     { type: "heading", text: "המבצע שחיכית לו", align: "center" },
     { type: "text", text: "עד סוף השבוע: תיאור קצר של ההטבה ומה צריך לעשות כדי לקבל אותה.", align: "center" },
     { type: "button", text: "אני רוצה", href: "https://example.com" },

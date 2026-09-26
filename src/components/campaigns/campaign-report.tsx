@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CHANNEL_LABELS, recipientStatusLabels, deliveryStatusLabels, campaignStatusLabels } from "@/lib/campaigns";
+import { CHANNEL_LABELS, recipientStatusLabels, deliveryStatusLabels, CAMPAIGN_BUCKET_LABELS, campaignBucket } from "@/lib/campaigns";
 
-type Report = { id: string; name: string; channel: string; status: string; statusReason: string | null; simulated: boolean; recipients: Record<string, number>; delivery: Record<string, number>; engagement: { opened: number; clicked: number; complained: number; hardBounce: number; softBounce: number; replies: number | null; unsubscribes: number }; cost: { actual: { amount: number; currency: string | null; messages: number } | null; estimate: { total: number | null; currency: string | null; known: boolean } | null }; availability: Record<string, string>; notes: string[] };
+type Report = { id: string; name: string; channel: string; status: string; scheduledAt?: string | null; statusReason: string | null; simulated: boolean; recipients: Record<string, number>; delivery: Record<string, number>; engagement: { opened: number; clicked: number; complained: number; hardBounce: number; softBounce: number; replies: number | null; unsubscribes: number }; cost: { actual: { amount: number; currency: string | null; messages: number } | null; estimate: { total: number | null; currency: string | null; known: boolean } | null }; availability: Record<string, string>; notes: string[] };
 type Recipient = { id: string; status: string; error: string | null; attempts: number; contact: { name: string; phone: string }; identifier: string | null; deliveryStatus?: string | null; errorReason?: string | null };
 type Links = { links: Array<{ url: string; uniqueClicks: number | null }>; totalUniqueClicks: number | null; perLinkTracking: boolean; note: string };
 const AVAIL: Record<string, string> = { real: "נתון מהספק", simulated: "הדמיה", estimated: "אומדן", partial: "חלקי", unavailable: "אין נתונים", signal: "אות מהספק" };
@@ -32,7 +32,7 @@ export function CampaignReport({ id }: { id: string }) {
   const failures = Object.entries(report.delivery).filter(([k]) => ["FAILED", "BOUNCED", "CANCELLED", "UNKNOWN"].includes(k));
   return (
     <div className="rep" data-testid="campaign-report">
-      <header className="rep-head"><nav className="rep-crumbs"><Link href={`/campaigns/${report.channel}`}>קמפיינים</Link><span>›</span><span>{CHANNEL_LABELS[report.channel]}</span><span>›</span><strong>{report.name}</strong></nav><div className="rep-status"><span className={`cmp-badge ${report.status.toLowerCase()}`}>{campaignStatusLabels[report.status]}</span>{report.simulated && <span className="cmp-badge failed">הדמיה – לא נשלחו הודעות אמיתיות</span>}{report.statusReason && <span className="text-bad text-xs">{report.statusReason}</span>}</div></header>
+      <header className="rep-head"><nav className="rep-crumbs"><Link href={`/campaigns/${report.channel}`}>קמפיינים</Link><span>›</span><span>{CHANNEL_LABELS[report.channel]}</span><span>›</span><strong>{report.name}</strong></nav><div className="rep-status">{(() => { const b = campaignBucket({ status: report.status, statusReason: report.statusReason, counts: report.recipients, scheduledAt: report.scheduledAt }); return <span className={`cmp-badge ${b}`}>{b === "cancelled" ? "בוטל" : CAMPAIGN_BUCKET_LABELS[b]}</span>; })()}{report.simulated && <span className="cmp-badge failed">הדמיה – לא נשלחו הודעות אמיתיות</span>}{report.statusReason && <span className="text-bad text-xs">{report.statusReason}</span>}</div></header>
       <div className="rep-tabs" role="tablist">{([["overview", "סקירה כללית"], ["recipients", "נמענים"], ["links", "קישורים"]] as const).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "active" : ""} onClick={() => setTab(k)} data-testid={`report-tab-${k}`}>{l}</button>)}</div>
       {tab === "overview" && <div className="rep-body">
         <section className="rep-card"><h2>סיכום</h2><div className="rep-metrics">

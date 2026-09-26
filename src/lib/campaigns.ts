@@ -87,9 +87,10 @@ export const deliveryStatusLabels: Record<string, string> = {
 /** Campaign list filter buckets ("סינון לפי סטטוס"). "failed" = a campaign the system stopped (statusReason) or whose sends all failed. */
 export type CampaignBucket = "all" | "draft" | "scheduled" | "running" | "sent" | "failed";
 export const CAMPAIGN_BUCKET_LABELS: Record<CampaignBucket, string> = { all: "הכול", draft: "טיוטה", scheduled: "מתוזמן", running: "בתהליך", sent: "נשלח", failed: "נכשל" };
-export function campaignBucket(c: { status: string; statusReason?: string | null; counts?: Record<string, number> }): Exclude<CampaignBucket, "all"> | "cancelled" {
+export function campaignBucket(c: { status: string; statusReason?: string | null; counts?: Record<string, number>; scheduledAt?: string | Date | null }): Exclude<CampaignBucket, "all"> | "cancelled" {
   if (c.status === "DRAFT") return "draft";
-  if (c.status === "SCHEDULED") return "scheduled";
+  // "Send now" is stored as SCHEDULED at the current time until the worker claims it – that is already in progress.
+  if (c.status === "SCHEDULED") return c.scheduledAt && new Date(c.scheduledAt).getTime() <= Date.now() ? "running" : "scheduled";
   if (c.status === "RUNNING" || c.status === "PAUSED") return c.statusReason ? "failed" : "running";
   if (c.status === "CANCELLED") return "cancelled";
   const counts = c.counts ?? {};

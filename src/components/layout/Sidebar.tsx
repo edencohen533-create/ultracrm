@@ -9,6 +9,7 @@ import { Badge, cx } from "@/components/ui";
 import { PRESENCE_LABEL } from "@/lib/client/format";
 import { api } from "@/lib/client/api";
 import type { ModuleKey } from "@/lib/modules";
+import { resetLeadStatusesCache } from "@/lib/client/use-lead-statuses";
 
 type Role = "owner" | "manager" | "agent";
 
@@ -99,6 +100,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName }: {
     setSwitching(true);
     try {
       await api.post("/api/auth/switch", { businessId });
+      resetLeadStatusesCache();
       router.push("/leads");
       router.refresh();
     } catch (e) {

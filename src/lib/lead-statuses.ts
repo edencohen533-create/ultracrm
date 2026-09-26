@@ -13,3 +13,14 @@ export function mergeLeadStatuses(raw: unknown): LeadStatusConfig[] {
   for (const d of DEFAULT_LEAD_STATUSES) if (!out.some((o) => o.key === d.key)) out.push({ ...d });
   return out;
 }
+
+/** How new leads without an owner are handed to agents. */
+export interface LeadAssignmentSettings {
+  mode: "least_loaded" | "round_robin";
+  /** 0 = no cap. Agents at the cap are skipped; if everyone is capped the lead stays unassigned. */
+  maxOpenLeadsPerAgent: number;
+  /** Empty = every active agent/manager. */
+  agentIds: string[];
+  /** Round-robin pointer: the user who received the previous lead. */
+  lastAssignedUserId: string | null;
+}

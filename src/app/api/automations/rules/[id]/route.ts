@@ -46,7 +46,6 @@ export const DELETE = organizationRequest(async function(_request: Request, { pa
   const existing = await prisma.automationRule.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   await prisma.$transaction(async (tx) => {
-    await tx.automationRun.deleteMany({ where: { ruleId: id, status: "PENDING" } });
     await tx.automationRule.delete({ where: { id } });
     await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: session!.user.id, action: "automation.deleted", entityType: "AutomationRule", entityId: id, payload: { name: existing.name, trigger: existing.trigger, actionType: existing.actionType } } });
   });

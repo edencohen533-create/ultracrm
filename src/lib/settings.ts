@@ -1,6 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
-import { DEFAULT_LEAD_STATUSES, mergeLeadStatuses, type LeadStatusConfig } from "@/lib/lead-statuses";
+import { DEFAULT_LEAD_STATUSES, mergeLeadStatuses, type LeadStatusConfig, type LeadAssignmentSettings } from "@/lib/lead-statuses";
 
 export interface DialWindow {
   start: string; // "09:00"
@@ -56,18 +56,7 @@ export interface CoachSettings {
   learnFromRecordings: boolean;
 }
 
-export { DEFAULT_LEAD_STATUSES, mergeLeadStatuses, type LeadStatusKey, type LeadStatusConfig } from "@/lib/lead-statuses";
-/** How new leads without an owner are handed to agents. */
-export interface LeadAssignmentSettings {
-  mode: "least_loaded" | "round_robin";
-  /** 0 = no cap. Agents at the cap are skipped; if everyone is capped the lead stays unassigned. */
-  maxOpenLeadsPerAgent: number;
-  /** Empty = every active agent/manager. */
-  agentIds: string[];
-  /** Round-robin pointer: the user who received the previous lead. */
-  lastAssignedUserId: string | null;
-}
-
+export { DEFAULT_LEAD_STATUSES, mergeLeadStatuses, type LeadStatusKey, type LeadStatusConfig, type LeadAssignmentSettings } from "@/lib/lead-statuses";
 export interface BusinessSettings {
   coach: CoachSettings;
   leadStatuses: LeadStatusConfig[];

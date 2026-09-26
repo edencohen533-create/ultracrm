@@ -31,6 +31,7 @@ export async function askCoach(callId: string, question: string): Promise<{ ques
   const session = await ensureSession(callId);
   const q = question.trim().slice(0, 1000);
   const asked = await prisma.coachChatMessage.create({ data: { businessId: session.businessId, sessionId: session.id, callId, role: "agent", text: q } });
+  try {
   const ctx = await loadContext(session.id);
   const history = (await prisma.coachChatMessage.findMany({ where: { sessionId: session.id, id: { not: asked.id } }, orderBy: { createdAt: "desc" }, take: HISTORY })).reverse();
   const transcript = ctx.segments.slice(-TRANSCRIPT_LINES);
@@ -64,4 +65,9 @@ export async function askCoach(callId: string, question: string): Promise<{ ques
     } });
   });
   return { question: view(asked), answer: view(answer) };
+  } catch (e) {
+    // Provider/DB failure: do not leave an unanswered question in the history.
+    await prisma.coachChatMessage.delete({ where: { id: asked.id } }).catch(() => undefined);
+    throw e;
+  }
 }

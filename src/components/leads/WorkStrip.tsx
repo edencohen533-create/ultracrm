@@ -24,7 +24,7 @@ export function WorkStrip({ refreshKey = 0 }: { refreshKey?: number }) {
   const tiles: Array<{ label: string; value: number; href: string; tone?: "warn" | "bad" }> = [
     { label: "לידים חדשים לטיפול", value: s.leadsNew, href: "/leads?status=new&mine=1" },
     ...(s.conversationsWaiting !== null ? [{ label: "הודעות ממתינות למענה", value: s.conversationsWaiting, href: "/inbox?filter=mine", tone: s.conversationsWaiting ? ("warn" as const) : undefined }] : []),
-    ...(s.missedCalls !== null ? [{ label: "שיחות שלא נענו היום", value: s.missedCalls, href: "/inbox?tab=calls&missed=1", tone: s.missedCalls ? ("warn" as const) : undefined }] : []),
+    ...(s.missedCalls !== null ? [{ label: "שיחות שלא נענו היום", value: s.missedCalls, href: "/leads?tasks=1&view=calls&missed=1", tone: s.missedCalls ? ("warn" as const) : undefined }] : []),
     { label: "חזרות ללקוחות להיום", value: s.callbacksDue, href: "/leads?tasks=1&type=callback&due=today", tone: s.callbacksDue ? "warn" : undefined },
     { label: "משימות להיום", value: s.tasksDue, href: "/leads?tasks=1&due=today" },
     { label: "באיחור", value: s.tasksOverdue, href: "/leads?tasks=1&due=overdue", tone: s.tasksOverdue ? "bad" : undefined },

@@ -10,7 +10,7 @@ const tabs = [{ id: "general", label: "כללי" }, { id: "calls", label: "הג�
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return <label className="crm-setting-toggle"><input type="checkbox" role="switch" checked={checked} onChange={e => onChange(e.target.checked)} /><span className="crm-switch" aria-hidden /><span>{label}</span></label>;
 }
-export function CrmSettings({ embedded = false }: { embedded?: boolean } = {}) {
+export function CrmSettings({ embedded = false, onDirtyChange }: { embedded?: boolean; onDirtyChange?: (dirty: boolean) => void } = {}) {
   const [data, setData] = useState<Data | null>(null);
   const [draft, setDraft] = useState<AgentSettings | null>(null);
   const [target, setTarget] = useState("");
@@ -24,6 +24,7 @@ export function CrmSettings({ embedded = false }: { embedded?: boolean } = {}) {
     api.get<Data>(`/api/crm-settings${target ? `?userId=${encodeURIComponent(target)}` : ""}`).then(d => { if (active) { setData(d); setDraft(d.settings); setError(""); } }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [target]);
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => {
     if (!dirty) return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };

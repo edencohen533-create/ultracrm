@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/client/api";
@@ -22,6 +22,7 @@ const outcomeLabel = (k: string | null) => OUTCOMES.find((o) => o.key === k)?.la
 export function CallsInbox() {
   const params = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname();
   const { dial, state } = useDialer();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [view, setView] = useState<"missed" | "all">(params.get("missed") === "1" ? "missed" : "all");
@@ -37,7 +38,8 @@ export function CallsInbox() {
   async function callBack(r: Row) {
     try {
       await dial(r.contact ? { mode: "manual", contactId: r.contact.id } : { mode: "manual", phone: r.toE164 });
-      router.push("/leads");
+      // The component lives inside the lead workspace (drawer); the embedded dialer opens there – no navigation needed.
+      if (!pathname.startsWith("/leads") && !pathname.startsWith("/lists/")) router.push("/leads");
     } catch (e) { toast.error((e as Error).message); }
   }
   return (

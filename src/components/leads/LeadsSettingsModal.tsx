@@ -6,7 +6,7 @@ import { api } from "@/lib/client/api";
 import { Button, Input, Modal, Select, cx } from "@/components/ui";
 import { CrmSettings } from "@/components/crm-settings/CrmSettings";
 import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
-import type { LeadAssignmentSettings, LeadStatusConfig } from "@/lib/settings";
+import type { LeadAssignmentSettings, LeadStatusConfig } from "@/lib/lead-statuses";
 
 type Tab = "dialer" | "statuses" | "assignment";
 
@@ -16,11 +16,13 @@ type Tab = "dialer" | "statuses" | "assignment";
  */
 export function LeadsSettingsModal({ open, onClose, manager }: { open: boolean; onClose: () => void; manager: boolean }) {
   const [tab, setTab] = useState<Tab>("dialer");
+  const [dirty, setDirty] = useState(false);
+  const close = () => { if (dirty && !window.confirm("יש שינויים בהגדרות החייגן שלא נשמרו. לסגור בלי לשמור?")) return; onClose(); };
   const tabs: Array<[Tab, string]> = [["dialer", "חייגן"], ...(manager ? [["statuses", "סטטוסים"] as [Tab, string], ["assignment", "חלוקת לידים"] as [Tab, string]] : [])];
   return (
-    <Modal open={open} onClose={onClose} title="הגדרות חייגן" width="max-w-4xl">
+    <Modal open={open} onClose={close} title="הגדרות חייגן" width="max-w-4xl">
       <div className="flex gap-1 border-b border-line mb-3" role="tablist">{tabs.map(([k, label]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cx("h-9 px-3 text-sm border-b-2 -mb-px", tab === k ? "border-accent font-medium" : "border-transparent text-muted")} data-testid={`leads-settings-tab-${k}`}>{label}</button>)}</div>
-      {tab === "dialer" && <CrmSettings embedded />}
+      {tab === "dialer" && <CrmSettings embedded onDirtyChange={setDirty} />}
       {tab === "statuses" && manager && <StatusesEditor />}
       {tab === "assignment" && manager && <AssignmentEditor />}
     </Modal>
@@ -63,7 +65,7 @@ function AssignmentEditor() {
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     api.get<{ leadAssignment: LeadAssignmentSettings }>("/api/lead-statuses").then((r) => setS(r.leadAssignment)).catch((e) => toast.error(e.message));
-    api.get<{ items: typeof users }>("/api/users").then((r) => setUsers(r.items.filter((u) => u.isActive))).catch(() => undefined);
+    api.get<{ items: typeof users }>("/api/users").then((r) => setUsers(r.items.filter((u) => u.isActive && u.role !== "owner"))).catch(() => undefined);
   }, []);
   async function save() {
     if (!s) return; setSaving(true);

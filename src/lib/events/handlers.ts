@@ -5,7 +5,7 @@
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { audit } from "@/lib/audit";
-import { getBusinessSettings } from "@/lib/settings";
+import { getBusinessSettings, mergeSettings } from "@/lib/settings";
 import type { DomainEvent } from "@/generated/prisma/client";
 import { MAX_AUTOMATION_DEPTH } from "./index";
 
@@ -38,24 +38,28 @@ async function pickOwner(businessId: string, preferredUserId?: string | null) {
     if (u) fallback = u.id;
   }
   // Distribution policy (settings → leads → חלוקת לידים): least-loaded (default) or round robin, optional cap per agent.
-  const settings = await getBusinessSettings(businessId);
-  const policy = settings.leadAssignment;
-  const agents = await prisma.user.findMany({ where: { businessId, isActive: true, role: { in: ["agent", "manager"] }, ...(policy.agentIds.length ? { id: { in: policy.agentIds } } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, _count: { select: { ownedLeads: { where: { status: { in: ["new", "contacted", "qualified"] } } } } } } });
-  const eligible = agents.filter((a) => !policy.maxOpenLeadsPerAgent || a._count.ownedLeads < policy.maxOpenLeadsPerAgent);
-  if (eligible.length === 0) return agents.length === 0 ? fallback : null; // no pool at all → the importing manager; pool exhausted (cap) → unassigned
-  let chosen: string;
-  if (policy.mode === "round_robin") {
-    const idx = eligible.findIndex((a) => a.id === policy.lastAssignedUserId);
-    chosen = eligible[(idx + 1) % eligible.length].id;
-  } else {
-    chosen = [...eligible].sort((a, b) => a._count.ownedLeads - b._count.ownedLeads)[0].id;
-  }
-  // Persist the pointer (raw JSON merge – no other settings touched).
-  const biz = await prisma.business.findUnique({ where: { id: businessId }, select: { settings: true } });
-  const raw = (biz?.settings && typeof biz.settings === "object" ? biz.settings : {}) as Record<string, unknown>;
-  const la = (raw.leadAssignment && typeof raw.leadAssignment === "object" ? raw.leadAssignment : {}) as Record<string, unknown>;
-  await prisma.business.update({ where: { id: businessId }, data: { settings: { ...raw, leadAssignment: { ...la, lastAssignedUserId: chosen } } as Prisma.InputJsonValue } });
-  return chosen;
+  // Read pointer → choose → write pointer runs under a per-business advisory lock, so two workers handling two new
+  // leads at the same moment cannot both hand them to the same agent.
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lead-assign:${businessId}`}))`;
+    const biz = await tx.business.findUnique({ where: { id: businessId }, select: { settings: true } });
+    const policy = mergeSettings(biz?.settings).leadAssignment;
+    const agents = await tx.user.findMany({ where: { businessId, isActive: true, role: { in: ["agent", "manager"] }, ...(policy.agentIds.length ? { id: { in: policy.agentIds } } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, _count: { select: { ownedLeads: { where: { status: { in: ["new", "contacted", "qualified"] } } } } } } });
+    const eligible = agents.filter((a) => !policy.maxOpenLeadsPerAgent || a._count.ownedLeads < policy.maxOpenLeadsPerAgent);
+    if (eligible.length === 0) return agents.length === 0 ? fallback : null; // no pool at all → the importing manager; pool exhausted (cap) → unassigned
+    let chosen: string;
+    if (policy.mode === "round_robin") {
+      const idx = eligible.findIndex((a) => a.id === policy.lastAssignedUserId);
+      chosen = eligible[(idx + 1) % eligible.length].id;
+    } else {
+      chosen = [...eligible].sort((a, b) => a._count.ownedLeads - b._count.ownedLeads)[0].id;
+    }
+    // Persist the pointer (raw JSON merge – no other settings touched).
+    const raw = (biz?.settings && typeof biz.settings === "object" ? biz.settings : {}) as Record<string, unknown>;
+    const la = (raw.leadAssignment && typeof raw.leadAssignment === "object" ? raw.leadAssignment : {}) as Record<string, unknown>;
+    await tx.business.update({ where: { id: businessId }, data: { settings: { ...raw, leadAssignment: { ...la, lastAssignedUserId: chosen } } as Prisma.InputJsonValue } });
+    return chosen;
+  });
 }
 
 const leadCreated: EventHandler = {

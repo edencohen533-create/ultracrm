@@ -5,6 +5,8 @@ import { api } from "@/lib/client/api";
 import { DEFAULT_LEAD_STATUSES, type LeadStatusConfig } from "@/lib/lead-statuses";
 
 let cached: LeadStatusConfig[] | null = null;
+/** Forget the cached statuses (business switch – the next mount fetches the new tenant's list). */
+export function resetLeadStatusesCache() { cached = null; }
 const listeners = new Set<(v: LeadStatusConfig[]) => void>();
 
 /** Business-configurable lead statuses (labels, order, hidden). Falls back to the defaults until loaded. */

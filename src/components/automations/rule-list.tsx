@@ -36,7 +36,7 @@ export function RuleList({ rules: initialRules }: { rules: Rule[] }) {
   const [pending, setPending] = useState<string | null>(null);
 
   async function remove(rule: Rule) {
-    if (!window.confirm(`למחוק את האוטומציה "${rule.name}"? ריצות מתוזמנות שטרם בוצעו יבוטלו; ההיסטוריה נשמרת.`)) return;
+    if (!window.confirm(`למחוק את האוטומציה "${rule.name}"? ריצות מתוזמנות שטרם בוצעו יבוטלו וההיסטוריה של הריצות שלה תימחק.`)) return;
     setPending(rule.id);
     try {
       const res = await fetch(`/api/automations/rules/${rule.id}`, { method: "DELETE" });

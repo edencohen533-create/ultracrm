@@ -38,7 +38,15 @@ await step("C1 manual call from /leads → the coach card shows inside the call 
   await page.goto(`${BASE}/leads`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="open-dialer"]:not([disabled])');
   await page.waitForSelector(".lead-call:not([disabled])", { timeout: 120000 });
-  await page.locator(".lead-call:not([disabled])").first().click();
+  // Some demo contacts are DNC/unsubscribed (403 on dial) – try the first rows until a call is actually placed.
+  let placed = false;
+  for (let i = 0; i < 6 && !placed; i++) {
+    const btn = page.locator(".lead-call:not([disabled])").nth(i); if (!(await btn.count())) break;
+    const res = page.waitForResponse((r) => r.url().includes("/api/dialer/call") && r.request().method() === "POST", { timeout: 60000 });
+    await btn.click();
+    placed = (await res).status() < 300;
+  }
+  if (!placed) throw new Error("no dialable lead in the first rows");
   await page.waitForSelector('[data-testid="dialer-embedded"]');
   await page.waitForSelector('[data-testid="coach-card"]', { timeout: 120000 });
   await page.waitForFunction(async () => { const r = await fetch("/api/dialer/state"); const d = (await r.json()).data; return d.activeCall?.status === "answered"; }, null, { polling: 1500 });

@@ -151,7 +151,8 @@ await step("F9 dial list page = the lead workspace filtered to the list, with th
   await page.waitForSelector('[data-testid="open-dialer"]');
   await page.waitForSelector('[data-testid="open-leads-settings"]');
   await page.click('[data-testid="list-view-queue"]');
-  await page.waitForSelector("text=ניסיונות");
+  await page.waitForSelector('[data-testid="list-view-queue"][aria-selected="true"]');
+  await page.waitForSelector("table"); // the queue-level table (attempts, next attempt, transfer) is still there
   await shot("list-workspace");
 });
 

@@ -134,7 +134,7 @@ await step("F7 'הפעל חייגן' opens the full dialer screen (performance p
 await step("F8 side navigation (manager): exactly לידים | וואטסאפ | קמפיינים | אוטומציות | דוחות, settings at the bottom, active item highlighted, no horizontal overflow; /calls → leads drawer", async () => {
   await goto("/leads");
   const labels = await navLabels();
-  if (labels.join("|") !== "לידים|וואטסאפ|אנשי קשר|תבניות WhatsApp|קמפיינים|אוטומציות|דוחות") throw new Error(`nav: ${labels.join(",")}`);
+  if (labels.join("|") !== "לידים|וואטסאפ|קהלים ואנשי קשר|תבניות WhatsApp|קמפיינים|אוטומציות|דוחות") throw new Error(`nav: ${labels.join(",")}`);
   await page.waitForSelector('[data-testid="side-nav"] [data-testid="nav-settings"]'); await page.waitForSelector('[data-testid="nav-logout"]');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   if (overflow) throw new Error("horizontal overflow");
@@ -200,7 +200,7 @@ await step("A1 agent: /leads with 4 cards, dialer + settings (dialer tab only) +
   await login("agent1@demo.local"); await cleanup();
   await goto("/leads"); await page.waitForSelector('[data-testid="leads-redesign"]');
   const labels = await navLabels();
-  if (labels.join("|") !== "לידים|וואטסאפ|אנשי קשר") throw new Error(`agent nav: ${labels.join(",")}`);
+  if (labels.join("|") !== "לידים|וואטסאפ|קהלים ואנשי קשר") throw new Error(`agent nav: ${labels.join(",")}`);
   if (await page.$('[data-testid="nav-settings"]')) throw new Error("agent sees the settings gear");
   const cards = await page.$$eval(".lead-stat", (els) => els.length);
   if (cards !== 4) throw new Error(`agent sees ${cards} cards`);

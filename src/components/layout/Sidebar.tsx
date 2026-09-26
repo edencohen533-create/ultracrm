@@ -26,7 +26,7 @@ const MGMT: Role[] = ["manager", "owner"];
 const ITEMS: Item[] = [
   { href: "/leads", label: "לידים", roles: ALL, module: "crm", Icon: Star, testid: "nav-leads", match: (p) => p === "/leads" || p.startsWith("/leads/") || (p.startsWith("/contacts/") && !p.startsWith("/contacts/duplicates")) || p === "/dialer" || p.startsWith("/lists") || p.startsWith("/deals") },
   { href: "/inbox", label: "וואטסאפ", roles: ALL, module: "messaging", Icon: MessageCircle, testid: "nav-inbox", match: (p) => p.startsWith("/inbox") },
-  { href: "/contacts", label: "אנשי קשר", roles: ALL, module: "crm", Icon: Users, testid: "nav-contacts", match: (p) => p === "/contacts" || p.startsWith("/contacts/duplicates") || p.startsWith("/audiences") },
+  { href: "/contacts", label: "קהלים ואנשי קשר", roles: ALL, module: "crm", Icon: Users, testid: "nav-contacts", match: (p) => p === "/contacts" || p.startsWith("/contacts/duplicates") || p.startsWith("/audiences") },
   { href: "/templates", label: "תבניות WhatsApp", roles: MGMT, module: "messaging", Icon: FileText, testid: "nav-templates", match: (p) => p.startsWith("/templates") },
   { href: "/campaigns/whatsapp", label: "קמפיינים", roles: MGMT, module: "messaging", Icon: Megaphone, testid: "nav-campaigns", match: (p) => p.startsWith("/campaigns") },
   { href: "/automations", label: "אוטומציות", roles: MGMT, module: "messaging", Icon: Zap, testid: "nav-automations", match: (p) => p.startsWith("/automations") },

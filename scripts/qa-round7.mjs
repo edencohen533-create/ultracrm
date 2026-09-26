@@ -12,7 +12,7 @@ const cleanup = async () => { for (let i = 0; i < 5; i++) { const s = (await api
 await step("R0 manager login; side menu has contacts + WhatsApp templates", async () => {
   await login("manager@demo.local"); await cleanup(); await page.goto(`${BASE}/leads`);
   const labels = await page.$$eval('[data-testid="side-nav"] nav a', (e) => e.map((x) => x.textContent.trim()));
-  if (labels.join("|") !== "לידים|וואטסאפ|אנשי קשר|תבניות WhatsApp|קמפיינים|אוטומציות|דוחות") throw new Error(labels.join(","));
+  if (labels.join("|") !== "לידים|וואטסאפ|קהלים ואנשי קשר|תבניות WhatsApp|קמפיינים|אוטומציות|דוחות") throw new Error(labels.join(","));
   await page.click('[data-testid="nav-templates"]'); await page.waitForURL((u) => u.pathname === "/templates");
 });
 await step("R1 'עריכת סטטוסים' button on leads opens the statuses editor directly", async () => {

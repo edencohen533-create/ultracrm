@@ -131,9 +131,10 @@ export default function ContactsPage() {
     {isManager && <SegmentsPanel selected={segmentId} onSelect={(id) => { setPage(1); setSegmentId(id); }} total={total} />}
     <div className="p-5 space-y-4 min-w-0">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-lg font-semibold">אנשי קשר</h1>
+        <h1 className="text-lg font-semibold">קהלים ואנשי קשר</h1>
         <span className="text-xs text-muted tabular">{total} רשומות</span>
         <div className="ms-auto flex flex-wrap gap-2">
+          {isManager && <Link href="/audiences" className="inline-flex items-center h-8 px-3 text-xs rounded-md border border-line text-muted hover:text-text" data-testid="contacts-audiences">רשימות תפוצה וייבוא</Link>}
           {isManager && <Link href="/contacts/duplicates" className="inline-flex items-center h-8 px-3 text-xs rounded-md border border-line text-muted hover:text-text">כפילויות</Link>}
           {isManager && <Link href="/api/contacts/export" prefetch={false} className="inline-flex items-center h-8 px-3 text-xs rounded-md border border-line text-muted hover:text-text">ייצוא CSV</Link>}
           {isManager && me?.modules.telephony && <Button variant="secondary" size="sm" onClick={() => { setListName(`רשימה מסינון · ${new Date().toLocaleDateString("he-IL")}`); setListOpen(true); }}>רשימת חיוג מהסינון</Button>}

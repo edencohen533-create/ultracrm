@@ -118,6 +118,7 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
     {listHeader}
     <header className="leads-header"><h1>{listName ? `רשימת חיוג: ${listName}` : "לידים"}</h1><div className="leads-header-actions"><span className="leads-count">{number(data?.total ?? 0)} לידים</span>
       {!listId && manager && <Link href="/contacts" className="lead-button">אנשי קשר וייבוא</Link>}
+      {!listId && manager && telephony && <Link href="/lists" className="lead-button" data-testid="open-lists">רשימות חיוג</Link>}
       <button className="lead-button" onClick={() => setTasksOpen(true)} data-testid="open-tasks"><CheckSquare size={15} />משימות וחזרות</button>
       {telephony && <button className="lead-button" onClick={() => setSettingsOpen(true)} data-testid="open-leads-settings"><Settings size={15} />הגדרות חייגן</button>}
       <button className="lead-button" onClick={() => { void load(); }} disabled={loading}><RefreshCw size={15} className={loading ? "animate-spin" : ""} />רענן</button>

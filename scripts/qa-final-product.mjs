@@ -21,7 +21,7 @@ const login = async (email, password = "Demo1234!") => {
   await page.goto(`${BASE}/login`); await page.fill('input[type="email"]', email); await page.fill('input[type="password"]', password); await page.click('button[type="submit"]');
   await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 90000 });
 };
-const navLabels = async () => page.$$eval("aside nav a", (els) => els.map((e) => e.textContent.trim()));
+const navLabels = async () => page.$$eval('[data-testid="top-nav"] .top-nav-items a', (els) => els.map((e) => e.textContent.trim()));
 const goto = (p) => page.goto(`${BASE}${p}`, { waitUntil: "domcontentloaded" });
 // A power session keeps dialing after a hangup, so repeat until nothing is live (server truth via API).
 const cleanup = async () => {
@@ -131,19 +131,27 @@ await step("F7 'הפעל חייגן' opens the full dialer screen (performance p
   await cleanup();
 });
 
-await step("F8 manager nav: no עסקאות/משימות/הגדרות CRM; inbox is 'וואטסאפ' and has no calls tab; /calls → /inbox", async () => {
+await step("F8 top navigation (manager): exactly לידים | וואטסאפ | קמפיינים | אוטומציות | דוחות, settings gear, no side menu, no horizontal overflow; /calls → leads drawer", async () => {
   await goto("/leads");
   const labels = await navLabels();
-  for (const bad of ["עסקאות", "משימות", "הגדרות CRM", "שיחות"]) if (labels.includes(bad)) throw new Error(`nav still has ${bad}`);
-  if (!labels.includes("וואטסאפ")) throw new Error(`nav: ${labels.join(",")}`);
-  await page.click('[data-testid="nav-mgmt"]');
-  const after = await navLabels();
-  for (const l of ["קהלים ואנשי קשר", "קמפיין WhatsApp", "קמפיין אימייל", "קמפיין SMS"]) if (!after.includes(l)) throw new Error(`management group lacks ${l}`);
-  if (after.includes("קמפיינים וקהלים")) throw new Error("old combined campaigns entry still present");
-  await goto("/calls"); await page.waitForURL((u) => u.pathname === "/inbox");
-  const tabs = await page.$$eval("main a", (els) => els.map((e) => e.getAttribute("href")));
+  if (labels.join("|") !== "לידים|וואטסאפ|קמפיינים|אוטומציות|דוחות") throw new Error(`nav: ${labels.join(",")}`);
+  if (await page.$("aside.app-sidebar")) throw new Error("side menu still rendered");
+  await page.waitForSelector('[data-testid="nav-settings"]');
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  if (overflow) throw new Error("horizontal overflow");
+  const activeLeads = await page.$eval('[data-testid="nav-leads"]', (a) => a.classList.contains("active")); if (!activeLeads) throw new Error("active item not highlighted");
+  await page.click('[data-testid="nav-user"]'); await page.waitForSelector('[data-testid="nav-logout"]'); await page.keyboard.press("Escape"); await page.click("body", { position: { x: 5, y: 300 } });
+  await page.click('[data-testid="nav-settings"]'); await page.waitForURL((u) => u.pathname === "/settings");
+  for (const t of ["משתמשים וצוותים", "חיבורים", "מספרים יוצאים"]) await page.waitForSelector(`button:has-text("${t}")`);
+  await page.setViewportSize({ width: 600, height: 800 }); await goto("/leads");
+  await page.waitForSelector('[data-testid="nav-burger"]'); await page.click('[data-testid="nav-burger"]'); await page.waitForSelector(".top-nav-mobile-item");
+  const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  await page.setViewportSize({ width: 1366, height: 860 });
+  if (mobileOverflow) throw new Error("horizontal overflow on a small screen");
+  await goto("/calls"); await page.waitForURL((u) => u.pathname === "/leads" && u.search.includes("view=calls"));
+  await goto("/inbox"); const tabs = await page.$$eval("main a", (els) => els.map((e) => e.getAttribute("href")));
   if (tabs.includes("/calls")) throw new Error("inbox still links to /calls");
-  await shot("inbox");
+  await shot("topnav");
 });
 
 await step("F9 dial list page = the lead workspace filtered to the list, with the queue table one tab away", async () => {
@@ -174,12 +182,15 @@ await step("F10 automations: rule rows have a delete button; deleting removes th
   if (gone.status !== 404) throw new Error(`rule still exists: ${gone.status}`);
 });
 
-await step("F11 campaigns split: /audiences (lists+contacts only), /campaigns/{whatsapp,email,sms} (one channel each), /campaigns redirects", async () => {
+await step("F11 campaigns area: channel tabs whatsapp|email|sms, secondary links to audiences + templates, /campaigns redirects", async () => {
   await goto("/audiences"); await page.waitForSelector("h1:has-text('קהלים ואנשי קשר')");
+  await page.waitForSelector('[data-testid="campaigns-nav"]');
   if (await page.$("h2:has-text('קמפיין חדש')")) throw new Error("/audiences shows the campaign form");
   await page.waitForSelector("h2:has-text('ייבוא רשימה מ־CSV')");
   for (const [ch, label] of [["whatsapp", "WhatsApp"], ["email", "אימייל"], ["sms", "SMS"]]) {
     await goto(`/campaigns/${ch}`); await page.waitForSelector(`h1:has-text('קמפיין ${label}')`);
+    if (!(await page.$eval(`[data-testid="campaigns-tab-${ch}"]`, (a) => a.classList.contains("active")))) throw new Error(`${ch}: tab not active`);
+    await page.waitForSelector('[data-testid="campaigns-audiences"]'); await page.waitForSelector('[data-testid="campaigns-templates"]');
     if (await page.$('[role="tablist"][aria-label="ערוץ"]')) throw new Error(`${ch}: channel picker still shown`);
     if (await page.$("h2:has-text('רשימת תפוצה חדשה')")) throw new Error(`${ch}: audience editor leaked into the campaign page`);
     await page.waitForSelector("h2:has-text('קמפיין חדש')");
@@ -192,7 +203,8 @@ await step("A1 agent: /leads with 4 cards, dialer + settings (dialer tab only) +
   await login("agent1@demo.local"); await cleanup();
   await goto("/leads"); await page.waitForSelector('[data-testid="leads-redesign"]');
   const labels = await navLabels();
-  for (const bad of ["עסקאות", "משימות", "הגדרות CRM", "ביצועי נציגים", "קהלים ואנשי קשר"]) if (labels.includes(bad)) throw new Error(`agent nav has ${bad}`);
+  if (labels.join("|") !== "לידים|וואטסאפ") throw new Error(`agent nav: ${labels.join(",")}`);
+  if (await page.$('[data-testid="nav-settings"]')) throw new Error("agent sees the settings gear");
   const cards = await page.$$eval(".lead-stat", (els) => els.length);
   if (cards !== 4) throw new Error(`agent sees ${cards} cards`);
   await page.click('[data-testid="open-leads-settings"]');

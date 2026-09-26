@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 import { Badge, Panel, Phone, Spinner, Stat, EmptyState } from "@/components/ui";
 import { formatDateTime, formatDuration, formatPhone, relativeTime } from "@/lib/client/format";
-import { LEAD_STATUS_LABEL } from "@/lib/crm/labels";
+import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 
 interface Dash {
   modules: { crm: boolean; messaging: boolean; telephony: boolean };
@@ -24,6 +24,7 @@ const EVENT_LABEL: Record<string, string> = { "lead.created": "ליד חדש", "
 
 /** Business-wide overview (formerly the home dashboard) – now the first tab of the managers' reports screen. */
 export function OverviewReport() {
+  const statuses = useLeadStatuses();
   const [d, setD] = useState<Dash | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -93,13 +94,13 @@ export function OverviewReport() {
                     <Link href={`/contacts/${l.contact.id}`} className="font-medium hover:underline">{l.contact.fullName}</Link>
                     <p className="text-xs text-muted truncate">{l.title ?? l.source ?? "—"} · {l.owner?.fullName ?? "ללא נציג"} · {relativeTime(l.createdAt, now)}</p>
                   </div>
-                  <Badge tone={l.status === "new" ? "info" : l.status === "qualified" ? "good" : "neutral"}>{LEAD_STATUS_LABEL[l.status as keyof typeof LEAD_STATUS_LABEL] ?? l.status}</Badge>
+                  <Badge tone={l.status === "new" ? "info" : l.status === "qualified" ? "good" : "neutral"}>{statuses.label(l.status)}</Badge>
                 </li>
               ))}
             </ul>
           )}
         </Panel>
-        <Panel title="המשימות הקרובות" actions={<Link href="/tasks" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
+        <Panel title="המשימות הקרובות" actions={<Link href="/leads?tasks=1" className="text-xs text-accent underline hover:underline">הכול</Link>} bodyClassName="p-0">
           {d.myTasks.length === 0 ? <EmptyState title="אין משימות פתוחות" /> : (
             <ul className="divide-y divide-line">
               {d.myTasks.map((t) => {

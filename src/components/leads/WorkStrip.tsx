@@ -25,9 +25,9 @@ export function WorkStrip({ refreshKey = 0 }: { refreshKey?: number }) {
     { label: "לידים חדשים לטיפול", value: s.leadsNew, href: "/leads?status=new&mine=1" },
     ...(s.conversationsWaiting !== null ? [{ label: "הודעות ממתינות למענה", value: s.conversationsWaiting, href: "/inbox?filter=mine", tone: s.conversationsWaiting ? ("warn" as const) : undefined }] : []),
     ...(s.missedCalls !== null ? [{ label: "שיחות שלא נענו היום", value: s.missedCalls, href: "/inbox?tab=calls&missed=1", tone: s.missedCalls ? ("warn" as const) : undefined }] : []),
-    { label: "חזרות ללקוחות להיום", value: s.callbacksDue, href: "/tasks?type=callback&due=today", tone: s.callbacksDue ? "warn" : undefined },
-    { label: "משימות להיום", value: s.tasksDue, href: "/tasks?due=today" },
-    { label: "באיחור", value: s.tasksOverdue, href: "/tasks?due=overdue", tone: s.tasksOverdue ? "bad" : undefined },
+    { label: "חזרות ללקוחות להיום", value: s.callbacksDue, href: "/leads?tasks=1&type=callback&due=today", tone: s.callbacksDue ? "warn" : undefined },
+    { label: "משימות להיום", value: s.tasksDue, href: "/leads?tasks=1&due=today" },
+    { label: "באיחור", value: s.tasksOverdue, href: "/leads?tasks=1&due=overdue", tone: s.tasksOverdue ? "bad" : undefined },
   ];
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2" data-testid="work-strip">

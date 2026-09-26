@@ -19,7 +19,7 @@ export interface MergeContact {
   customFields?: Record<string, unknown> | null;
 }
 
-export const KNOWN_TAGS = ["name", "first_name", "company", "city", "email", "phone", "unsubscribe_url"] as const;
+export const KNOWN_TAGS = ["name", "first_name", "company", "city", "email", "phone", "unsubscribe_url", "cart_url", "cart_total", "cart_items"] as const;
 
 export function mergeTagsOf(text: string): Array<{ tag: string; fallback: string | null }> {
   const out = new Map<string, string | null>();

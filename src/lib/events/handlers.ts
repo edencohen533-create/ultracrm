@@ -220,7 +220,7 @@ const taskCreated: EventHandler = {
 
 const sequences: EventHandler = {
   name: "marketing.sequences",
-  types: ["message.delivery_failed", "message.sent", "contact.tag_added", "contact.created", "lead.status_changed"],
+  types: ["message.delivery_failed", "message.sent", "contact.tag_added", "contact.created", "lead.status_changed", "cart.abandoned"],
   async run(event) {
     const { isModuleEnabled } = await import("@/lib/modules");
     if (!(await isModuleEnabled(event.businessId, "messaging"))) return { skipped: "messaging module disabled" };

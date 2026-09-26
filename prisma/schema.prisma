@@ -382,6 +382,8 @@ model Business {
   distributionLists      DistributionList[]
   campaigns              Campaign[]
   campaignDrafts         CampaignDraft[]
+  storeConnections       StoreConnection[]
+  carts                  Cart[]
   conversationDrafts     ConversationDraft[]
   marketingSequences     MarketingSequence[]
   sequenceRuns           SequenceRun[]
@@ -563,6 +565,7 @@ model Contact {
   @@index([businessId, ownerUserId])
   @@index([businessId, lastActivityAt])
   @@map("contacts")
+  carts Cart[]
 }
 
 model ContactPhone {
@@ -1660,6 +1663,71 @@ model CampaignDraft {
   @@map("campaign_drafts")
 }
 
+/// An online store connected for abandoned-cart detection (site script + Shopify / WooCommerce webhooks).
+model StoreConnection {
+  id                  String    @id @default(cuid())
+  businessId          String    @map("business_id")
+  /// shopify | woocommerce | custom
+  platform            String
+  name                String
+  /// Site host (e.g. shop.example.com) – browser events are accepted only from this origin when set.
+  domain              String?
+  /// Public id embedded in the site script (not a secret).
+  publicKey           String    @unique @map("public_key")
+  /// { webhookSecret } sealed at rest.
+  config              Json      @default("{}")
+  abandonAfterMinutes Int       @default(60) @map("abandon_after_minutes")
+  isActive            Boolean   @default(true) @map("is_active")
+  lastEventAt         DateTime? @map("last_event_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  carts    Cart[]
+
+  @@index([businessId])
+  @@map("store_connections")
+}
+
+/// A shopping cart / checkout seen on a connected store. open → abandoned (no activity) → converted / recovered (order).
+model Cart {
+  id                String    @id @default(cuid())
+  businessId        String    @map("business_id")
+  storeId           String    @map("store_id")
+  /// Cart token / checkout id / session id from the store.
+  externalId        String    @map("external_id")
+  contactId         String?   @map("contact_id")
+  email             String?
+  phoneE164         String?   @map("phone_e164")
+  customerName      String?   @map("customer_name")
+  currency          String?
+  total             Decimal?  @db.Decimal(14, 2)
+  /// [{ name, quantity, price, url?, image? }]
+  items             Json      @default("[]")
+  checkoutUrl       String?   @map("checkout_url")
+  acceptsMarketing  Boolean?  @map("accepts_marketing")
+  /// open | abandoned | converted | recovered
+  status            String    @default("open")
+  lastActivityAt    DateTime  @default(now()) @map("last_activity_at")
+  abandonedAt       DateTime? @map("abandoned_at")
+  convertedAt       DateTime? @map("converted_at")
+  orderId           String?   @map("order_id")
+  orderTotal        Decimal?  @map("order_total") @db.Decimal(14, 2)
+  /// First recovery message sent by a journey for this cart (used to attribute "recovered").
+  recoveryMessageAt DateTime? @map("recovery_message_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  store    StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  contact  Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, externalId])
+  @@index([businessId, status, lastActivityAt])
+  @@index([contactId])
+  @@map("carts")
+}
+
 model CampaignRecipient {
   id            String          @id @default(cuid())
   campaignId    String          @map("campaign_id")
@@ -1724,6 +1792,8 @@ enum SequenceTrigger {
   CONTACT_CREATED
   /// A lead of the contact changed status (triggerConfig.leadStatus filters).
   LEAD_STATUS_CHANGED
+  /// An online-store cart with the contact's details was left without checkout (see Cart).
+  CART_ABANDONED
 }
 
 enum SequenceRunStatus {

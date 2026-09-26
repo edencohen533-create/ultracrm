@@ -13,7 +13,7 @@ export interface JourneyStep { action: Action; channel: Channel; templateId?: st
 export interface Journey { id?: string; name: string; isActive: boolean; trigger: string; triggerConfig: Record<string, unknown>; stopOn: string[]; steps: JourneyStep[] }
 type Opt = { id: string; name: string; channel?: string };
 
-const TRIGGERS: Record<string, string> = { CONTACT_CREATED: "איש קשר חדש נוצר", TAG_ADDED: "תגית נוספה לאיש קשר", LEAD_STATUS_CHANGED: "סטטוס ליד השתנה", DELIVERY_FAILED: "הודעה שיווקית נכשלה במסירה", SENT_NO_REPLY: "הודעה שיווקית נשלחה ואין תשובה" };
+const TRIGGERS: Record<string, string> = { CART_ABANDONED: "עגלה ננטשה באתר", CONTACT_CREATED: "איש קשר חדש נוצר", TAG_ADDED: "תגית נוספה לאיש קשר", LEAD_STATUS_CHANGED: "סטטוס ליד השתנה", DELIVERY_FAILED: "הודעה שיווקית נכשלה במסירה", SENT_NO_REPLY: "הודעה שיווקית נשלחה ואין תשובה" };
 const LEAD_STATUS: Record<string, string> = { new: "חדש", contacted: "נוצר קשר", qualified: "מתאים", unqualified: "לא מתאים", converted: "הומר לעסקה", lost: "אבוד" };
 const PALETTE: Array<{ key: string; label: string; Icon: typeof Clock; make: () => JourneyStep }> = [
   { key: "wait", label: "המתנה", Icon: Clock, make: () => ({ action: "wait", channel: "email", waitMinutes: 60, variables: {}, condition: { requireNoReply: false } }) },
@@ -96,6 +96,7 @@ export function JourneyBuilder({ initial, templates, tags, lists }: { initial: J
             {(j.trigger === "DELIVERY_FAILED" || j.trigger === "SENT_NO_REPLY") && <label>ערוץ<select value={String(j.triggerConfig.channel ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, channel: e.target.value || undefined } })}><option value="">כל הערוצים</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">אימייל</option></select></label>}
             {j.trigger === "CONTACT_CREATED" && <label>מקור (אופציונלי)<input value={String(j.triggerConfig.contactSource ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, contactSource: e.target.value || undefined } })} placeholder="למשל facebook" /></label>}
             {j.trigger === "SENT_NO_REPLY" && <p className="jr-hint">השלב הראשון חייב להתחיל אחרי המתנה של 30 דקות לפחות.</p>}
+            {j.trigger === "CART_ABANDONED" && <p className="jr-hint">מתחיל כשעגלה עם פרטי לקוח ננטשת בחנות מחוברת (<Link href="/carts">עגלות נטושות</Link>). בהודעות: {"{{cart_url}}"}, {"{{cart_total}}"}, {"{{cart_items}}"}; במשתני WhatsApp: {"{cart_url}"}. המסע נעצר כשהעגלה נרכשת.</p>}
           </div>}
           {sel === "exit" && <div className="jr-form">
             <p className="jr-hint">איש קשר יוצא מהמסע בסוף הפעולות, או מוקדם יותר כש:</p>

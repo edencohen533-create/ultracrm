@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 
 type Row = { id: string; name: string; isActive: boolean; trigger: string; steps: unknown[]; _count?: { runs: number } };
-const TRIGGERS: Record<string, string> = { CONTACT_CREATED: "איש קשר חדש", TAG_ADDED: "תגית נוספה", LEAD_STATUS_CHANGED: "סטטוס ליד השתנה", DELIVERY_FAILED: "הודעה נכשלה במסירה", SENT_NO_REPLY: "נשלח ואין תשובה" };
+const TRIGGERS: Record<string, string> = { CART_ABANDONED: "עגלה ננטשה", CONTACT_CREATED: "איש קשר חדש", TAG_ADDED: "תגית נוספה", LEAD_STATUS_CHANGED: "סטטוס ליד השתנה", DELIVERY_FAILED: "הודעה נכשלה במסירה", SENT_NO_REPLY: "נשלח ואין תשובה" };
 
 /** Customer journeys ("מסע לקוח") – list + entry to the visual builder. */
 export function JourneyList({ journeys }: { journeys: Row[] }) {

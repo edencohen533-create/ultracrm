@@ -21,7 +21,7 @@ import { MAX_AUTOMATION_DEPTH } from "@/lib/events";
 export const sequenceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   isActive: z.boolean().default(true),
-  trigger: z.enum(["DELIVERY_FAILED", "SENT_NO_REPLY", "TAG_ADDED", "CONTACT_CREATED", "LEAD_STATUS_CHANGED"]),
+  trigger: z.enum(["DELIVERY_FAILED", "SENT_NO_REPLY", "TAG_ADDED", "CONTACT_CREATED", "LEAD_STATUS_CHANGED", "CART_ABANDONED"]),
   triggerConfig: z.object({ channel: z.enum(["whatsapp", "sms", "email"]).optional(), tagName: z.string().trim().max(40).optional(), campaignId: z.string().optional(), marketingOnly: z.boolean().default(true), leadStatus: z.enum(["new", "contacted", "qualified", "unqualified", "converted"]).optional(), contactSource: z.string().trim().max(100).optional() }).default({ marketingOnly: true }),
   stopOn: z.array(z.enum(["reply", "conversion", "unsubscribe"])).default(["reply", "conversion", "unsubscribe"]),
   steps: z.array(z.object({
@@ -112,7 +112,7 @@ export async function startSequencesForEvent(event: DomainEvent) {
   if (!event.contactId) return { started: 0 };
   if (event.depth >= MAX_AUTOMATION_DEPTH) return { started: 0, skipped: "automation depth" };
   const p = (event.payload ?? {}) as Record<string, unknown>;
-  const trigger = event.type === "message.delivery_failed" ? "DELIVERY_FAILED" : event.type === "message.sent" ? "SENT_NO_REPLY" : event.type === "contact.tag_added" ? "TAG_ADDED" : event.type === "contact.created" ? "CONTACT_CREATED" : event.type === "lead.status_changed" ? "LEAD_STATUS_CHANGED" : null;
+  const trigger = event.type === "cart.abandoned" ? "CART_ABANDONED" : event.type === "message.delivery_failed" ? "DELIVERY_FAILED" : event.type === "message.sent" ? "SENT_NO_REPLY" : event.type === "contact.tag_added" ? "TAG_ADDED" : event.type === "contact.created" ? "CONTACT_CREATED" : event.type === "lead.status_changed" ? "LEAD_STATUS_CHANGED" : null;
   if (!trigger) return { started: 0 };
   const sequences = await prisma.marketingSequence.findMany({ where: { businessId: event.businessId, trigger, isActive: true }, include: { steps: { orderBy: { position: "asc" } } } });
   if (!sequences.length) return { started: 0 };
@@ -133,7 +133,7 @@ export async function startSequencesForEvent(event: DomainEvent) {
     else if (trigger === "LEAD_STATUS_CHANGED") { if (cfg.leadStatus && p.to !== cfg.leadStatus) continue; }
     else if (trigger === "CONTACT_CREATED") { if (cfg.contactSource && p.source !== cfg.contactSource) continue; }
     if (!seq.steps.length) continue;
-    const sourceKey = typeof p.messageId === "string" ? `message:${p.messageId}` : `event:${event.id}`;
+    const sourceKey = typeof p.cartId === "string" ? `cart:${p.cartId}` : typeof p.messageId === "string" ? `message:${p.messageId}` : `event:${event.id}`;
     try {
       await prisma.sequenceRun.create({ data: { businessId: event.businessId, sequenceId: seq.id, contactId: event.contactId, sourceKey, nextAt: new Date(Date.now() + seq.steps[0].waitMinutes * 60_000), log: [] } });
       started++;
@@ -193,6 +193,10 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       if (!seq || !seq.isActive) { await finish("STOPPED", { stopReason: "sequence inactive" }); continue; }
       const step = seq.steps[run.stepIndex];
       if (!step) { await finish("COMPLETED"); continue; }
+      // Abandoned-cart journeys: stop as soon as the cart was bought; expose cart values to the messages.
+      const cartId = run.sourceKey.startsWith("cart:") ? run.sourceKey.slice(5) : null;
+      const cart = cartId ? await (await import("./cart-service")).cartMergeValues(cartId) : null;
+      if (cart && (cart.status === "converted" || cart.status === "recovered")) { await finish("STOPPED", { stopReason: "העגלה הושלמה ברכישה" }); continue; }
       const stop = await stopCondition(run, seq.stopOn);
       if (stop) { await finish("STOPPED", { stopReason: stop }); continue; }
       // Send steps re-check global suppression/consent before every send; task steps only create CRM work and never message the contact.
@@ -268,7 +272,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
           else {
             const contact = await prisma.contact.findUniqueOrThrow({ where: { id: run.contactId }, select: { fullName: true } });
             const conversation = await startConversationForAutomation(run.contactId, sender.id, seq.createdById ?? "");
-            const { message } = await createOutboundMessage({ conversationId: conversation.id, body: "", templateId, templateVariables: personalizeVariables((step.variables as Record<string, string>) ?? {}, contact.fullName), sentByUserId: seq.createdById ?? "", automated: true, journeyStep: true, requireOptIn: true, requestKey, eventDepth: 1 });
+            const { message } = await createOutboundMessage({ conversationId: conversation.id, body: "", templateId, templateVariables: personalizeVariables(Object.fromEntries(Object.entries((step.variables as Record<string, string>) ?? {}).filter(([k]) => !k.startsWith("__")).map(([k, v]) => [k, cart ? v.replaceAll("{cart_url}", cart.values.cart_url).replaceAll("{cart_total}", cart.values.cart_total).replaceAll("{cart_items}", cart.values.cart_items) : v])), contact.fullName), sentByUserId: seq.createdById ?? "", automated: true, journeyStep: true, requireOptIn: true, requestKey, eventDepth: 1 });
             if (!["ACCEPTED", "SENT", "DELIVERED", "READ"].includes(message.status)) throw new Error(message.errorReason ?? "הספק לא אישר את השליחה");
             messageId = message.id;
           }
@@ -283,7 +287,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
         const { MessagePolicyError, FrequencyCapError } = await import("@/server/services/message-service");
         const { ChannelUnavailableError } = await import("@/server/channels/registry");
         try {
-          const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId, variables: (step.variables as Record<string, string>) ?? {}, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1, sequenceRunId: run.id });
+          const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId, variables: { ...Object.fromEntries(Object.entries((step.variables as Record<string, string>) ?? {}).filter(([k]) => !k.startsWith("__"))), ...(cart?.values ?? {}) }, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1, sequenceRunId: run.id });
           if (!["ACCEPTED", "SENT", "DELIVERED", "READ"].includes(message.status)) throw new Error(message.errorReason ?? "הספק לא אישר את השליחה");
           messageId = message.id;
         } catch (err) {
@@ -294,6 +298,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
         }
       }
       if (deferUntil) { await finish("PENDING", { nextAt: deferUntil, lockedAt: null }); continue; }
+      if (cartId && messageId) await prisma.cart.updateMany({ where: { id: cartId, recoveryMessageAt: null }, data: { recoveryMessageAt: new Date() } });
       const entry = { step: step.position, channel: step.channel, messageId, skipped, at: new Date().toISOString() };
       const nextStep = seq.steps[run.stepIndex + 1];
       await audit(bid, null, "sequence", seq.id, "sequence.step", { runId: run.id, contactId: run.contactId, ...entry });

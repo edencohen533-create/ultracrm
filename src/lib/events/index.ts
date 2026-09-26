@@ -35,7 +35,8 @@ export type DomainEventType =
   | "contact.merged"
   | "message.delivery_failed"
   | "sequence.step_sent"
-  | "task.created";
+  | "task.created"
+  | "cart.abandoned";
 
 export type EventSource = "user" | "system" | "automation" | "webhook" | "import";
 

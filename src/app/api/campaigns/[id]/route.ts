@@ -52,6 +52,6 @@ export const DELETE = organizationRequest(async function(_request: Request, { pa
   if (!actor) return Response.json({ error: "אין הרשאה" }, { status: 403 });
   const { id } = await params;
   const { deleteDraftCampaign } = await import("@/server/services/campaign-service");
-  try { await deleteDraftCampaign(id, actor.id); return Response.json({ ok: true }); }
+  try { await deleteDraftCampaign(id, actor.id, { withBuilderDraft: true }); return Response.json({ ok: true }); }
   catch (error) { if (error instanceof CampaignError) return Response.json({ error: error.message }, { status: 409 }); throw error; }
 });

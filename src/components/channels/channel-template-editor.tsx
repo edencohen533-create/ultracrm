@@ -53,7 +53,7 @@ export function SmsTemplateDialog({ existing, trigger }: { existing?: ChannelTem
   );
 }
 
-const BLOCK_LABEL = BLOCK_LABELS;
+const BLOCK_LABEL: Partial<typeof BLOCK_LABELS> = { heading: BLOCK_LABELS.heading, text: BLOCK_LABELS.text, image: BLOCK_LABELS.image, button: BLOCK_LABELS.button, link: BLOCK_LABELS.link, divider: BLOCK_LABELS.divider, footer: BLOCK_LABELS.footer };
 const newBlock = newEmailBlock;
 
 export function EmailTemplateDialog({ existing, trigger }: { existing?: ChannelTemplateRow; trigger?: React.ReactNode }) {

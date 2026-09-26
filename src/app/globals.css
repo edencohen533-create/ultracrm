@@ -638,3 +638,5 @@ table {
 .rep-table td { padding: 10px 12px; border-top: 1px solid #f0f2f6; }
 .rep-pager { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #6b7690; }
 .rep-pager button { padding: 4px 10px; } .rep-pager button:disabled { opacity: .4; }
+
+.wz-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }

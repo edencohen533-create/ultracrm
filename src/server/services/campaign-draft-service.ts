@@ -44,7 +44,7 @@ export type DraftData = z.infer<typeof draftDataSchema>;
 export const draftPatchSchema = z.object({ name: z.string().trim().min(1).max(120).optional(), step: z.string().max(20).optional(), data: draftDataSchema.optional() });
 
 function view(d: { id: string; channel: string; name: string; step: string; data: unknown; templateId: string | null; campaignId: string | null; createdAt: Date; updatedAt: Date; campaign?: { status: string; scheduledAt: Date | null } | null }) {
-  return { id: d.id, channel: d.channel as DraftChannel, name: d.name, step: d.step, data: (d.data ?? {}) as DraftData, templateId: d.templateId, campaignId: d.campaignId, campaignStatus: d.campaign?.status ?? null, createdAt: d.createdAt, updatedAt: d.updatedAt, steps: DRAFT_STEPS[d.channel as DraftChannel] };
+  return { id: d.id, channel: d.channel as DraftChannel, name: d.name, step: d.step === "building" ? "review" : d.step, data: (d.data ?? {}) as DraftData, templateId: d.templateId, campaignId: d.campaignId, campaignStatus: d.campaign?.status ?? null, createdAt: d.createdAt, updatedAt: d.updatedAt, steps: DRAFT_STEPS[d.channel as DraftChannel] };
 }
 
 export async function listDrafts(channel?: DraftChannel) {
@@ -78,16 +78,27 @@ export async function draftFromCampaign(campaignId: string, actorUserId: string)
     mediaUrl: c.mediaUrl, buttonParams: (c.buttonParams as Record<string, string> | null) ?? null, category: c.template.category === "UTILITY" ? "UTILITY" : "MARKETING", scheduledAt: c.scheduledAt?.toISOString() ?? null,
     ...(c.channel === "whatsapp" ? { templateId: c.templateId } : c.channel === "sms" ? { body: c.template.body, templateId: c.templateId } : { subject: c.template.subject ?? "", preheader: c.template.preheader ?? "", design: c.template.design ?? defaultEmailDesign(), designSource: c.templateId, templateId: c.templateId }),
   };
-  const d = await prisma.campaignDraft.create({ data: { businessId: requireBusinessId(), channel: c.channel, name: c.name, step: "review", data: data as Prisma.InputJsonValue, campaignId: c.id, templateId: c.template.internal ? c.templateId : null, createdById: actorUserId } });
+  const d = await prisma.campaignDraft.create({ data: { businessId: requireBusinessId(), channel: c.channel, name: c.name, step: "review", data: data as Prisma.InputJsonValue, campaignId: c.id, templateId: null, createdById: actorUserId } });
   return getDraft(d.id);
 }
 
+/** Merge keys into the draft's data atomically (jsonb ||) – concurrent saves never write back stale data. */
+async function mergeDraftData(id: string, data: Record<string, unknown>) {
+  await prisma.$executeRaw`UPDATE "campaign_drafts" SET "data" = "data" || ${JSON.stringify(data)}::jsonb, "updated_at" = now() WHERE "id" = ${id} AND "business_id" = ${requireBusinessId()}`;
+}
+async function assertEditable(d: { campaignId: string | null }) {
+  if (!d.campaignId) return;
+  const c = await prisma.campaign.findUnique({ where: { id: d.campaignId }, select: { status: true } });
+  if (c && c.status !== "DRAFT") throw new CampaignError("הקמפיין כבר תוזמן או נשלח – לא ניתן לערוך אותו");
+}
+
 export async function updateDraft(id: string, patch: z.infer<typeof draftPatchSchema>) {
-  const d = await prisma.campaignDraft.findUnique({ where: { id }, select: { data: true, channel: true } });
+  const d = await prisma.campaignDraft.findUnique({ where: { id }, select: { channel: true, campaignId: true } });
   if (!d) throw new CampaignError("הטיוטה לא נמצאה");
   if (patch.step && !DRAFT_STEPS[d.channel as DraftChannel].includes(patch.step)) throw new CampaignError("שלב לא תקין");
-  const data = { ...(d.data as Record<string, unknown>), ...(patch.data ?? {}) };
-  await prisma.campaignDraft.update({ where: { id }, data: { ...(patch.name ? { name: patch.name } : {}), ...(patch.step ? { step: patch.step } : {}), data: data as Prisma.InputJsonValue } });
+  if (patch.data || patch.name) await assertEditable(d);
+  if (patch.data && Object.keys(patch.data).length) await mergeDraftData(id, patch.data as Record<string, unknown>);
+  if (patch.name || patch.step) await prisma.campaignDraft.update({ where: { id }, data: { ...(patch.name ? { name: patch.name } : {}), ...(patch.step ? { step: patch.step } : {}) } });
   return getDraft(id);
 }
 
@@ -95,8 +106,12 @@ export async function deleteDraft(id: string, actorUserId: string) {
   const d = await prisma.campaignDraft.findUnique({ where: { id }, include: { campaign: { select: { status: true } } } });
   if (!d) throw new CampaignError("הטיוטה לא נמצאה");
   await prisma.$transaction(async (tx) => {
-    if (d.campaignId && d.campaign?.status === "DRAFT") { await tx.campaignDraft.update({ where: { id }, data: { campaignId: null } }); await tx.campaign.delete({ where: { id: d.campaignId } }); }
-    if (d.templateId) await tx.template.deleteMany({ where: { id: d.templateId, internal: true, campaigns: { none: {} } } });
+    if (d.campaignId) {
+      await tx.campaignDraft.update({ where: { id }, data: { campaignId: null } });
+      const r = await tx.campaign.deleteMany({ where: { id: d.campaignId, status: "DRAFT" } });
+      if (!r.count && d.campaign && d.campaign.status !== "DRAFT") throw new CampaignError("הקמפיין כבר תוזמן או נשלח – לא ניתן למחוק את הטיוטה");
+    }
+    if (d.templateId) await tx.template.deleteMany({ where: { id: d.templateId, internal: true, campaigns: { none: {} }, sequenceSteps: { none: {} } } });
     await tx.campaignDraft.delete({ where: { id } });
   });
   await audit(requireBusinessId(), actorUserId, "campaign", id, "campaign.draft_deleted", { name: d.name });
@@ -147,6 +162,14 @@ async function syncWorkingTemplate(d: ReturnType<typeof view>) {
 
 /** Turn the draft into a DRAFT campaign with a frozen audience (replacing a previously built one). */
 export async function buildDraft(id: string, actorUserId: string) {
+  // One build at a time per draft (the review step builds on open; a second tab/remount must not create a twin campaign).
+  const claim = await prisma.campaignDraft.updateMany({ where: { id, OR: [{ NOT: { step: "building" } }, { updatedAt: { lt: new Date(Date.now() - 120_000) } }] }, data: { step: "building" } });
+  if (!claim.count) throw new CampaignError("הקמפיין כבר נבנה כרגע – נסה שוב בעוד רגע");
+  try { return await buildDraftClaimed(id, actorUserId); }
+  finally { await prisma.campaignDraft.updateMany({ where: { id, step: "building" }, data: { step: "review" } }); }
+}
+
+async function buildDraftClaimed(id: string, actorUserId: string) {
   const d = await getDraft(id);
   const problems = draftChecks(d);
   if (problems.length) throw new ApiError(problems.map((p) => p.message).join(" · "), 400, "draft_invalid", { problems });
@@ -174,7 +197,8 @@ export async function testDraft(id: string, user: { id: string; businessId: stri
     if (!d.campaignId) throw new CampaignError("לשליחת בדיקה ב-WhatsApp יש לבנות את הקמפיין קודם (שלב הבקרה)");
     return sendCampaignTest(user, d.campaignId, to);
   }
+  await assertEditable(d);
   const templateId = await syncWorkingTemplate(d);
-  await prisma.campaignDraft.update({ where: { id }, data: { data: { ...(d.data as Record<string, unknown>), testTo: to } as Prisma.InputJsonValue } });
+  await mergeDraftData(id, { testTo: to });
   return sendChannelTest(user, { channel: d.channel, credentialId: d.data.senderCredentialId ?? null, templateId, variables: d.data.variables ?? {}, to, senderId: d.data.senderId ?? null });
 }

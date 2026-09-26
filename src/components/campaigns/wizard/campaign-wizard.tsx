@@ -39,24 +39,46 @@ export function CampaignWizard({ draftId }: { draftId: string }) {
 
   useEffect(() => { api<{ draft: Draft; problems: Problem[] }>(`/api/campaigns/drafts/${draftId}`).then((r) => { setDraft(r.draft); setProblems(r.problems); setStep((r.draft.step as Step) || "info"); }).catch((e) => setError(e.message)); }, [draftId]);
 
-  const flush = useCallback(async (extra?: { step?: Step }) => {
-    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
-    const body = { ...pending.current, ...(extra ?? {}) }; pending.current = {};
-    if (!body.name && !body.data && !body.step) return;
-    setSaveState("saving");
-    try { const r = await api<{ draft: Draft; problems: Problem[] }>(`/api/campaigns/drafts/${draftId}`, "PATCH", body); setDraft((d) => d ? { ...r.draft, data: { ...r.draft.data } } : r.draft); setProblems(r.problems); setSaveState("saved"); }
-    catch (e) { setSaveState("error"); toast.error((e as Error).message); }
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const flush = useCallback((extra?: { step?: Step }) => {
+    // Saves run strictly one after another; a response is laid under any edits made while it was in flight.
+    const job = chain.current.then(async () => {
+      if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+      const body = { ...pending.current, ...(extra ?? {}) }; pending.current = {};
+      if (!body.name && !body.data && !body.step) return;
+      setSaveState("saving");
+      try {
+        const r = await api<{ draft: Draft; problems: Problem[] }>(`/api/campaigns/drafts/${draftId}`, "PATCH", body);
+        const newer = pending.current;
+        setDraft((d) => ({ ...r.draft, name: newer.name ?? r.draft.name, step: d?.step ?? r.draft.step, data: { ...r.draft.data, ...(newer.data ?? {}) } }));
+        setProblems(r.problems); setSaveState(newer.data || newer.name ? "dirty" : "saved");
+      } catch (e) { setSaveState("error"); toast.error((e as Error).message); }
+    });
+    chain.current = job.catch(() => undefined);
+    return job;
   }, [draftId]);
+  const lockedRef = useRef(false);
   const patch = useCallback((data: Record<string, unknown>, name?: string) => {
+    if (lockedRef.current) return;
     setDraft((d) => d ? { ...d, ...(name !== undefined ? { name } : {}), data: { ...d.data, ...data } } : d);
     pending.current = { ...pending.current, data: { ...(pending.current.data ?? {}), ...data }, ...(name !== undefined ? { name } : {}) };
     setSaveState("dirty");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => { void flush(); }, 700);
   }, [flush]);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  // Leaving the page (tab close, link, back) must not drop the last debounced edits.
+  useEffect(() => {
+    const save = () => {
+      const body = pending.current; if (!body.name && !body.data) return; pending.current = {};
+      try { void fetch(`/api/campaigns/drafts/${draftId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), keepalive: true }); } catch { /* best effort */ }
+    };
+    const onHide = () => save();
+    window.addEventListener("pagehide", onHide);
+    return () => { window.removeEventListener("pagehide", onHide); if (timer.current) clearTimeout(timer.current); save(); };
+  }, [draftId]);
   useEffect(() => { const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") return; }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, []);
 
+  useEffect(() => { lockedRef.current = Boolean(draft?.campaignStatus && draft.campaignStatus !== "DRAFT"); }, [draft?.campaignStatus]);
   const steps = draft?.steps ?? [];
   const idx = steps.indexOf(step);
   const go = async (to: Step) => { await flush({ step: to }); setStep(to); };
@@ -67,7 +89,7 @@ export function CampaignWizard({ draftId }: { draftId: string }) {
 
   if (error) return <div className="wz"><div className="wz-body"><p className="text-bad p-8">{error} · <Link href="/campaigns/email">חזרה לקמפיינים</Link></p></div></div>;
   if (!draft) return <div className="wz"><div className="wz-body"><p className="p-8 text-muted">טוען…</p></div></div>;
-  const locked = draft.campaignStatus && draft.campaignStatus !== "DRAFT";
+  const locked = Boolean(draft.campaignStatus && draft.campaignStatus !== "DRAFT");
   return (
     <div className="wz" data-testid="campaign-wizard" data-step={step}>
       <header className="wz-head">
@@ -82,11 +104,13 @@ export function CampaignWizard({ draftId }: { draftId: string }) {
       </header>
       <div className="wz-body">
         {locked && <div className="wz-locked">הקמפיין כבר {draft.campaignStatus === "SCHEDULED" ? "מתוזמן" : "נשלח"} – התוכן מוצג לקריאה בלבד. <Link href={`/campaigns/report/${draft.campaignId}`}>לדוח</Link></div>}
+        <fieldset className="wz-fieldset" disabled={locked}>
         {step === "info" && <InfoStep draft={draft} patch={patch} problems={stepProblems("info")} />}
         {step === "audience" && <AudienceStep draft={draft} patch={patch} problems={stepProblems("audience")} />}
         {step === "template" && <TemplateStep draft={draft} patch={patch} problems={stepProblems("template")} />}
         {step === "content" && <ContentStep draft={draft} patch={patch} flush={flush} problems={stepProblems("content")} />}
-        {step === "review" && <ReviewStep draft={draft} problems={problems} flush={flush} go={go} onSent={() => router.push(`/campaigns/${draft.channel}`)} />}
+        {step === "review" && !locked && <ReviewStep draft={draft} problems={problems} flush={flush} go={go} onSent={() => router.push(`/campaigns/${draft.channel}`)} />}
+        </fieldset>
       </div>
     </div>
   );
@@ -123,7 +147,7 @@ function InfoStep({ draft, patch, problems }: { draft: Draft; patch: (d: Record<
         <Field label="מאת (פרופיל שליחה)" error={err("שולח")}><select value={d.senderCredentialId ?? ""} onChange={(e) => { const p = senders?.profiles?.find((x) => x.id === e.target.value); patch({ senderCredentialId: e.target.value || null, replyTo: p?.replyTo ?? null }); }} data-testid="info-sender">{!senders ? <option>טוען…</option> : !senders.profiles?.length ? <option value="">אין חיבור אימייל פעיל</option> : senders.profiles.map((p) => <option key={p.id} value={p.id}>{p.senderName ?? p.label} &lt;{p.senderEmail ?? "—"}&gt;{p.simulated ? " · הדמיה" : ""}</option>)}</select><ConnStatus p={senders ? profile : undefined} /></Field>
         <button type="button" className="wz-link" onClick={() => setMore((m) => !m)} data-testid="info-more">{more ? <ChevronUp size={14} /> : <ChevronDown size={14} />} אפשרויות נוספות</button>
         {more && <div className="wz-more">
-          <Field label="כתובת לתשובות (Reply-To)" hint="ריק = כתובת השליחה של הפרופיל"><input dir="ltr" value={d.replyTo ?? ""} onChange={(e) => patch({ replyTo: e.target.value || null })} /></Field>
+          <div className="wz-field"><span className="wz-label">כתובת לתשובות (Reply-To)</span><span dir="ltr">{profile?.replyTo || profile?.senderEmail || "—"}</span><span className="wz-hint">נקבעת בפרופיל השליחה (<Link href="/settings">הגדרות → חיבורים</Link>).</span></div>
           <Field label="סוג ההודעה" hint="שיווקי: נשלח רק למי שנתן הסכמה, עם קישור הסרה ומגבלת תדירות"><select value={d.category ?? "MARKETING"} onChange={(e) => patch({ category: e.target.value })}><option value="MARKETING">שיווקי</option><option value="UTILITY">שירותי / תפעולי</option></select></Field>
           <div className="wz-track"><span className="wz-label">הגדרות מעקב</span><ul><li>{profile?.capabilities?.opens ? "✓ מעקב פתיחות פעיל (אות מהספק)" : "– הספק לא מדווח פתיחות"}</li><li>{profile?.capabilities?.clicks ? "✓ מעקב הקלקות פעיל" : "– הספק לא מדווח הקלקות"}</li><li>✓ קישור הסרה אישי לכל נמען</li></ul><span className="wz-hint">המעקב נקבע לפי החיבור (<Link href="/settings">הגדרות → חיבורים</Link>).</span></div>
         </div>}
@@ -227,8 +251,10 @@ function ContentStep({ draft, patch, flush, problems }: { draft: Draft; patch: (
   const sendTest = async () => { setBusy(true); try { await flush(); const r = await api<{ data?: { simulated?: boolean } }>(`/api/campaigns/drafts/${draft.id}/test`, "POST", { to: testTo }); toast.success(`${r.data?.simulated ? "הדמיה: " : ""}הודעת בדיקה נשלחה ל-${testTo}`); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); } };
   const testBar = <div className="wz-testbar"><input dir="ltr" placeholder={draft.channel === "email" ? "נמען בדיקה (מוגדר בחיבור)" : "מספר בדיקה מורשה"} value={testTo} onChange={(e) => setTestTo(e.target.value)} aria-label="נמען בדיקה" data-testid="content-test-to" list="test-recipients" /><datalist id="test-recipients">{(profile?.testRecipients ?? []).map((t) => <option key={t} value={t} />)}</datalist><button className="wz-btn ghost" disabled={busy || !testTo} onClick={sendTest} data-testid="content-test-send">שליחת ניסיון</button><button className="wz-btn ghost" onClick={() => setPreview((p) => !p)}>{preview ? "סגור תצוגה" : "תצוגה מקדימה"}</button></div>;
   if (draft.channel === "email") {
-    const parsed = emailDesignSchema.safeParse(draft.data.design);
-    const design = parsed.success ? parsed.data : emailDesignSchema.parse({ blocks: [{ type: "text", text: "הטקסט שלך" }] });
+    const raw = draft.data.design as Partial<EmailDesign> | undefined;
+    const parsed = emailDesignSchema.safeParse(raw);
+    // While the user is mid-edit a field can be briefly invalid (empty text, partial width) – keep editing the real design.
+    const design: EmailDesign = parsed.success ? parsed.data : raw && Array.isArray(raw.blocks) ? { version: 1, settings: { ...emailDesignSchema.parse({ blocks: [{ type: "divider" }] }).settings, ...(raw.settings ?? {}) }, blocks: raw.blocks } as EmailDesign : emailDesignSchema.parse({ blocks: [{ type: "text", text: "הטקסט שלך" }] });
     return <div className="wz-content" data-testid="wz-content">{problems.map((p) => <p key={p.message} className="wz-err">{p.message}</p>)}{testBar}
       {preview ? <div className="wz-preview"><iframe title="תצוגה מקדימה" srcDoc={renderEmailHtml(design, { preheader: draft.data.preheader })} sandbox="" /></div> : <EmailEditor design={design} preheader={draft.data.preheader} onChange={(d) => patch({ design: d })} />}
     </div>;

@@ -95,5 +95,5 @@ export function campaignBucket(c: { status: string; statusReason?: string | null
   if (c.status === "CANCELLED") return "cancelled";
   const counts = c.counts ?? {};
   const sent = counts.SENT ?? 0; const failed = (counts.FAILED ?? 0) + (counts.UNKNOWN ?? 0);
-  return sent === 0 && failed > 0 ? "failed" : "sent";
+  return sent === 0 && (failed > 0 || (counts.SKIPPED ?? 0) > 0) ? "failed" : "sent";
 }

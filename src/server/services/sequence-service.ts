@@ -46,11 +46,11 @@ export async function listSequences() {
 }
 
 export async function saveSequence(user: SessionUser, input: SequenceInput, id?: string) {
-  const templates = await prisma.template.findMany({ where: { id: { in: input.steps.flatMap((s) => (s.templateId ? [s.templateId] : [])) } }, select: { id: true, channel: true, status: true } });
+  const templates = await prisma.template.findMany({ where: { id: { in: input.steps.flatMap((s) => (s.templateId ? [s.templateId] : [])) } }, select: { id: true, channel: true, status: true, internal: true } });
   for (const [i, step] of input.steps.entries()) {
     if (step.action === "task") continue;
     const t = templates.find((x) => x.id === step.templateId);
-    if (!t || t.channel !== step.channel || t.status !== "APPROVED") throw new ApiError(`שלב ${i + 1}: התבנית אינה מאושרת לערוץ ${step.channel}`, 400, "template_invalid");
+    if (!t || t.internal || t.channel !== step.channel || t.status !== "APPROVED") throw new ApiError(`שלב ${i + 1}: התבנית אינה מאושרת לערוץ ${step.channel}`, 400, "template_invalid");
   }
   const stopOn = [...new Set([...input.stopOn, "unsubscribe"])];
   const data = { name: input.name, isActive: input.isActive, trigger: input.trigger, triggerConfig: input.triggerConfig as Prisma.InputJsonValue, stopOn };

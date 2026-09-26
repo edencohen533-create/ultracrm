@@ -236,12 +236,12 @@ export async function campaignReport(id: string) {
   const availability = {
     delivery: simulated ? "simulated" : caps.deliveryReports === false ? "unavailable" : "real",
     opens: campaign.channel === "email" && caps.opens ? "signal" : "unavailable",
-    clicks: campaign.channel === "email" && caps.clicks ? "signal" : "unavailable",
+    clicks: campaign.channel === "email" && (campaign.template.category !== "UTILITY" || caps.clicks) ? "real" : "unavailable",
     replies: campaign.channel === "email" ? "unavailable" : caps.inbound === false ? "unavailable" : "real",
     cost: costCount ? (costCount === messages.length ? "real" : "partial") : (campaign.estimate as { known?: boolean } | null)?.known ? "estimated" : "unavailable",
   } as const;
   return {
-    id: campaign.id, name: campaign.name, channel: campaign.channel, status: campaign.status, scheduledAt: campaign.scheduledAt, statusReason: campaign.statusReason, template: campaign.template, simulated,
+    id: campaign.id, name: campaign.name, channel: campaign.channel, status: campaign.status, scheduledAt: campaign.scheduledAt, audienceExcluded: campaign.audienceExcludedCount, statusReason: campaign.statusReason, template: campaign.template, simulated,
     recipients: recipientCounts, delivery, engagement: { opened, clicked, complained, hardBounce, softBounce, replies, unsubscribes },
     cost: { actual: costCount ? { amount: Number(costSum.toFixed(4)), currency: costCurrency, messages: costCount } : null, estimate: campaign.estimate },
     availability,
@@ -306,30 +306,41 @@ export async function retryRecipient(campaignId: string, recipientId: string, co
 }
 
 /** A draft that was never started can be removed entirely (recipients cascade). */
-export async function deleteDraftCampaign(id: string, actorUserId: string | null) {
+export async function deleteDraftCampaign(id: string, actorUserId: string | null, opts: { withBuilderDraft?: boolean } = {}) {
   const c = await prisma.campaign.findUnique({ where: { id }, select: { status: true, name: true } });
   if (!c) throw new CampaignError("הקמפיין לא נמצא");
   if (c.status !== "DRAFT") throw new CampaignError("ניתן למחוק רק טיוטה");
+  const segments = await prisma.distributionList.findMany({ where: { NOT: { segment: { equals: Prisma.DbNull } } }, select: { name: true, segment: true } });
+  const refs = segments.filter((l) => JSON.stringify(l.segment).includes(`"${id}"`));
+  if (refs.length) throw new CampaignError(`הקמפיין משמש בתנאי הקהל "${refs[0].name}" – עדכן את הקהל לפני המחיקה`);
   await prisma.$transaction(async (tx) => {
-    await tx.campaignDraft.updateMany({ where: { campaignId: id }, data: { campaignId: null } });
-    await tx.campaign.delete({ where: { id } });
+    const drafts = await tx.campaignDraft.findMany({ where: { campaignId: id }, select: { id: true, templateId: true } });
+    const r = await tx.campaign.deleteMany({ where: { id, status: "DRAFT" } });
+    if (!r.count) throw new CampaignError("ניתן למחוק רק טיוטה");
+    if (opts.withBuilderDraft) {
+      await tx.campaignDraft.deleteMany({ where: { id: { in: drafts.map((d) => d.id) } } });
+      const tpl = drafts.map((d) => d.templateId).filter((x): x is string => Boolean(x));
+      if (tpl.length) await tx.template.deleteMany({ where: { id: { in: tpl }, internal: true, campaigns: { none: {} }, sequenceSteps: { none: {} } } });
+    }
     await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: actorUserId, action: "campaign.deleted", entityType: "Campaign", entityId: id, payload: { name: c.name } } });
   });
 }
 
 export async function renameCampaign(id: string, name: string, actorUserId: string | null) {
+  if (!name.trim()) throw new CampaignError("יש להזין שם");
   const r = await prisma.campaign.updateMany({ where: { id, status: { in: ["DRAFT", "SCHEDULED", "PAUSED"] } }, data: { name } });
+  await prisma.campaignDraft.updateMany({ where: { campaignId: id }, data: { name } });
   if (!r.count) throw new CampaignError("ניתן לשנות שם רק לקמפיין שטרם נשלח");
   await prisma.auditLog.create({ data: { businessId: requireBusinessId(), actorId: actorUserId, action: "campaign.renamed", entityType: "Campaign", entityId: id, payload: { name } } });
 }
 
 /** Links in the campaign content (from the rendered template) – per-link click counts only when the provider reports them. */
 export async function campaignLinks(id: string) {
-  const c = await prisma.campaign.findUnique({ where: { id }, include: { template: { select: { html: true, body: true, buttons: true } }, providerCredential: { select: { capabilities: true, provider: true } } } });
+  const c = await prisma.campaign.findUnique({ where: { id }, include: { template: { select: { html: true, body: true, buttons: true, category: true } }, providerCredential: { select: { capabilities: true, provider: true } } } });
   if (!c) throw new CampaignError("הקמפיין לא נמצא");
   const text = `${c.template.html ?? ""}\n${c.template.body}\n${JSON.stringify(c.template.buttons ?? [])}`;
   const urls = [...new Set([...text.matchAll(/https?:\/\/[^\s"'<>)]+/g)].map((m) => m[0]).filter((u) => !u.includes("{{")))];
-  const caps = (c.providerCredential?.capabilities ?? {}) as Partial<Record<string, boolean>>;
-  const clicked = await prisma.message.count({ where: { campaignRecipient: { campaignId: id }, clickedAt: { not: null } } });
-  return { links: urls.map((url) => ({ url, uniqueClicks: null as number | null })), totalUniqueClicks: c.channel === "email" && caps.clicks ? clicked : null, perLinkTracking: false, note: c.channel === "email" && caps.clicks ? "הספק מדווח על הקלקה ברמת ההודעה בלבד – אין פירוט לפי קישור." : "אין מעקב הקלקות בערוץ/ספק זה." };
+  const tracked = c.channel === "email" && c.template.category !== "UTILITY";
+  const clicked = tracked ? await prisma.message.count({ where: { campaignRecipient: { campaignId: id }, clickedAt: { not: null } } }) : null;
+  return { links: urls.map((url) => ({ url, uniqueClicks: null as number | null })), totalUniqueClicks: clicked, perLinkTracking: false, note: tracked ? "הקישורים במייל עוברים דרך מעקב ההקלקות של המערכת; הספירה היא לפי נמען (הקלקה ייחודית), ללא פירוט לפי קישור." : "אין מעקב הקלקות בערוץ זה." };
 }

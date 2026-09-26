@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 
 export async function listTemplates() {
-  return prisma.template.findMany({ where: { channel: "whatsapp" }, orderBy: { createdAt: "asc" } });
+  return prisma.template.findMany({ where: { channel: "whatsapp", internal: false }, orderBy: { createdAt: "asc" } });
 }
 /** WhatsApp templates that can be sent right now (Meta-approved on the connected account). */
 export async function listSendableTemplates() {

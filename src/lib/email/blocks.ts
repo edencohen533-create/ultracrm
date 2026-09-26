@@ -49,7 +49,8 @@ export const emailDesignSchema = z.object({
     backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f4f4f7"),
     contentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#ffffff"),
     textColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#1f2937"),
-    fontFamily: z.string().max(200).default("Arial, Helvetica, sans-serif"),
+    /** Font stack only (letters, digits, spaces, commas, quotes, hyphens) – it is written into a style attribute. */
+    fontFamily: z.string().max(200).regex(/^[A-Za-z0-9 ,'\-]+$/, "שם גופן לא תקין").default("Arial, Helvetica, sans-serif"),
     width: z.number().int().min(480).max(720).default(600),
     padding: z.number().int().min(0).max(48).default(24),
     linkColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#4f46e5"),
@@ -77,7 +78,7 @@ function inline(t: string) {
 export function renderEmailHtml(design: EmailDesign, opts: { preheader?: string | null } = {}): string {
   const s = design.settings;
   const dir = s.direction;
-  const base = `font-family:${s.fontFamily};color:${s.textColor};font-size:16px;line-height:1.6;`;
+  const base = `font-family:${s.fontFamily.replace(/[^A-Za-z0-9 ,'\-]/g, "")};color:${s.textColor};font-size:16px;line-height:1.6;`;
   const px = s.padding; const W = s.width; const inner = W - px * 2;
   const parts: string[] = [];
   let hasUnsubscribe = false;

@@ -131,6 +131,32 @@ describe("campaign builder (simulated providers, real DB)", () => {
     await run(a.session, () => deleteDraftCampaign(legacy.id, a.user.id));
   });
 
+  it("review fixes: concurrent saves keep both keys; a step-only save never reverts data; a second concurrent build is refused; list delete removes the builder draft; locked drafts reject edits", async () => {
+    const d = await run(a.session, () => createDraft("email", a.user.id, "מרוץ"));
+    await Promise.all([
+      run(a.session, () => updateDraft(d.id, { data: { subject: "נושא" } })),
+      run(a.session, () => updateDraft(d.id, { data: { preheader: "טרום" } })),
+      run(a.session, () => updateDraft(d.id, { step: "audience" })),
+    ]);
+    const after = await run(a.session, () => getDraft(d.id));
+    expect(after.data).toMatchObject({ subject: "נושא", preheader: "טרום" });
+    await run(a.session, () => updateDraft(d.id, { data: { senderCredentialId: emailCred, listIds: [listA] } }));
+    const results = await Promise.allSettled([run(a.session, () => buildDraft(d.id, a.user.id)), run(a.session, () => buildDraft(d.id, a.user.id))]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect((results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason.message).toMatch(/כבר נבנה כרגע/);
+    const built = await run(a.session, () => getDraft(d.id));
+    expect(await db.campaign.count({ where: { name: "מרוץ", businessId: a.business.id } })).toBe(1);
+    await run(a.session, () => deleteDraftCampaign(built.campaignId!, a.user.id, { withBuilderDraft: true }));
+    expect(await db.campaignDraft.count({ where: { id: d.id } })).toBe(0);
+    expect(await db.template.count({ where: { id: built.templateId! } })).toBe(0);
+    const d2 = await run(a.session, () => createDraft("sms", a.user.id, "נעול"));
+    await run(a.session, () => updateDraft(d2.id, { data: { senderCredentialId: smsCred, senderId: "+972501110000", listIds: [listA], body: "היי" } }));
+    const { campaignId } = await run(a.session, () => buildDraft(d2.id, a.user.id));
+    await run(a.session, () => changeCampaignStatus(campaignId, "start", new Date(Date.now() + 86400_000).toISOString(), a.user.id));
+    await expect(run(a.session, () => updateDraft(d2.id, { data: { body: "שונה" } }))).rejects.toThrow(/כבר תוזמן או נשלח/);
+    await run(a.session, () => changeCampaignStatus(campaignId, "cancel", undefined, a.user.id));
+  });
+
   it("tenant isolation: business B cannot read or build A's draft, and A's lists are invisible to B", async () => {
     const d = await run(a.session, () => createDraft("email", a.user.id, "סודי"));
     await expect(run(b.session, () => getDraft(d.id))).rejects.toThrow(/לא נמצאה/);

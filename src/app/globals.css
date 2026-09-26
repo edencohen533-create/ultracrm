@@ -711,3 +711,4 @@ button.seg-item { width: 100%; }
 .seg-builder-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .seg-count { background: #fdf6dd; border: 1px solid #f2e2a6; border-radius: 8px; padding: 10px; text-align: center; font-weight: 700; margin: 0; }
 @media (max-width: 900px) { .contacts-layout { grid-template-columns: 1fr; } .seg { flex-direction: row; overflow-x: auto; } .seg > header { display: none; } .seg-item { flex-shrink: 0; } }
+.seg > button.seg-item { flex: none; }

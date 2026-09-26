@@ -28,7 +28,7 @@ const PALETTE: Array<{ key: string; label: string; Icon: typeof Clock; make: () 
   { key: "add_to_list", label: "הוספה לרשימה", Icon: ListPlus, make: () => ({ action: "add_to_list", channel: "email", waitMinutes: 0, variables: {}, condition: { requireNoReply: false } }) },
   { key: "remove_from_list", label: "הסרה מרשימה", Icon: ListMinus, make: () => ({ action: "remove_from_list", channel: "email", waitMinutes: 0, variables: {}, condition: { requireNoReply: false } }) },
 ];
-const fmtWait = (m: number) => m >= 1440 && m % 1440 === 0 ? `${m / 1440} ימים` : m >= 60 && m % 60 === 0 ? `${m / 60} שעות` : `${m} דקות`;
+const fmtWait = (m: number) => m >= 1440 && m % 1440 === 0 ? (m === 1440 ? "יום אחד" : `${m / 1440} ימים`) : m >= 60 && m % 60 === 0 ? (m === 60 ? "שעה אחת" : `${m / 60} שעות`) : m === 1 ? "דקה אחת" : `${m} דקות`;
 function stepTitle(s: JourneyStep) { return s.action === "send" ? (s.channel === "email" ? "שליחת תבנית דוא״ל" : s.channel === "sms" ? "שליחת הודעת SMS" : "שליחת הודעת WhatsApp") : PALETTE.find((p) => p.key === s.action)?.label ?? s.action; }
 function stepIcon(s: JourneyStep) { return (s.action === "send" ? PALETTE.find((p) => p.key === s.channel) : PALETTE.find((p) => p.key === s.action))?.Icon ?? Clock; }
 

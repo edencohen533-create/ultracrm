@@ -21,7 +21,7 @@ const login = async (email, password = "Demo1234!") => {
   await page.goto(`${BASE}/login`); await page.fill('input[type="email"]', email); await page.fill('input[type="password"]', password); await page.click('button[type="submit"]');
   await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 90000 });
 };
-const navLabels = async () => page.$$eval('[data-testid="top-nav"] .top-nav-items a', (els) => els.map((e) => e.textContent.trim()));
+const navLabels = async () => page.$$eval('[data-testid="side-nav"] nav a', (els) => els.map((e) => e.textContent.trim()));
 const goto = (p) => page.goto(`${BASE}${p}`, { waitUntil: "domcontentloaded" });
 // A power session keeps dialing after a hangup, so repeat until nothing is live (server truth via API).
 const cleanup = async () => {
@@ -131,27 +131,24 @@ await step("F7 'הפעל חייגן' opens the full dialer screen (performance p
   await cleanup();
 });
 
-await step("F8 top navigation (manager): exactly לידים | וואטסאפ | קמפיינים | אוטומציות | דוחות, settings gear, no side menu, no horizontal overflow; /calls → leads drawer", async () => {
+await step("F8 side navigation (manager): exactly לידים | וואטסאפ | קמפיינים | אוטומציות | דוחות, settings at the bottom, active item highlighted, no horizontal overflow; /calls → leads drawer", async () => {
   await goto("/leads");
   const labels = await navLabels();
   if (labels.join("|") !== "לידים|וואטסאפ|קמפיינים|אוטומציות|דוחות") throw new Error(`nav: ${labels.join(",")}`);
-  if (await page.$("aside.app-sidebar")) throw new Error("side menu still rendered");
-  await page.waitForSelector('[data-testid="nav-settings"]');
+  await page.waitForSelector('[data-testid="side-nav"] [data-testid="nav-settings"]'); await page.waitForSelector('[data-testid="nav-logout"]');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   if (overflow) throw new Error("horizontal overflow");
-  const activeLeads = await page.$eval('[data-testid="nav-leads"]', (a) => a.classList.contains("active")); if (!activeLeads) throw new Error("active item not highlighted");
-  await page.click('[data-testid="nav-user"]'); await page.waitForSelector('[data-testid="nav-logout"]'); await page.keyboard.press("Escape"); await page.click("body", { position: { x: 5, y: 300 } });
+  if ((await page.$eval('[data-testid="nav-leads"]', (a) => a.getAttribute("aria-current"))) !== "page") throw new Error("active item not highlighted");
   await page.click('[data-testid="nav-settings"]'); await page.waitForURL((u) => u.pathname === "/settings");
   for (const t of ["משתמשים וצוותים", "חיבורים", "מספרים יוצאים"]) await page.waitForSelector(`button:has-text("${t}")`);
-  await page.setViewportSize({ width: 600, height: 800 }); await goto("/leads");
-  await page.waitForSelector('[data-testid="nav-burger"]'); await page.click('[data-testid="nav-burger"]'); await page.waitForSelector(".top-nav-mobile-item");
+  await page.setViewportSize({ width: 600, height: 800 }); await goto("/leads"); await page.waitForSelector('[data-testid="side-nav"]');
   const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   await page.setViewportSize({ width: 1366, height: 860 });
   if (mobileOverflow) throw new Error("horizontal overflow on a small screen");
   await goto("/calls"); await page.waitForURL((u) => u.pathname === "/leads" && u.search.includes("view=calls"));
   await goto("/inbox"); const tabs = await page.$$eval("main a", (els) => els.map((e) => e.getAttribute("href")));
   if (tabs.includes("/calls")) throw new Error("inbox still links to /calls");
-  await shot("topnav");
+  await shot("sidenav");
 });
 
 await step("F9 dial list page = the lead workspace filtered to the list, with the queue table one tab away", async () => {

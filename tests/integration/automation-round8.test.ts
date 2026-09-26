@@ -56,7 +56,7 @@ describe("automations round 8", () => {
     expect(await db.campaignRecipient.count({ where: { campaignId: c.id, status: "SENT" } })).toBe(4);
   });
 
-  it("lead status changed to 'qualified' → WhatsApp template sent to the contact", async () => {
+  it("lead status changed to 'qualified' → WhatsApp template sent to the contact, even when an agent owns the conversation", async () => {
     await run(() => saveSequence(t.session, sequenceSchema.parse({ name: "status→wa", trigger: "LEAD_STATUS_CHANGED", triggerConfig: { leadStatus: "qualified" }, stopOn: [], steps: [{ action: "send", channel: "whatsapp", templateId: waTpl, waitMinutes: 0, variables: { "1": "{name}" }, condition: { requireNoReply: false } }] })));
     const fresh = (await run(() => createContact(t.session, { fullName: "R8 status", phone: "0503009999", consentStatus: "OPTED_IN", consentEvidence: "t" }))).id;
     const lead = await run(() => createLead(t.session, { contactId: fresh, title: "L" }));

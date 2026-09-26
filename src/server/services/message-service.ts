@@ -123,6 +123,8 @@ export interface CreateOutboundMessageInput {
   campaignRecipientId?: string;
   requestKey?: string;
   automated?: boolean;
+  /** Scheduled marketing template from a customer journey: sent even while an agent handles the conversation (consent + suppression still apply). */
+  journeyStep?: boolean;
   /** Depth of the automation chain that produced this send (loop protection). */
   eventDepth?: number;
   media?: { file: Buffer; mimeType: string; fileName: string };
@@ -174,7 +176,7 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
   if (conversation.channel === "email") throw new MessagePolicyError("מענה לאימייל מהתיבה אינו נתמך; השב מתיבת הדואר של העסק (Reply-To)");
   const serviceWindow = !!conversation.lastInboundAt && now.getTime() - conversation.lastInboundAt.getTime() < 86400000;
   let marketing = Boolean(input.requireOptIn);
-  if (input.automated && conversation.assignedAgentId) throw new MessagePolicyError("המענה האוטומטי נעצר כאשר נציג מטפל בשיחה");
+  if (input.automated && !input.journeyStep && conversation.assignedAgentId) throw new MessagePolicyError("המענה האוטומטי נעצר כאשר נציג מטפל בשיחה");
   let body = input.body;
   if (input.templateId) {
     const template = await prisma.template.findUnique({ where: { id: input.templateId } });

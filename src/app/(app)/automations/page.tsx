@@ -12,6 +12,8 @@ import { RuleList } from "@/components/automations/rule-list";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { JourneyList } from "@/components/automations/journey/journey-list";
+import { UnsubscribeCard } from "@/components/automations/unsubscribe-card";
+import { StatusWhatsAppCard } from "@/components/automations/status-whatsapp-card";
 import { listSequences } from "@/server/services/sequence-service";
 
 export default organizationRequest(async function AutomationsPage() {
@@ -48,7 +50,9 @@ export default organizationRequest(async function AutomationsPage() {
       ) : (
         <RuleList key={rules.map((r) => `${r.id}:${r.isActive}`).join(",")} rules={rules} />
       )}
+      <StatusWhatsAppCard templates={templates.map((t) => ({ id: t.id, name: t.name, body: t.body }))} />
       <JourneyList journeys={JSON.parse(JSON.stringify(sequences))} />
+      <UnsubscribeCard />
     </div>
   );
 });

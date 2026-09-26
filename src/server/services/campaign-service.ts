@@ -84,9 +84,9 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
     const excludedIds = new Set(excluded.map((contact) => contact.id));
     const waCredential = channel === "whatsapp" && providerCredentialId ? await tx.providerCredential.findUnique({ where: { id: providerCredentialId } }) : null;
     const estimate = estimateCampaignCost(channel, channelCredential ?? waCredential, template, contacts.length - excludedIds.size, template.category === "MARKETING");
-    const { channel: _c, senderId: _s, buttonParams, mediaUrl, listIds: _l, ...rest } = input;
+    const { channel: _c, senderId: _s, buttonParams, mediaUrl, listIds: _l, throttle, ...rest } = input;
     const campaign = await tx.campaign.create({ data: {
-      businessId: requireBusinessId(), ...rest, listIds, channel, senderId: sender?.value ?? null, mediaUrl: mediaUrl ?? null, buttonParams: (buttonParams ?? undefined) as Prisma.InputJsonValue | undefined, excludedListIds, providerCredentialId, createdById: actorUserId, senderSnapshot, templateSnapshot: templateFingerprint(template),
+      businessId: requireBusinessId(), ...rest, listIds, channel, throttle: (throttle ?? undefined) as Prisma.InputJsonValue | undefined, senderId: sender?.value ?? null, mediaUrl: mediaUrl ?? null, buttonParams: (buttonParams ?? undefined) as Prisma.InputJsonValue | undefined, excludedListIds, providerCredentialId, createdById: actorUserId, senderSnapshot, templateSnapshot: templateFingerprint(template),
       estimate: estimate as unknown as Prisma.InputJsonValue, audienceExcludedCount: excludedIds.size,
       audienceSnapshot: { frozenAt: new Date().toISOString(), lists: audience.lists.map((list) => ({ id: list.id, name: list.name, segment: list.segment })) },
       recipients: { createMany: { data: contacts.map(({ id: contactId }) => ({ contactId, ...(excludedIds.has(contactId) ? { status: "SKIPPED" as const, error: "הוחרג מהקהל ביצירת הטיוטה", completedAt: new Date() } : {}) })) } },
@@ -96,7 +96,7 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
   }, { isolationLevel: "RepeatableRead", timeout: 30000 }).catch((error) => { if (error instanceof AudienceError) throw new CampaignError(error.message); throw error; });
 }
 
-export async function changeCampaignStatus(id: string, action: "start" | "pause" | "resume" | "cancel" | "unschedule", scheduledAt?: string, actorUserId?: string, scheduledTimezone?: string) {
+export async function changeCampaignStatus(id: string, action: "start" | "pause" | "resume" | "cancel" | "unschedule", scheduledAt?: string, actorUserId?: string, scheduledTimezone?: string, throttle?: { batchSize: number; intervalMinutes: number } | null) {
   if (action === "unschedule") {
     // Back to a draft: nothing was sent yet (the worker only claims recipients once the campaign is RUNNING).
     const r = await prisma.campaign.updateMany({ where: { id, status: "SCHEDULED" }, data: { status: "DRAFT", scheduledAt: null, scheduledTimezone: null, preflightSnapshot: Prisma.DbNull, statusReason: null } });
@@ -127,7 +127,7 @@ export async function changeCampaignStatus(id: string, action: "start" | "pause"
   await prisma.$transaction(async (tx) => {
     const result = await tx.campaign.updateMany({
       where: { id, status: { in: from[action] } },
-      data: { status, statusReason: null, ...((action === "start" || action === "resume") ? { scheduledAt: date, ...(scheduledTimezone ? { scheduledTimezone } : {}), preflightSnapshot: snapshot as Prisma.InputJsonValue } : {}) },
+      data: { status, statusReason: null, ...(action === "start" && throttle !== undefined ? { throttle: throttle === null ? Prisma.DbNull : (throttle as Prisma.InputJsonValue) } : {}), ...((action === "start" || action === "resume") ? { scheduledAt: date, ...(scheduledTimezone ? { scheduledTimezone } : {}), preflightSnapshot: snapshot as Prisma.InputJsonValue } : {}) },
     });
     if (!result.count) throw new CampaignError("לא ניתן לבצע פעולה זו במצב הנוכחי של הקמפיין");
     if (action === "start") {

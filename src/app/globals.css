@@ -712,3 +712,14 @@ button.seg-item { width: 100%; }
 .seg-count { background: #fdf6dd; border: 1px solid #f2e2a6; border-radius: 8px; padding: 10px; text-align: center; font-weight: 700; margin: 0; }
 @media (max-width: 900px) { .contacts-layout { grid-template-columns: 1fr; } .seg { flex-direction: row; overflow-x: auto; } .seg > header { display: none; } .seg-item { flex-shrink: 0; } }
 .seg > button.seg-item { flex: none; }
+.unsub-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.unsub-body .jr-check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.unsub-tag { max-width: 240px; height: 34px; }
+.wz-pace { display: flex; flex-direction: column; gap: 8px; border: 1px solid #edf0f5; border-radius: 8px; padding: 12px 14px; }
+.wz-pace .jr-check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.wz-pace-row { display: flex; align-items: center; gap: 8px; padding-inline-start: 24px; }
+.wz-pace-row input { width: 110px; height: 36px; border: 1px solid #cfd6e4; border-radius: 6px; padding: 0 8px; }
+.wz-pace-row select { height: 36px; border: 1px solid #cfd6e4; border-radius: 6px; padding: 0 8px; }
+.sw-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.sw-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.sw-preview { grid-column: 1 / -1; background: #d9fdd3; border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; margin: 0; font-size: 14px; }

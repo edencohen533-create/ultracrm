@@ -99,6 +99,8 @@ export interface BusinessSettings {
     followUpTaskHours: number;
     /** Send a WhatsApp template after a call outcome (only with consent + connected channel). */
     followUpMessage: { enabled: boolean; templateId: string | null; outcomes: string[]; variables: Record<string, string> };
+    /** When a contact unsubscribes ("הסר" reply / unsubscribe link): extra clean-up on top of the global marketing block. */
+    unsubscribe: { removeFromLists: boolean; tagName: string | null };
   };
   inbound: {
     /** Route to the contact's owner first when they are available. */
@@ -150,7 +152,7 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   dialingPaused: false,
   allowedCountries: ["IL"],
   maxDialsPerMinute: 0,
-  automations: { newLeadTaskMinutes: 60, followUpTaskOutcomes: ["answered_interested"], followUpTaskHours: 24, followUpMessage: { enabled: false, templateId: null, outcomes: ["answered_interested"], variables: {} } },
+  automations: { newLeadTaskMinutes: 60, followUpTaskOutcomes: ["answered_interested"], followUpTaskHours: 24, followUpMessage: { enabled: false, templateId: null, outcomes: ["answered_interested"], variables: {} }, unsubscribe: { removeFromLists: false, tagName: null } },
   inbound: { preferOwner: true, noAgentAction: "hangup", createCallbackTask: true, respectDialWindow: false },
 };
 
@@ -171,6 +173,7 @@ export function mergeSettings(raw: unknown): BusinessSettings {
       ...DEFAULT_SETTINGS.automations,
       ...(r.automations ?? {}),
       followUpMessage: { ...DEFAULT_SETTINGS.automations.followUpMessage, ...(r.automations?.followUpMessage ?? {}) },
+      unsubscribe: { ...DEFAULT_SETTINGS.automations.unsubscribe, ...(r.automations?.unsubscribe ?? {}) },
       followUpTaskOutcomes: Array.isArray(r.automations?.followUpTaskOutcomes) ? r.automations!.followUpTaskOutcomes : DEFAULT_SETTINGS.automations.followUpTaskOutcomes,
     },
     allowedCountries: Array.isArray(r.allowedCountries) ? r.allowedCountries : DEFAULT_SETTINGS.allowedCountries,

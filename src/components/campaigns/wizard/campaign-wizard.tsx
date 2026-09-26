@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Check, ChevronDown, ChevronUp, Search, X } from "lucide-react";
-import { CHANNEL_LABELS, templateParameterKeys, renderTemplate } from "@/lib/campaigns";
+import { CHANNEL_LABELS, templateParameterKeys, renderTemplate, throttleLabel, type Throttle } from "@/lib/campaigns";
 import { emailDesignSchema, renderEmailHtml, type EmailDesign } from "@/lib/email/blocks";
 import { EMAIL_STARTERS } from "@/lib/email/starters";
 import { smsMetrics } from "@/lib/sms";
@@ -109,7 +109,7 @@ export function CampaignWizard({ draftId }: { draftId: string }) {
         {step === "audience" && <AudienceStep draft={draft} patch={patch} problems={stepProblems("audience")} />}
         {step === "template" && <TemplateStep draft={draft} patch={patch} problems={stepProblems("template")} />}
         {step === "content" && <ContentStep draft={draft} patch={patch} flush={flush} problems={stepProblems("content")} />}
-        {step === "review" && !locked && <ReviewStep draft={draft} problems={problems} flush={flush} go={go} onSent={() => router.push(`/campaigns/${draft.channel}`)} />}
+        {step === "review" && !locked && <ReviewStep draft={draft} patch={patch} problems={problems} flush={flush} go={go} onSent={() => router.push(`/campaigns/${draft.channel}`)} />}
         </fieldset>
       </div>
     </div>
@@ -302,7 +302,7 @@ function WhatsAppContent({ draft, patch, problems, testBar }: { draft: Draft; pa
 
 // ───────────────────────── בקרה ─────────────────────────
 type Preflight = { eligible: number; totalQueued: number; audienceExcluded: number; exclusions: Record<string, number>; blockers: string[]; samples: Array<{ name: string; body: string; subject?: string; phone: string }>; sender: string; simulated: boolean; cost: { total: number | null; currency: string | null; known: boolean; units: number } | null; timezone?: string; sendWindow?: { start: string; end: string; maxPerMinute?: number } | null };
-function ReviewStep({ draft, problems, flush, go, onSent }: { draft: Draft; problems: Problem[]; flush: () => Promise<void>; go: (s: Step) => Promise<void>; onSent: () => void }) {
+function ReviewStep({ draft, patch, problems, flush, go, onSent }: { draft: Draft; patch: (d: Record<string, unknown>) => void; problems: Problem[]; flush: () => Promise<void>; go: (s: Step) => Promise<void>; onSent: () => void }) {
   const [state, setState] = useState<{ campaignId: string; preflight: Preflight } | null>(null);
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -310,6 +310,7 @@ function ReviewStep({ draft, problems, flush, go, onSent }: { draft: Draft; prob
   const [confirm, setConfirm] = useState<"now" | "schedule" | null>(null);
   const [sending, setSending] = useState(false);
   const [testTo, setTestTo] = useState(draft.data.testTo ?? "");
+  const throttle = (draft.data.throttle as Throttle | null | undefined) ?? null;
   const senders = useSenders(draft.channel);
   const profile = senders?.profiles?.find((p) => p.id === draft.data.senderCredentialId) ?? senders?.profiles?.[0] ?? null;
   const built = useRef(false);
@@ -325,7 +326,7 @@ function ReviewStep({ draft, problems, flush, go, onSent }: { draft: Draft; prob
     if (!state || sending) return; setSending(true);
     try {
       const scheduledAt = confirm === "schedule" && when ? new Date(when).toISOString() : undefined;
-      await api(`/api/campaigns/${state.campaignId}`, "PATCH", { action: "start", scheduledAt, scheduledTimezone: scheduledAt ? tz : undefined });
+      await api(`/api/campaigns/${state.campaignId}`, "PATCH", { action: "start", scheduledAt, scheduledTimezone: scheduledAt ? tz : undefined, throttle });
       toast.success(scheduledAt ? "הקמפיין תוזמן" : "הקמפיין יצא לשליחה"); onSent();
     } catch (e) { toast.error((e as Error).message); setSending(false); setConfirm(null); }
   };
@@ -338,6 +339,7 @@ function ReviewStep({ draft, problems, flush, go, onSent }: { draft: Draft; prob
     { label: "משתנים אישיים וערכי גיבוי", ok: pf ? !(pf.exclusions["משתנים חסרים"]) : null, detail: pf ? (pf.exclusions["משתנים חסרים"] ? `${pf.exclusions["משתנים חסרים"]} נמענים עם משתנים חסרים ללא ברירת מחדל – הוסף ברירת מחדל ({{first_name|לקוח}})` : "לכל המשתנים יש ערך או ברירת מחדל") : "—", step: "content" },
     { label: "קישורים ומנגנון הסרה", ok: true, detail: draft.channel === "email" ? "קישור הסרה אישי מתווסף לכל מייל" : draft.channel === "sms" ? ((draft.data.category ?? "MARKETING") === "MARKETING" ? "שורת 'להסרה השיבו הסר' מתווספת" : "הודעה שירותית – ללא שורת הסרה") : "תשובת 'הסר' מסירה מדיוור אוטומטית", step: "content" },
     ...(draft.channel === "email" ? [{ label: "הגדרות מעקב", ok: true as boolean | null, detail: `${profile?.capabilities?.opens ? "פתיחות ✓" : "פתיחות –"} · ${profile?.capabilities?.clicks ? "הקלקות ✓" : "הקלקות –"} (לפי הספק)`, step: "info" as Step }] : []),
+    { label: "קצב שליחה", ok: true, detail: throttle ? `${throttleLabel(throttle)} · כ-${Math.max(1, Math.ceil((pf?.eligible ?? 0) / throttle.batchSize))} סבבים` : throttleLabel(null), step: "review" as Step },
     { label: "מועד שליחה ואזור זמן", ok: true, detail: when ? `מתוזמן ל-${new Date(when).toLocaleString("he-IL")} (${pf?.timezone ?? tz})` : `שליחה מיידית (${pf?.timezone ?? tz})${pf?.sendWindow ? ` · חלון שליחה ${pf.sendWindow.start}–${pf.sendWindow.end}` : ""}`, step: "review" },
   ];
   const blockers = [...(pf?.blockers ?? []), ...problems.map((p) => p.message), ...(error ? [error] : [])];
@@ -352,6 +354,13 @@ function ReviewStep({ draft, problems, flush, go, onSent }: { draft: Draft; prob
       {pf && pf.samples.length > 0 && <details className="wz-samples"><summary>דוגמאות להודעה כפי שתתקבל ({pf.samples.length})</summary>{pf.samples.map((s, i) => <div key={i} className="wz-sample"><strong>{s.name}</strong> <span dir="ltr">{s.phone}</span>{s.subject && <p><b>נושא:</b> {s.subject}</p>}<pre>{s.body}</pre></div>)}</details>}
       <div className="wz-total"><strong>{(pf?.eligible ?? 0).toLocaleString("he-IL")}</strong> נמענים ישלחו{pf?.cost?.known && pf.cost.total !== null ? <span className="wz-hint"> · אומדן עלות {pf.cost.total} {pf.cost.currency ?? ""} (לפי מחיר יחידה ידני)</span> : null}</div>
       <div className="wz-testbar"><input dir="ltr" placeholder={draft.channel === "whatsapp" ? "מספר בדיקה מורשה" : "נמען בדיקה (מוגדר בחיבור)"} value={testTo} onChange={(e) => setTestTo(e.target.value)} aria-label="נמען בדיקה" data-testid="review-test-to" /><button className="wz-btn ghost" disabled={!testTo || !state} onClick={sendTest} data-testid="review-test-send">שליחת ניסיון</button></div>
+      <div className="wz-pace" data-testid="review-pace">
+        <span className="wz-label">קצב שליחה</span>
+        <label className="jr-check"><input type="radio" name="pace" checked={!throttle} onChange={() => patch({ throttle: null })} data-testid="pace-all" /> לשלוח לכולם ברצף</label>
+        <label className="jr-check"><input type="radio" name="pace" checked={Boolean(throttle)} onChange={() => patch({ throttle: { batchSize: 100, intervalMinutes: 60 } })} data-testid="pace-batched" /> לשלוח בהדרגה:</label>
+        {throttle && <div className="wz-pace-row"><input type="number" min={1} max={100000} value={throttle.batchSize} onChange={(e) => patch({ throttle: { ...throttle, batchSize: Math.max(1, Math.round(Number(e.target.value) || 1)) } })} aria-label="כמות נמענים בכל סבב" data-testid="pace-size" /><span>נמענים כל</span><select value={throttle.intervalMinutes} onChange={(e) => patch({ throttle: { ...throttle, intervalMinutes: Number(e.target.value) } })} aria-label="מרווח בין סבבים" data-testid="pace-interval"><option value={15}>רבע שעה</option><option value={30}>חצי שעה</option><option value={60}>שעה</option><option value={120}>שעתיים</option><option value={180}>3 שעות</option><option value={360}>6 שעות</option><option value={1440}>יום</option></select></div>}
+        {throttle && pf && <span className="wz-hint">{pf.eligible.toLocaleString("he-IL")} נמענים ⇐ כ-{Math.ceil(pf.eligible / throttle.batchSize)} סבבים, סיום משוער בעוד כ-{Math.round((Math.ceil(pf.eligible / throttle.batchSize) - 1) * throttle.intervalMinutes / 60 * 10) / 10} שעות (בתוך חלון השליחה של העסק).</span>}
+      </div>
       <div className="wz-sendbar">
         <label className="wz-field inline"><span className="wz-label">תזמון (אופציונלי)</span><input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} data-testid="review-when" /></label>
         <button className="wz-btn ghost" disabled={!canSend || !when} onClick={() => setConfirm("schedule")} data-testid="review-schedule">תזמון</button>
@@ -359,7 +368,7 @@ function ReviewStep({ draft, problems, flush, go, onSent }: { draft: Draft; prob
       </div>
       {blockers.length > 0 && <ul className="wz-blockers">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
       {confirm && state && <div className="wz-modal" role="dialog" aria-label="אישור שליחה"><div className="wz-modal-box small"><header><strong>{confirm === "now" ? "לשלוח עכשיו?" : "לתזמן את הקמפיין?"}</strong><button onClick={() => !sending && setConfirm(null)} aria-label="סגור"><X size={18} /></button></header>
-        <dl className="wz-confirm"><dt>ערוץ</dt><dd>{CHANNEL_LABELS[draft.channel]}</dd><dt>קמפיין</dt><dd>{draft.name}</dd><dt>קהל</dt><dd>{pf?.eligible.toLocaleString("he-IL")} נמענים זכאים</dd><dt>מועד</dt><dd>{confirm === "schedule" ? new Date(when).toLocaleString("he-IL") : "מיידי"} ({tz})</dd>{pf?.simulated && <><dt>מצב</dt><dd>הדמיה – ללא שליחה אמיתית</dd></>}</dl>
+        <dl className="wz-confirm"><dt>ערוץ</dt><dd>{CHANNEL_LABELS[draft.channel]}</dd><dt>קמפיין</dt><dd>{draft.name}</dd><dt>קהל</dt><dd>{pf?.eligible.toLocaleString("he-IL")} נמענים זכאים</dd><dt>מועד</dt><dd>{confirm === "schedule" ? new Date(when).toLocaleString("he-IL") : "מיידי"} ({tz})</dd><dt>קצב</dt><dd>{throttleLabel(throttle)}</dd>{pf?.simulated && <><dt>מצב</dt><dd>הדמיה – ללא שליחה אמיתית</dd></>}</dl>
         <p className="wz-hint">הזכאות (הסכמה, הסרות, חסימות, תדירות) נבדקת שוב לכל נמען בזמן השליחה.</p>
         <div className="wz-modal-actions"><button className="wz-btn ghost" disabled={sending} onClick={() => setConfirm(null)}>ביטול</button><button className="wz-btn primary" disabled={sending} onClick={send} data-testid="review-confirm">{sending ? "שולח…" : confirm === "now" ? "אשר ושלח" : "אשר ותזמן"}</button></div></div></div>}
     </div>

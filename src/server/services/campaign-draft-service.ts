@@ -37,6 +37,7 @@ export const draftDataSchema = z.object({
   buttonParams: z.record(z.string(), z.string().max(500)).nullable().optional(),
   category: z.enum(["MARKETING", "UTILITY"]).optional(),
   scheduledAt: z.string().nullable().optional(),
+  throttle: z.object({ batchSize: z.number().int().min(1).max(100000), intervalMinutes: z.number().int().min(5).max(1440) }).nullable().optional(),
   testTo: z.string().max(200).optional(),
 }).passthrough();
 export type DraftData = z.infer<typeof draftDataSchema>;
@@ -182,7 +183,7 @@ async function buildDraftClaimed(id: string, actorUserId: string) {
   const campaign = await createCampaign({
     channel: d.channel, name: d.name, listId: listIds[0], listIds, excludedListIds: data.excludedListIds ?? [], templateId,
     providerCredentialId: data.senderCredentialId ?? null, senderId: d.channel === "sms" ? data.senderId ?? null : null,
-    variables: data.variables ?? {}, mediaUrl: d.channel === "whatsapp" ? data.mediaUrl ?? null : null, buttonParams: d.channel === "whatsapp" ? data.buttonParams ?? null : null,
+    variables: data.variables ?? {}, throttle: data.throttle ?? null, mediaUrl: d.channel === "whatsapp" ? data.mediaUrl ?? null : null, buttonParams: d.channel === "whatsapp" ? data.buttonParams ?? null : null,
   }, actorUserId);
   await prisma.campaignDraft.update({ where: { id }, data: { campaignId: campaign.id, templateId, step: "review" } });
   return { campaignId: campaign.id };

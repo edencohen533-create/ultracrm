@@ -39,7 +39,7 @@ export const PATCH = organizationRequest(async function(request: Request, { para
       const { retryRecipient } = await import("@/server/services/campaign-service");
       return Response.json(await retryRecipient(id, parsed.data.recipientId, Boolean(parsed.data.confirmNotSent), actorId ?? null));
     }
-    await changeCampaignStatus(id, parsed.data.action, parsed.data.scheduledAt, actorId, parsed.data.scheduledTimezone);
+    await changeCampaignStatus(id, parsed.data.action, parsed.data.scheduledAt, actorId, parsed.data.scheduledTimezone, parsed.data.throttle);
     return Response.json({ ok: true });
   } catch (error) {
     if (error instanceof CampaignError) return Response.json({ error: error.message }, { status: 409 });

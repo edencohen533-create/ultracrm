@@ -1615,6 +1615,8 @@ model Campaign {
   preflightSnapshot     Json?          @map("preflight_snapshot")
   /// Why the campaign was paused/failed by the system (provider down, quota…).
   statusReason          String?        @map("status_reason")
+  /// Sending pace: { batchSize, intervalMinutes } = at most batchSize recipients per intervalMinutes. Null = as fast as allowed.
+  throttle              Json?
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")
 

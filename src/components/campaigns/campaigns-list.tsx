@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CalendarDays, ChevronDown, FileEdit, List, MoreHorizontal, Search, Send, Clock, Hourglass, AlertCircle, Globe, Mail, MessageCircle, Smartphone } from "lucide-react";
-import { CAMPAIGN_BUCKET_LABELS, campaignBucket, CHANNEL_LABELS, type CampaignBucket } from "@/lib/campaigns";
+import { CAMPAIGN_BUCKET_LABELS, campaignBucket, CHANNEL_LABELS, throttleLabel, type CampaignBucket } from "@/lib/campaigns";
 import { Modal, Button } from "@/components/ui";
 
 type ChannelKey = "whatsapp" | "sms" | "email";
-interface Campaign { id: string; name: string; status: string; channel: ChannelKey; scheduledAt: string | null; statusReason: string | null; createdAt: string; updatedAt: string; list: { name: string }; template: { name: string }; _count: { recipients: number }; counts: Record<string, number> }
+interface Campaign { id: string; name: string; status: string; channel: ChannelKey; scheduledAt: string | null; throttle?: { batchSize: number; intervalMinutes: number } | null; statusReason: string | null; createdAt: string; updatedAt: string; list: { name: string }; template: { name: string }; _count: { recipients: number }; counts: Record<string, number> }
 interface Draft { id: string; channel: ChannelKey; name: string; step: string; updatedAt: string }
 type Row = { kind: "campaign"; c: Campaign } | { kind: "draft"; d: Draft };
 
@@ -136,7 +136,7 @@ export function CampaignsList({ channel, timezone }: { channel: ChannelKey; time
             ) : (() => { const c = row.c; const b = campaignBucket(c); const p = progress(c); const act = primary(c); const id = `c-${c.id}`; return (
               <article key={id} className="cmp-row" data-testid={`campaign-${c.id}`}>
                 <span className="cmp-row-icon"><Icon size={22} /></span>
-                <div className="cmp-row-main"><h3>{c.name}</h3><p>{dateLine(c)}{c.statusReason ? <span className="cmp-reason"> · {c.statusReason}</span> : null}</p></div>
+                <div className="cmp-row-main"><h3>{c.name}</h3><p>{dateLine(c)}{c.throttle && ["scheduled", "running"].includes(campaignBucket(c)) ? ` · קצב: ${throttleLabel(c.throttle)}` : ""}{c.statusReason ? <span className="cmp-reason"> · {c.statusReason}</span> : null}</p></div>
                 <div className="cmp-row-status"><span className={`cmp-badge ${b}`}>{b === "cancelled" ? "בוטל" : CAMPAIGN_BUCKET_LABELS[b]}</span>{p && <div className="cmp-progress" title={`${p.done} מתוך ${p.total}`}><div style={{ width: `${p.pct}%` }} /><span>{p.pct}%</span></div>}</div>
                 <div className="cmp-row-actions">
                   {"href" in act ? <Link href={act.href!} className="cmp-btn outline" data-testid={`campaign-primary-${c.id}`}>{act.label}</Link> : <button className="cmp-btn outline" disabled={busy === c.id} onClick={act.onClick} data-testid={`campaign-primary-${c.id}`}>{act.label}</button>}

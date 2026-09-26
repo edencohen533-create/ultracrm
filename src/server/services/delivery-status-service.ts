@@ -108,6 +108,8 @@ async function applyInbound(credential: ProviderCredential, ev: Extract<Provider
     if (isUnsubscribe(ev.body)) {
       unsubscribe = "clear";
       await suppressContact({ businessId, contactId: contact.id, scope: "marketing", source: "sms", reason: `תשובת SMS: "${ev.body.trim().slice(0, 40)}"`, evidence: `message:${message.id}` }, tx);
+      const { applyUnsubscribeAutomation } = await import("@/lib/unsubscribe-automation");
+      await applyUnsubscribeAutomation(businessId, contact.id, tx);
     } else if (isAmbiguousUnsubscribe(ev.body)) {
       unsubscribe = "review";
       await suppressContact({ businessId, contactId: contact.id, scope: "marketing", source: "sms", reason: `בקשה לא ברורה – ממתינה לבדיקה: "${ev.body.trim().slice(0, 60)}"`, evidence: `message:${message.id}`, pendingReview: true }, tx);

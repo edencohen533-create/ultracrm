@@ -9,7 +9,7 @@ import { sendChannelMessage } from "@/server/services/channel-send-service";
 import { ChannelUnavailableError } from "@/server/channels/registry";
 import { ProviderUnavailableError } from "@/server/providers/provider-registry";
 import { MAX_AUTO_ATTEMPTS, retryDelayMs } from "@/lib/meta/errors";
-import type { Message } from "@/generated/prisma/client";
+import { Prisma, type Message } from "@/generated/prisma/client";
 
 /**
  * Bounded batches; CAS claims prevent two workers sending the same recipient.
@@ -30,8 +30,18 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
   const insideWindow = isWithinDialWindow({ ...settings.marketing.window, timezone: settings.marketing.window.timezone ?? settings.timezone });
   const budget = settings.marketing.maxPerMinute > 0 ? settings.marketing.maxPerMinute : Number.MAX_SAFE_INTEGER;
   const now = new Date();
+  // Per-campaign pace ("X נמענים כל חצי שעה"): recipients claimed inside the current interval count against the batch.
+  const paceLeft = new Map<string, number>();
+  const throttleOf = new Map<string, { batchSize: number; intervalMinutes: number }>();
+  for (const c of await prisma.campaign.findMany({ where: { businessId: requireBusinessId(), status: "RUNNING", throttle: { not: Prisma.DbNull } }, select: { id: true, throttle: true } })) {
+    const t = c.throttle as { batchSize: number; intervalMinutes: number };
+    throttleOf.set(c.id, t);
+    const used = await prisma.campaignRecipient.count({ where: { campaignId: c.id, claimedAt: { gte: new Date(Date.now() - t.intervalMinutes * 60_000) } } });
+    paceLeft.set(c.id, Math.max(0, t.batchSize - used));
+  }
+  const pacedOut = [...paceLeft].filter(([, left]) => left <= 0).map(([id]) => id);
   const due = await prisma.campaignRecipient.findMany({
-    where: { status: "QUEUED", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }], campaign: { businessId: requireBusinessId(), status: "RUNNING", ...(insideWindow ? {} : { template: { category: { not: "MARKETING" } } }) } },
+    where: { status: "QUEUED", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }], ...(pacedOut.length ? { campaignId: { notIn: pacedOut } } : {}), campaign: { businessId: requireBusinessId(), status: "RUNNING", ...(insideWindow ? {} : { template: { category: { not: "MARKETING" } } }) } },
     orderBy: [{ nextAttemptAt: "asc" }, { id: "asc" }], take: 50, include: { campaign: { select: { channel: true } } },
   });
   let processed = 0;
@@ -41,6 +51,14 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
     if (Date.now() >= deadline) break;
     if (pausedCampaigns.has(recipient.campaignId)) continue;
     if (sends >= budget) break;
+    if (paceLeft.has(recipient.campaignId)) {
+      const left = paceLeft.get(recipient.campaignId)!; if (left <= 0) continue;
+      // Re-check right before claiming: another worker may have sent part of this interval's batch meanwhile.
+      const t = throttleOf.get(recipient.campaignId)!;
+      const used = await prisma.campaignRecipient.count({ where: { campaignId: recipient.campaignId, claimedAt: { gte: new Date(Date.now() - t.intervalMinutes * 60_000) } } });
+      if (used >= t.batchSize) { paceLeft.set(recipient.campaignId, 0); continue; }
+      paceLeft.set(recipient.campaignId, left - 1);
+    }
     const claimed = await prisma.campaignRecipient.updateMany({
       where: { id: recipient.id, status: "QUEUED", campaign: { businessId: requireBusinessId(), status: "RUNNING" } },
       data: { status: "PROCESSING", claimedAt: new Date() },

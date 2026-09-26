@@ -48,7 +48,9 @@ export async function createInboundMessage(input: CreateInboundMessageInput) {
     }
     if (isUnsubscribe(input.body)) {
       // Global unsubscribe: blocks marketing on every channel of the business (see src/lib/suppression.ts).
+      const { applyUnsubscribeAutomation } = await import("@/lib/unsubscribe-automation");
       await suppressContact({ businessId: requireBusinessId(), contactId: input.contactId, scope: "marketing", source: "whatsapp", reason: `הודעה נכנסת: "${input.body.trim().slice(0, 40)}"`, evidence: input.providerMessageId ?? "inbound-demo" }, tx);
+      await applyUnsubscribeAutomation(requireBusinessId(), input.contactId, tx);
     }
     const openConversation = await tx.conversation.findFirst({
       where: { contactId: input.contactId, providerCredentialId, status: { in: [ConversationStatus.OPEN, ConversationStatus.PENDING] } },

@@ -7,7 +7,8 @@
 import { chromium } from "playwright";
 const BASE = process.argv[2] ?? process.env.BASE_URL ?? "http://localhost:3211";
 const results = [];
-const step = async (name, fn) => { try { await fn(); results.push(`✅ ${name}`); } catch (e) { results.push(`❌ ${name}: ${e.message.split("\n")[0]}`); } };
+const ONLY = (process.env.QA_ONLY ?? "").split(",").map((s) => s.trim()).filter(Boolean); // e.g. QA_ONLY=F0,F7,F9 reruns a subset
+const step = async (name, fn) => { if (ONLY.length && !ONLY.includes(name.split(" ")[0])) return; try { await fn(); results.push(`✅ ${name}`); } catch (e) { results.push(`❌ ${name}: ${e.message.split("\n")[0]}`); } };
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ locale: "he-IL", viewport: { width: 1366, height: 860 } });
 const page = await ctx.newPage();

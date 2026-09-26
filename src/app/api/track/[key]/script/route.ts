@@ -1,5 +1,4 @@
-import { withoutBusiness } from "@/lib/tenant";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { appBase } from "@/lib/store-urls";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +10,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
-  const store = await withoutBusiness(() => prisma.storeConnection.findUnique({ where: { publicKey: key }, select: { platform: true, isActive: true } }));
+  const store = await db.storeConnection.findUnique({ where: { publicKey: key }, select: { platform: true, isActive: true } });
   if (!store || !store.isActive) return new Response("/* UltraCRM: unknown or inactive store */", { status: 404, headers: { "Content-Type": "application/javascript" } });
   const endpoint = `${appBase()}/api/track/${key}/events`;
   const js = `(function(){"use strict";

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { withBusiness, withoutBusiness } from "@/lib/tenant";
-import { prisma } from "@/lib/db";
+import { withBusiness } from "@/lib/tenant";
+import { db } from "@/lib/db";
 import { cartInputSchema, ingestCart, ingestOrder, orderInputSchema } from "@/server/services/cart-service";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ key: st
   const { key } = await params;
   const raw = await req.text();
   if (raw.length > 64_000) return new Response(null, { status: 413, headers: cors(origin) });
-  const store = await withoutBusiness(() => prisma.storeConnection.findUnique({ where: { publicKey: key } }));
+  const store = await db.storeConnection.findUnique({ where: { publicKey: key } });
   if (!store || !store.isActive) return new Response(null, { status: 404, headers: cors(origin) });
   if (store.domain && origin) {
     const host = (() => { try { return new URL(origin).hostname.toLowerCase(); } catch { return ""; } })();

@@ -1,5 +1,5 @@
-import { withBusiness, withoutBusiness } from "@/lib/tenant";
-import { prisma } from "@/lib/db";
+import { withBusiness } from "@/lib/tenant";
+import { db } from "@/lib/db";
 import { ingestCart, ingestOrder, storeSecret, verifyStoreSignature } from "@/server/services/cart-service";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ const PAID = ["processing", "completed", "on-hold"];
 export async function POST(req: Request, { params }: { params: Promise<{ storeId: string }> }) {
   const { storeId } = await params;
   const raw = await req.text();
-  const store = await withoutBusiness(() => prisma.storeConnection.findFirst({ where: { id: storeId, platform: "woocommerce", isActive: true } }));
+  const store = await db.storeConnection.findFirst({ where: { id: storeId, platform: "woocommerce", isActive: true } });
   if (!store) return new Response("unknown store", { status: 404 });
   // WooCommerce "pings" a new webhook with a form body (webhook_id=…) and no signature – acknowledge it.
   if (raw.startsWith("webhook_id=")) return new Response("ok");

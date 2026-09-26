@@ -1,5 +1,5 @@
-import { withBusiness, withoutBusiness } from "@/lib/tenant";
-import { prisma } from "@/lib/db";
+import { withBusiness } from "@/lib/tenant";
+import { db } from "@/lib/db";
 import { ingestCart, ingestOrder, storeSecret, verifyStoreSignature } from "@/server/services/cart-service";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ const nameOf = (...a: Addr[]) => { for (const x of a) { const n = x?.name || [x?
 export async function POST(req: Request, { params }: { params: Promise<{ storeId: string }> }) {
   const { storeId } = await params;
   const raw = await req.text();
-  const store = await withoutBusiness(() => prisma.storeConnection.findFirst({ where: { id: storeId, platform: "shopify", isActive: true } }));
+  const store = await db.storeConnection.findFirst({ where: { id: storeId, platform: "shopify", isActive: true } });
   if (!store) return new Response("unknown store", { status: 404 });
   if (!verifyStoreSignature(storeSecret(store), raw, req.headers.get("x-shopify-hmac-sha256"))) return new Response("bad signature", { status: 401 });
   const topic = req.headers.get("x-shopify-topic") ?? "";

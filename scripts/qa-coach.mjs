@@ -47,6 +47,7 @@ await step("C1 manual call from /leads → the coach card shows inside the call 
     placed = (await res).status() < 300;
   }
   if (!placed) throw new Error("no dialable lead in the first rows");
+  await page.waitForURL((u) => u.pathname === "/dialer", { timeout: 60000 });
   await page.waitForSelector('[data-testid="dialer-embedded"]');
   await page.waitForSelector('[data-testid="coach-card"]', { timeout: 120000 });
   await page.waitForFunction(async () => { const r = await fetch("/api/dialer/state"); const d = (await r.json()).data; return d.activeCall?.status === "answered"; }, null, { polling: 1500 });
@@ -108,7 +109,7 @@ await step("C4 hang up + outcome → the call finishes normally; learning extrac
   await page.waitForSelector("text=תוצאת שיחה");
   await page.locator("button", { hasText: /^ענה – מעוניין/ }).first().click();
   await page.click("button:has-text('שמור תוצאה והמשך')");
-  await page.waitForSelector('[data-testid="open-dialer"]');
+  await page.waitForSelector('[data-testid="dialer-launcher"], [data-testid="open-dialer"]');
   // events are processed by the outbox worker; kick it and wait for the example
   for (let i = 0; i < 20; i++) { if (process.env.CRON_SECRET) await page.request.get(`${BASE}/api/jobs/events`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, timeout: 120000 }).catch(() => undefined); const ex = await api("/api/coach/examples?status=pending"); if ((ex.json?.data?.items ?? []).some((e) => e.callId === callId)) return; await page.waitForTimeout(3000); }
   const ex = await api("/api/coach/examples?status=pending"); throw new Error(`no example for call ${callId}: ${(ex.json?.data?.items ?? []).length} pending`);

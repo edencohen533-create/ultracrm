@@ -70,11 +70,11 @@ export function SessionControls() {
  * Pre-flight for the auto dialer: which queue (dial list) will be dialed, how many leads are due in it right now,
  * the mode and the pause between calls. Rendered inside the "הפעל חייגן" dialog on the leads screen.
  */
-export function StartSessionForm({ onStarted, compact }: { onStarted?: () => void; compact?: boolean } = {}) {
+export function StartSessionForm({ onStarted, compact, initialListId }: { onStarted?: () => void; compact?: boolean; initialListId?: string } = {}) {
   const { state, startSession, busy } = useDialer();
   const [lists, setLists] = useState<ListLite[] | null>(null);
   const [mode, setMode] = useState<DialMode>("power");
-  const [listId, setListId] = useState("");
+  const [listId, setListId] = useState(initialListId ?? "");
   const [cd, setCd] = useState<number>(5);
   const [source, setSource] = useState<"list" | "mine">("list");
   const [mine, setMine] = useState<ListLite | null>(null);

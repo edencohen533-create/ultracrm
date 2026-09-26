@@ -30,7 +30,7 @@ export function CallBar() {
   const wrap = state?.wrapUpCall;
   useTicker(Boolean(call));
   // The dialer workspace (with its own call panel and outcome form) is rendered inside /leads while a call/session is live.
-  if (pathname === "/leads" || pathname === "/dialer" || pathname.startsWith("/lists/")) return null;
+  if (pathname === "/dialer") return null;
   if (!call && !wrap) return null;
 
   if (call) {

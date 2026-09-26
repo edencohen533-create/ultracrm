@@ -104,24 +104,30 @@ await step("F6 tasks live in a drawer on /leads; /tasks and /crm-settings and /d
   await goto("/deals"); await page.waitForURL((u) => u.pathname === "/leads");
 });
 
-await step("F7 dialer popup: X closes it before a session; during a live session X hides it and a pill reopens it", async () => {
+await step("F7 'הפעל חייגן' opens the full dialer screen (performance panel + launcher); a session runs there; back to leads keeps it live with a reopen pill", async () => {
   await goto("/leads");
   await page.waitForSelector('[data-testid="open-dialer"]:not([disabled])', { timeout: 120000 });
   await page.click('[data-testid="open-dialer"]');
-  await page.waitForSelector('[data-testid="dialer-embedded"]');
-  await page.click('[data-testid="dialer-close"]');
-  if (await page.$('[data-testid="dialer-embedded"]')) throw new Error("dock still visible after X");
-  await page.click('[data-testid="open-dialer"]');
-  await page.waitForSelector('[data-testid="start-dialer"]', { timeout: 60000 });
+  await page.waitForURL((u) => u.pathname === "/dialer", { timeout: 60000 });
+  await page.waitForSelector('[data-testid="dialer-screen"]');
+  await page.waitForSelector('[data-testid="dialer-launcher"]');
+  await page.waitForSelector(".perf-card", { timeout: 60000 });
+  if ((await page.$$eval(".perf-card", (els) => els.length)) !== 5) throw new Error("expected 5 performance cards");
+  if (await page.$('[data-testid="dialer-embedded"]')) throw new Error("workspace shown before a session started");
+  await shot("dialer-screen");
+  await page.waitForSelector('[data-testid="start-dialer"]:not([disabled])', { timeout: 60000 });
   await page.click('[data-testid="start-dialer"]');
-  await page.waitForSelector("text=חייגן פעיל", { timeout: 90000 });
-  await page.click('[data-testid="dialer-close"]');
+  await page.waitForSelector('[data-testid="dialer-embedded"]', { timeout: 90000 });
+  if (await page.$('[data-testid="dialer-launcher"]')) throw new Error("launcher still visible during the session");
+  await shot("dialer-live");
+  await page.click('[data-testid="dialer-back"]');
+  await page.waitForURL((u) => u.pathname === "/leads", { timeout: 60000 });
   await page.waitForSelector('[data-testid="dialer-reopen"]', { timeout: 30000 });
   const st = (await api("/api/dialer/state")).json?.data ?? {};
-  if (!st.session || st.session.status === "ended") throw new Error("closing the popup ended the session");
+  if (!st.session || st.session.status === "ended") throw new Error("leaving the screen ended the session");
   await page.click('[data-testid="dialer-reopen"]');
+  await page.waitForURL((u) => u.pathname === "/dialer", { timeout: 60000 });
   await page.waitForSelector('[data-testid="dialer-embedded"]');
-  await shot("dialer-x");
   await cleanup();
 });
 
@@ -198,14 +204,14 @@ await step("A1 agent: /leads with 4 cards, dialer + settings (dialer tab only) +
   await shot("leads-agent");
 });
 
-await step("A2 agent: statuses PATCH is rejected (403) but the labels are readable; dialer popup X works", async () => {
+await step("A2 agent: statuses PATCH is rejected (403) but the labels are readable; 'הפעל חייגן' opens the dialer screen", async () => {
   const r = await api("/api/lead-statuses", "PATCH", { leadStatuses: [{ key: "new", label: "x", hidden: false }] });
   if (r.status < 400) throw new Error(`agent could edit statuses: ${r.status}`);
   const hook = await api("/api/lead-statuses"); if (hook.status !== 200) throw new Error(`lead-statuses ${hook.status}`);
   await goto("/leads"); await page.waitForSelector('[data-testid="open-dialer"]:not([disabled])', { timeout: 120000 });
-  await page.click('[data-testid="open-dialer"]'); await page.waitForSelector('[data-testid="dialer-embedded"]');
-  await page.click('[data-testid="dialer-close"]');
-  if (await page.$('[data-testid="dialer-embedded"]')) throw new Error("dock still visible after X");
+  await page.click('[data-testid="open-dialer"]'); await page.waitForURL((u) => u.pathname === "/dialer", { timeout: 60000 });
+  await page.waitForSelector('[data-testid="dialer-launcher"]'); await page.waitForSelector(".perf-card", { timeout: 60000 });
+  await page.click('[data-testid="dialer-back"]'); await page.waitForURL((u) => u.pathname === "/leads", { timeout: 60000 });
 });
 
 await step("A3 agent: dial list page opens as the lead workspace; /deals, /tasks, /crm-settings redirect", async () => {

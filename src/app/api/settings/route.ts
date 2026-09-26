@@ -2,7 +2,7 @@ import { z } from "zod";
 import { withAuth, parseBody } from "@/lib/api";
 import { ok } from "@/lib/response";
 import { prisma } from "@/lib/db";
-import { getBusinessSettings, mergeSettings } from "@/lib/settings";
+import { getBusinessSettings, mergeSettings, mergeLeadStatuses } from "@/lib/settings";
 import { telephonyStatus } from "@/lib/telephony";
 import type { Prisma } from "@/generated/prisma/client";
 import { audit } from "@/lib/audit";
@@ -50,6 +50,9 @@ const schema = z.object({
       }).partial().optional(),
       dialWindow: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
       retention: z.object({ messagesDays: z.number().int().min(0).max(3650).optional(), auditDays: z.number().int().min(0).max(3650).optional() }).optional(),
+      coach: z.object({ enabled: z.boolean().optional(), learnFromRecordings: z.boolean().optional() }).optional(),
+      leadStatuses: z.array(z.object({ key: z.enum(["new", "contacted", "qualified", "unqualified", "converted", "lost"]), label: z.string().trim().min(1).max(40), hidden: z.boolean().default(false) })).max(6).optional(),
+      leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional() }).optional(),
       marketing: z.object({
         window: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
         maxPerMinute: z.number().int().min(0).max(600).optional(),
@@ -70,6 +73,9 @@ export const PATCH = withAuth(async ({ req, user }) => {
     automations: { ...before.automations, ...(b.settings?.automations ?? {}), followUpMessage: { ...before.automations.followUpMessage, ...(b.settings?.automations?.followUpMessage ?? {}) } },
     marketing: { ...before.marketing, ...(b.settings?.marketing ?? {}), window: { ...before.marketing.window, ...(b.settings?.marketing?.window ?? {}) } },
     retention: { ...before.retention, ...(b.settings?.retention ?? {}) },
+    coach: { ...before.coach, ...(b.settings?.coach ?? {}) },
+    leadStatuses: b.settings?.leadStatuses ? mergeLeadStatuses(b.settings.leadStatuses) : before.leadStatuses,
+    leadAssignment: { ...before.leadAssignment, ...(b.settings?.leadAssignment ?? {}) },
   });
   const changed: Record<string, { from: unknown; to: unknown }> = {};
   for (const k of Object.keys(merged) as (keyof typeof merged)[]) {

@@ -8,7 +8,8 @@ import { ApiError } from "@/lib/response";
 import { audit } from "@/lib/audit";
 import { emitEvent, kickEventProcessing } from "@/lib/events";
 import { assertTenantReferences } from "@/lib/tenant-references";
-import { visibleUserIds, type SessionUser } from "@/lib/auth";
+import { assertCanSeeUser, visibleUserIds, type SessionUser } from "@/lib/auth";
+import { assertOwnerAccess, ownerScope, conversationScope } from "./access";
 
 // ─── Leads ───────────────────────────────────────────────────────────────────
 
@@ -28,29 +29,55 @@ export const leadPatchSchema = leadInputSchema.partial().omit({ contactId: true 
 
 export const leadFilterSchema = z.object({
   status: z.enum(LEAD_STATUSES).optional(),
+  /** Only leads whose contact is in this dial list (the list screen reuses the leads workspace). */
+  listId: z.string().optional(),
   ownerUserId: z.string().optional(),
   q: z.string().max(100).optional(),
+  source: z.string().max(100).optional(),
+  product: z.string().max(160).optional(),
+  campaign: z.string().max(160).optional(),
+  ad: z.string().max(160).optional(),
+  createdFrom: z.string().datetime({ offset: true }).optional(),
+  createdTo: z.string().datetime({ offset: true }).optional(),
+  sort: z.enum(["createdAt", "name", "status", "owner", "source"]).default("createdAt"),
+  direction: z.enum(["asc", "desc"]).default("desc"),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
-export const LEAD_INCLUDE = { contact: { select: { id: true, fullName: true, phoneE164: true, email: true, company: true } }, owner: { select: { id: true, fullName: true } } } satisfies Prisma.LeadInclude;
+export const LEAD_INCLUDE = { contact: { select: { id: true, fullName: true, phoneE164: true, email: true, company: true, customFields: true } }, owner: { select: { id: true, fullName: true } } } satisfies Prisma.LeadInclude;
 
 export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterSchema>) {
   const ids = await visibleUserIds(user);
+  const scope = { businessId: user.businessId, ...ownerScope(ids) };
+  const metadata: Prisma.LeadWhereInput[] = (["product", "campaign", "ad"] as const).flatMap((key) => f[key] ? [{ contact: { customFields: { path: [key], string_contains: f[key], mode: "insensitive" } } }] : []);
   const where: Prisma.LeadWhereInput = {
     businessId: user.businessId,
     ...(f.status ? { status: f.status } : {}),
-    ...(f.ownerUserId ? { ownerUserId: f.ownerUserId } : {}),
-    ...(ids ? { OR: [{ ownerUserId: { in: ids } }, { ownerUserId: null }] } : {}),
-    ...(f.q ? { OR: [{ title: { contains: f.q, mode: "insensitive" } }, { contact: { fullName: { contains: f.q, mode: "insensitive" } } }, { contact: { phoneE164: { contains: f.q.replace(/\D/g, "") } } }] } : {}),
+    ...(f.source ? { source: f.source } : {}),
+    ...(f.ownerUserId ? { ownerUserId: f.ownerUserId === "unassigned" ? null : f.ownerUserId } : {}),
+    ...(f.createdFrom || f.createdTo ? { createdAt: { ...(f.createdFrom ? { gte: new Date(f.createdFrom) } : {}), ...(f.createdTo ? { lt: new Date(f.createdTo) } : {}) } } : {}),
+    AND: [ownerScope(ids), ...metadata],
+    ...(f.q ? { OR: [{ title: { contains: f.q, mode: "insensitive" } }, { contact: { fullName: { contains: f.q, mode: "insensitive" } } }, { contact: { email: { contains: f.q, mode: "insensitive" } } }, ...(f.q.replace(/\D/g, "").length >= 3 ? [{ contact: { phoneE164: { contains: f.q.replace(/\D/g, "") } } }] : [])] } : {}),
   };
-  const [total, items, byStatus] = await Promise.all([
+  if (f.listId) where.contact = { ...(where.contact as Prisma.ContactWhereInput | undefined ?? {}), queueLeads: { some: { listId: f.listId } } };
+  const order: Prisma.LeadOrderByWithRelationInput = f.sort === "name" ? { contact: { fullName: f.direction } } : f.sort === "owner" ? { owner: { fullName: f.direction } } : { [f.sort]: f.direction };
+  const [total, items, byStatus, byOwner, sources, deals, owners] = await Promise.all([
     prisma.lead.count({ where }),
-    prisma.lead.findMany({ where, orderBy: [{ createdAt: "desc" }], skip: (f.page - 1) * f.limit, take: f.limit, include: LEAD_INCLUDE }),
-    prisma.lead.groupBy({ by: ["status"], where: { businessId: user.businessId }, _count: { _all: true } }),
+    prisma.lead.findMany({ where, orderBy: [order, { id: "asc" }], skip: (f.page - 1) * f.limit, take: f.limit, include: LEAD_INCLUDE }),
+    prisma.lead.groupBy({ by: ["status"], where: scope, _count: { _all: true } }),
+    prisma.lead.groupBy({ by: ["ownerUserId"], where, _count: { _all: true }, orderBy: { _count: { ownerUserId: "desc" } } }),
+    prisma.lead.findMany({ where: { ...scope, source: { not: null } }, distinct: ["source"], select: { source: true }, orderBy: { source: "asc" } }),
+    prisma.deal.aggregate({ where: { businessId: user.businessId, status: "won", currency: "ILS", lead: where, ...ownerScope(ids) }, _sum: { amount: true }, _count: { _all: true } }),
+    prisma.user.findMany({ where: { businessId: user.businessId, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, fullName: true } }),
   ]);
-  return { items, total, page: f.page, limit: f.limit, byStatus: Object.fromEntries(byStatus.map((s) => [s.status, s._count._all])) };
+  const converted = await prisma.lead.count({ where: { AND: [where, { deals: { some: { status: "won", ...ownerScope(ids) } } }] } });
+  return { items, total, page: f.page, limit: f.limit,
+    byStatus: Object.fromEntries(byStatus.map((s) => [s.status, s._count._all])),
+    byOwner: byOwner.map((g) => ({ id: g.ownerUserId, name: owners.find((o) => o.id === g.ownerUserId)?.fullName ?? "ללא שיוך", count: g._count._all })),
+    sources: sources.map((s) => s.source!).filter(Boolean),
+    metrics: { leads: total, deals: deals._count._all, revenue: Number(deals._sum.amount ?? 0), conversion: total ? converted / total * 100 : 0 },
+  };
 }
 
 export async function createLead(user: SessionUser, input: z.infer<typeof leadInputSchema>, source: "user" | "import" | "webhook" = "user") {
@@ -73,7 +100,7 @@ export async function createLead(user: SessionUser, input: z.infer<typeof leadIn
 export async function updateLead(user: SessionUser, id: string, input: z.infer<typeof leadPatchSchema>) {
   const lead = await prisma.lead.findFirst({ where: { id, businessId: user.businessId } });
   if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
-  if (user.role === "agent" && lead.ownerUserId && lead.ownerUserId !== user.id) throw new ApiError("הליד משויך לנציג אחר", 403, "forbidden");
+  await assertOwnerAccess(user, lead.ownerUserId);
   if (input.ownerUserId) {
     if (user.role === "agent" && input.ownerUserId !== user.id) throw new ApiError("נציג יכול לשייך ליד לעצמו בלבד", 403, "forbidden");
     await assertTenantReferences(user.businessId, { userIds: [input.ownerUserId] });
@@ -104,10 +131,12 @@ export async function updateLead(user: SessionUser, id: string, input: z.infer<t
 
 /** Convert a lead into a deal (lead → converted, deal linked). */
 export async function convertLead(user: SessionUser, id: string, deal: { title?: string; amount?: number; currency?: string }) {
-  const lead = await prisma.lead.findFirst({ where: { id, businessId: user.businessId }, include: { contact: { select: { fullName: true } } } });
-  if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
-  if (lead.status === "converted" && lead.dealId) return prisma.deal.findUniqueOrThrow({ where: { id: lead.dealId }, include: DEAL_INCLUDE });
   const created = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "leads" WHERE id = ${id} AND business_id = ${user.businessId} FOR UPDATE`;
+    const lead = await tx.lead.findFirst({ where: { id, businessId: user.businessId }, include: { contact: { select: { fullName: true } } } });
+    if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
+    await assertOwnerAccess(user, lead.ownerUserId);
+    if (lead.status === "converted" && lead.dealId) return tx.deal.findUniqueOrThrow({ where: { id: lead.dealId }, include: DEAL_INCLUDE });
     const d = await tx.deal.create({ data: { businessId: user.businessId, contactId: lead.contactId, leadId: lead.id, title: deal.title || lead.title || `עסקה – ${lead.contact.fullName}`, amount: deal.amount ?? 0, currency: deal.currency ?? "ILS", ownerUserId: lead.ownerUserId ?? user.id }, include: DEAL_INCLUDE });
     await tx.lead.update({ where: { id: lead.id }, data: { status: "converted", dealId: d.id, closedAt: new Date() } });
     await audit(user.businessId, user.id, "lead", lead.id, "lead.converted", { dealId: d.id }, tx);
@@ -154,13 +183,13 @@ export async function listDeals(user: SessionUser, f: z.infer<typeof dealFilterS
     ...(f.status ? { status: f.status } : {}),
     ...(f.stage ? { stage: f.stage } : {}),
     ...(f.ownerUserId ? { ownerUserId: f.ownerUserId } : {}),
-    ...(ids ? { OR: [{ ownerUserId: { in: ids } }, { ownerUserId: null }] } : {}),
+    AND: [ownerScope(ids)],
     ...(f.q ? { OR: [{ title: { contains: f.q, mode: "insensitive" } }, { contact: { fullName: { contains: f.q, mode: "insensitive" } } }] } : {}),
   };
   const [total, items, sums] = await Promise.all([
     prisma.deal.count({ where }),
     prisma.deal.findMany({ where, orderBy: [{ createdAt: "desc" }], skip: (f.page - 1) * f.limit, take: f.limit, include: DEAL_INCLUDE }),
-    prisma.deal.groupBy({ by: ["stage"], where: { businessId: user.businessId }, _count: { _all: true }, _sum: { amount: true } }),
+    prisma.deal.groupBy({ by: ["stage"], where: { businessId: user.businessId, ...ownerScope(ids) }, _count: { _all: true }, _sum: { amount: true } }),
   ]);
   return { items, total, page: f.page, limit: f.limit, byStage: Object.fromEntries(sums.map((s) => [s.stage, { count: s._count._all, amount: Number(s._sum.amount ?? 0) }])) };
 }
@@ -171,10 +200,18 @@ export async function createDeal(user: SessionUser, input: z.infer<typeof dealIn
   if (input.leadId) {
     const lead = await prisma.lead.findFirst({ where: { id: input.leadId, businessId: user.businessId, contactId: contact.id } });
     if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
+    await assertOwnerAccess(user, lead.ownerUserId);
   }
   if (input.ownerUserId) await assertTenantReferences(user.businessId, { userIds: [input.ownerUserId] });
   const stage = input.stage ?? "new";
   const deal = await prisma.$transaction(async (tx) => {
+    if (input.leadId) {
+      await tx.$queryRaw`SELECT id FROM "leads" WHERE id = ${input.leadId} AND business_id = ${user.businessId} FOR UPDATE`;
+      const lead = await tx.lead.findFirst({ where: { id: input.leadId, contactId: contact.id, businessId: user.businessId } });
+      if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
+      await assertOwnerAccess(user, lead.ownerUserId);
+      if (lead.dealId) throw new ApiError("הליד כבר הומר לעסקה", 409, "already_converted");
+    }
     const d = await tx.deal.create({
       data: { businessId: user.businessId, contactId: contact.id, leadId: input.leadId ?? null, title: input.title, amount: input.amount ?? 0, currency: input.currency ?? "ILS", stage, status: stageToStatus(stage), closedAt: stage === "won" || stage === "lost" ? new Date() : null, ownerUserId: input.ownerUserId === undefined ? user.id : input.ownerUserId, expectedCloseAt: input.expectedCloseAt ? new Date(input.expectedCloseAt) : null, notes: input.notes || null },
       include: DEAL_INCLUDE,
@@ -191,7 +228,7 @@ export async function createDeal(user: SessionUser, input: z.infer<typeof dealIn
 export async function updateDeal(user: SessionUser, id: string, input: z.infer<typeof dealPatchSchema>) {
   const deal = await prisma.deal.findFirst({ where: { id, businessId: user.businessId } });
   if (!deal) throw new ApiError("עסקה לא נמצאה", 404, "not_found");
-  if (user.role === "agent" && deal.ownerUserId && deal.ownerUserId !== user.id) throw new ApiError("העסקה משויכת לנציג אחר", 403, "forbidden");
+  await assertOwnerAccess(user, deal.ownerUserId);
   if (input.ownerUserId) await assertTenantReferences(user.businessId, { userIds: [input.ownerUserId] });
   const stage = input.stage;
   const updated = await prisma.$transaction(async (tx) => {
@@ -211,6 +248,9 @@ export async function updateDeal(user: SessionUser, id: string, input: z.infer<t
     await audit(user.businessId, user.id, "deal", deal.id, "deal.updated", { fields: Object.keys(input), stage }, tx);
     if (stage === "won" && deal.stage !== "won") {
       await emitEvent(tx, { businessId: user.businessId, type: "deal.won", contactId: deal.contactId, actorUserId: user.id, source: "user", dedupeKey: `deal.won:${deal.id}`, payload: { dealId: deal.id, amount: Number(u.amount) } });
+    }
+    if (stage === "lost" && deal.stage !== "lost") {
+      await emitEvent(tx, { businessId: user.businessId, type: "deal.lost", contactId: deal.contactId, actorUserId: user.id, source: "user", dedupeKey: `deal.lost:${deal.id}`, payload: { dealId: deal.id, leadId: deal.leadId } });
     }
     return u;
   });
@@ -288,15 +328,18 @@ export async function listTasks(user: SessionUser, f: z.infer<typeof taskFilterS
 export async function createTask(user: SessionUser, input: z.infer<typeof taskInputSchema>) {
   const assignee = input.userId ?? input.assignedToId ?? user.id;
   if (user.role === "agent" && assignee !== user.id) throw new ApiError("נציג יכול לשייך משימה לעצמו בלבד", 403, "forbidden");
+  await assertCanSeeUser(user, assignee);
   await assertTenantReferences(user.businessId, { userIds: [assignee] });
   const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true } });
   if (!contact) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
-  if (input.conversationId && !(await prisma.conversation.findFirst({ where: { id: input.conversationId, contactId: contact.id }, select: { id: true } }))) throw new ApiError("השיחה אינה שייכת לאיש הקשר", 404, "not_found");
-  if (input.leadId && !(await prisma.lead.findFirst({ where: { id: input.leadId, contactId: contact.id }, select: { id: true } }))) throw new ApiError("ליד לא נמצא", 404, "not_found");
-  if (input.dealId && !(await prisma.deal.findFirst({ where: { id: input.dealId, contactId: contact.id }, select: { id: true } }))) throw new ApiError("עסקה לא נמצאה", 404, "not_found");
+  if (input.conversationId && !(await prisma.conversation.findFirst({ where: { id: input.conversationId, contactId: contact.id, ...conversationScope(user) }, select: { id: true } }))) throw new ApiError("השיחה אינה שייכת לאיש הקשר", 404, "not_found");
+  const relatedOwnerScope = ownerScope(await visibleUserIds(user));
+  if (input.leadId && !(await prisma.lead.findFirst({ where: { id: input.leadId, contactId: contact.id, businessId: user.businessId, ...relatedOwnerScope }, select: { id: true } }))) throw new ApiError("ליד לא נמצא", 404, "not_found");
+  if (input.dealId && !(await prisma.deal.findFirst({ where: { id: input.dealId, contactId: contact.id, businessId: user.businessId, ...relatedOwnerScope }, select: { id: true } }))) throw new ApiError("עסקה לא נמצאה", 404, "not_found");
   if (input.requestKey) {
     const previous = await prisma.task.findUnique({ where: { businessId_requestKey: { businessId: user.businessId, requestKey: input.requestKey } }, include: TASK_INCLUDE });
     if (previous) {
+      await assertCanSeeUser(user, previous.userId);
       if (previous.contactId !== contact.id) throw new ApiError("מפתח הבקשה כבר משויך למשימה אחרת", 409, "conflict");
       return previous;
     }
@@ -322,6 +365,7 @@ export async function updateTask(user: SessionUser, id: string, input: z.infer<t
   const assignee = input.userId ?? input.assignedToId;
   if (assignee) {
     if (user.role === "agent" && assignee !== user.id) throw new ApiError("נציג יכול לשייך משימה לעצמו בלבד", 403, "forbidden");
+    await assertCanSeeUser(user, assignee);
     await assertTenantReferences(user.businessId, { userIds: [assignee] });
   }
   const r = await prisma.task.updateMany({
@@ -357,6 +401,12 @@ export const noteInputSchema = z.object({
 export async function createNote(user: SessionUser, input: z.infer<typeof noteInputSchema>) {
   const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true } });
   if (!contact) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
+  if (input.conversationId && !await prisma.conversation.findFirst({ where: { id: input.conversationId, contactId: contact.id, ...conversationScope(user) }, select: { id: true } })) throw new ApiError("שיחה לא נמצאה או שאין הרשאה", 404, "not_found");
+  if (input.dealId) {
+    const deal = await prisma.deal.findFirst({ where: { id: input.dealId, contactId: contact.id, businessId: user.businessId }, select: { ownerUserId: true } });
+    if (!deal) throw new ApiError("עסקה לא נמצאה", 404, "not_found");
+    await assertOwnerAccess(user, deal.ownerUserId);
+  }
   const note = await prisma.note.create({ data: { businessId: user.businessId, contactId: contact.id, conversationId: input.conversationId ?? null, dealId: input.dealId ?? null, authorId: user.id, body: input.body }, include: { author: { select: { id: true, fullName: true } } } });
   await prisma.contact.update({ where: { id: contact.id }, data: { lastActivityAt: new Date() } });
   await audit(user.businessId, user.id, "note", note.id, "note.created", { contactId: contact.id }, prisma, input.conversationId ?? null);

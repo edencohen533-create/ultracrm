@@ -13,6 +13,10 @@ import { getBusinessSettings, isWithinDialWindow, nextDialWindowOpening, type Di
 import { audit } from "@/lib/audit";
 import { explainScore, scoreSql } from "@/lib/dialer/prioritization";
 
+import { getAgentSettings } from "@/lib/agent-settings";
+import { retryRule } from "@/lib/agent-settings-schema";
+import { businessDayStart } from "@/lib/business-day";
+
 const CALLBACK_GRACE_MINUTES = 60;
 
 export async function isDnc(businessId: string, phoneE164: string) {
@@ -60,6 +64,8 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
     const next = nextDialWindowOpening(window);
     throw new ApiError("מחוץ לחלון החיוג של הרשימה", 409, "outside_dial_window", { nextOpening: next?.toISOString() ?? null, window });
   }
+  const personal = await getAgentSettings(businessId, userId);
+  const dayStart = businessDayStart(settings.timezone);
   return prisma.$transaction(async (tx) => {
     await lockAgent(tx, userId);
     const existing = await currentLockedLead(userId, tx);
@@ -70,6 +76,13 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
 
     const list = await tx.dialList.findUniqueOrThrow({ where: { id: listId }, select: { maxAttempts: true } });
     const maxAttempts = list.maxAttempts ?? settings.maxAttempts;
+    const newMax = personal ? Math.min(maxAttempts, retryRule(personal, false, 0).maxAttempts) : maxAttempts;
+    const followMax = personal ? Math.min(maxAttempts, retryRule(personal, true, 0).maxAttempts) : maxAttempts;
+    const strategy = personal?.strategy ?? "business";
+    const order = strategy === "business" ? Prisma.sql`${scoreSql(settings.prioritization, userId)} DESC, l.created_at ASC`
+      : strategy === "new_first" ? Prisma.sql`(l.attempts = 0) DESC, (l.status = 'callback') DESC, l.attempts ASC, l.created_at DESC`
+      : strategy === "hot" ? Prisma.sql`(l.status = 'callback') DESC, (l.attempts = 0) DESC, l.created_at DESC`
+      : Prisma.sql`(l.status = 'callback') DESC, COALESCE(l.follow_up_attempts, l.attempts) ASC, ${strategy === "oldest" ? Prisma.sql`l.created_at ASC` : Prisma.sql`l.created_at DESC`}`;
     const token = crypto.randomUUID();
     const ttl = settings.lockTtlSeconds;
     const S = dbSchema();
@@ -91,7 +104,11 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
             l.status IN ('pending'::${E}, 'callback'::${E})
             OR (l.status = 'locked'::${E} AND l.lock_expires_at < timezone('UTC', now()))
           )
-          AND (l.attempts < ${maxAttempts} OR l.status = 'callback'::${E})
+          AND (${personal !== null} = false AND (l.attempts < ${maxAttempts} OR l.status = 'callback'::${E})
+            OR ${personal !== null} = true AND COALESCE(l.follow_up_attempts, l.attempts) < CASE WHEN l.follow_up_attempts IS NULL THEN ${newMax}::integer ELSE ${followMax}::integer END)
+          AND (${personal === null} OR (SELECT count(*) FROM ${T("calls")} dc WHERE dc.business_id = ${businessId}
+            AND dc.to_e164 = c.phone_e164 AND dc.direction = 'outbound' AND dc.mode <> 'manual'
+            AND dc.created_at >= ${dayStart} AND dc.answered_at IS NULL AND dc.telephony_result IN ('no_answer','busy','rejected')) < ${personal?.maxDailyUnanswered ?? 20})
           AND NOT EXISTS (SELECT 1 FROM ${T("calls")} active_call WHERE active_call.lead_id = l.id AND active_call.outcome_saved_at IS NULL)
           AND (l.next_attempt_at IS NULL OR l.next_attempt_at <= timezone('UTC', now()))
           AND (
@@ -103,8 +120,7 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
             SELECT 1 FROM ${T("dnc_entries")} d WHERE d.business_id = l.business_id AND d.phone_e164 = c.phone_e164
           )
         ORDER BY
-          ${scoreSql(settings.prioritization, userId)} DESC,
-          l.created_at ASC
+          ${order}, l.id ASC
         LIMIT 1
         FOR UPDATE OF l SKIP LOCKED
       )
@@ -112,7 +128,9 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
     `);
     if (rows.length === 0) return null;
     const claimed = await tx.listLead.findUnique({ where: { id: rows[0].id }, include: { contact: true } });
-    const { score, reason } = explainScore(settings.prioritization, claimed!, userId);
+    const scored = explainScore(settings.prioritization, claimed!, userId);
+    const { score } = scored;
+    const reason = strategy === "business" ? scored.reason : `אסטרטגיה אישית: ${strategy}`;
     const lead = await tx.listLead.update({
       where: { id: rows[0].id },
       data: { claimReason: reason, claimScore: score },
@@ -189,6 +207,7 @@ export async function applyOutcomeToLead(opts: {
   leadId: string;
   outcome: OutcomeKey;
   callbackAt?: Date;
+  callbackUserId?: string;
   note?: string;
 }, db: Prisma.TransactionClient = prisma) {
   const { businessId, userId, leadId, outcome, callbackAt } = opts;
@@ -196,7 +215,11 @@ export async function applyOutcomeToLead(opts: {
   const lead = await db.listLead.findUnique({ where: { id: leadId }, include: { contact: true, list: true } });
   if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
   const settings = await getBusinessSettings(businessId, db);
-  const maxAttempts = lead.list.maxAttempts ?? settings.maxAttempts;
+  const personal = await getAgentSettings(businessId, userId, db);
+  const attemptCount = lead.followUpAttempts ?? lead.attempts;
+  const rule = personal ? retryRule(personal, lead.followUpAttempts !== null, attemptCount) : null;
+  const businessMax = lead.list.maxAttempts ?? settings.maxAttempts;
+  const maxAttempts = rule ? Math.min(businessMax, rule.maxAttempts) : businessMax;
   const window = { ...settings.dialWindow, ...((lead.list.dialWindowJson as Partial<DialWindow> | null) ?? {}) };
 
   const release = { lockedByUserId: null, lockToken: null, lockExpiresAt: null, preferredUserId: null as string | null };
@@ -206,17 +229,18 @@ export async function applyOutcomeToLead(opts: {
     data = { ...data, status: "dnc", nextAttemptAt: null };
   } else if (def.requiresCallbackTime) {
     if (!callbackAt) throw new ApiError("יש לבחור מועד לחזרה", 400, "callback_time_required");
-    data = { ...data, status: "callback", nextAttemptAt: callbackAt, preferredUserId: userId };
+    data = { ...data, status: "callback", nextAttemptAt: callbackAt, preferredUserId: opts.callbackUserId ?? userId, followUpAttempts: 0 };
   } else if (def.closesLead) {
     data = { ...data, status: "completed", nextAttemptAt: null };
   } else if (def.retry) {
-    if (lead.attempts >= maxAttempts) {
+    if ((personal ? attemptCount : lead.attempts) >= maxAttempts) {
       data = { ...data, status: "exhausted", nextAttemptAt: null };
     } else {
-      const minutes = outcome === "busy" ? settings.busyRetryMinutes : (lead.list.retryIntervalMinutes ?? settings.retryIntervalMinutes);
+      const baseMinutes = outcome === "busy" ? settings.busyRetryMinutes : (lead.list.retryIntervalMinutes ?? settings.retryIntervalMinutes);
+      const minutes = rule ? Math.max(baseMinutes, rule.minutes) : baseMinutes;
       let next = new Date(Date.now() + minutes * 60_000);
       if (!isWithinDialWindow(window, next)) next = nextDialWindowOpening(window, next) ?? next;
-      data = { ...data, status: "pending", nextAttemptAt: next, preferredUserId: settings.stickyOwner ? userId : null };
+      data = { ...data, status: "pending", nextAttemptAt: next, preferredUserId: (personal && lead.followUpAttempts !== null) || settings.stickyOwner ? userId : null };
     }
   } else {
     data = { ...data, status: "completed" };

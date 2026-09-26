@@ -28,6 +28,10 @@
 | חיוג ושליחת WhatsApp מכרטיס הלקוח | `/contacts/[id]` | ממומש ונבדק (browser B6/B10) |
 | דשבורד חוצה מודולים | `/dashboard` | ממומש |
 
+## סביבת עבודה אחת סביב הליד (ענף feat/lead-workspace, 2026-09-25)
+
+ראו `docs/LEAD_WORKSPACE.md`. תפריט נציג: לידים · שיחות · עסקאות · משימות. החייגן מופעל מתוך "לידים" ("הפעל חייגן" → דיאלוג תור → מסך העבודה במקום הרשימה). כרטיס ליד אחד (`/contacts/[id]?lead=…`) עם פאנל ליד, WhatsApp מוטבע וציר זמן אחד. "שיחות" = וואטסאפ (`/inbox`) + שיחות טלפון (`/calls`). מנהלים: דוחות (`/reports`: סקירה/טלפוניה/היסטוריית שיחות/דיוור), מוקד בזמן אמת, וקבוצת ניהול מקופלת. `/dashboard`, `/dialer`, `/leads/[id]` מפנים.
+
 ## השלמת WhatsApp – מטריצת 199 הדרישות (ענף feat/whatsapp-completion)
 
 ראו `docs/WHATSAPP_COMPLETION.md` ו-`docs/qa/whatsapp-requirements-matrix.md` (125 מומש ונבדק / 65 חלקי / 0 חסר / 9 חסום ל-Meta חי).

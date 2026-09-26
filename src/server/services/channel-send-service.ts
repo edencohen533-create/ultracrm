@@ -7,7 +7,7 @@
  *  • global suppression + consent are checked when queuing AND again right before the provider call
  *  • the shared 24h marketing frequency cap (contact.lastMarketingAt) is reserved atomically
  *  • provider timeouts leave the message UNKNOWN (never assumed failed, never auto-resent)
- *  • provider unreachable → ChannelUnavailableError (the caller pauses, nothing is marked failed)
+ *  • preflight channel unavailable → ChannelUnavailableError; uncertain dispatch → UNKNOWN
  */
 import { prisma } from "@/lib/db";
 import { requireBusinessId } from "@/lib/tenant";
@@ -21,8 +21,8 @@ import { sendBlockReason } from "@/lib/suppression";
 import { renderMergeTags, type MergeContact } from "@/lib/merge-tags";
 import { smsMetrics, SMS_MAX_SEGMENTS } from "@/lib/sms";
 import { rewriteTrackedLinks, signUnsubscribeToken, unsubscribeUrl } from "@/lib/unsubscribe-token";
-import { MessagePolicyError, FrequencyCapError, QuotaExceededError } from "./message-service";
-import { activeChannelCredential, ChannelUnavailableError, emailProviderFor, smsProviderFor } from "@/server/channels/registry";
+import { MessagePolicyError, MessageOutcomeUnknownError, FrequencyCapError, QuotaExceededError } from "./message-service";
+import { activeChannelCredential, emailProviderFor, smsProviderFor } from "@/server/channels/registry";
 import { ChannelProviderError, ChannelRequestTimeout, type SmsSender } from "@/server/channels/types";
 import { Prisma, type Message, type ProviderCredential, type Template } from "@/generated/prisma/client";
 
@@ -73,7 +73,7 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
   const businessId = requireBusinessId();
   const existing = await prisma.message.findUnique({ where: { requestKey: input.requestKey } });
   if (existing) {
-    if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessagePolicyError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
+    if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessageOutcomeUnknownError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
     // A message we cancelled ourselves (suppressed / invalid) is a policy outcome, never a "sent" result.
     if (existing.status === "CANCELLED") throw new MessagePolicyError(existing.errorReason ?? "ההודעה בוטלה");
     return { message: existing };
@@ -154,20 +154,19 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
   } catch (err) {
     if (err instanceof ChannelRequestTimeout) {
       await prisma.message.update({ where: { id: queued.id }, data: { status: "UNKNOWN", errorReason: "הספק לא ענה בזמן; ייתכן שההודעה נשלחה. אין לנסות שוב אוטומטית" } });
-      throw new MessagePolicyError("הספק לא ענה בזמן; תוצאה לא ודאית");
+      throw new MessageOutcomeUnknownError("הספק לא ענה בזמן; תוצאה לא ודאית");
     }
     if (err instanceof ChannelProviderError && err.status !== null) {
       const retryable = !err.permanent && (err.status === 429 || err.status >= 500);
       await prisma.message.update({ where: { id: queued.id }, data: { status: "FAILED", errorReason: err.message.slice(0, 500), errorCode: `http_${err.status}`, retryable, failedAt: new Date() } });
+      await releaseSlot();
       await audit(businessId, input.sentByUserId, "message", queued.id, "message.failed", { channel: input.channel, error: err.message.slice(0, 300) });
       return { message: await prisma.message.findUniqueOrThrow({ where: { id: queued.id } }) };
     }
-    // Network / unreachable: nothing reached the provider. Remove the row so the caller can requeue and a
-    // later retry (same requestKey) sends exactly once; the reserved frequency-cap slot is released too.
-    if (input.campaignRecipientId) await prisma.campaignRecipient.updateMany({ where: { id: input.campaignRecipientId, messageId: queued.id }, data: { messageId: null } });
-    await prisma.message.delete({ where: { id: queued.id } });
-    if (marketing) await prisma.contact.updateMany({ where: { id: contact.id, lastMarketingAt: now }, data: { lastMarketingAt: null } });
-    throw new ChannelUnavailableError(err instanceof Error ? err.message : "provider unavailable");
+    // A broken connection (including a malformed response) cannot prove non-delivery.
+    // Keep both the request key and frequency reservation until the outcome is reconciled.
+    await prisma.message.update({ where: { id: queued.id }, data: { status: "UNKNOWN", errorReason: "החיבור לספק נקטע; ייתכן שההודעה נשלחה. נדרשת בדיקה לפני ניסיון נוסף" } });
+    throw new MessageOutcomeUnknownError("תוצאת השליחה אינה ודאית; נדרשת בדיקה אצל הספק");
   }
 
   const message = await prisma.message.update({ where: { id: queued.id }, data: {
@@ -176,6 +175,7 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
     segments: result.segments ?? rendered.segments ?? null, encoding: result.encoding ?? rendered.encoding ?? null,
     costAmount: result.cost ? new Prisma.Decimal(result.cost.amount) : null, costCurrency: result.cost?.currency ?? null,
   } });
+  if (result.status === "FAILED") await releaseSlot();
   await prisma.conversation.update({ where: { id: conversation.id }, data: result.status === "FAILED" ? {} : { lastMessageAt: now } });
   await audit(businessId, input.sentByUserId, "message", message.id, result.status === "FAILED" ? "message.failed" : "message.accepted", { channel: input.channel, to: identifier, campaignId: input.campaignId ?? null, providerError: result.error ?? null });
   if (result.status !== "FAILED") {
@@ -241,7 +241,7 @@ export async function sendServiceSms(input: { conversationId: string; body: stri
   if (input.requestKey) {
     const existing = await prisma.message.findUnique({ where: { requestKey: input.requestKey } });
     if (existing) {
-      if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessagePolicyError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
+      if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessageOutcomeUnknownError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
       return { message: existing };
     }
   }
@@ -267,7 +267,11 @@ export async function sendServiceSms(input: { conversationId: string; body: stri
   let result;
   try { result = await smsProviderFor(credential).send({ to: conversation.contact.phoneE164, from: sender.value, body, idempotencyKey: input.requestKey ?? `msg:${queued.id}` }); }
   catch (err) {
-    if (err instanceof ChannelRequestTimeout) { await prisma.message.update({ where: { id: queued.id }, data: { status: "UNKNOWN", errorReason: "הספק לא ענה בזמן; ייתכן שההודעה נשלחה" } }); throw new MessagePolicyError("הספק לא ענה בזמן; תוצאה לא ודאית"); }
+    if (err instanceof ChannelRequestTimeout) { await prisma.message.update({ where: { id: queued.id }, data: { status: "UNKNOWN", errorReason: "הספק לא ענה בזמן; ייתכן שההודעה נשלחה" } }); throw new MessageOutcomeUnknownError("הספק לא ענה בזמן; תוצאה לא ודאית"); }
+    if (!(err instanceof ChannelProviderError) || err.status === null) {
+      await prisma.message.update({ where: { id: queued.id }, data: { status: "UNKNOWN", errorReason: "החיבור לספק נקטע; תוצאה לא ודאית" } });
+      throw new MessageOutcomeUnknownError("תוצאת השליחה אינה ודאית; נדרשת בדיקה אצל הספק");
+    }
     const reason = err instanceof Error ? err.message.slice(0, 500) : "provider error";
     await prisma.message.update({ where: { id: queued.id }, data: { status: "FAILED", errorReason: reason, failedAt: new Date() } });
     throw new MessagePolicyError(reason);

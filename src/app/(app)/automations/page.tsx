@@ -11,7 +11,9 @@ import { StopAutomationsButton } from "@/components/automations/stop-automations
 import { RuleList } from "@/components/automations/rule-list";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
-import { SequencePanel } from "@/components/automations/sequence-panel";
+import { JourneyList } from "@/components/automations/journey/journey-list";
+import { UnsubscribeCard } from "@/components/automations/unsubscribe-card";
+import { StatusWhatsAppCard } from "@/components/automations/status-whatsapp-card";
 import { listSequences } from "@/server/services/sequence-service";
 
 export default organizationRequest(async function AutomationsPage() {
@@ -20,10 +22,10 @@ export default organizationRequest(async function AutomationsPage() {
     listRules(),
     prisma.user.findMany({ where: { role: { in: ["agent", "manager"] }, isActive: true }, select: { id: true, fullName: true } }),
     prisma.cannedReply.findMany({ select: { id: true, title: true } }),
-    prisma.template.findMany({ where: { status: "APPROVED", channel: "whatsapp" }, select: { id: true, name: true, body: true } }),
+    prisma.template.findMany({ where: { status: "APPROVED", channel: "whatsapp", internal: false }, select: { id: true, name: true, body: true } }),
     prisma.conversation.findMany({ orderBy: { lastMessageAt: "desc" }, take: 50, select: { id: true, contact: { select: { fullName: true, phoneE164: true } } } }),
     listSequences(),
-    prisma.template.findMany({ where: { status: "APPROVED" }, select: { id: true, name: true, channel: true }, orderBy: { name: "asc" } }),
+    prisma.template.findMany({ where: { status: "APPROVED", internal: false }, select: { id: true, name: true, channel: true }, orderBy: { name: "asc" } }),
     prisma.tag.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
   ]);
 
@@ -48,7 +50,9 @@ export default organizationRequest(async function AutomationsPage() {
       ) : (
         <RuleList key={rules.map((r) => `${r.id}:${r.isActive}`).join(",")} rules={rules} />
       )}
-      <SequencePanel sequences={JSON.parse(JSON.stringify(sequences))} templates={allTemplates} tags={tags.map((t) => t.name)} />
+      <StatusWhatsAppCard templates={templates.map((t) => ({ id: t.id, name: t.name, body: t.body }))} />
+      <JourneyList journeys={JSON.parse(JSON.stringify(sequences))} />
+      <UnsubscribeCard />
     </div>
   );
 });

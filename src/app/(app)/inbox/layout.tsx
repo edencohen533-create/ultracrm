@@ -14,9 +14,9 @@ export default organizationRequest(async function InboxLayout({ children }: { ch
   const initialConversations: ConversationListItem[] = JSON.parse(JSON.stringify(conversations));
 
   return (
-    <div className="flex h-[calc(100vh-0px)] flex-col">
+    <div className="flex h-[calc(100vh-var(--topnav-h))] flex-col">
       <div className="flex items-center gap-1 border-b border-line px-3 h-10 text-xs shrink-0">
-        <span className="text-muted me-2">תיבת הודעות · WhatsApp</span>
+        <span className="text-sm font-semibold me-3">וואטסאפ</span>
         {FILTERS.map(([f, label]) => (
           <Link key={f} href={f ? `/inbox?filter=${f}` : "/inbox"} className="px-2 h-7 inline-flex items-center rounded-md text-muted hover:text-text hover:bg-white/5">{label}</Link>
         ))}

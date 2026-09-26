@@ -343,9 +343,10 @@ export async function afterCallFinalized(callId: string) {
     if (technicalFailure) {
       await tx.call.update({ where: { id: currentCall.id }, data: { outcomeSavedAt: new Date(), outcomeNote: `כשל טכני: ${currentCall.failureReason ?? currentCall.hangupCause ?? "unknown"}` } });
       if (currentCall.leadId) {
+        const retryLead = await tx.listLead.findUnique({ where: { id: currentCall.leadId }, select: { followUpAttempts: true } });
         await tx.listLead.updateMany({
           where: { id: currentCall.leadId, lockedByUserId: currentCall.userId },
-          data: { status: "pending", attempts: { decrement: 1 }, nextAttemptAt: new Date(Date.now() + settings.technicalFailureRetryMinutes * 60_000), lockedByUserId: null, lockToken: null, lockExpiresAt: null },
+          data: { status: "pending", attempts: { decrement: 1 }, ...(retryLead?.followUpAttempts != null ? { followUpAttempts: Math.max(0, retryLead.followUpAttempts - 1) } : {}), nextAttemptAt: new Date(Date.now() + settings.technicalFailureRetryMinutes * 60_000), lockedByUserId: null, lockToken: null, lockExpiresAt: null },
         });
       }
       await tx.user.updateMany({ where: { id: currentCall.userId, presence: "in_call" }, data: { presence: "available", presenceAt: new Date() } });

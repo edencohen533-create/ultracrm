@@ -14,17 +14,19 @@ import { ApiError } from "@/lib/response";
 import { sendBlockReason } from "@/lib/suppression";
 import { getBusinessSettings, isWithinDialWindow } from "@/lib/settings";
 import type { SessionUser } from "@/lib/auth";
-import type { DomainEvent, Prisma, SequenceRun } from "@/generated/prisma/client";
+import type { DomainEvent, SequenceRun } from "@/generated/prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { MAX_AUTOMATION_DEPTH } from "@/lib/events";
 
 export const sequenceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   isActive: z.boolean().default(true),
-  trigger: z.enum(["DELIVERY_FAILED", "SENT_NO_REPLY", "TAG_ADDED", "CONTACT_CREATED", "LEAD_STATUS_CHANGED"]),
+  trigger: z.enum(["DELIVERY_FAILED", "SENT_NO_REPLY", "TAG_ADDED", "CONTACT_CREATED", "LEAD_STATUS_CHANGED", "CART_ABANDONED"]),
   triggerConfig: z.object({ channel: z.enum(["whatsapp", "sms", "email"]).optional(), tagName: z.string().trim().max(40).optional(), campaignId: z.string().optional(), marketingOnly: z.boolean().default(true), leadStatus: z.enum(["new", "contacted", "qualified", "unqualified", "converted"]).optional(), contactSource: z.string().trim().max(100).optional() }).default({ marketingOnly: true }),
   stopOn: z.array(z.enum(["reply", "conversion", "unsubscribe"])).default(["reply", "conversion", "unsubscribe"]),
   steps: z.array(z.object({
-    action: z.enum(["send", "task"]).default("send"),
+    /** Journey actions. wait = a pause node; condition = continue only if the condition holds, otherwise exit. */
+    action: z.enum(["send", "task", "wait", "condition", "add_tag", "remove_tag", "add_to_list", "remove_from_list", "webhook"]).default("send"),
     channel: z.enum(["whatsapp", "sms", "email"]),
     templateId: z.string().min(1).optional(),
     waitMinutes: z.number().int().min(0).max(43200),
@@ -34,23 +36,56 @@ export const sequenceSchema = z.object({
     /** task steps: title and due offset for the contact owner / creator. */
     taskTitle: z.string().trim().max(200).optional(),
     taskDueHours: z.number().int().min(1).max(720).optional(),
-  }).refine((s) => s.action === "task" ? Boolean(s.taskTitle) : Boolean(s.templateId), "שלב שליחה דורש תבנית; שלב משימה דורש כותרת")).min(1).max(6),
+    /** add_tag / remove_tag */
+    actionTag: z.string().trim().max(40).optional(),
+    /** add_to_list / remove_from_list (static distribution list) */
+    listId: z.string().optional(),
+    /** webhook: public https endpoint that receives { event, journey, contact } */
+    webhookUrl: z.string().trim().max(500).optional(),
+  }).superRefine((st, ctx) => {
+    const need = (ok: boolean, message: string) => { if (!ok) ctx.addIssue({ code: "custom", message }); };
+    if (st.action === "send") need(Boolean(st.templateId), "שלב שליחה דורש תבנית");
+    if (st.action === "task") need(Boolean(st.taskTitle), "שלב התראה/משימה דורש כותרת");
+    if (st.action === "wait") need(st.waitMinutes > 0, "שלב המתנה דורש זמן המתנה");
+    if (st.action === "add_tag" || st.action === "remove_tag") need(Boolean(st.actionTag), "יש לבחור תגית");
+    if (st.action === "add_to_list" || st.action === "remove_from_list") need(Boolean(st.listId), "יש לבחור רשימה");
+    if (st.action === "webhook") need(isPublicHttps(st.webhookUrl ?? ""), "כתובת Webhook חייבת להיות https ציבורית");
+    if (st.action === "condition") need(Boolean(st.condition.tagName || st.condition.notTagName || st.condition.leadStatus || st.condition.customKey || st.condition.consent || st.condition.requireNoReply), "יש להגדיר תנאי");
+  })).min(1).max(30),
 }).superRefine((s, ctx) => {
   if (s.trigger === "SENT_NO_REPLY" && s.steps[0].waitMinutes < 30) ctx.addIssue({ code: "custom", path: ["steps", 0, "waitMinutes"], message: "המתנה של לפחות 30 דקות לפני מעקב אחרי שליחה" });
   if (s.trigger === "TAG_ADDED" && !s.triggerConfig.tagName) ctx.addIssue({ code: "custom", path: ["triggerConfig"], message: "יש לבחור תגית" });
 });
 export type SequenceInput = z.infer<typeof sequenceSchema>;
 
+/** https only and never a private / loopback address (webhooks run server-side). */
+export function isPublicHttps(raw: string) {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:") return false;
+    const h = u.hostname.toLowerCase();
+    if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal")) return false;
+    if (/^(10\.|127\.|169\.254\.|192\.168\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) || h.startsWith("[") || h === "::1") return false;
+    return true;
+  } catch { return false; }
+}
+
 export async function listSequences() {
   return prisma.marketingSequence.findMany({ orderBy: { createdAt: "desc" }, include: { steps: { orderBy: { position: "asc" }, include: { template: { select: { id: true, name: true, channel: true, category: true } } } }, _count: { select: { runs: true } } } });
 }
 
 export async function saveSequence(user: SessionUser, input: SequenceInput, id?: string) {
-  const templates = await prisma.template.findMany({ where: { id: { in: input.steps.flatMap((s) => (s.templateId ? [s.templateId] : [])) } }, select: { id: true, channel: true, status: true } });
+  const templates = await prisma.template.findMany({ where: { id: { in: input.steps.flatMap((s) => (s.templateId ? [s.templateId] : [])) } }, select: { id: true, channel: true, status: true, internal: true } });
   for (const [i, step] of input.steps.entries()) {
-    if (step.action === "task") continue;
+    if (step.action !== "send") continue;
     const t = templates.find((x) => x.id === step.templateId);
-    if (!t || t.channel !== step.channel || t.status !== "APPROVED") throw new ApiError(`שלב ${i + 1}: התבנית אינה מאושרת לערוץ ${step.channel}`, 400, "template_invalid");
+    if (!t || t.internal || t.channel !== step.channel || t.status !== "APPROVED") throw new ApiError(`שלב ${i + 1}: התבנית אינה מאושרת לערוץ ${step.channel}`, 400, "template_invalid");
+  }
+  const listIds = [...new Set(input.steps.flatMap((st) => (st.listId && (st.action === "add_to_list" || st.action === "remove_from_list") ? [st.listId] : [])))];
+  if (listIds.length) {
+    const lists = await prisma.distributionList.findMany({ where: { id: { in: listIds } }, select: { id: true, segment: true } });
+    if (lists.length !== listIds.length) throw new ApiError("רשימה שנבחרה אינה קיימת", 400, "list_invalid");
+    if (lists.some((l) => l.segment !== null)) throw new ApiError("ניתן להוסיף/להסיר רק ברשימה רגילה (לא קהל דינמי)", 400, "list_dynamic");
   }
   const stopOn = [...new Set([...input.stopOn, "unsubscribe"])];
   const data = { name: input.name, isActive: input.isActive, trigger: input.trigger, triggerConfig: input.triggerConfig as Prisma.InputJsonValue, stopOn };
@@ -59,9 +94,7 @@ export async function saveSequence(user: SessionUser, input: SequenceInput, id?:
       ? await tx.marketingSequence.update({ where: { id }, data })
       : await tx.marketingSequence.create({ data: { ...data, businessId: user.businessId, createdById: user.id } });
     await tx.sequenceStep.deleteMany({ where: { sequenceId: seq.id } });
-    // Task steps have no template; the relation is required, so they reference a placeholder-free path via a nullable-like sentinel: we store the first template of the sequence when present, otherwise refuse.
-    for (const s of input.steps) if (s.action === "task" && !s.templateId) { const any = templates[0]?.id ?? (await tx.template.findFirst({ select: { id: true } }))?.id; if (!any) throw new ApiError("שלב משימה דורש שתהיה לפחות תבנית אחת במערכת (שדה טכני)", 400, "template_required"); s.templateId = any; }
-    await tx.sequenceStep.createMany({ data: input.steps.map((s, position) => ({ sequenceId: seq.id, position, action: s.action, channel: s.channel, templateId: s.templateId!, waitMinutes: s.waitMinutes, variables: { ...s.variables, ...(s.taskTitle ? { __taskTitle: s.taskTitle, __taskDueHours: String(s.taskDueHours ?? 24) } : {}) } as Prisma.InputJsonValue, condition: s.condition as Prisma.InputJsonValue })) });
+    await tx.sequenceStep.createMany({ data: input.steps.map((s, position) => ({ sequenceId: seq.id, position, action: s.action, channel: s.channel, templateId: s.action === "send" ? s.templateId! : null, waitMinutes: s.waitMinutes, variables: { ...s.variables, ...(s.taskTitle ? { __taskTitle: s.taskTitle, __taskDueHours: String(s.taskDueHours ?? 24) } : {}), ...(s.actionTag ? { __tag: s.actionTag } : {}), ...(s.listId ? { __listId: s.listId } : {}), ...(s.webhookUrl ? { __webhook: s.webhookUrl } : {}) } as Prisma.InputJsonValue, condition: s.condition as Prisma.InputJsonValue })) });
     return seq;
   });
   await audit(user.businessId, user.id, "sequence", row.id, id ? "sequence.updated" : "sequence.created", { trigger: input.trigger, steps: input.steps.length });
@@ -79,7 +112,7 @@ export async function startSequencesForEvent(event: DomainEvent) {
   if (!event.contactId) return { started: 0 };
   if (event.depth >= MAX_AUTOMATION_DEPTH) return { started: 0, skipped: "automation depth" };
   const p = (event.payload ?? {}) as Record<string, unknown>;
-  const trigger = event.type === "message.delivery_failed" ? "DELIVERY_FAILED" : event.type === "message.sent" ? "SENT_NO_REPLY" : event.type === "contact.tag_added" ? "TAG_ADDED" : event.type === "contact.created" ? "CONTACT_CREATED" : event.type === "lead.status_changed" ? "LEAD_STATUS_CHANGED" : null;
+  const trigger = event.type === "cart.abandoned" ? "CART_ABANDONED" : event.type === "message.delivery_failed" ? "DELIVERY_FAILED" : event.type === "message.sent" ? "SENT_NO_REPLY" : event.type === "contact.tag_added" ? "TAG_ADDED" : event.type === "contact.created" ? "CONTACT_CREATED" : event.type === "lead.status_changed" ? "LEAD_STATUS_CHANGED" : null;
   if (!trigger) return { started: 0 };
   const sequences = await prisma.marketingSequence.findMany({ where: { businessId: event.businessId, trigger, isActive: true }, include: { steps: { orderBy: { position: "asc" } } } });
   if (!sequences.length) return { started: 0 };
@@ -100,7 +133,7 @@ export async function startSequencesForEvent(event: DomainEvent) {
     else if (trigger === "LEAD_STATUS_CHANGED") { if (cfg.leadStatus && p.to !== cfg.leadStatus) continue; }
     else if (trigger === "CONTACT_CREATED") { if (cfg.contactSource && p.source !== cfg.contactSource) continue; }
     if (!seq.steps.length) continue;
-    const sourceKey = typeof p.messageId === "string" ? `message:${p.messageId}` : `event:${event.id}`;
+    const sourceKey = typeof p.cartId === "string" ? `cart:${p.cartId}` : typeof p.messageId === "string" ? `message:${p.messageId}` : `event:${event.id}`;
     try {
       await prisma.sequenceRun.create({ data: { businessId: event.businessId, sequenceId: seq.id, contactId: event.contactId, sourceKey, nextAt: new Date(Date.now() + seq.steps[0].waitMinutes * 60_000), log: [] } });
       started++;
@@ -160,14 +193,23 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       if (!seq || !seq.isActive) { await finish("STOPPED", { stopReason: "sequence inactive" }); continue; }
       const step = seq.steps[run.stepIndex];
       if (!step) { await finish("COMPLETED"); continue; }
+      // Abandoned-cart journeys: stop as soon as the cart was bought; expose cart values to the messages.
+      const cartId = run.sourceKey.startsWith("cart:") ? run.sourceKey.slice(5) : null;
+      const cart = cartId ? await (await import("./cart-service")).cartMergeValues(cartId) : null;
+      if (cart && (cart.status === "converted" || cart.status === "recovered")) { await finish("STOPPED", { stopReason: "העגלה הושלמה ברכישה" }); continue; }
       const stop = await stopCondition(run, seq.stopOn);
       if (stop) { await finish("STOPPED", { stopReason: stop }); continue; }
       // Send steps re-check global suppression/consent before every send; task steps only create CRM work and never message the contact.
-      const blocked = step.action === "task" ? null : await sendBlockReason(bid, run.contactId, "marketing");
+      const blocked = step.action !== "send" ? null : await sendBlockReason(bid, run.contactId, "marketing");
       if (blocked) { await finish("STOPPED", { stopReason: `unsubscribe: ${blocked}` }); continue; }
       // Per-step conditions (branching): reply / tags / lead status / custom field – skip this step, not the run.
       const cond = (step.condition ?? {}) as { requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; customKey?: string; customValue?: string };
-      const skipReason = await stepSkipReason(run, cond);
+      const skipReason = step.action === "wait" ? null : await stepSkipReason(run, step.action === "condition" ? { requireNoReply: false, ...cond } : cond);
+      if (skipReason && step.action === "condition") {
+        // A condition node is a gate: the contact leaves the journey ("יציאה") when it does not hold.
+        await finish("STOPPED", { stopReason: `תנאי לא התקיים (${skipReason})`, log: [...log, { step: step.position, action: "condition", skipped: skipReason, at: new Date().toISOString() }] as Prisma.InputJsonValue });
+        continue;
+      }
       if (skipReason) {
         const entry = { step: step.position, channel: step.channel, messageId: null, skipped: skipReason, at: new Date().toISOString() };
         const next = seq.steps[run.stepIndex + 1];
@@ -175,11 +217,42 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
         await finish("PENDING", { stepIndex: run.stepIndex + 1, nextAt: new Date(Date.now() + next.waitMinutes * 60_000), lockedAt: null, log: [...log, entry] as Prisma.InputJsonValue });
         continue;
       }
+      const templateId = step.templateId ?? "";
+      if (step.action === "send" && !templateId) throw new Error("שלב שליחה ללא תבנית");
       const requestKey = `seq:${run.id}:${step.position}`;
       let messageId: string | null = null;
       let skipped: string | null = null;
       let deferUntil: Date | null = null; // frequency cap / provider outage: try the same step later instead of losing it
-      if (step.action === "task") {
+      const cfg = (step.variables ?? {}) as Record<string, string>;
+      if (step.action === "wait" || step.action === "condition") {
+        // nothing to do – the wait happened before this step, the condition passed above
+      } else if (step.action === "add_tag" || step.action === "remove_tag") {
+        const name = cfg.__tag ?? "";
+        if (step.action === "add_tag") {
+          const tag = await prisma.tag.findFirst({ where: { name } }) ?? await prisma.tag.create({ data: { businessId: bid, name } });
+          await prisma.contactTag.upsert({ where: { contactId_tagId: { contactId: run.contactId, tagId: tag.id } }, create: { contactId: run.contactId, tagId: tag.id }, update: {} });
+          const { emitEvent } = await import("@/lib/events");
+          await emitEvent(prisma, { businessId: bid, type: "contact.tag_added", contactId: run.contactId, dedupeKey: `seq-tag:${run.id}:${step.position}`, depth: 1, payload: { tagId: tag.id, tagName: name } }).catch(() => undefined);
+        } else {
+          const tag = await prisma.tag.findFirst({ where: { name } });
+          if (tag) await prisma.contactTag.deleteMany({ where: { contactId: run.contactId, tagId: tag.id } });
+        }
+      } else if (step.action === "add_to_list" || step.action === "remove_from_list") {
+        const list = await prisma.distributionList.findFirst({ where: { id: cfg.__listId ?? "", segment: { equals: Prisma.DbNull } }, select: { id: true } });
+        if (!list) skipped = "הרשימה אינה קיימת או שהיא קהל דינמי";
+        else if (step.action === "add_to_list") await prisma.distributionListMember.upsert({ where: { listId_contactId: { listId: list.id, contactId: run.contactId } }, create: { listId: list.id, contactId: run.contactId }, update: {} });
+        else await prisma.distributionListMember.deleteMany({ where: { listId: list.id, contactId: run.contactId } });
+      } else if (step.action === "webhook") {
+        const url = cfg.__webhook ?? "";
+        if (!isPublicHttps(url)) skipped = "כתובת Webhook לא תקינה";
+        else {
+          const contact = await prisma.contact.findUniqueOrThrow({ where: { id: run.contactId }, select: { id: true, fullName: true, phoneE164: true, email: true, source: true } });
+          try {
+            const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-UltraCRM-Event": "journey.step", "Idempotency-Key": requestKey }, body: JSON.stringify({ event: "journey.step", journey: { id: seq.id, name: seq.name, step: step.position }, contact, at: new Date().toISOString() }), signal: AbortSignal.timeout(10_000), redirect: "manual" });
+            if (!res.ok) skipped = `Webhook החזיר ${res.status}`;
+          } catch (e) { skipped = `Webhook נכשל: ${(e as Error).message.slice(0, 120)}`; }
+        }
+      } else if (step.action === "task") {
         const vars = (step.variables ?? {}) as Record<string, string>;
         const contact = await prisma.contact.findUniqueOrThrow({ where: { id: run.contactId }, select: { ownerUserId: true, fullName: true } });
         const userId = contact.ownerUserId ?? seq.createdById;
@@ -199,7 +272,8 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
           else {
             const contact = await prisma.contact.findUniqueOrThrow({ where: { id: run.contactId }, select: { fullName: true } });
             const conversation = await startConversationForAutomation(run.contactId, sender.id, seq.createdById ?? "");
-            const { message } = await createOutboundMessage({ conversationId: conversation.id, body: "", templateId: step.templateId, templateVariables: personalizeVariables((step.variables as Record<string, string>) ?? {}, contact.fullName), sentByUserId: seq.createdById ?? "", automated: true, requireOptIn: true, requestKey, eventDepth: 1 });
+            const { message } = await createOutboundMessage({ conversationId: conversation.id, body: "", templateId, templateVariables: personalizeVariables(Object.fromEntries(Object.entries((step.variables as Record<string, string>) ?? {}).filter(([k]) => !k.startsWith("__")).map(([k, v]) => [k, cart ? v.replaceAll("{cart_url}", cart.values.cart_url).replaceAll("{cart_total}", cart.values.cart_total).replaceAll("{cart_items}", cart.values.cart_items) : v])), contact.fullName), sentByUserId: seq.createdById ?? "", automated: true, journeyStep: true, requireOptIn: true, requestKey, eventDepth: 1 });
+            if (!["ACCEPTED", "SENT", "DELIVERED", "READ"].includes(message.status)) throw new Error(message.errorReason ?? "הספק לא אישר את השליחה");
             messageId = message.id;
           }
         } catch (err) {
@@ -213,7 +287,8 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
         const { MessagePolicyError, FrequencyCapError } = await import("@/server/services/message-service");
         const { ChannelUnavailableError } = await import("@/server/channels/registry");
         try {
-          const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId: step.templateId, variables: (step.variables as Record<string, string>) ?? {}, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1, sequenceRunId: run.id });
+          const { message } = await sendChannelMessage({ channel: step.channel, contactId: run.contactId, templateId, variables: { ...Object.fromEntries(Object.entries((step.variables as Record<string, string>) ?? {}).filter(([k]) => !k.startsWith("__"))), ...(cart?.values ?? {}) }, category: "marketing", requestKey, sentByUserId: seq.createdById, automated: true, eventDepth: 1, sequenceRunId: run.id });
+          if (!["ACCEPTED", "SENT", "DELIVERED", "READ"].includes(message.status)) throw new Error(message.errorReason ?? "הספק לא אישר את השליחה");
           messageId = message.id;
         } catch (err) {
           if (err instanceof FrequencyCapError) deferUntil = new Date(Date.now() + 60 * 60_000);
@@ -223,6 +298,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
         }
       }
       if (deferUntil) { await finish("PENDING", { nextAt: deferUntil, lockedAt: null }); continue; }
+      if (cartId && messageId) await prisma.cart.updateMany({ where: { id: cartId, recoveryMessageAt: null }, data: { recoveryMessageAt: new Date() } });
       const entry = { step: step.position, channel: step.channel, messageId, skipped, at: new Date().toISOString() };
       const nextStep = seq.steps[run.stepIndex + 1];
       await audit(bid, null, "sequence", seq.id, "sequence.step", { runId: run.id, contactId: run.contactId, ...entry });

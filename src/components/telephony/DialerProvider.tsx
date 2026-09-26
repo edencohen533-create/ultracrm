@@ -84,7 +84,7 @@ interface Ctx {
   dial: (input: DialInput) => Promise<CallDto | null>;
   hangup: () => Promise<void>;
   sendDtmf: (digit: string) => Promise<void>;
-  saveOutcome: (callId: string, outcome: OutcomeKey, opts?: { note?: string; callbackAt?: Date; contactUpdates?: Record<string, string | undefined> }) => Promise<void>;
+  saveOutcome: (callId: string, outcome: OutcomeKey, opts?: { note?: string; callbackAt?: Date; callbackUserId?: string; contactUpdates?: Record<string, string | undefined> }) => Promise<void>;
   countdown: { secondsLeft: number; leadId: string | null } | null;
   cancelCountdown: () => void;
   lastError: { code: string; message: string } | null;
@@ -732,7 +732,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     async (callId, outcome, opts) => {
       setBusy("outcome");
       try {
-        await api.post(`/api/dialer/call/${callId}/outcome`, { outcome, note: opts?.note, callbackAt: opts?.callbackAt?.toISOString(), contactUpdates: opts?.contactUpdates });
+        await api.post(`/api/dialer/call/${callId}/outcome`, { outcome, note: opts?.note, callbackAt: opts?.callbackAt?.toISOString(), callbackUserId: opts?.callbackUserId, contactUpdates: opts?.contactUpdates });
         await refresh();
         const s = stateRef.current;
         if (s?.session?.mode === "power" && s.session.status === "active" && !s.activeCall) {

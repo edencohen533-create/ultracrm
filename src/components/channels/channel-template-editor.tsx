@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { smsMetrics, SMS_MAX_SEGMENTS } from "@/lib/sms";
-import { defaultEmailDesign, type EmailBlock, type EmailDesign } from "@/lib/email/blocks";
+import { BLOCK_LABELS, defaultEmailDesign, newEmailBlock, type EmailBlock, type EmailDesign } from "@/lib/email/blocks";
 
 export interface ChannelTemplateRow { id: string; channel: string; name: string; category: string; body: string; subject: string | null; preheader: string | null; design: unknown; _count?: { campaigns: number } }
 
@@ -53,18 +53,8 @@ export function SmsTemplateDialog({ existing, trigger }: { existing?: ChannelTem
   );
 }
 
-const BLOCK_LABEL: Record<EmailBlock["type"], string> = { heading: "כותרת", text: "טקסט", image: "תמונה", button: "כפתור", link: "קישור", divider: "מפריד", footer: "כותרת תחתונה" };
-function newBlock(type: EmailBlock["type"]): EmailBlock {
-  switch (type) {
-    case "heading": return { type, text: "כותרת", level: 2, align: "start" };
-    case "text": return { type, text: "טקסט חדש", align: "start" };
-    case "image": return { type, src: "https://", alt: "", width: undefined, href: undefined };
-    case "button": return { type, text: "לחצו כאן", href: "https://", color: "#4f46e5", align: "center" };
-    case "link": return { type, text: "קישור", href: "https://" };
-    case "divider": return { type };
-    case "footer": return { type, text: "שם העסק · כתובת · טלפון", unsubscribeText: "להסרה מרשימת התפוצה לחצו כאן" };
-  }
-}
+const BLOCK_LABEL: Partial<typeof BLOCK_LABELS> = { heading: BLOCK_LABELS.heading, text: BLOCK_LABELS.text, image: BLOCK_LABELS.image, button: BLOCK_LABELS.button, link: BLOCK_LABELS.link, divider: BLOCK_LABELS.divider, footer: BLOCK_LABELS.footer };
+const newBlock = newEmailBlock;
 
 export function EmailTemplateDialog({ existing, trigger }: { existing?: ChannelTemplateRow; trigger?: React.ReactNode }) {
   const router = useRouter();

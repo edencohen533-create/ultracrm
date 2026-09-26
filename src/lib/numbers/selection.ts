@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+import { getAgentSettings } from "@/lib/agent-settings";
 /**
  * Outbound caller-id selection, executed INSIDE the call-creation transaction under the
  * business number-pool lock, so parallel agents never exceed per-number limits.
@@ -35,13 +37,20 @@ export async function selectOutboundNumber(tx: Prisma.TransactionClient, input: 
   const policy = numberPolicySchema.parse(list?.numberPolicy ?? {});
   if (list && input.phoneNumberId && policy.mode !== "fixed") throw new ApiError("בחירת המספר נקבעת לפי מדיניות הקמפיין", 409, "campaign_number_policy");
   if (list?.phoneNumberId && input.phoneNumberId && list.phoneNumberId !== input.phoneNumberId) throw new ApiError("המספר אינו תואם לקמפיין", 409, "campaign_number_policy");
+  const personal = await getAgentSettings(input.businessId, input.userId, tx);
+  // Explicit campaign caller IDs remain authoritative. Personal rotation only narrows a permitted pool.
+  const carousel = personal && personal.numbers.length > 0 && !input.phoneNumberId && !list?.phoneNumberId && (policy.mode !== "agent");
   const explicit = input.phoneNumberId ?? (policy.mode === "fixed" ? list?.phoneNumberId : null);
   const all = await tx.phoneNumber.findMany({ where: { businessId: input.businessId }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }, { id: "asc" }] });
   if (input.phoneNumberId && !all.some((n) => n.id === input.phoneNumberId)) throw new ApiError("מספר יוצא לא מורשה", 400, "invalid_from_number");
   let pool = all.filter((n) => (explicit ? n.id === explicit : (!policy.numberIds.length || policy.numberIds.includes(n.id))));
+  if (carousel) {
+    pool = pool.filter(n => (!n.assignedUserId || n.assignedUserId === input.userId) && personal.numbers.some(p => p.id === n.id && p.enabled));
+    pool.sort((a, b) => personal.numbers.findIndex(n => n.id === a.id) - personal.numbers.findIndex(n => n.id === b.id));
+  }
   if (policy.mode === "agent") pool = pool.filter((n) => n.assignedUserId === input.userId);
   // Fixed policies stop when their designated number is unavailable; only rotation policies may pick another pool member.
-  if (policy.mode === "fixed" || policy.mode === "agent") pool = pool.slice(0, 1);
+  if (!carousel && (policy.mode === "fixed" || policy.mode === "agent")) pool = pool.slice(0, 1);
   if (!input.simulation) {
     const connection = await tx.numberConnection.findUnique({ where: { businessId: input.businessId } });
     if (!connectionFresh(connection, input.businessId)) throw new ApiError("יש לאמת מחדש את חיבור המספרים לספק לפני חיוג אמיתי", 409, "number_connection_stale");
@@ -64,7 +73,23 @@ export async function selectOutboundNumber(tx: Prisma.TransactionClient, input: 
   const prior = all.find((n) => n.id === previous?.phoneNumberId);
   if (prior?.reputationStatus === "spam" && prior.reputationReview !== "resolved") throw new ApiError("המספר ששימש לליד מסומן כספאם; נדרשת בדיקת מנהל לפני המשך", 409, "reputation_review_required");
   const sticky = eligible.find((n) => n.id === previous?.phoneNumberId);
-  let selected = sticky; let reason = sticky ? "sticky_lead" : policy.mode;
+  let rotated: typeof sticky;
+  if (carousel) {
+    const history = await tx.call.findMany({ where: { businessId: input.businessId, userId: input.userId, toE164: input.toE164, direction: "outbound", phoneNumberId: { not: null } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: personal.rotateAfter, select: { phoneNumberId: true, answeredAt: true, telephonyResult: true } });
+    const lastNumber = history[0]?.phoneNumberId;
+    const mustRotate = history.length === personal.rotateAfter && history.every(c => c.phoneNumberId === lastNumber && !c.answeredAt && ["no_answer", "busy", "rejected"].includes(c.telephonyResult ?? ""));
+    const ownSticky = eligible.find(n => n.id === lastNumber);
+    if (!ownSticky || mustRotate) {
+      const choices = eligible.filter(n => !mustRotate || eligible.length === 1 || n.id !== lastNumber);
+      if (personal.randomRotation) rotated = choices[randomInt(choices.length)];
+      else {
+        const index = pool.findIndex(n => n.id === lastNumber);
+        rotated = Array.from({ length: pool.length }, (_, i) => pool[(index + i + 1) % pool.length]).find(n => choices.some(c => c.id === n.id));
+      }
+    } else rotated = ownSticky;
+  }
+  let selected = rotated ?? sticky; let reason = sticky ? "sticky_lead" : policy.mode;
+  if (rotated) reason = "agent_carousel";
   if (!selected) {
     if (policy.mode === "round_robin") eligible.sort((a, b) => (a.lastSelectedAt?.getTime() ?? 0) - (b.lastSelectedAt?.getTime() ?? 0) || a.id.localeCompare(b.id));
     if (policy.mode === "load") eligible.sort((a, b) => (active.get(a.id) ?? 0) / (a.maxConcurrent ?? 1) - (active.get(b.id) ?? 0) / (b.maxConcurrent ?? 1) || (daily.get(a.id) ?? 0) - (daily.get(b.id) ?? 0) || a.id.localeCompare(b.id));

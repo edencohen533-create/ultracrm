@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { withAuth, parseBody, parseQuery } from "@/lib/api";
-import { ok } from "@/lib/response";
+import { ok, ApiError } from "@/lib/response";
+import type { Prisma } from "@/generated/prisma/client";
+import { AudienceError, listAudienceWhere } from "@/server/services/audience-service";
 import { prisma } from "@/lib/db";
 import { contactFilterSchema, contactInputSchema, contactWhere, createContact } from "@/lib/crm/contacts";
 
@@ -13,7 +15,13 @@ const listSchema = contactFilterSchema.extend({
 
 export const GET = withAuth(async ({ req, user }) => {
   const f = parseQuery(req, listSchema);
-  const where = contactWhere(user.businessId, f);
+  let where: Prisma.ContactWhereInput = contactWhere(user.businessId, f);
+  if (f.segmentId) {
+    const list = await prisma.distributionList.findUnique({ where: { id: f.segmentId }, select: { id: true, segment: true } });
+    if (!list) throw new ApiError("הסגמנט לא נמצא", 404, "not_found");
+    try { where = { AND: [where, await listAudienceWhere(prisma as unknown as Prisma.TransactionClient, list, new Date())] }; }
+    catch (e) { if (e instanceof AudienceError) throw new ApiError(e.message, 400, "segment_invalid"); throw e; }
+  }
   const [total, items] = await Promise.all([
     prisma.contact.count({ where }),
     prisma.contact.findMany({

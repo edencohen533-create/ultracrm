@@ -62,28 +62,53 @@ export async function listAudienceWhere(tx: Prisma.TransactionClient, list: { id
   await validateAudienceReferences(tx, parsed.data);
   return audienceWhere(parsed.data, now);
 }
-export async function resolveAudience(tx: Prisma.TransactionClient, listId: string, excludedListIds: string[], now: Date) {
-  const ids = [...new Set([listId, ...excludedListIds])];
+/** One or several audiences (union – a contact in two lists is counted once) minus the excluded ones. */
+export async function resolveAudience(tx: Prisma.TransactionClient, listIdOrIds: string | string[], excludedListIds: string[], now: Date) {
+  const includeIds = [...new Set(Array.isArray(listIdOrIds) ? listIdOrIds : [listIdOrIds])].filter(Boolean);
+  if (!includeIds.length) throw new AudienceError("יש לבחור לפחות קהל אחד");
+  const excludeIds = excludedListIds.filter((id) => !includeIds.includes(id));
+  const ids = [...new Set([...includeIds, ...excludeIds])];
   const lists = await tx.distributionList.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, segment: true } });
   if (lists.length !== ids.length) throw new AudienceError("רשימת תפוצה או קהל מוחרג אינם נגישים");
-  const primary = lists.find((list) => list.id === listId)!;
-  const base = await listAudienceWhere(tx, primary, now);
-  const excluded = await Promise.all(lists.filter((list) => excludedListIds.includes(list.id)).map((list) => listAudienceWhere(tx, list, now)));
-  return { base, exclusion: excluded.length ? { OR: excluded } satisfies Prisma.ContactWhereInput : null, lists, primary };
+  const primary = lists.find((list) => list.id === includeIds[0])!;
+  const included = await Promise.all(includeIds.map((id) => listAudienceWhere(tx, lists.find((l) => l.id === id)!, now)));
+  const base: Prisma.ContactWhereInput = included.length === 1 ? included[0] : { OR: included };
+  const excluded = await Promise.all(excludeIds.map((id) => listAudienceWhere(tx, lists.find((l) => l.id === id)!, now)));
+  return { base, exclusion: excluded.length ? { OR: excluded } satisfies Prisma.ContactWhereInput : null, lists, primary, includeIds, excludeIds };
 }
-export async function previewAudience(input: { segment?: AudienceNode; listId?: string; excludedListIds?: string[] }) {
+/** Channel reachability on top of marketing eligibility: email needs a deliverable address, SMS/WhatsApp a phone. */
+export function channelReachableWhere(channel: "whatsapp" | "sms" | "email"): Prisma.ContactWhereInput {
+  return channel === "email" ? { email: { not: null }, OR: [{ emailStatus: null }, { emailStatus: { not: "hard_bounce" } }] } : { phoneE164: { not: "" } };
+}
+export async function previewAudience(input: { segment?: AudienceNode; listId?: string; listIds?: string[]; excludedListIds?: string[]; channel?: "whatsapp" | "sms" | "email"; marketing?: boolean }) {
   return prisma.$transaction(async (tx) => {
     const now = new Date();
     let base: Prisma.ContactWhereInput; let exclusion: Prisma.ContactWhereInput | null = null;
+    const lists = input.listIds?.length ? input.listIds : input.listId ? [input.listId] : [];
     if (input.segment) { await validateAudienceReferences(tx, input.segment); base = audienceWhere(input.segment, now); }
-    else if (input.listId) ({ base, exclusion } = await resolveAudience(tx, input.listId, input.excludedListIds ?? [], now));
+    else if (lists.length) ({ base, exclusion } = await resolveAudience(tx, lists, input.excludedListIds ?? [], now));
     else throw new AudienceError("יש לבחור קהל");
     const included = exclusion ? { AND: [base, { NOT: exclusion }] } : base;
+    const eligibility: Prisma.ContactWhereInput = { AND: [input.marketing === false ? { isBlocked: false } : marketingEligibilityWhere(now), ...(input.channel ? [channelReachableWhere(input.channel)] : [])] };
     const [matched, remaining, eligible, samples] = await Promise.all([
       tx.contact.count({ where: base }), tx.contact.count({ where: included }),
-      tx.contact.count({ where: { AND: [included, marketingEligibilityWhere(now)] } }),
+      tx.contact.count({ where: { AND: [included, eligibility] } }),
       tx.contact.findMany({ where: included, orderBy: { id: "asc" }, take: 5, select: { fullName: true, phoneE164: true, consentStatus: true, isBlocked: true } }),
     ]);
     return { matched, excluded: matched - remaining, remaining, eligible, ineligible: remaining - eligible, checkedAt: now.toISOString(), samples, policy: "הקהל מחושב ביצירת טיוטה ומוקפא בה. זכאות נבדקת שוב לפני כל שליחה" };
   }, { isolationLevel: "RepeatableRead", timeout: 30000 });
+}
+
+/** Contact counts per audience list (members or segment matches) – for the audience picker. */
+export async function listAudienceCounts() {
+  return prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const lists = await tx.distributionList.findMany({ orderBy: { createdAt: "desc" }, select: { id: true, name: true, segment: true, createdAt: true } });
+    const out: Array<{ id: string; name: string; dynamic: boolean; count: number | null; createdAt: Date }> = [];
+    for (const list of lists) {
+      try { out.push({ id: list.id, name: list.name, dynamic: list.segment !== null, count: await tx.contact.count({ where: await listAudienceWhere(tx, list, now) }), createdAt: list.createdAt }); }
+      catch { out.push({ id: list.id, name: list.name, dynamic: list.segment !== null, count: null, createdAt: list.createdAt }); }
+    }
+    return out;
+  }, { timeout: 30000 });
 }

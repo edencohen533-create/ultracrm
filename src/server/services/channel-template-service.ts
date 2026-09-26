@@ -19,7 +19,7 @@ export const channelTemplateSchema = z.discriminatedUnion("channel", [
 export type ChannelTemplateInput = z.infer<typeof channelTemplateSchema>;
 
 export async function listChannelTemplates(channel?: "sms" | "email") {
-  return prisma.template.findMany({ where: { channel: channel ?? { in: ["sms", "email"] } }, orderBy: [{ channel: "asc" }, { name: "asc" }], select: { id: true, channel: true, name: true, category: true, status: true, body: true, subject: true, preheader: true, design: true, html: true, text: true, variables: true, updatedAt: true, _count: { select: { campaigns: true } } } });
+  return prisma.template.findMany({ where: { channel: channel ?? { in: ["sms", "email"] }, internal: false }, orderBy: [{ channel: "asc" }, { name: "asc" }], select: { id: true, channel: true, name: true, category: true, status: true, body: true, subject: true, preheader: true, design: true, html: true, text: true, variables: true, updatedAt: true, _count: { select: { campaigns: true } } } });
 }
 
 export async function saveChannelTemplate(user: SessionUser, input: ChannelTemplateInput) {
@@ -41,7 +41,7 @@ export async function saveChannelTemplate(user: SessionUser, input: ChannelTempl
   if (dupe) throw new ApiError("קיימת תבנית בשם זה", 409, "duplicate_name");
   let row;
   if (input.id) {
-    const existing = await prisma.template.findFirst({ where: { id: input.id, channel: input.channel } });
+    const existing = await prisma.template.findFirst({ where: { id: input.id, channel: input.channel, internal: false } });
     if (!existing) throw new ApiError("התבנית לא נמצאה", 404, "not_found");
     const inUse = await prisma.campaign.count({ where: { templateId: existing.id, status: { in: ["SCHEDULED", "RUNNING", "PAUSED"] } } });
     if (inUse) throw new ApiError("התבנית בשימוש בקמפיין פעיל. שכפל אותה או המתן לסיום הקמפיין", 409, "template_in_use");
@@ -55,7 +55,7 @@ export async function saveChannelTemplate(user: SessionUser, input: ChannelTempl
 }
 
 export async function deleteChannelTemplate(user: SessionUser, id: string) {
-  const t = await prisma.template.findFirst({ where: { id, channel: { in: ["sms", "email"] } }, include: { _count: { select: { campaigns: true, sequenceSteps: true } } } });
+  const t = await prisma.template.findFirst({ where: { id, channel: { in: ["sms", "email"] }, internal: false }, include: { _count: { select: { campaigns: true, sequenceSteps: true } } } });
   if (!t) throw new ApiError("התבנית לא נמצאה", 404, "not_found");
   if (t._count.campaigns || t._count.sequenceSteps) throw new ApiError("התבנית משויכת לקמפיינים או לרצפים ולא ניתן למחוק אותה", 409, "template_in_use");
   await prisma.template.delete({ where: { id: t.id } });

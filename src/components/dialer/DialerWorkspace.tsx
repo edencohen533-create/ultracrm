@@ -9,12 +9,21 @@ import { LeadQueue } from "./LeadQueue";
 import { LeadCard } from "./LeadCard";
 import { CallPanel } from "./CallPanel";
 import { OutcomePanel } from "./OutcomePanel";
+import { CoachCard } from "@/components/coach/CoachCard";
 import { useHotkeys } from "./useHotkeys";
+import { callElapsed, useTicker } from "@/components/telephony/CallBar";
+import { CALL_STATUS_LABEL, formatDuration, formatPhone } from "@/lib/client/format";
+import { Kbd, cx } from "@/components/ui";
 import type { OutcomeKey } from "@/lib/client/types";
 
 const SKIP_REASONS = ["לא זמן מתאים", "פרטים חסרים", "כבר דיברתי איתו", "ליד לא רלוונטי", "אחר"];
 
-export function DialerWorkspace() {
+/**
+ * `minimal` (the /dialer screen): only the lead's details – a one-line session strip, a slim call strip (status,
+ * hangup / dial / skip) and the lead card with its notes, script, history and outcome form. No queue list, no keypad,
+ * no connection panel, no recent calls.
+ */
+export function DialerWorkspace({ embedded = false, compact = false, minimal = false }: { embedded?: boolean; compact?: boolean; minimal?: boolean } = {}) {
   const d = useDialer();
   const { state, loading, error, refresh, dial, hangup, skipLead, saveOutcome, busy, sessionTakenOver, countdown, cancelCountdown, sessionSummary, dismissSummary } = d;
   const [note, setNote] = useState("");
@@ -39,6 +48,15 @@ export function DialerWorkspace() {
     await dial({ mode: session?.mode ?? "manual", leadId: lead.id, lockToken: lead.lockToken ?? undefined });
   }, [lead, canDialLead, dial, session?.mode, cancelCountdown]);
 
+  /** "חייג לליד" when no lead is locked yet (power countdown / preview before the next lead): pull the next one and dial now. */
+  const dialNext = useCallback(async () => {
+    if (call || wrapUp || !session || session.status !== "active" || sessionTakenOver) return;
+    cancelCountdown();
+    const next = lead && lead.status === "locked" ? lead : await d.nextLead();
+    if (!next) { toast.info("אין כרגע לידים זמינים לחיוג בתור"); return; }
+    await dial({ mode: session.mode ?? "manual", leadId: next.id, lockToken: next.lockToken ?? undefined });
+  }, [call, wrapUp, session, sessionTakenOver, cancelCountdown, lead, d, dial]);
+
   const dialManual = useCallback(
     async (phone: string) => {
       if (call) return toast.error("יש שיחה פעילה");
@@ -49,10 +67,10 @@ export function DialerWorkspace() {
   );
 
   const onSave = useCallback(
-    async (outcome: OutcomeKey, callbackAt?: Date) => {
+    async (outcome: OutcomeKey, callbackAt?: Date, callbackUserId?: string) => {
       if (!wrapUp) return;
       try {
-        await saveOutcome(wrapUp.id, outcome, { note, callbackAt });
+        await saveOutcome(wrapUp.id, outcome, { note, callbackAt, callbackUserId });
         setNote("");
         if (wrapUp.contactId) {
           try {
@@ -85,13 +103,13 @@ export function DialerWorkspace() {
   if (error && !state) return <ErrorState message={error} retry={refresh} />;
 
   return (
-    <div className="flex flex-col h-screen min-h-0">
+    <div className={embedded ? "flex flex-col h-full min-h-0" : "flex flex-col h-screen min-h-0"}>
       <header className="px-4 py-3 border-b border-line bg-panel/60 shrink-0">
-        <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-base font-semibold">מסך עבודה</h1>
+        {!minimal && <div className="flex items-center gap-3 mb-2">
+          <h1 className="text-base font-semibold">{embedded ? "חייגן פעיל" : "מסך עבודה"}</h1>
           {state?.telephony.simulation && <Badge tone="warn">מצב הדמיה – השיחות אינן אמיתיות</Badge>}
           {error && <Badge tone="bad">אין חיבור לשרת – מנסה שוב</Badge>}
-        </div>
+        </div>}
         <SessionControls />
         {sessionTakenOver && (
           <div className="mt-2 text-xs bg-bad/10 text-bad rounded-md p-2 flex items-center justify-between">
@@ -103,18 +121,24 @@ export function DialerWorkspace() {
         )}
       </header>
 
-      <div className="flex-1 min-h-0 grid grid-cols-[300px_minmax(0,1fr)_320px]">
+      <div className={minimal ? "flex-1 min-h-0 overflow-y-auto flex flex-col" : compact ? "compact-dialer-content flex-1 min-h-0 overflow-y-auto flex flex-col" : "flex-1 min-h-0 grid grid-cols-[300px_minmax(0,1fr)_320px]"}>
         {/* Queue (right in RTL) */}
-        <aside className="border-s-0 border-e border-line bg-panel min-h-0">
+        <aside className={compact || minimal ? "hidden" : "border-s-0 border-e border-line bg-panel min-h-0"}>
           {session?.listId ? (
             <LeadQueue listId={session.listId} currentLeadId={lead?.id} refreshKey={refreshKey} />
           ) : (
-            <div className="p-4 text-xs text-muted">בחר רשימה והתחל סשן כדי לראות את התור.</div>
+            <div className="p-4 text-xs text-muted">{session ? "סשן ידני – אין תור. חייג מהלוח או מכרטיס ליד." : "אין סשן פעיל. תעד את השיחה כדי לחזור לרשימת הלידים."}</div>
           )}
         </aside>
 
         {/* Active lead */}
-        <section className="min-h-0 flex flex-col">
+        <section className={minimal ? "flex-1 min-h-0 flex flex-col" : compact ? "min-h-[330px] flex flex-col order-2 shrink-0" : "min-h-0 flex flex-col"}>
+          {minimal && <CallStrip canDialLead={canDialLead} onDialLead={dialLead} onDialNext={dialNext} canDialNext={Boolean(session && session.status === "active" && session.mode !== "manual" && !call && !wrapUp && !sessionTakenOver)} blockedReason={!session ? "אין סשן חיוג פעיל – התחל חייגן מהתור או חייג מכרטיס ליד" : session.status !== "active" ? "הסשן מושהה – לחץ המשך" : sessionTakenOver ? "הסשן פעיל בלשונית אחרת" : wrapUp ? "תעד את תוצאת השיחה הקודמת כדי להמשיך" : session.mode === "manual" ? "סשן ידני – חייג מכרטיס ליד או מהלוח" : null} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />}
+          {call && (
+            <div className="p-3 border-b border-line shrink-0">
+              <CoachCard callId={call.id} answered={call.status === "answered"} simulation={Boolean(state?.telephony.simulation)} />
+            </div>
+          )}
           <div className="flex-1 min-h-0">
             <LeadCard
               contactId={focusContactId}
@@ -131,7 +155,7 @@ export function DialerWorkspace() {
         </section>
 
         {/* Call panel (left in RTL) */}
-        <aside className="border-s border-line bg-panel min-h-0">
+        <aside className={minimal ? "hidden" : compact ? "bg-panel order-1 shrink-0" : "border-s border-line bg-panel min-h-0"}>
           <CallPanel onDialManual={dialManual} canDialLead={canDialLead} onDialLead={dialLead} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />
         </aside>
       </div>
@@ -166,6 +190,40 @@ export function DialerWorkspace() {
           ))}
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/** Slim call controls for the minimal screen: what is happening + hang up / dial / skip. Everything else lives in the lead card. */
+function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedReason, onSkip }: { canDialLead: boolean; onDialLead: () => void; onDialNext: () => void; canDialNext: boolean; blockedReason: string | null; onSkip?: () => void }) {
+  const { state, phone, hangup, busy, countdown, acceptInbound, rejectInbound } = useDialer();
+  const call = state?.activeCall ?? null;
+  useTicker(Boolean(call));
+  const answered = call?.status === "answered";
+  const inProgress = Boolean(call && !call.endedAt);
+  const inboundRinging = Boolean(call && call.direction === "inbound" && !call.answeredAt && !call.endedAt);
+  const connOk = phone.status === "ready" || phone.status === "simulation";
+  return (
+    <div className={cx("call-strip", answered && "answered")} data-testid="call-strip">
+      <div className="call-strip-status">
+        {call ? (
+          <><span className={cx("dot", answered ? "on" : "wait")} /><span>{CALL_STATUS_LABEL[call.status] ?? call.status}</span><span className="tabular" dir="ltr">{formatPhone(call.toE164)}</span>{(answered || call.endedAt) && <b className="tabular">{formatDuration(call.endedAt ? (call.talkSeconds ?? 0) : callElapsed(call))}</b>}</>
+        ) : countdown ? (
+          <span>חיוג אוטומטי בעוד <b className="tabular text-warn">{countdown.secondsLeft}</b></span>
+        ) : (
+          <span className="text-muted">{blockedReason ?? "אין שיחה פעילה"}</span>
+        )}
+        {phone.status === "simulation" && <span className="text-muted text-xs">· הדמיה</span>}
+      </div>
+      <div className="call-strip-actions">
+        {inboundRinging ? (
+          <><Button variant="good" onClick={acceptInbound} loading={busy === "accept"}>קבל</Button><Button variant="danger" onClick={rejectInbound} loading={busy === "reject"}>דחה</Button></>
+        ) : inProgress ? (
+          <><Button variant={phone.muted ? "warn" : "secondary"} onClick={phone.toggleMute} disabled={!answered || phone.status === "simulation"}>{phone.muted ? "בטל השתקה" : "השתק"} <Kbd>M</Kbd></Button><Button variant="danger" onClick={hangup} loading={busy === "hangup"}>נתק <Kbd>H</Kbd></Button></>
+        ) : (
+          <>{onSkip && <Button variant="secondary" onClick={onSkip} disabled={!canDialLead}>דלג <Kbd>S</Kbd></Button>}<Button variant="good" onClick={canDialLead ? onDialLead : onDialNext} disabled={(!canDialLead && !canDialNext) || !connOk || busy === "dial" || busy === "next"} loading={busy === "dial" || busy === "next"} title={blockedReason ?? undefined} data-testid="strip-dial-lead">חייג לליד <Kbd>D</Kbd></Button></>
+        )}
+      </div>
     </div>
   );
 }

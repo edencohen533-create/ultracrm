@@ -9,7 +9,8 @@ import { Sidebar } from "@/components/layout/Sidebar";
 export const dynamic = "force-dynamic";
 
 /**
- * Shared shell for every module. The DialerProvider lives here, so navigating
+ * Shared shell for every module: the vertical side menu (five destinations), the call bar and the page.
+ * The DialerProvider lives here, so navigating
  * between CRM, inbox and dialer screens never drops the telephony connection
  * or an active call.
  */

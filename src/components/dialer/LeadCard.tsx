@@ -8,12 +8,18 @@ import { Badge, Button, Input, Phone, Textarea, cx } from "@/components/ui";
 import { TELEPHONY_RESULT_LABEL, formatDateTime, formatDuration, formatPhone } from "@/lib/client/format";
 import { OUTCOMES } from "@/lib/outcomes";
 import type { ContactLite, LeadDto } from "@/lib/client/types";
+import { ContactTimeline } from "@/components/contacts/ContactTimeline";
+import { ContactChat } from "@/components/contacts/ContactChat";
+import { useMe } from "@/lib/client/use-me";
 
 interface ContactFull extends ContactLite {
   owner: { id: string; fullName: string } | null;
   calls: Array<{ id: string; createdAt: string; answeredAt: string | null; talkSeconds: number | null; telephonyResult: string | null; outcome: string | null; outcomeNote: string | null; callbackAt: string | null; recordingStatus: string; user: { fullName: string } }>;
   tasks: Array<{ id: string; dueAt: string; note: string | null; user: { fullName: string } }>;
-  leads: Array<{ id: string; status: string; list: { id: string; name: string } }>;
+  /** CRM leads (pipeline) – not dial-list rows. */
+  leads: Array<{ id: string; title: string | null; status: string }>;
+  /** Dial-list rows (the queues this contact sits in). */
+  queueLeads?: Array<{ id: string; status: string; list: { id: string; name: string } }>;
   isDnc: boolean;
 }
 
@@ -43,6 +49,8 @@ export function LeadCard({
   const [form, setForm] = useState({ fullName: "", email: "", company: "", city: "" });
   const [scriptOpen, setScriptOpen] = useState(false);
   const [historyLimit, setHistoryLimit] = useState(5);
+  const [tab, setTab] = useState<"calls" | "timeline" | "chat">("calls");
+  const me = useMe();
   const lastDraftContact = useRef<string | null>(null);
 
   const load = useCallback(async () => {
@@ -137,7 +145,7 @@ export function LeadCard({
               </p>
             )}
             {(contact.tags?.length ?? 0) > 0 && (
-              <div className="mt-1 flex flex-wrap gap-1">{contact.tags!.map((t) => <Badge key={t} tone="neutral">{t}</Badge>)}</div>
+              <div className="mt-1 flex flex-wrap gap-1">{contact.tags!.map((t) => { const name = typeof t === "string" ? t : (t as { name: string }).name; return <Badge key={name} tone="neutral">{name}</Badge>; })}</div>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -162,8 +170,8 @@ export function LeadCard({
           <Field label="מקור">{contact.source || "—"}</Field>
           <Field label="נציג אחראי">{contact.owner?.fullName ?? "—"}</Field>
           <Field label="נוצר">{formatDateTime(contact.createdAt)}</Field>
-          {lead && <Field label="רשימה">{lead.list.name}</Field>}
-          {contact.leads.length > 1 && <Field label="רשימות נוספות">{contact.leads.filter((l) => l.id !== lead?.id).map((l) => l.list.name).join(", ")}</Field>}
+          {lead && <Field label="רשימה">{lead.list?.name ?? "—"}</Field>}
+          {(contact.queueLeads?.filter((l) => l.id !== lead?.id).length ?? 0) > 0 && <Field label="רשימות נוספות">{contact.queueLeads!.filter((l) => l.id !== lead?.id).map((l) => l.list?.name ?? "").filter(Boolean).join(", ")}</Field>}
         </dl>
         {contact.notes && (
           <p className="mt-3 text-xs text-muted bg-white/5 rounded-md p-2 whitespace-pre-wrap">
@@ -201,7 +209,14 @@ export function LeadCard({
         </div>
       )}
 
-      <div className="p-4">
+      <div className="flex items-center gap-1 px-4 pt-3" role="tablist" aria-label="מידע על הלקוח">
+        {([["calls", "היסטוריית התקשרות"], ["timeline", "ציר פעילות"], ...(me?.modules.messaging ? [["chat", "וואטסאפ"]] : [])] as Array<["calls" | "timeline" | "chat", string]>).map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cx("h-8 px-3 rounded-md text-xs", tab === k ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-white/5")} data-testid={`leadcard-tab-${k}`}>{label}</button>
+        ))}
+      </div>
+      {tab === "timeline" && <div className="p-2"><ContactTimeline contactId={contact.id} refreshKey={refreshKey} limit={40} /></div>}
+      {tab === "chat" && <div className="p-2"><ContactChat contactId={contact.id} compact /></div>}
+      <div className={cx("p-4", tab !== "calls" && "hidden")}>
         <h3 className="text-sm font-semibold mb-2">היסטוריית התקשרות</h3>
         {contact.calls.length === 0 ? (
           <p className="text-xs text-muted">אין שיחות קודמות</p>

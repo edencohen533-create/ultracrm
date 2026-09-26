@@ -23,6 +23,7 @@ export type DomainEventType =
   | "lead.status_changed"
   | "deal.created"
   | "deal.won"
+  | "deal.lost"
   | "call.ended"
   | "call.outcome_saved"
   | "message.received"
@@ -34,7 +35,8 @@ export type DomainEventType =
   | "contact.merged"
   | "message.delivery_failed"
   | "sequence.step_sent"
-  | "task.created";
+  | "task.created"
+  | "cart.abandoned";
 
 export type EventSource = "user" | "system" | "automation" | "webhook" | "import";
 

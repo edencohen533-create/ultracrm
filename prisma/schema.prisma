@@ -320,6 +320,9 @@ model Plan {
 }
 
 model Business {
+  coachKnowledge   CoachKnowledge?
+  coachSessions    CoachSession[]
+  coachExamples    CoachExample[]
   id                   String    @id @default(cuid())
   name                 String
   slug                 String    @unique
@@ -378,6 +381,9 @@ model Business {
   automationRuns         AutomationRun[]
   distributionLists      DistributionList[]
   campaigns              Campaign[]
+  campaignDrafts         CampaignDraft[]
+  storeConnections       StoreConnection[]
+  carts                  Cart[]
   conversationDrafts     ConversationDraft[]
   marketingSequences     MarketingSequence[]
   sequenceRuns           SequenceRun[]
@@ -415,9 +421,12 @@ model User {
   role       UserRole       @default(agent)
   teamId     String?        @map("team_id")
   isActive   Boolean        @default(true) @map("is_active")
+  crmSettings Json? @map("crm_settings")
   avatarUrl  String?        @map("avatar_url")
   presence   PresenceStatus @default(offline)
   presenceAt DateTime       @default(now()) @map("presence_at")
+  /// Real-time sales coach shown to this agent (business-level switch in settings.coach). 
+  coachEnabled Boolean @default(true) @map("coach_enabled")
   lastSeenAt DateTime?      @map("last_seen_at")
 
   /// Telnyx telephony credential (one per business user).
@@ -556,6 +565,7 @@ model Contact {
   @@index([businessId, ownerUserId])
   @@index([businessId, lastActivityAt])
   @@map("contacts")
+  carts Cart[]
 }
 
 model ContactPhone {
@@ -940,6 +950,7 @@ model ListLead {
   contactId       String          @map("contact_id")
   status          QueueLeadStatus @default(pending)
   priority        Int             @default(0)
+  followUpAttempts Int? @map("follow_up_attempts")
   attempts        Int             @default(0)
   lastAttemptAt   DateTime?       @map("last_attempt_at")
   nextAttemptAt   DateTime?       @map("next_attempt_at")
@@ -991,6 +1002,7 @@ model DialerSession {
 }
 
 model Call {
+  coachSession   CoachSession?
   id             String            @id @default(cuid())
   businessId     String            @map("business_id")
   userId         String            @map("user_id")
@@ -1057,6 +1069,7 @@ model Call {
 
   @@index([businessId, createdAt])
   @@index([businessId, phoneNumberId, createdAt])
+  @@index([businessId, toE164, createdAt])
   @@index([userId, createdAt])
   @@index([contactId, createdAt])
   @@index([leadId])
@@ -1485,6 +1498,8 @@ model Template {
   design             Json?
   html               String?
   text               String?
+  /// Working copy owned by a campaign draft (hidden from the template gallery).
+  internal           Boolean          @default(false)
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 
@@ -1529,6 +1544,7 @@ model AutomationRun {
   triggerPayload Json                @default("{}") @map("trigger_payload")
   result         Json?
   error          String?
+  claimedAt      DateTime?           @map("claimed_at")
   attempts       Int                 @default(0)
   createdAt      DateTime            @default(now()) @map("created_at")
   completedAt    DateTime?           @map("completed_at")
@@ -1578,6 +1594,8 @@ model Campaign {
   providerCredentialId  String?        @map("provider_credential_id")
   variables             Json           @default("{}")
   excludedListIds       Json           @default("[]") @map("excluded_list_ids")
+  /// All selected audiences (listId is the first one – kept for the FK). Union of the lists' contacts.
+  listIds               Json           @default("[]") @map("list_ids")
   audienceSnapshot      Json?          @map("audience_snapshot")
   audienceExcludedCount Int            @default(0) @map("audience_excluded_count")
   senderSnapshot        String?        @map("sender_snapshot")
@@ -1600,6 +1618,8 @@ model Campaign {
   preflightSnapshot     Json?          @map("preflight_snapshot")
   /// Why the campaign was paused/failed by the system (provider down, quota…).
   statusReason          String?        @map("status_reason")
+  /// Sending pace: { batchSize, intervalMinutes } = at most batchSize recipients per intervalMinutes. Null = as fast as allowed.
+  throttle              Json?
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")
 
@@ -1609,12 +1629,103 @@ model Campaign {
   providerCredential ProviderCredential? @relation(fields: [providerCredentialId], references: [id], onDelete: Restrict)
   createdBy          User                @relation(fields: [createdById], references: [id])
   recipients         CampaignRecipient[]
+  drafts             CampaignDraft[]
 
   @@index([businessId, status, scheduledAt])
   @@index([businessId, channel, createdAt])
   @@index([listId])
   @@index([templateId])
   @@map("campaigns")
+}
+
+/// Step-by-step campaign builder state ("יצירת קמפיין"). A draft becomes a real Campaign when it is built at the
+/// review step; `campaignId` then points at that (DRAFT/SCHEDULED) campaign, and edits rebuild it.
+model CampaignDraft {
+  id          String   @id @default(cuid())
+  businessId  String   @map("business_id")
+  channel     Channel  @default(email)
+  name        String
+  /// info | audience | template | content | review
+  step        String   @default("info")
+  /// Everything the wizard collected: subject, preheader, senderCredentialId, replyTo, listIds, excludedListIds, templateId, design, body, variables, mediaUrl, buttonParams, schedule…
+  data        Json     @default("{}")
+  /// Working template row (email/sms) rendered from `data` – updated on every build/test.
+  templateId  String?  @map("template_id")
+  campaignId  String?  @map("campaign_id")
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, channel, updatedAt])
+  @@map("campaign_drafts")
+}
+
+/// An online store connected for abandoned-cart detection (site script + Shopify / WooCommerce webhooks).
+model StoreConnection {
+  id                  String    @id @default(cuid())
+  businessId          String    @map("business_id")
+  /// shopify | woocommerce | custom
+  platform            String
+  name                String
+  /// Site host (e.g. shop.example.com) – browser events are accepted only from this origin when set.
+  domain              String?
+  /// Public id embedded in the site script (not a secret).
+  publicKey           String    @unique @map("public_key")
+  /// { webhookSecret } sealed at rest.
+  config              Json      @default("{}")
+  abandonAfterMinutes Int       @default(60) @map("abandon_after_minutes")
+  isActive            Boolean   @default(true) @map("is_active")
+  lastEventAt         DateTime? @map("last_event_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  carts    Cart[]
+
+  @@index([businessId])
+  @@map("store_connections")
+}
+
+/// A shopping cart / checkout seen on a connected store. open → abandoned (no activity) → converted / recovered (order).
+model Cart {
+  id                String    @id @default(cuid())
+  businessId        String    @map("business_id")
+  storeId           String    @map("store_id")
+  /// Cart token / checkout id / session id from the store.
+  externalId        String    @map("external_id")
+  contactId         String?   @map("contact_id")
+  email             String?
+  phoneE164         String?   @map("phone_e164")
+  customerName      String?   @map("customer_name")
+  currency          String?
+  total             Decimal?  @db.Decimal(14, 2)
+  /// [{ name, quantity, price, url?, image? }]
+  items             Json      @default("[]")
+  checkoutUrl       String?   @map("checkout_url")
+  acceptsMarketing  Boolean?  @map("accepts_marketing")
+  /// open | abandoned | converted | recovered
+  status            String    @default("open")
+  lastActivityAt    DateTime  @default(now()) @map("last_activity_at")
+  abandonedAt       DateTime? @map("abandoned_at")
+  convertedAt       DateTime? @map("converted_at")
+  orderId           String?   @map("order_id")
+  orderTotal        Decimal?  @map("order_total") @db.Decimal(14, 2)
+  /// First recovery message sent by a journey for this cart (used to attribute "recovered").
+  recoveryMessageAt DateTime? @map("recovery_message_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  store    StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  contact  Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, externalId])
+  @@index([businessId, status, lastActivityAt])
+  @@index([contactId])
+  @@map("carts")
 }
 
 model CampaignRecipient {
@@ -1681,6 +1792,8 @@ enum SequenceTrigger {
   CONTACT_CREATED
   /// A lead of the contact changed status (triggerConfig.leadStatus filters).
   LEAD_STATUS_CHANGED
+  /// An online-store cart with the contact's details was left without checkout (see Cart).
+  CART_ABANDONED
 }
 
 enum SequenceRunStatus {
@@ -1720,7 +1833,7 @@ model SequenceStep {
   sequenceId  String  @map("sequence_id")
   position    Int
   channel     Channel
-  templateId  String  @map("template_id")
+  templateId  String? @map("template_id")
   /// Delay before this step (minutes) – measured from the previous step / trigger.
   waitMinutes Int     @default(0) @map("wait_minutes")
   /// Extra condition: { requireNoReply?: true, requireConsent?: true }
@@ -1730,7 +1843,7 @@ model SequenceStep {
   variables   Json    @default("{}")
 
   sequence MarketingSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
-  template Template          @relation(fields: [templateId], references: [id])
+  template Template?         @relation(fields: [templateId], references: [id])
 
   @@unique([sequenceId, position])
   @@map("sequence_steps")
@@ -1806,4 +1919,202 @@ model NumberOrder {
   @@unique([businessId, provider, e164])
   @@index([businessId, createdAt])
   @@map("number_orders")
+}
+
+// ───────────────────────── Real-time sales coach (AI) ─────────────────────────
+
+enum CoachSpeaker {
+  customer
+  agent
+  unknown
+}
+
+enum CoachSegmentSource {
+  browser_stt
+  simulation
+  recording
+  telnyx_stream
+}
+
+enum CoachSessionStatus {
+  listening
+  analyzing
+  ready
+  unavailable
+  ended
+}
+
+enum CoachExampleStatus {
+  pending
+  approved
+  rejected
+}
+
+enum CoachOutcome {
+  won
+  lost
+  unknown
+}
+
+/// Per-business approved knowledge the coach may rely on (never invented by the model).
+model CoachKnowledge {
+  id              String   @id @default(cuid())
+  businessId      String   @unique @map("business_id")
+  description     String   @default("")
+  audience        String   @default("")
+  /// [{ name, price, notes }]
+  products        Json     @default("[]")
+  benefits        Json     @default("[]")
+  /// [{ question, answer }]
+  faqs            Json     @default("[]")
+  /// [{ objection, response }]
+  objections      Json     @default("[]")
+  forbiddenClaims Json     @default("[]") @map("forbidden_claims")
+  style           String   @default("")
+  callGoal        String   @default("") @map("call_goal")
+  updatedById     String?  @map("updated_by_id")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("coach_knowledge")
+}
+
+/// One coach session per call: rolling summary + conversation state + usage/cost.
+model CoachSession {
+  id             String             @id @default(cuid())
+  businessId     String             @map("business_id")
+  callId         String             @unique @map("call_id")
+  userId         String             @map("user_id")
+  contactId      String?            @map("contact_id")
+  leadId         String?            @map("lead_id")
+  status         CoachSessionStatus @default(listening)
+  summary        String             @default("")
+  stage          String?
+  customerGoal   String?            @map("customer_goal")
+  lastObjection  String?            @map("last_objection")
+  /// [{ text, by }] – promises / commitments made during the call
+  promises       Json               @default("[]")
+  segmentsCount  Int                @default(0) @map("segments_count")
+  lastSegmentAt  DateTime?          @map("last_segment_at")
+  sttSeconds     Float              @default(0) @map("stt_seconds")
+  tokensIn       Int                @default(0) @map("tokens_in")
+  tokensOut      Int                @default(0) @map("tokens_out")
+  costUsd        Decimal            @default(0) @db.Decimal(10, 5) @map("cost_usd")
+  latencyMsTotal Int                @default(0) @map("latency_ms_total")
+  latencySamples Int                @default(0) @map("latency_samples")
+  provider       String?
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  business        Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  call            Call                  @relation(fields: [callId], references: [id], onDelete: Cascade)
+  segments        CoachSegment[]
+  recommendations CoachRecommendation[]
+  chatMessages    CoachChatMessage[]
+
+  @@index([businessId, createdAt])
+  @@map("coach_sessions")
+}
+
+/// "נתקעתי? שאל את ה-AI" – the agent's free-text questions during a call and the coach's answers (per call).
+model CoachChatMessage {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  sessionId  String   @map("session_id")
+  callId     String   @map("call_id")
+  role       String
+  text       String
+  followUp   String?  @map("follow_up")
+  why        String?
+  basis      String?
+  /// which real sources fed the answer: { transcriptLines, lead, whatsapp, outcomes, examples, knowledge, model, latencyMs }
+  sources    Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  session CoachSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([businessId, createdAt])
+  @@map("coach_chat_messages")
+}
+
+model CoachSegment {
+  id         String             @id @default(cuid())
+  businessId String             @map("business_id")
+  sessionId  String             @map("session_id")
+  callId     String             @map("call_id")
+  speaker    CoachSpeaker       @default(unknown)
+  text       String
+  startMs    Int?               @map("start_ms")
+  endMs      Int?               @map("end_ms")
+  source     CoachSegmentSource
+  createdAt  DateTime           @default(now()) @map("created_at")
+
+  session CoachSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([businessId])
+  @@map("coach_segments")
+}
+
+model CoachRecommendation {
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  sessionId        String    @map("session_id")
+  callId           String    @map("call_id")
+  objection        String?
+  sayNow           String    @map("say_now")
+  why              String    @default("")
+  confidence       Float     @default(0)
+  stage            String?
+  /// examples = backed by this business's reviewed sales examples; knowledge_only = approved knowledge only; question = ask the agent
+  basis            String    @default("knowledge_only")
+  /// { exampleIds: [], knowledge: [], leadFacts: [] }
+  sources          Json      @default("{}")
+  triggerSegmentId String?   @map("trigger_segment_id")
+  latencyMs        Int?      @map("latency_ms")
+  shownAt          DateTime? @map("shown_at")
+  feedback         String?
+  supersededAt     DateTime? @map("superseded_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  session CoachSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([businessId, createdAt])
+  @@map("coach_recommendations")
+}
+
+/// Verifiable sales moments extracted from finished calls, linked to the deal outcome. Reviewed by managers.
+model CoachExample {
+  id             String             @id @default(cuid())
+  businessId     String             @map("business_id")
+  callId         String?            @map("call_id")
+  sessionId      String?            @map("session_id")
+  dealId         String?            @map("deal_id")
+  leadId         String?            @map("lead_id")
+  userId         String?            @map("user_id")
+  objection      String
+  agentResponse  String             @map("agent_response")
+  /// what the manager wants said instead (used when set)
+  editedResponse String?            @map("edited_response")
+  stage          String?
+  product        String?
+  outcome        CoachOutcome       @default(unknown)
+  /// verbatim excerpt from the transcript so the moment can be checked
+  quote          String             @default("")
+  segmentIds     Json               @default("[]") @map("segment_ids")
+  questions      Json               @default("[]")
+  embedding      Json?
+  status         CoachExampleStatus @default(pending)
+  reviewedById   String?            @map("reviewed_by_id")
+  reviewedAt     DateTime?          @map("reviewed_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([callId])
+  @@map("coach_examples")
 }

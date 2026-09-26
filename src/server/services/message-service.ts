@@ -48,7 +48,9 @@ export async function createInboundMessage(input: CreateInboundMessageInput) {
     }
     if (isUnsubscribe(input.body)) {
       // Global unsubscribe: blocks marketing on every channel of the business (see src/lib/suppression.ts).
+      const { applyUnsubscribeAutomation } = await import("@/lib/unsubscribe-automation");
       await suppressContact({ businessId: requireBusinessId(), contactId: input.contactId, scope: "marketing", source: "whatsapp", reason: `הודעה נכנסת: "${input.body.trim().slice(0, 40)}"`, evidence: input.providerMessageId ?? "inbound-demo" }, tx);
+      await applyUnsubscribeAutomation(requireBusinessId(), input.contactId, tx);
     }
     const openConversation = await tx.conversation.findFirst({
       where: { contactId: input.contactId, providerCredentialId, status: { in: [ConversationStatus.OPEN, ConversationStatus.PENDING] } },
@@ -121,6 +123,8 @@ export interface CreateOutboundMessageInput {
   campaignRecipientId?: string;
   requestKey?: string;
   automated?: boolean;
+  /** Scheduled marketing template from a customer journey: sent even while an agent handles the conversation (consent + suppression still apply). */
+  journeyStep?: boolean;
   /** Depth of the automation chain that produced this send (loop protection). */
   eventDepth?: number;
   media?: { file: Buffer; mimeType: string; fileName: string };
@@ -129,6 +133,10 @@ export interface CreateOutboundMessageInput {
 }
 
 export class MessagePolicyError extends Error {}
+/** Dispatch may have succeeded; never treat this as a policy skip or auto-resend it. */
+export class MessageOutcomeUnknownError extends ApiError {
+  constructor(message: string) { super(message, 409, "send_outcome_unknown"); }
+}
 /** The shared 24h/N-hour marketing frequency cap is in use for this contact – defer, do not skip permanently. */
 export class FrequencyCapError extends MessagePolicyError {}
 /** The business's monthly message quota is exhausted – campaigns pause instead of skipping recipients. */
@@ -143,7 +151,7 @@ export async function createOutboundMessage(input: CreateOutboundMessageInput) {
       const existing = await prisma.message.findUnique({ where: { requestKey: input.requestKey }, include: { attachments: true } });
       if (existing) {
         if (existing.conversationId !== input.conversationId || existing.sentByUserId !== input.sentByUserId) throw new MessagePolicyError("מזהה בקשה אינו תקין");
-        if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessagePolicyError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
+        if (["QUEUED", "UNKNOWN"].includes(existing.status)) throw new MessageOutcomeUnknownError("תוצאת הבקשה הקודמת אינה ודאית. אין לשלוח שוב לפני בדיקה");
         return { conversation: await prisma.conversation.findUniqueOrThrow({ where: { id: input.conversationId } }), message: existing };
       }
     }
@@ -168,7 +176,7 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
   if (conversation.channel === "email") throw new MessagePolicyError("מענה לאימייל מהתיבה אינו נתמך; השב מתיבת הדואר של העסק (Reply-To)");
   const serviceWindow = !!conversation.lastInboundAt && now.getTime() - conversation.lastInboundAt.getTime() < 86400000;
   let marketing = Boolean(input.requireOptIn);
-  if (input.automated && conversation.assignedAgentId) throw new MessagePolicyError("המענה האוטומטי נעצר כאשר נציג מטפל בשיחה");
+  if (input.automated && !input.journeyStep && conversation.assignedAgentId) throw new MessagePolicyError("המענה האוטומטי נעצר כאשר נציג מטפל בשיחה");
   let body = input.body;
   if (input.templateId) {
     const template = await prisma.template.findUnique({ where: { id: input.templateId } });

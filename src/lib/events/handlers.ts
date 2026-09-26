@@ -3,8 +3,9 @@
  * (see AutomationJob) and must be safe for late / out-of-order events.
  */
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@/generated/prisma/client";
 import { audit } from "@/lib/audit";
-import { getBusinessSettings } from "@/lib/settings";
+import { getBusinessSettings, mergeSettings } from "@/lib/settings";
 import type { DomainEvent } from "@/generated/prisma/client";
 import { MAX_AUTOMATION_DEPTH } from "./index";
 
@@ -24,15 +25,42 @@ async function touchContact(contactId: string | null, at: Date) {
   await prisma.contact.updateMany({ where: { id: contactId, OR: [{ lastActivityAt: null }, { lastActivityAt: { lt: at } }] }, data: { lastActivityAt: at } });
 }
 
-/** Pick the least-loaded active agent (round robin by open leads). */
+/**
+ * Choose the owner of a new lead that has none. A contact already owned by an *agent* keeps that agent; a contact whose
+ * owner is the manager/owner who imported it goes through the distribution policy (round robin / least loaded, cap per
+ * agent) and only falls back to that manager when the policy finds nobody.
+ */
 async function pickOwner(businessId: string, preferredUserId?: string | null) {
+  let fallback: string | null = null;
   if (preferredUserId) {
-    const u = await prisma.user.findFirst({ where: { id: preferredUserId, businessId, isActive: true }, select: { id: true } });
-    if (u) return u.id;
+    const u = await prisma.user.findFirst({ where: { id: preferredUserId, businessId, isActive: true }, select: { id: true, role: true } });
+    if (u?.role === "agent") return u.id;
+    if (u) fallback = u.id;
   }
-  const agents = await prisma.user.findMany({ where: { businessId, isActive: true, role: { in: ["agent", "manager"] } }, select: { id: true, _count: { select: { ownedLeads: { where: { status: { in: ["new", "contacted", "qualified"] } } } } } } });
-  agents.sort((a, b) => a._count.ownedLeads - b._count.ownedLeads);
-  return agents[0]?.id ?? null;
+  // Distribution policy (settings → leads → חלוקת לידים): least-loaded (default) or round robin, optional cap per agent.
+  // Read pointer → choose → write pointer runs under a per-business advisory lock, so two workers handling two new
+  // leads at the same moment cannot both hand them to the same agent.
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lead-assign:${businessId}`}))`;
+    const biz = await tx.business.findUnique({ where: { id: businessId }, select: { settings: true } });
+    const policy = mergeSettings(biz?.settings).leadAssignment;
+    const agents = await tx.user.findMany({ where: { businessId, isActive: true, role: { in: ["agent", "manager"] }, ...(policy.agentIds.length ? { id: { in: policy.agentIds } } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, _count: { select: { ownedLeads: { where: { status: { in: ["new", "contacted", "qualified"] } } } } } } });
+    const capOf = (id: string) => (policy.perAgentMax ?? {})[id] ?? policy.maxOpenLeadsPerAgent;
+    const eligible = agents.filter((a) => { const cap = capOf(a.id); return !cap || a._count.ownedLeads < cap; });
+    if (eligible.length === 0) return agents.length === 0 ? fallback : null; // no pool at all → the importing manager; pool exhausted (cap) → unassigned
+    let chosen: string;
+    if (policy.mode === "round_robin") {
+      const idx = eligible.findIndex((a) => a.id === policy.lastAssignedUserId);
+      chosen = eligible[(idx + 1) % eligible.length].id;
+    } else {
+      chosen = [...eligible].sort((a, b) => a._count.ownedLeads - b._count.ownedLeads)[0].id;
+    }
+    // Persist the pointer (raw JSON merge – no other settings touched).
+    const raw = (biz?.settings && typeof biz.settings === "object" ? biz.settings : {}) as Record<string, unknown>;
+    const la = (raw.leadAssignment && typeof raw.leadAssignment === "object" ? raw.leadAssignment : {}) as Record<string, unknown>;
+    await tx.business.update({ where: { id: businessId }, data: { settings: { ...raw, leadAssignment: { ...la, lastAssignedUserId: chosen } } as Prisma.InputJsonValue } });
+    return chosen;
+  });
 }
 
 const leadCreated: EventHandler = {
@@ -192,7 +220,7 @@ const taskCreated: EventHandler = {
 
 const sequences: EventHandler = {
   name: "marketing.sequences",
-  types: ["message.delivery_failed", "message.sent", "contact.tag_added", "contact.created", "lead.status_changed"],
+  types: ["message.delivery_failed", "message.sent", "contact.tag_added", "contact.created", "lead.status_changed", "cart.abandoned"],
   async run(event) {
     const { isModuleEnabled } = await import("@/lib/modules");
     if (!(await isModuleEnabled(event.businessId, "messaging"))) return { skipped: "messaging module disabled" };
@@ -201,4 +229,21 @@ const sequences: EventHandler = {
   },
 };
 
-export const HANDLERS: EventHandler[] = [leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences];
+/** Real-time sales coach: extract reviewable examples after a call, label them when the deal closes. Never blocks the call. */
+const coachLearning: EventHandler = {
+  name: "coach.learning",
+  types: ["call.ended", "deal.won", "deal.lost"],
+  async run(event) {
+    const { learnFromCall, attachDealOutcome } = await import("@/server/coach/learning");
+    if (event.type === "call.ended") {
+      const { callId } = payload<{ callId?: string }>(event);
+      if (!callId) return { skipped: "no callId" };
+      return (await learnFromCall(callId)) ?? {};
+    }
+    const { dealId } = payload<{ dealId?: string }>(event);
+    if (!dealId) return { skipped: "no dealId" };
+    return attachDealOutcome(dealId, event.type === "deal.won" ? "won" : "lost");
+  },
+};
+
+export const HANDLERS: EventHandler[] = [coachLearning, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences];

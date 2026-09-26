@@ -13,7 +13,8 @@ import { activeChannelCredential, ChannelUnavailableError } from "@/server/chann
 import { deliverableEmail, renderChannelContent, sendChannelTest } from "./channel-send-service";
 import { createHash } from "node:crypto";
 import type { z } from "zod";
-import type { CampaignStatus, Prisma, ProviderCredential, Template } from "@/generated/prisma/client";
+import type { CampaignStatus, ProviderCredential, Template } from "@/generated/prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import type { SmsSender } from "@/server/channels/types";
 
 export class CampaignError extends Error {}
@@ -74,7 +75,8 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
       buttons.forEach((b, i) => { if (b.type === "URL" && b.dynamic && !input.buttonParams?.[String(i)]) throw new CampaignError(`לכפתור הקישור מס' ${i + 1} בתבנית נדרש ערך`); });
     }
     const excludedListIds = input.excludedListIds ?? [];
-    const audience = await resolveAudience(tx, input.listId, excludedListIds, new Date());
+    const listIds = [...new Set([input.listId, ...(input.listIds ?? [])])];
+    const audience = await resolveAudience(tx, listIds, excludedListIds, new Date());
     const contacts = await tx.contact.findMany({ where: audience.base, select: { id: true }, orderBy: { id: "asc" }, take: MAX_AUDIENCE_SIZE + 1 });
     if (!contacts.length) throw new CampaignError("הקהל ריק כעת. יש לבדוק את תנאי הקהל");
     if (contacts.length > MAX_AUDIENCE_SIZE) throw new CampaignError("הקהל גדול מ־10,000 אנשי קשר. יש לצמצם את התנאים לפני יצירת קמפיין");
@@ -82,9 +84,9 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
     const excludedIds = new Set(excluded.map((contact) => contact.id));
     const waCredential = channel === "whatsapp" && providerCredentialId ? await tx.providerCredential.findUnique({ where: { id: providerCredentialId } }) : null;
     const estimate = estimateCampaignCost(channel, channelCredential ?? waCredential, template, contacts.length - excludedIds.size, template.category === "MARKETING");
-    const { channel: _c, senderId: _s, buttonParams, mediaUrl, ...rest } = input;
+    const { channel: _c, senderId: _s, buttonParams, mediaUrl, listIds: _l, throttle, ...rest } = input;
     const campaign = await tx.campaign.create({ data: {
-      businessId: requireBusinessId(), ...rest, channel, senderId: sender?.value ?? null, mediaUrl: mediaUrl ?? null, buttonParams: (buttonParams ?? undefined) as Prisma.InputJsonValue | undefined, excludedListIds, providerCredentialId, createdById: actorUserId, senderSnapshot, templateSnapshot: templateFingerprint(template),
+      businessId: requireBusinessId(), ...rest, listIds, channel, throttle: (throttle ?? undefined) as Prisma.InputJsonValue | undefined, senderId: sender?.value ?? null, mediaUrl: mediaUrl ?? null, buttonParams: (buttonParams ?? undefined) as Prisma.InputJsonValue | undefined, excludedListIds, providerCredentialId, createdById: actorUserId, senderSnapshot, templateSnapshot: templateFingerprint(template),
       estimate: estimate as unknown as Prisma.InputJsonValue, audienceExcludedCount: excludedIds.size,
       audienceSnapshot: { frozenAt: new Date().toISOString(), lists: audience.lists.map((list) => ({ id: list.id, name: list.name, segment: list.segment })) },
       recipients: { createMany: { data: contacts.map(({ id: contactId }) => ({ contactId, ...(excludedIds.has(contactId) ? { status: "SKIPPED" as const, error: "הוחרג מהקהל ביצירת הטיוטה", completedAt: new Date() } : {}) })) } },
@@ -94,10 +96,13 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
   }, { isolationLevel: "RepeatableRead", timeout: 30000 }).catch((error) => { if (error instanceof AudienceError) throw new CampaignError(error.message); throw error; });
 }
 
-export async function changeCampaignStatus(id: string, action: "start" | "pause" | "resume" | "cancel", scheduledAt?: string, actorUserId?: string, scheduledTimezone?: string) {
-  if (action === "start") {
-    try { await consumeQuota(requireBusinessId(), "campaigns_started"); }
-    catch (error) { if (error instanceof ApiError) throw new CampaignError(error.message); throw error; }
+export async function changeCampaignStatus(id: string, action: "start" | "pause" | "resume" | "cancel" | "unschedule", scheduledAt?: string, actorUserId?: string, scheduledTimezone?: string, throttle?: { batchSize: number; intervalMinutes: number } | null) {
+  if (action === "unschedule") {
+    // Back to a draft: nothing was sent yet (the worker only claims recipients once the campaign is RUNNING).
+    const r = await prisma.campaign.updateMany({ where: { id, status: "SCHEDULED" }, data: { status: "DRAFT", scheduledAt: null, scheduledTimezone: null, preflightSnapshot: Prisma.DbNull, statusReason: null } });
+    if (!r.count) throw new CampaignError("ניתן לבטל תזמון רק לקמפיין מתוזמן שטרם התחיל");
+    await prisma.auditLog.create({ data: { businessId: requireBusinessId(), actorId: actorUserId ?? null, action: "campaign.unschedule", entityType: "Campaign", entityId: id, payload: {} } });
+    return;
   }
   let snapshot: Record<string, unknown> | null = null;
   if (action === "start" || action === "resume") {
@@ -111,7 +116,7 @@ export async function changeCampaignStatus(id: string, action: "start" | "pause"
     if (!review.eligible) throw new CampaignError("אין נמענים זכאים לשליחה כעת");
     snapshot = { at: new Date().toISOString(), action, eligible: review.eligible, totalQueued: review.totalQueued, exclusions: review.exclusions, sender: review.sender, cost: review.cost, simulated: review.simulated };
   }
-  const from: Record<typeof action, CampaignStatus[]> = {
+  const from: Record<"start" | "pause" | "resume" | "cancel", CampaignStatus[]> = {
     start: ["DRAFT"], pause: ["SCHEDULED", "RUNNING"], resume: ["PAUSED"], cancel: ["DRAFT", "SCHEDULED", "RUNNING", "PAUSED"],
   };
   const date = scheduledAt ? new Date(scheduledAt) : new Date();
@@ -122,9 +127,13 @@ export async function changeCampaignStatus(id: string, action: "start" | "pause"
   await prisma.$transaction(async (tx) => {
     const result = await tx.campaign.updateMany({
       where: { id, status: { in: from[action] } },
-      data: { status, statusReason: null, ...((action === "start" || action === "resume") ? { scheduledAt: date, ...(scheduledTimezone ? { scheduledTimezone } : {}), preflightSnapshot: snapshot as Prisma.InputJsonValue } : {}) },
+      data: { status, statusReason: null, ...(action === "start" && throttle !== undefined ? { throttle: throttle === null ? Prisma.DbNull : (throttle as Prisma.InputJsonValue) } : {}), ...((action === "start" || action === "resume") ? { scheduledAt: date, ...(scheduledTimezone ? { scheduledTimezone } : {}), preflightSnapshot: snapshot as Prisma.InputJsonValue } : {}) },
     });
     if (!result.count) throw new CampaignError("לא ניתן לבצע פעולה זו במצב הנוכחי של הקמפיין");
+    if (action === "start") {
+      try { await consumeQuota(requireBusinessId(), "campaigns_started", 1, tx); }
+      catch (error) { if (error instanceof ApiError) throw new CampaignError(error.message); throw error; }
+    }
     if (action === "cancel") {
       await tx.campaignRecipient.updateMany({ where: { campaignId: id, status: "QUEUED" }, data: { status: "SKIPPED", error: "הקמפיין בוטל", completedAt: new Date() } });
       // Messages persisted but not yet handed to the provider are cancelled; accepted ones are never re-labelled.
@@ -227,12 +236,12 @@ export async function campaignReport(id: string) {
   const availability = {
     delivery: simulated ? "simulated" : caps.deliveryReports === false ? "unavailable" : "real",
     opens: campaign.channel === "email" && caps.opens ? "signal" : "unavailable",
-    clicks: campaign.channel === "email" && caps.clicks ? "signal" : "unavailable",
+    clicks: campaign.channel === "email" && (campaign.template.category !== "UTILITY" || caps.clicks) ? "real" : "unavailable",
     replies: campaign.channel === "email" ? "unavailable" : caps.inbound === false ? "unavailable" : "real",
     cost: costCount ? (costCount === messages.length ? "real" : "partial") : (campaign.estimate as { known?: boolean } | null)?.known ? "estimated" : "unavailable",
   } as const;
   return {
-    id: campaign.id, name: campaign.name, channel: campaign.channel, status: campaign.status, statusReason: campaign.statusReason, template: campaign.template, simulated,
+    id: campaign.id, name: campaign.name, channel: campaign.channel, status: campaign.status, scheduledAt: campaign.scheduledAt, audienceExcluded: campaign.audienceExcludedCount, statusReason: campaign.statusReason, template: campaign.template, simulated,
     recipients: recipientCounts, delivery, engagement: { opened, clicked, complained, hardBounce, softBounce, replies, unsubscribes },
     cost: { actual: costCount ? { amount: Number(costSum.toFixed(4)), currency: costCurrency, messages: costCount } : null, estimate: campaign.estimate },
     availability,
@@ -294,4 +303,44 @@ export async function retryRecipient(campaignId: string, recipientId: string, co
     await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: actorUserId, action: "campaign.recipient_retry", entityType: "Campaign", entityId: campaignId, payload: { recipientId, previousStatus: recipient.status, confirmNotSent, previousError: recipient.message?.errorReason ?? recipient.error ?? null } } });
   });
   return { ok: true, requeued: true };
+}
+
+/** A draft that was never started can be removed entirely (recipients cascade). */
+export async function deleteDraftCampaign(id: string, actorUserId: string | null, opts: { withBuilderDraft?: boolean } = {}) {
+  const c = await prisma.campaign.findUnique({ where: { id }, select: { status: true, name: true } });
+  if (!c) throw new CampaignError("הקמפיין לא נמצא");
+  if (c.status !== "DRAFT") throw new CampaignError("ניתן למחוק רק טיוטה");
+  const segments = await prisma.distributionList.findMany({ where: { NOT: { segment: { equals: Prisma.DbNull } } }, select: { name: true, segment: true } });
+  const refs = segments.filter((l) => JSON.stringify(l.segment).includes(`"${id}"`));
+  if (refs.length) throw new CampaignError(`הקמפיין משמש בתנאי הקהל "${refs[0].name}" – עדכן את הקהל לפני המחיקה`);
+  await prisma.$transaction(async (tx) => {
+    const drafts = await tx.campaignDraft.findMany({ where: { campaignId: id }, select: { id: true, templateId: true } });
+    const r = await tx.campaign.deleteMany({ where: { id, status: "DRAFT" } });
+    if (!r.count) throw new CampaignError("ניתן למחוק רק טיוטה");
+    if (opts.withBuilderDraft) {
+      await tx.campaignDraft.deleteMany({ where: { id: { in: drafts.map((d) => d.id) } } });
+      const tpl = drafts.map((d) => d.templateId).filter((x): x is string => Boolean(x));
+      if (tpl.length) await tx.template.deleteMany({ where: { id: { in: tpl }, internal: true, campaigns: { none: {} }, sequenceSteps: { none: {} } } });
+    }
+    await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: actorUserId, action: "campaign.deleted", entityType: "Campaign", entityId: id, payload: { name: c.name } } });
+  });
+}
+
+export async function renameCampaign(id: string, name: string, actorUserId: string | null) {
+  if (!name.trim()) throw new CampaignError("יש להזין שם");
+  const r = await prisma.campaign.updateMany({ where: { id, status: { in: ["DRAFT", "SCHEDULED", "PAUSED"] } }, data: { name } });
+  await prisma.campaignDraft.updateMany({ where: { campaignId: id }, data: { name } });
+  if (!r.count) throw new CampaignError("ניתן לשנות שם רק לקמפיין שטרם נשלח");
+  await prisma.auditLog.create({ data: { businessId: requireBusinessId(), actorId: actorUserId, action: "campaign.renamed", entityType: "Campaign", entityId: id, payload: { name } } });
+}
+
+/** Links in the campaign content (from the rendered template) – per-link click counts only when the provider reports them. */
+export async function campaignLinks(id: string) {
+  const c = await prisma.campaign.findUnique({ where: { id }, include: { template: { select: { html: true, body: true, buttons: true, category: true } }, providerCredential: { select: { capabilities: true, provider: true } } } });
+  if (!c) throw new CampaignError("הקמפיין לא נמצא");
+  const text = `${c.template.html ?? ""}\n${c.template.body}\n${JSON.stringify(c.template.buttons ?? [])}`;
+  const urls = [...new Set([...text.matchAll(/https?:\/\/[^\s"'<>)]+/g)].map((m) => m[0]).filter((u) => !u.includes("{{")))];
+  const tracked = c.channel === "email" && c.template.category !== "UTILITY";
+  const clicked = tracked ? await prisma.message.count({ where: { campaignRecipient: { campaignId: id }, clickedAt: { not: null } } }) : null;
+  return { links: urls.map((url) => ({ url, uniqueClicks: null as number | null })), totalUniqueClicks: clicked, perLinkTracking: false, note: tracked ? "הקישורים במייל עוברים דרך מעקב ההקלקות של המערכת; הספירה היא לפי נמען (הקלקה ייחודית), ללא פירוט לפי קישור." : "אין מעקב הקלקות בערוץ זה." };
 }

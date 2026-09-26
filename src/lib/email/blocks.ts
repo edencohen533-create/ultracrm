@@ -17,8 +17,29 @@ export const blockSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("button"), text: z.string().trim().min(1).max(80), href: url, color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#4f46e5"), align: z.enum(["start", "center", "end"]).default("center") }),
   z.object({ type: z.literal("link"), text: z.string().trim().min(1).max(200), href: url }),
   z.object({ type: z.literal("divider") }),
+  z.object({ type: z.literal("spacer"), height: z.number().int().min(4).max(120).default(24) }),
+  /** 2–3 columns, each a short text with an optional image on top and an optional link. */
+  z.object({ type: z.literal("columns"), items: z.array(z.object({ title: z.string().max(200).default(""), text: text.default(""), src: url.optional(), href: url.optional() })).min(2).max(3) }),
+  z.object({ type: z.literal("social"), links: z.array(z.object({ network: z.enum(["facebook", "instagram", "whatsapp", "linkedin", "youtube", "tiktok", "x", "website"]), href: url })).min(1).max(8), align: z.enum(["start", "center", "end"]).default("center") }),
   z.object({ type: z.literal("footer"), text: text.default(""), unsubscribeText: z.string().trim().min(1).max(120).default("להסרה מרשימת התפוצה לחצו כאן") }),
 ]);
+export const BLOCK_LABELS: Record<EmailBlock["type"], string> = { heading: "כותרת", text: "טקסט", image: "תמונה", button: "כפתור", link: "קישור", divider: "מפריד", spacer: "רווח", columns: "עמודות", social: "רשתות חברתיות", footer: "קישור הסרה" };
+/** A sensible new block of each type (editor "add block"). */
+export function newEmailBlock(type: EmailBlock["type"]): EmailBlock {
+  switch (type) {
+    case "heading": return { type, text: "כותרת", level: 2, align: "start" };
+    case "text": return { type, text: "טקסט חדש", align: "start" };
+    case "image": return { type, src: "https://", alt: "", width: undefined, href: undefined };
+    case "button": return { type, text: "לחצו כאן", href: "https://", color: "#4f46e5", align: "center" };
+    case "link": return { type, text: "קישור", href: "https://" };
+    case "divider": return { type };
+    case "spacer": return { type, height: 24 };
+    case "columns": return { type, items: [{ title: "עמודה 1", text: "טקסט קצר", src: undefined, href: undefined }, { title: "עמודה 2", text: "טקסט קצר", src: undefined, href: undefined }] };
+    case "social": return { type, links: [{ network: "facebook", href: "https://facebook.com/" }, { network: "instagram", href: "https://instagram.com/" }], align: "center" };
+    case "footer": return { type, text: "שם העסק · כתובת · טלפון", unsubscribeText: "להסרה מרשימת התפוצה לחצו כאן" };
+  }
+}
+const SOCIAL_LABEL: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", whatsapp: "WhatsApp", linkedin: "LinkedIn", youtube: "YouTube", tiktok: "TikTok", x: "X", website: "אתר" };
 export type EmailBlock = z.infer<typeof blockSchema>;
 
 export const emailDesignSchema = z.object({
@@ -28,8 +49,12 @@ export const emailDesignSchema = z.object({
     backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f4f4f7"),
     contentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#ffffff"),
     textColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#1f2937"),
-    fontFamily: z.string().max(200).default("Arial, Helvetica, sans-serif"),
-  }).default({ direction: "rtl", backgroundColor: "#f4f4f7", contentColor: "#ffffff", textColor: "#1f2937", fontFamily: "Arial, Helvetica, sans-serif" }),
+    /** Font stack only (letters, digits, spaces, commas, quotes, hyphens) – it is written into a style attribute. */
+    fontFamily: z.string().max(200).regex(/^[A-Za-z0-9 ,'\-]+$/, "שם גופן לא תקין").default("Arial, Helvetica, sans-serif"),
+    width: z.number().int().min(480).max(720).default(600),
+    padding: z.number().int().min(0).max(48).default(24),
+    linkColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#4f46e5"),
+  }).default({ direction: "rtl", backgroundColor: "#f4f4f7", contentColor: "#ffffff", textColor: "#1f2937", fontFamily: "Arial, Helvetica, sans-serif", width: 600, padding: 24, linkColor: "#4f46e5" }),
   blocks: z.array(blockSchema).min(1).max(60),
 });
 export type EmailDesign = z.infer<typeof emailDesignSchema>;
@@ -53,21 +78,29 @@ function inline(t: string) {
 export function renderEmailHtml(design: EmailDesign, opts: { preheader?: string | null } = {}): string {
   const s = design.settings;
   const dir = s.direction;
-  const base = `font-family:${s.fontFamily};color:${s.textColor};font-size:16px;line-height:1.6;`;
+  const base = `font-family:${s.fontFamily.replace(/[^A-Za-z0-9 ,'\-]/g, "")};color:${s.textColor};font-size:16px;line-height:1.6;`;
+  const px = s.padding; const W = s.width; const inner = W - px * 2;
   const parts: string[] = [];
   let hasUnsubscribe = false;
   for (const b of design.blocks) {
     switch (b.type) {
-      case "heading": { const size = b.level === 1 ? 26 : b.level === 2 ? 22 : 18; parts.push(`<tr><td style="${base}padding:8px 24px;text-align:${alignCss(b.align, dir)};font-size:${size}px;font-weight:700;line-height:1.3;">${inline(b.text)}</td></tr>`); break; }
-      case "text": parts.push(`<tr><td style="${base}padding:8px 24px;text-align:${alignCss(b.align, dir)};">${inline(b.text)}</td></tr>`); break;
-      case "image": { const img = `<img src="${escapeHtml(b.src)}" alt="${escapeHtml(b.alt)}" width="${b.width ?? 552}" style="display:block;max-width:100%;height:auto;border:0;margin:0 auto;">`; parts.push(`<tr><td style="padding:8px 24px;text-align:center;">${b.href ? `<a href="${escapeHtml(b.href)}" target="_blank">${img}</a>` : img}</td></tr>`); break; }
-      case "button": parts.push(`<tr><td style="padding:12px 24px;text-align:${alignCss(b.align, dir)};"><a href="${escapeHtml(b.href)}" target="_blank" style="${base}display:inline-block;background:${b.color};color:#ffffff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:8px;">${escapeHtml(b.text)}</a></td></tr>`); break;
-      case "link": parts.push(`<tr><td style="${base}padding:4px 24px;"><a href="${escapeHtml(b.href)}" target="_blank" style="color:#4f46e5;">${escapeHtml(b.text)}</a></td></tr>`); break;
-      case "divider": parts.push(`<tr><td style="padding:8px 24px;"><hr style="border:0;border-top:1px solid #e5e7eb;margin:0;"></td></tr>`); break;
-      case "footer": hasUnsubscribe = true; parts.push(`<tr><td style="${base}padding:16px 24px;font-size:12px;color:#6b7280;text-align:center;">${b.text ? `${inline(b.text)}<br>` : ""}<a href="{{unsubscribe_url}}" style="color:#6b7280;text-decoration:underline;">${escapeHtml(b.unsubscribeText)}</a></td></tr>`); break;
+      case "heading": { const size = b.level === 1 ? 26 : b.level === 2 ? 22 : 18; parts.push(`<tr><td style="${base}padding:8px ${px}px;text-align:${alignCss(b.align, dir)};font-size:${size}px;font-weight:700;line-height:1.3;">${inline(b.text)}</td></tr>`); break; }
+      case "text": parts.push(`<tr><td style="${base}padding:8px ${px}px;text-align:${alignCss(b.align, dir)};">${inline(b.text)}</td></tr>`); break;
+      case "image": { const img = `<img src="${escapeHtml(b.src)}" alt="${escapeHtml(b.alt)}" width="${Math.min(b.width ?? inner, inner)}" style="display:block;max-width:100%;height:auto;border:0;margin:0 auto;">`; parts.push(`<tr><td style="padding:8px ${px}px;text-align:center;">${b.href ? `<a href="${escapeHtml(b.href)}" target="_blank">${img}</a>` : img}</td></tr>`); break; }
+      case "button": parts.push(`<tr><td style="padding:12px ${px}px;text-align:${alignCss(b.align, dir)};"><a href="${escapeHtml(b.href)}" target="_blank" style="${base}display:inline-block;background:${b.color};color:#ffffff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:8px;">${escapeHtml(b.text)}</a></td></tr>`); break;
+      case "link": parts.push(`<tr><td style="${base}padding:4px ${px}px;"><a href="${escapeHtml(b.href)}" target="_blank" style="color:${s.linkColor};">${escapeHtml(b.text)}</a></td></tr>`); break;
+      case "divider": parts.push(`<tr><td style="padding:8px ${px}px;"><hr style="border:0;border-top:1px solid #e5e7eb;margin:0;"></td></tr>`); break;
+      case "spacer": parts.push(`<tr><td style="height:${b.height}px;line-height:${b.height}px;font-size:0;">&nbsp;</td></tr>`); break;
+      case "columns": {
+        const colW = Math.floor(inner / b.items.length);
+        const cells = b.items.map((c) => `<td valign="top" width="${colW}" style="${base}padding:0 6px;font-size:14px;text-align:${alignCss("start", dir)};">${c.src ? `<a href="${escapeHtml(c.href ?? c.src)}" target="_blank"><img src="${escapeHtml(c.src)}" alt="${escapeHtml(c.title)}" width="${colW - 12}" style="display:block;max-width:100%;height:auto;border:0;border-radius:8px;"></a>` : ""}${c.title ? `<p style="margin:8px 0 4px;font-weight:700;">${inline(c.title)}</p>` : ""}${c.text ? `<p style="margin:0;">${inline(c.text)}</p>` : ""}${c.href && !c.src ? `<p style="margin:6px 0 0;"><a href="${escapeHtml(c.href)}" target="_blank" style="color:${s.linkColor};">${inline(c.title || c.href)}</a></p>` : ""}</td>`).join("");
+        parts.push(`<tr><td style="padding:8px ${px - 6}px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" dir="${dir}"><tr>${cells}</tr></table></td></tr>`); break;
+      }
+      case "social": parts.push(`<tr><td style="${base}padding:12px ${px}px;text-align:${alignCss(b.align, dir)};font-size:14px;">${b.links.map((l) => `<a href="${escapeHtml(l.href)}" target="_blank" style="display:inline-block;margin:0 6px;color:${s.linkColor};text-decoration:none;font-weight:600;">${SOCIAL_LABEL[l.network] ?? l.network}</a>`).join("")}</td></tr>`); break;
+      case "footer": hasUnsubscribe = true; parts.push(`<tr><td style="${base}padding:16px ${px}px;font-size:12px;color:#6b7280;text-align:center;">${b.text ? `${inline(b.text)}<br>` : ""}<a href="{{unsubscribe_url}}" style="color:#6b7280;text-decoration:underline;">${escapeHtml(b.unsubscribeText)}</a></td></tr>`); break;
     }
   }
-  if (!hasUnsubscribe) parts.push(`<tr><td style="${base}padding:16px 24px;font-size:12px;color:#6b7280;text-align:center;"><a href="{{unsubscribe_url}}" style="color:#6b7280;text-decoration:underline;">להסרה מרשימת התפוצה לחצו כאן</a></td></tr>`);
+  if (!hasUnsubscribe) parts.push(`<tr><td style="${base}padding:16px ${px}px;font-size:12px;color:#6b7280;text-align:center;"><a href="{{unsubscribe_url}}" style="color:#6b7280;text-decoration:underline;">להסרה מרשימת התפוצה לחצו כאן</a></td></tr>`);
   const preheader = opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(opts.preheader)}${"&#847;&zwnj;&nbsp;".repeat(30)}</div>` : "";
   return `<!DOCTYPE html>
 <html lang="${dir === "rtl" ? "he" : "en"}" dir="${dir}">
@@ -75,7 +108,7 @@ export function renderEmailHtml(design: EmailDesign, opts: { preheader?: string 
 <style>@media only screen and (max-width:620px){.container{width:100%!important}td{padding-left:16px!important;padding-right:16px!important}}</style></head>
 <body style="margin:0;padding:0;background:${s.backgroundColor};" dir="${dir}">${preheader}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${s.backgroundColor};"><tr><td align="center" style="padding:24px 8px;">
-<table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:${s.contentColor};border-radius:12px;" dir="${dir}">
+<table role="presentation" class="container" width="${W}" cellpadding="0" cellspacing="0" style="width:${W}px;max-width:100%;background:${s.contentColor};border-radius:12px;" dir="${dir}">
 ${parts.join("\n")}
 </table></td></tr></table>
 </body></html>`;
@@ -92,6 +125,9 @@ export function renderEmailText(design: EmailDesign): string {
       case "button": lines.push(`${b.text}: ${b.href}`, ""); break;
       case "link": lines.push(`${b.text}: ${b.href}`); break;
       case "divider": lines.push("----------", ""); break;
+      case "spacer": lines.push(""); break;
+      case "columns": for (const c of b.items) { if (c.title) lines.push(c.title); if (c.text) lines.push(c.text); if (c.href) lines.push(c.href); lines.push(""); } break;
+      case "social": lines.push(b.links.map((l) => `${SOCIAL_LABEL[l.network] ?? l.network}: ${l.href}`).join(" · "), ""); break;
       case "footer": hasUnsubscribe = true; lines.push("", b.text, `${b.unsubscribeText}: {{unsubscribe_url}}`); break;
     }
   }
@@ -101,5 +137,9 @@ export function renderEmailText(design: EmailDesign): string {
 
 /** All merge-taggable text of a design (for validation). */
 export function designText(design: EmailDesign) {
-  return design.blocks.map((b) => ("text" in b ? b.text : "") + ("href" in b && b.href ? ` ${b.href}` : "")).join("\n");
+  return design.blocks.map((b) => {
+    if (b.type === "columns") return b.items.map((c) => `${c.title} ${c.text} ${c.href ?? ""}`).join("\n");
+    if (b.type === "social") return b.links.map((l) => l.href).join("\n");
+    return ("text" in b ? b.text : "") + ("href" in b && b.href ? ` ${b.href}` : "");
+  }).join("\n");
 }

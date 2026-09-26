@@ -23,6 +23,7 @@ export async function POST(request: Request) {
   const contact = await db.contact.findFirst({ where: { id: p.c, businessId: p.b }, select: { id: true } });
   if (!business || !contact) return NextResponse.json({ error: "הקישור אינו תקף" }, { status: 400 });
   const result = await withBusiness(p.b, () => suppressContact({ businessId: p.b, contactId: p.c, identifier: p.i, scope: "marketing", source: p.ch, reason: p.ch === "email" ? "קישור הסרה באימייל" : "קישור הסרה ב-SMS", evidence: p.m ? `message:${p.m}` : "unsubscribe-link" }));
+  { const { applyUnsubscribeAutomation } = await import("@/lib/unsubscribe-automation"); await withBusiness(p.b, () => applyUnsubscribeAutomation(p.b, p.c)); }
   if (p.m) await db.suppression.updateMany({ where: { businessId: p.b, contactId: p.c, revokedAt: null, messageId: null, source: p.ch }, data: { messageId: p.m } });
   return NextResponse.json({ ok: true, business: business.name, identifier: maskIdentifier(p.i), blocked: result.identifiers.length });
 }

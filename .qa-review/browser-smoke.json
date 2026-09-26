@@ -1,0 +1,145 @@
+{
+  "results": [
+    {
+      "route": "/dashboard",
+      "status": 200,
+      "url": "/dashboard",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/contacts",
+      "status": 200,
+      "url": "/contacts",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/leads",
+      "status": 200,
+      "url": "/leads",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/deals",
+      "status": 200,
+      "url": "/deals",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/tasks",
+      "status": 200,
+      "url": "/tasks",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/inbox",
+      "status": 200,
+      "url": "/inbox",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/campaigns",
+      "status": 200,
+      "url": "/campaigns",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/templates",
+      "status": 200,
+      "url": "/templates",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/automations",
+      "status": 200,
+      "url": "/automations",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/automations/history",
+      "status": 200,
+      "url": "/automations/history",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/dialer",
+      "status": 200,
+      "url": "/dialer",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/lists",
+      "status": 200,
+      "url": "/lists",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/manager",
+      "status": 200,
+      "url": "/manager",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/manager/calls",
+      "status": 200,
+      "url": "/manager/calls",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/numbers",
+      "status": 200,
+      "url": "/numbers",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/settings",
+      "status": 200,
+      "url": "/settings",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/settings/sms",
+      "status": 200,
+      "url": "/settings/sms",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/settings/email",
+      "status": 200,
+      "url": "/settings/email",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/settings/whatsapp",
+      "status": 200,
+      "url": "/settings/whatsapp",
+      "errors": [],
+      "failures": []
+    },
+    {
+      "route": "/analytics",
+      "status": 200,
+      "url": "/analytics",
+      "errors": [],
+      "failures": []
+    }
+  ],
+  "errors": []
+}

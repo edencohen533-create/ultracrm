@@ -35,6 +35,17 @@ export function RuleList({ rules: initialRules }: { rules: Rule[] }) {
   const [rules, setRules] = useState(initialRules);
   const [pending, setPending] = useState<string | null>(null);
 
+  async function remove(rule: Rule) {
+    if (!window.confirm(`למחוק את האוטומציה "${rule.name}"? ריצות מתוזמנות שטרם בוצעו יבוטלו וההיסטוריה של הריצות שלה תימחק.`)) return;
+    setPending(rule.id);
+    try {
+      const res = await fetch(`/api/automations/rules/${rule.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "המחיקה נכשלה");
+      setRules((prev) => prev.filter((r) => r.id !== rule.id));
+      toast.success("האוטומציה נמחקה");
+    } catch (e) { toast.error((e as Error).message); } finally { setPending(null); }
+  }
+
   async function toggleActive(id: string, isActive: boolean) {
     setPending(id);
     // Optimistic update — flip it immediately, roll back only on failure.
@@ -66,6 +77,7 @@ export function RuleList({ rules: initialRules }: { rules: Rule[] }) {
             <TableHead>טריגר</TableHead>
             <TableHead>פעולה</TableHead>
             <TableHead>פעיל</TableHead>
+            <TableHead className="w-24">מחיקה</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -84,6 +96,9 @@ export function RuleList({ rules: initialRules }: { rules: Rule[] }) {
                   disabled={pending !== null}
                   onCheckedChange={(checked) => toggleActive(rule.id, checked)}
                 />
+              </TableCell>
+              <TableCell>
+                <button type="button" className="text-xs text-bad underline disabled:opacity-40" disabled={pending === rule.id} onClick={() => remove(rule)} data-testid={`rule-delete-${rule.id}`}>מחק</button>
               </TableCell>
             </TableRow>
           ))}

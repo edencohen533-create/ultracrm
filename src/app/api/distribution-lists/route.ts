@@ -4,8 +4,10 @@ import { campaignActor } from "@/lib/campaign-auth";
 import { distributionListSchema } from "@/lib/campaigns";
 import { AudienceError } from "@/server/services/audience-service";
 import { saveDistributionList } from "@/server/services/distribution-list-service";
-export const GET = organizationRequest(async function() {
+import { listAudienceCounts } from "@/server/services/audience-service";
+export const GET = organizationRequest(async function(request: Request) {
   if (!await campaignActor()) return Response.json({ error: "אין הרשאה" }, { status: 403 });
+  if (new URL(request.url).searchParams.get("counts") === "1") return Response.json({ lists: await listAudienceCounts() });
   const lists = await prisma.distributionList.findMany({ orderBy: { createdAt: "desc" }, include: { _count: { select: { members: true } } } });
   return Response.json({ lists });
 });

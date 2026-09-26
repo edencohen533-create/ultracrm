@@ -20,7 +20,7 @@ function LoginForm() {
     try {
       const u = await api.post<{ role: string }>("/api/auth/login", quick ? { quick: true } : { email, password });
       const next = params.get("next");
-      router.push(next && next.startsWith("/") ? next : "/dashboard");
+      router.push(next && next.startsWith("/") ? next : "/leads");
       router.refresh();
     } catch (err) {
       toast.error((err as Error).message);

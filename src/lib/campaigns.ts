@@ -7,6 +7,9 @@ export const distributionListSchema = z.object({
   contactIds: z.array(z.string().min(1)).max(10000).transform((ids) => [...new Set(ids)]).default([]),
   segment: audienceSchema.nullable().optional(),
 }).refine((input) => input.segment ? input.contactIds.length === 0 : input.contactIds.length > 0, "יש לבחור אנשי קשר או תנאי קהל, ולא את שניהם");
+export const throttleSchema = z.object({ batchSize: z.number().int().min(1).max(100000), intervalMinutes: z.number().int().min(5).max(1440) });
+export type Throttle = z.infer<typeof throttleSchema>;
+export const throttleLabel = (t: Throttle | null | undefined) => !t ? "כל הנמענים ברצף (בכפוף לחלון ולקצב העסק)" : `${t.batchSize.toLocaleString("he-IL")} נמענים כל ${t.intervalMinutes === 60 ? "שעה" : t.intervalMinutes === 30 ? "חצי שעה" : t.intervalMinutes % 60 === 0 ? `${t.intervalMinutes / 60} שעות` : `${t.intervalMinutes} דקות`}`;
 export const campaignSchema = z.object({
   channel: z.enum(["whatsapp", "sms", "email"]).default("whatsapp"),
   excludedListIds: z.array(z.string().min(1)).max(20).transform((ids) => [...new Set(ids)]).optional(),
@@ -15,6 +18,8 @@ export const campaignSchema = z.object({
   senderId: z.string().trim().min(1).max(40).nullable().optional(),
   name: z.string().trim().min(1).max(120),
   listId: z.string().min(1),
+  /** Additional audiences (union with listId). */
+  listIds: z.array(z.string().min(1)).max(20).optional(),
   templateId: z.string().min(1),
   /** WhatsApp: numbered template parameters. SMS/email: extra merge values (e.g. custom offers). */
   variables: z.record(z.string(), z.string().trim().min(1).max(1024)).default({}),
@@ -22,15 +27,19 @@ export const campaignSchema = z.object({
   mediaUrl: z.string().trim().url().max(2000).regex(/^https:\/\//, "קישור המדיה חייב להתחיל ב-https://").nullable().optional(),
   /** WhatsApp: dynamic URL-button suffix per button index. */
   buttonParams: z.record(z.string().regex(/^\d+$/), z.string().trim().min(1).max(500)).nullable().optional(),
+  /** Sending pace: at most batchSize recipients every intervalMinutes. */
+  throttle: throttleSchema.nullable().optional(),
 });
 export const campaignActionSchema = z.object({
-  action: z.enum(["start", "pause", "resume", "cancel", "retry_recipient"]),
+  action: z.enum(["start", "pause", "resume", "cancel", "unschedule", "retry_recipient"]),
   scheduledAt: z.iso.datetime({ offset: true }).optional(),
   /** IANA timezone the schedule was entered in (audit/display – the instant is authoritative). */
   scheduledTimezone: z.string().max(60).optional(),
   /** retry_recipient: which recipient; UNKNOWN outcomes additionally need an explicit attestation. */
   recipientId: z.string().min(1).optional(),
   confirmNotSent: z.boolean().optional(),
+  /** start: sending pace chosen at the review step (null = no pace). */
+  throttle: throttleSchema.nullable().optional(),
 });
 export const CHANNEL_LABELS: Record<string, string> = { whatsapp: "WhatsApp", sms: "SMS", email: "אימייל" };
 
@@ -81,3 +90,17 @@ export const recipientStatusLabels: Record<string, string> = {
 export const deliveryStatusLabels: Record<string, string> = {
   QUEUED: "בתור", UNKNOWN: "תוצאה לא ודאית", ACCEPTED: "הועבר לספק", SENT: "נשלח", DELIVERED: "נמסר", READ: "נקרא", FAILED: "נכשל", BOUNCED: "הוקפץ (bounce)", CANCELLED: "בוטל",
 };
+
+/** Campaign list filter buckets ("סינון לפי סטטוס"). "failed" = a campaign the system stopped (statusReason) or whose sends all failed. */
+export type CampaignBucket = "all" | "draft" | "scheduled" | "running" | "sent" | "failed";
+export const CAMPAIGN_BUCKET_LABELS: Record<CampaignBucket, string> = { all: "הכול", draft: "טיוטה", scheduled: "מתוזמן", running: "בתהליך", sent: "נשלח", failed: "נכשל" };
+export function campaignBucket(c: { status: string; statusReason?: string | null; counts?: Record<string, number>; scheduledAt?: string | Date | null }): Exclude<CampaignBucket, "all"> | "cancelled" {
+  if (c.status === "DRAFT") return "draft";
+  // "Send now" is stored as SCHEDULED at the current time until the worker claims it – that is already in progress.
+  if (c.status === "SCHEDULED") return c.scheduledAt && new Date(c.scheduledAt).getTime() <= Date.now() ? "running" : "scheduled";
+  if (c.status === "RUNNING" || c.status === "PAUSED") return c.statusReason ? "failed" : "running";
+  if (c.status === "CANCELLED") return "cancelled";
+  const counts = c.counts ?? {};
+  const sent = counts.SENT ?? 0; const failed = (counts.FAILED ?? 0) + (counts.UNKNOWN ?? 0);
+  return sent === 0 && (failed > 0 || (counts.SKIPPED ?? 0) > 0) ? "failed" : "sent";
+}

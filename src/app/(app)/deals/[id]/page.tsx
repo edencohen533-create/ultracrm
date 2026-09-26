@@ -24,7 +24,7 @@ export default function DealPage({ params }: { params: Promise<{ id: string }> }
   if (!d) return <div className="flex justify-center p-10"><Spinner /></div>;
   return (
     <div className="p-5 space-y-4 max-w-4xl">
-      <div className="flex flex-wrap items-center gap-3"><h1 className="text-xl font-semibold">{d.title}</h1><Badge tone={d.stage === "won" ? "good" : d.stage === "lost" ? "bad" : "neutral"}>{DEAL_STAGE_LABEL[d.stage as keyof typeof DEAL_STAGE_LABEL]}</Badge><Link href="/deals" className="text-xs text-muted hover:text-text ms-auto">כל העסקאות</Link></div>
+      <div className="flex flex-wrap items-center gap-3"><h1 className="text-xl font-semibold">{d.title}</h1><Badge tone={d.stage === "won" ? "good" : d.stage === "lost" ? "bad" : "neutral"}>{DEAL_STAGE_LABEL[d.stage as keyof typeof DEAL_STAGE_LABEL]}</Badge><Link href="/leads?status=converted" className="text-xs text-muted hover:text-text ms-auto">לידים שהומרו לעסקאות</Link></div>
       <div className="grid md:grid-cols-2 gap-4">
         <Panel title="איש קשר">
           <p className="font-medium"><Link href={`/contacts/${d.contact.id}`} className="hover:underline">{d.contact.fullName}</Link></p>

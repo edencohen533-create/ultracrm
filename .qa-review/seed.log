@@ -1,0 +1,7 @@
+◇ injected env (14) from .env
+Seeded businesses demo-a (Pro, all modules) and demo-b (Starter, no telephony).
+Password for every demo account: Demo1234!
+  owner@demo.local    – owner of demo-a, agent in demo-b (business switcher)
+  manager@demo.local  – manager of demo-a
+  agent1@demo.local / agent2@demo.local – agents of demo-a
+  owner-b@demo.local  – owner of demo-b

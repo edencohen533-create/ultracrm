@@ -38,6 +38,7 @@ const TENANT_MODELS = new Set<string>([
   "ProviderCredential", "Conversation", "Message", "ConversationDraft", "CannedReply", "Template",
   "AutomationRule", "AutomationRun", "DistributionList", "Campaign", "WhatsAppSignupSession",
   "MarketingSequence", "SequenceRun", "NumberOrder",
+  "CoachKnowledge", "CoachSession", "CoachSegment", "CoachRecommendation", "CoachExample", "CoachChatMessage", "CampaignDraft", "StoreConnection", "Cart",
 ]);
 
 /**
@@ -50,6 +51,7 @@ const STRICT_MODELS = new Set<string>([
   "Lead", "Deal", "Note", "Suppression", "Tag", "ProviderCredential", "Conversation", "Message", "ConversationDraft",
   "CannedReply", "Template", "AutomationRule", "AutomationRun", "DistributionList", "Campaign", "WhatsAppSignupSession",
   "MarketingSequence", "SequenceRun",
+  "CoachKnowledge", "CoachSession", "CoachSegment", "CoachRecommendation", "CoachExample", "CoachChatMessage", "CampaignDraft", "StoreConnection", "Cart",
 ]);
 
 const WHERE_FILTER_OPS = new Set(["findMany", "findFirst", "findFirstOrThrow", "count", "aggregate", "groupBy", "updateMany", "updateManyAndReturn", "deleteMany"]);

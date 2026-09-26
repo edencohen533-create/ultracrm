@@ -3,7 +3,7 @@ import { organizationRequest } from "@/lib/auth-compat";
 import { campaignActor } from "@/lib/campaign-auth";
 import { audienceSchema } from "@/lib/audiences";
 import { previewAudience, AudienceError } from "@/server/services/audience-service";
-const schema = z.object({ segment: audienceSchema.optional(), listId: z.string().min(1).optional(), excludedListIds: z.array(z.string().min(1)).max(20).optional() }).strict().refine((value) => !!value.segment !== !!value.listId).refine((value) => !value.segment || !value.excludedListIds?.length);
+const schema = z.object({ segment: audienceSchema.optional(), listId: z.string().min(1).optional(), listIds: z.array(z.string().min(1)).max(20).optional(), channel: z.enum(["whatsapp", "sms", "email"]).optional(), marketing: z.boolean().optional(), excludedListIds: z.array(z.string().min(1)).max(20).optional() }).strict().refine((value) => !!value.segment !== (!!value.listId || !!value.listIds?.length)).refine((value) => !value.segment || !value.excludedListIds?.length);
 export const POST = organizationRequest(async function(request: Request) {
   if (!await campaignActor()) return Response.json({ error: "אין הרשאה" }, { status: 403 });
   const input = schema.safeParse(await request.json().catch(() => null));

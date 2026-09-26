@@ -10,6 +10,16 @@ import { executeAction } from "@/server/services/automation-service";
  * e.g. an agent may have replied in the meantime.
  */
 export async function processDueAutomationRuns(deadline = Date.now() + 45_000): Promise<{ processed: number }> {
+  // An interrupted send may already have reached the provider. Surface it for review,
+  // rather than silently abandoning RUNNING rows or repeating an uncertain action.
+  const staleBefore = new Date(Date.now() - 10 * 60_000);
+  await prisma.automationRun.updateMany({
+    where: { status: AutomationRunStatus.RUNNING, OR: [
+      { claimedAt: { lt: staleBefore } },
+      { claimedAt: null, createdAt: { lt: staleBefore } },
+    ] },
+    data: { status: AutomationRunStatus.FAILED, completedAt: new Date(), error: "העיבוד נקטע; יש לבדוק את תוצאת הפעולה לפני הרצה נוספת" },
+  });
   const due = await prisma.automationRun.findMany({
     where: { status: AutomationRunStatus.PENDING, scheduledFor: { lte: new Date() } },
     take: 25,
@@ -22,7 +32,7 @@ export async function processDueAutomationRuns(deadline = Date.now() + 45_000): 
     if (Date.now() >= deadline) break;
     const claimed = await prisma.automationRun.updateMany({
       where: { id: run.id, status: AutomationRunStatus.PENDING },
-      data: { status: AutomationRunStatus.RUNNING, attempts: { increment: 1 } },
+      data: { status: AutomationRunStatus.RUNNING, claimedAt: new Date(), attempts: { increment: 1 } },
     });
     if (claimed.count === 0) continue; // claimed by a concurrent invocation
 

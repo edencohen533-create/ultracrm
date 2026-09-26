@@ -13,3 +13,15 @@ export const PUT = organizationRequest(async function(request: Request, { params
 });
 
 export const maxDuration = 60;
+
+/** Delete a list / segment that no campaign uses (campaign history keeps its audience snapshot). */
+export const DELETE = organizationRequest(async function(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!await campaignActor()) return Response.json({ error: "אין הרשאה" }, { status: 403 });
+  const { id } = await params;
+  const { prisma } = await import("@/lib/db");
+  const used = await prisma.campaign.count({ where: { OR: [{ listId: id }, { listIds: { array_contains: [id] } }] } });
+  if (used) return Response.json({ error: `הסגמנט משמש ב-${used} קמפיינים ולא ניתן למחוק אותו` }, { status: 409 });
+  const r = await prisma.distributionList.deleteMany({ where: { id } });
+  if (!r.count) return Response.json({ error: "לא נמצא" }, { status: 404 });
+  return Response.json({ ok: true });
+});

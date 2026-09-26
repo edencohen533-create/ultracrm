@@ -9,6 +9,7 @@ import { Badge, Button, EmptyState, Input, Modal, Phone, Select, Spinner, Textar
 import { formatPhone, relativeTime } from "@/lib/client/format";
 import { OUTCOMES } from "@/lib/outcomes";
 import { useMe } from "@/lib/client/use-me";
+import { SegmentsPanel } from "@/components/contacts/segments-panel";
 
 interface Row {
   id: string;
@@ -39,6 +40,7 @@ export default function ContactsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState({ q: "", source: "", city: "", neverCalled: "", consent: "", tagId: "", hasOpenLead: "" });
+  const [segmentId, setSegmentId] = useState<string | null>(null);
   const [tags, setTags] = useState<Array<{ id: string; name: string }>>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -52,7 +54,7 @@ export default function ContactsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.get<{ items: Row[]; total: number }>(`/api/contacts${qs({ ...filter, page, limit: 30 })}`);
+      const r = await api.get<{ items: Row[]; total: number }>(`/api/contacts${qs({ ...filter, segmentId: segmentId ?? undefined, page, limit: 30 })}`);
       setRows(r.items);
       setTotal(r.total);
     } catch (e) {
@@ -60,7 +62,7 @@ export default function ContactsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, page]);
+  }, [filter, page, segmentId]);
   useEffect(() => {
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
@@ -125,7 +127,9 @@ export default function ContactsPage() {
   const isManager = me?.user.role === "manager" || me?.user.role === "owner";
 
   return (
-    <div className="p-5 space-y-4">
+    <div className="contacts-layout">
+    {isManager && <SegmentsPanel selected={segmentId} onSelect={(id) => { setPage(1); setSegmentId(id); }} total={total} />}
+    <div className="p-5 space-y-4 min-w-0">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold">אנשי קשר</h1>
         <span className="text-xs text-muted tabular">{total} רשומות</span>
@@ -221,6 +225,7 @@ export default function ContactsPage() {
         <Input label="שם הרשימה" value={listName} onChange={(e) => setListName(e.target.value)} />
         <p className="text-xs text-muted mt-2">כל אנשי הקשר שתואמים לסינון ייכנסו לרשימה. מספרים ברשימת DNC / הסרה מלאה מדולגים.</p>
       </Modal>
+    </div>
     </div>
   );
 }

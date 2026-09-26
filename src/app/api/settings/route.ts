@@ -52,7 +52,7 @@ const schema = z.object({
       retention: z.object({ messagesDays: z.number().int().min(0).max(3650).optional(), auditDays: z.number().int().min(0).max(3650).optional() }).optional(),
       coach: z.object({ enabled: z.boolean().optional(), learnFromRecordings: z.boolean().optional() }).optional(),
       leadStatuses: z.array(z.object({ key: z.enum(["new", "contacted", "qualified", "unqualified", "converted", "lost"]), label: z.string().trim().min(1).max(40), hidden: z.boolean().default(false) })).max(6).optional(),
-      leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional() }).optional(),
+      leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional() }).optional(),
       marketing: z.object({
         window: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
         maxPerMinute: z.number().int().min(0).max(600).optional(),

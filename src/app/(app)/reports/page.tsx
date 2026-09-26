@@ -15,7 +15,6 @@ export default async function ReportsPage() {
   return <>
     <nav className="reports-nav" aria-label="דוחות" data-testid="reports-nav">
       <Link href="/reports" className="active">ביצועי נציגים</Link>
-      <Link href="/manager">מוקד בזמן אמת</Link>
       <Link href="/manager/calls">שיחות</Link>
       {ent.modules.messaging && <Link href="/analytics">אנליטיקה</Link>}
     </nav>

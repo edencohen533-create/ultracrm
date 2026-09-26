@@ -73,6 +73,20 @@ describe("lead statuses, round robin, dial-list workspace", () => {
     expect((await getBusinessSettings(t.business.id)).leadAssignment.lastAssignedUserId).toBe(a2);
   });
 
+  it("per-agent limits: each agent gets at most his own number of open leads", async () => {
+    const [, a2, a3] = agents;
+    await db.business.update({ where: { id: t.business.id }, data: { settings: { leadAssignment: { mode: "round_robin", maxOpenLeadsPerAgent: 0, agentIds: [a2, a3], perAgentMax: { [a2]: 3, [a3]: 1 }, lastAssignedUserId: a2 } } } });
+    const owners: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const c = await run(() => createContact(t.session, { fullName: `PA ${i}`, phone: `0504441${100 + i}` }));
+      const lead = await run(() => createLead(t.session, { contactId: c.id, title: `PA ${i}` }));
+      await processDomainEvents({ businessId: t.business.id }); await waitForEvents(t.business.id);
+      owners.push((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).ownerUserId ?? "none");
+    }
+    // a2 already holds 2 open leads (previous test); a3 has none. a3 → (a3 full at 1) a2 → (a2 full at 3) unassigned.
+    expect(owners).toEqual([a3, a2, "none"]);
+  });
+
   it("/api/leads?listId= shows exactly the dial list's contacts (the list page = lead workspace)", async () => {
     const list = await db.dialList.create({ data: { businessId: t.business.id, name: "Q" } });
     const inList = await run(() => createContact(t.session, { fullName: "In list", phone: "0504449001" }));

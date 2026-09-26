@@ -21,6 +21,8 @@ export interface LeadAssignmentSettings {
   maxOpenLeadsPerAgent: number;
   /** Empty = every active agent/manager. */
   agentIds: string[];
+  /** Per-agent limit of open leads (overrides maxOpenLeadsPerAgent for that agent; 0 = no limit for that agent). */
+  perAgentMax: Record<string, number>;
   /** Round-robin pointer: the user who received the previous lead. */
   lastAssignedUserId: string | null;
 }

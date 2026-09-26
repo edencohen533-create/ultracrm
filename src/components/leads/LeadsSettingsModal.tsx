@@ -14,13 +14,14 @@ type Tab = "dialer" | "statuses" | "assignment";
  * "הגדרות חייגן" from the leads screen: the per-agent dialer settings (formerly /crm-settings), and for managers the
  * editable lead statuses and the lead-distribution policy (round robin / least loaded, cap per agent).
  */
-export function LeadsSettingsModal({ open, onClose, manager }: { open: boolean; onClose: () => void; manager: boolean }) {
-  const [tab, setTab] = useState<Tab>("dialer");
+export function LeadsSettingsModal({ open, onClose, manager, initialTab = "dialer" }: { open: boolean; onClose: () => void; manager: boolean; initialTab?: Tab }) {
+  const [tab, setTab] = useState<Tab>(initialTab);
+  useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
   const [dirty, setDirty] = useState(false);
   const close = () => { if (dirty && !window.confirm("יש שינויים בהגדרות החייגן שלא נשמרו. לסגור בלי לשמור?")) return; onClose(); };
   const tabs: Array<[Tab, string]> = [["dialer", "חייגן"], ...(manager ? [["statuses", "סטטוסים"] as [Tab, string], ["assignment", "חלוקת לידים"] as [Tab, string]] : [])];
   return (
-    <Modal open={open} onClose={close} title="הגדרות חייגן" width="max-w-4xl">
+    <Modal open={open} onClose={close} title={tab === "statuses" ? "עריכת סטטוסים" : tab === "assignment" ? "חלוקת לידים" : "הגדרות חייגן"} width="max-w-4xl">
       <div className="flex gap-1 border-b border-line mb-3" role="tablist">{tabs.map(([k, label]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cx("h-9 px-3 text-sm border-b-2 -mb-px", tab === k ? "border-accent font-medium" : "border-transparent text-muted")} data-testid={`leads-settings-tab-${k}`}>{label}</button>)}</div>
       {tab === "dialer" && <CrmSettings embedded onDirtyChange={setDirty} />}
       {tab === "statuses" && manager && <StatusesEditor />}
@@ -69,7 +70,7 @@ function AssignmentEditor() {
   }, []);
   async function save() {
     if (!s) return; setSaving(true);
-    try { await api.patch("/api/lead-statuses", { leadAssignment: { mode: s.mode, maxOpenLeadsPerAgent: s.maxOpenLeadsPerAgent, agentIds: s.agentIds } }); toast.success("חלוקת הלידים נשמרה"); }
+    try { await api.patch("/api/lead-statuses", { leadAssignment: { mode: s.mode, maxOpenLeadsPerAgent: s.maxOpenLeadsPerAgent, agentIds: s.agentIds, perAgentMax: s.perAgentMax ?? {} } }); toast.success("חלוקת הלידים נשמרה"); }
     catch (e) { toast.error((e as Error).message); } finally { setSaving(false); }
   }
   if (!s) return null;
@@ -80,10 +81,13 @@ function AssignmentEditor() {
         <option value="least_loaded">לנציג עם הכי פחות לידים פתוחים</option>
         <option value="round_robin">Round robin – לפי הסדר, נציג אחרי נציג</option>
       </Select>
-      <Input label="מקסימום לידים פתוחים לנציג (0 = ללא הגבלה)" type="number" min={0} value={String(s.maxOpenLeadsPerAgent)} onChange={(e) => setS({ ...s, maxOpenLeadsPerAgent: Math.max(0, Number(e.target.value) || 0) })} ltr data-testid="assignment-cap" />
+      <Input label="ברירת מחדל: מקסימום לידים פתוחים לנציג (0 = ללא הגבלה)" type="number" min={0} value={String(s.maxOpenLeadsPerAgent)} onChange={(e) => setS({ ...s, maxOpenLeadsPerAgent: Math.max(0, Number(e.target.value) || 0) })} ltr data-testid="assignment-cap" />
       <div>
-        <p className="text-xs text-muted mb-1">נציגים בסבב (ריק = כל הנציגים והמנהלים הפעילים)</p>
-        <div className="flex flex-wrap gap-2">{users.map((u) => <label key={u.id} className="text-xs flex items-center gap-1 rounded-md border border-line px-2 py-1"><input type="checkbox" checked={s.agentIds.includes(u.id)} onChange={(e) => setS({ ...s, agentIds: e.target.checked ? [...s.agentIds, u.id] : s.agentIds.filter((x) => x !== u.id) })} /> {u.fullName}</label>)}</div>
+        <p className="text-sm font-medium mb-1">כמה לידים כל נציג יקבל</p>
+        <p className="text-xs text-muted mb-2">סמן מי משתתף בחלוקה וקבע לכל נציג מקסימום לידים פתוחים. ריק = ברירת המחדל שלמעלה. אם לא מסומן אף נציג – כולם משתתפים.</p>
+        <table className="w-full text-sm" data-testid="assignment-agents"><thead><tr className="text-xs text-muted"><th className="text-start p-1">בחלוקה</th><th className="text-start p-1">נציג</th><th className="text-start p-1">מקסימום לידים פתוחים</th></tr></thead><tbody>{users.map((u) => { const on = !s.agentIds.length || s.agentIds.includes(u.id); const per = s.perAgentMax ?? {}; return (
+          <tr key={u.id} className="border-t border-line"><td className="p-1"><input type="checkbox" checked={s.agentIds.includes(u.id)} onChange={(e) => setS({ ...s, agentIds: e.target.checked ? [...s.agentIds, u.id] : s.agentIds.filter((x) => x !== u.id) })} aria-label={`${u.fullName} בחלוקה`} /></td><td className={cx("p-1", !on && "text-muted")}>{u.fullName}</td>
+          <td className="p-1"><input type="number" min={0} className="h-8 w-28 rounded-md border border-line px-2 ltr" placeholder={s.maxOpenLeadsPerAgent ? String(s.maxOpenLeadsPerAgent) : "ללא הגבלה"} value={per[u.id] ?? ""} onChange={(e) => { const v = e.target.value; const next = { ...per }; if (v === "") delete next[u.id]; else next[u.id] = Math.max(0, Number(v) || 0); setS({ ...s, perAgentMax: next }); }} data-testid={`assignment-agent-cap-${u.id}`} /></td></tr>); })}</tbody></table>
       </div>
       <p className="text-[11px] text-muted">נציג שהגיע לתקרה מדולג; אם כולם בתקרה הליד נשאר ללא שיוך ומופיע במסנן &quot;ללא שיוך&quot;.</p>
       <div className="flex justify-end"><Button onClick={save} loading={saving} data-testid="assignment-save">שמור</Button></div>

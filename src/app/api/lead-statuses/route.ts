@@ -17,7 +17,7 @@ export const GET = withAuth(async ({ user }) => {
 
 const schema = z.object({
   leadStatuses: z.array(z.object({ key: z.enum(["new", "contacted", "qualified", "unqualified", "converted", "lost"]), label: z.string().trim().min(1).max(40), hidden: z.boolean().default(false) })).max(6).optional(),
-  leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional() }).optional(),
+  leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional() }).optional(),
 });
 
 export const PATCH = withAuth(async ({ req, user }) => {

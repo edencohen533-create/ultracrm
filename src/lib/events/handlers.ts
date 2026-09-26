@@ -45,7 +45,8 @@ async function pickOwner(businessId: string, preferredUserId?: string | null) {
     const biz = await tx.business.findUnique({ where: { id: businessId }, select: { settings: true } });
     const policy = mergeSettings(biz?.settings).leadAssignment;
     const agents = await tx.user.findMany({ where: { businessId, isActive: true, role: { in: ["agent", "manager"] }, ...(policy.agentIds.length ? { id: { in: policy.agentIds } } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, _count: { select: { ownedLeads: { where: { status: { in: ["new", "contacted", "qualified"] } } } } } } });
-    const eligible = agents.filter((a) => !policy.maxOpenLeadsPerAgent || a._count.ownedLeads < policy.maxOpenLeadsPerAgent);
+    const capOf = (id: string) => (policy.perAgentMax ?? {})[id] ?? policy.maxOpenLeadsPerAgent;
+    const eligible = agents.filter((a) => { const cap = capOf(a.id); return !cap || a._count.ownedLeads < cap; });
     if (eligible.length === 0) return agents.length === 0 ? fallback : null; // no pool at all → the importing manager; pool exhausted (cap) → unassigned
     let chosen: string;
     if (policy.mode === "round_robin") {

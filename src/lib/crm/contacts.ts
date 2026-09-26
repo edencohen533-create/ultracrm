@@ -29,6 +29,8 @@ export const contactFilterSchema = z.object({
   hasOpenLead: z.enum(["true", "false"]).optional(),
   /** Contacts that have an open lead owned by this user (personal dial queue). */
   leadOwnerUserId: z.string().optional(),
+  /** Segment / distribution list: contacts that match it now (members for a static list, conditions for a segment). */
+  segmentId: z.string().optional(),
 });
 export type ContactFilter = z.infer<typeof contactFilterSchema>;
 

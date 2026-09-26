@@ -11,7 +11,7 @@ import { StopAutomationsButton } from "@/components/automations/stop-automations
 import { RuleList } from "@/components/automations/rule-list";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
-import { SequencePanel } from "@/components/automations/sequence-panel";
+import { JourneyList } from "@/components/automations/journey/journey-list";
 import { listSequences } from "@/server/services/sequence-service";
 
 export default organizationRequest(async function AutomationsPage() {
@@ -48,7 +48,7 @@ export default organizationRequest(async function AutomationsPage() {
       ) : (
         <RuleList key={rules.map((r) => `${r.id}:${r.isActive}`).join(",")} rules={rules} />
       )}
-      <SequencePanel sequences={JSON.parse(JSON.stringify(sequences))} templates={allTemplates} tags={tags.map((t) => t.name)} />
+      <JourneyList journeys={JSON.parse(JSON.stringify(sequences))} />
     </div>
   );
 });

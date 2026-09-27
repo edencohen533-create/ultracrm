@@ -28,9 +28,10 @@ export function AssistantSettings({ isOwner }: { isOwner: boolean }) {
   useEffect(() => { void load(); }, [load]);
 
   async function save(patch: Partial<Settings>) {
-    setSaving(true);
+    const prev = s; setSaving(true);
+    setS((cur) => cur && { ...cur, ...patch }); // optimistic: toggles flip immediately, rolled back on error
     try { const r = await api.patch<{ settings: Settings }>("/api/assistant", patch); setS(r.settings); setData((d) => d && { ...d, settings: r.settings }); toast.success("נשמר"); }
-    catch (e) { toast.error((e as Error).message); } finally { setSaving(false); }
+    catch (e) { setS(prev); toast.error((e as Error).message); } finally { setSaving(false); }
   }
   if (!data || !s) return <div className="py-10 flex justify-center"><Spinner /></div>;
   const ro = !data.canEditSettings;
@@ -186,7 +187,7 @@ function SimulatorPanel({ links, onDone }: { links: Link[]; onDone: () => Promis
       <p className="text-xs text-muted mb-2">אין חיבור WhatsApp אמיתי – כאן אפשר לבדוק את העוזר בדיוק כאילו נשלחה הודעה מהטלפון המאומת.</p>
       <Select value={linkId} onChange={(e) => setLinkId(e.target.value)} className="w-64 mb-2" aria-label="בחר מספר">{links.map((l) => <option key={l.id} value={l.id}>{l.user} · …{l.phone.slice(-4)}</option>)}</Select>
       <div className="rounded-lg border border-line bg-muted-bg p-3 h-72 overflow-auto space-y-2" data-testid="assistant-sim-chat">
-        {chat.map((m, i) => <div key={i} className={cx("max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap", m.from === "me" ? "bg-white border border-line ms-auto" : "bg-[#dcf8c6] text-black")}>{m.text}</div>)}
+        {chat.map((m, i) => <div key={i} data-testid="assistant-sim-msg" className={cx("max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap", m.from === "me" ? "bg-white border border-line ms-auto" : "bg-[#dcf8c6] text-black")}>{m.text}</div>)}
         <div ref={end} />
       </div>
       <form className="flex gap-2 mt-2" onSubmit={(e) => { e.preventDefault(); void send(); }}>

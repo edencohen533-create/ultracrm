@@ -243,11 +243,13 @@ async function activeCallOn(db: Db, businessId: string, contactId: string) {
 }
 
 /** Move one lead now: owner, contact, open tasks (same times), queue rows; audited as who/from/to/when. */
-async function applyTransfer(businessId: string, leadId: string, toUserId: string, actorId: string) {
+async function applyTransfer(businessId: string, leadId: string, toUserId: string, actorId: string, onlyIfPending = false) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${"lead-followup:" + leadId}, 0))`);
     const lead = await tx.lead.findFirst({ where: { id: leadId, businessId }, include: { contact: { select: { id: true, ownerUserId: true } } } });
     if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
+    // A deferred transfer is applied by whoever gets the lock first (outcome save or the cron safety net) – exactly once.
+    if (onlyIfPending && lead.pendingTransferToUserId !== toUserId) return null;
     const from = lead.ownerUserId;
     await tx.lead.update({ where: { id: lead.id }, data: { ownerUserId: toUserId, pendingTransferToUserId: null, pendingTransferById: null, pendingTransferAt: null } });
     if (!lead.contact.ownerUserId || lead.contact.ownerUserId === from) await tx.contact.update({ where: { id: lead.contactId }, data: { ownerUserId: toUserId } });
@@ -317,7 +319,8 @@ export async function applyPendingTransfers(businessId: string, contactId?: stri
     if (await activeCallOn(prisma, businessId, l.contactId)) continue;
     const target = await prisma.user.findFirst({ where: { id: l.pendingTransferToUserId!, businessId, isActive: true }, select: { id: true } });
     if (!target) { await prisma.lead.update({ where: { id: l.id }, data: { pendingTransferToUserId: null, pendingTransferById: null, pendingTransferAt: null } }); continue; }
-    await applyTransfer(businessId, l.id, target.id, l.pendingTransferById ?? target.id);
+    const done = await applyTransfer(businessId, l.id, target.id, l.pendingTransferById ?? target.id, true);
+    if (!done) continue;
     await notifyTransferred(businessId, l.id, target.id);
     applied++;
   }

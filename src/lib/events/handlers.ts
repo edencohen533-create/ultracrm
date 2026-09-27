@@ -201,6 +201,16 @@ const messageReceived: EventHandler = {
   },
 };
 
+/** Customer-service AI (off by default; per channel, hours and limits; skips conversations handled by a human). */
+const aiService: EventHandler = {
+  name: "ai.service-agent",
+  types: ["message.received"],
+  async run(event) {
+    const { handleServiceInbound } = await import("@/server/ai/service-agent");
+    return await handleServiceInbound(event.businessId, payload<{ messageId?: string; conversationId?: string; channel?: string }>(event));
+  },
+};
+
 const suppressed: EventHandler = {
   name: "contact.enforce-suppression",
   types: ["contact.suppressed"],
@@ -223,7 +233,7 @@ const taskCreated: EventHandler = {
 
 const sequences: EventHandler = {
   name: "marketing.sequences",
-  types: ["message.delivery_failed", "message.sent", "contact.tag_added", "contact.created", "lead.status_changed", "cart.abandoned"],
+  types: ["message.delivery_failed", "message.sent", "contact.tag_added", "contact.created", "lead.status_changed", "cart.abandoned", "call.outcome_saved"],
   async run(event) {
     const { isModuleEnabled } = await import("@/lib/modules");
     if (!(await isModuleEnabled(event.businessId, "messaging"))) return { skipped: "messaging module disabled" };
@@ -268,4 +278,4 @@ const webhooks: EventHandler = {
   run: async (event) => { const { enqueueWebhookDeliveries } = await import("@/server/services/integrations"); return enqueueWebhookDeliveries(event); },
 };
 
-export const HANDLERS: EventHandler[] = [coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences, webhooks];
+export const HANDLERS: EventHandler[] = [coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, suppressed, taskCreated, sequences, webhooks];

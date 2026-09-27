@@ -79,6 +79,17 @@ describe("abandoned carts", () => {
     expect((await db.cart.findUniqueOrThrow({ where: { id: cart.id } })).status).toBe("converted");
   });
 
+  it("WooCommerce out of order: a paid order never converts another order's cart, and its late 'created' never reopens it", async () => {
+    const hook = (id: number, status: string) => { const body = JSON.stringify({ id, number: String(id), status, currency: "ILS", total: "90.00", billing: { first_name: "רינה", email: "rina@example.test", phone: "0501234999" }, line_items: [{ name: "x", quantity: 1, price: 90 }] }); return wooHook(new Request("http://x", { method: "POST", body, headers: { "x-wc-webhook-topic": "order.updated", "x-wc-webhook-signature": sign(WOO_SECRET, body) } }), P({ storeId: woo.id })); };
+    await hook(601, "pending"); // an earlier, still unpaid order of the same customer
+    await hook(602, "processing"); // order 602 paid – its "created" has not arrived yet
+    await Promise.all([1, 2, 3].map(() => hook(602, "pending"))); // late, duplicated "created"
+    expect((await db.cart.findUniqueOrThrow({ where: { storeId_externalId: { storeId: woo.id, externalId: "order:601" } } })).status).toBe("open");
+    const carts = await db.cart.findMany({ where: { storeId: woo.id, externalId: "order:602" } });
+    expect(carts).toHaveLength(1);
+    expect(carts[0]).toMatchObject({ status: "converted", orderId: "602" });
+  });
+
   it("site script: served; events accepted only from the store's domain; cart stored", async () => {
     const js = await scriptGet(new Request("http://x"), P({ key: shop.publicKey }));
     expect(js.headers.get("content-type")).toContain("javascript");

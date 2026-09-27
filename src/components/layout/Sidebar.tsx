@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
-import { PhoneCall, BarChart3, FileText, Megaphone, MessageCircle, Settings, ShoppingCart, Star, Users, Zap } from "lucide-react";
+import { Bot, PhoneCall, BarChart3, FileText, Megaphone, MessageCircle, Settings, ShoppingCart, Star, Users, Zap } from "lucide-react";
 import { useDialer } from "@/components/telephony/DialerProvider";
 import { Badge, cx } from "@/components/ui";
 import { PRESENCE_LABEL } from "@/lib/client/format";
@@ -31,6 +31,7 @@ const ITEMS: Item[] = [
   { href: "/templates", label: "תבניות WhatsApp", roles: MGMT, module: "messaging", Icon: FileText, testid: "nav-templates", match: (p) => p.startsWith("/templates") },
   { href: "/campaigns/whatsapp", label: "הודעות תפוצה", roles: MGMT, module: "messaging", Icon: Megaphone, testid: "nav-campaigns", match: (p) => p.startsWith("/campaigns") },
   { href: "/automations", label: "אוטומציות", roles: MGMT, module: "messaging", Icon: Zap, testid: "nav-automations", match: (p) => p.startsWith("/automations") || p.startsWith("/carts") },
+  { href: "/ai", label: "עוזר AI", roles: ALL, Icon: Bot, testid: "nav-ai", match: (p) => p.startsWith("/ai") },
   { href: "/reports", label: "דוחות", roles: MGMT, Icon: BarChart3, testid: "nav-reports", match: (p) => p.startsWith("/reports") || p.startsWith("/analytics") || p.startsWith("/manager") },
 ];
 

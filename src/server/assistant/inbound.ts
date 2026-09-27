@@ -11,6 +11,9 @@ import { getBusinessSettings } from "@/lib/settings";
 import { answer, assistantMode, type Memory } from "./brain";
 import { sendToLink } from "./transport";
 import type { ToolCtx } from "./tools";
+import { ApiError } from "@/lib/response";
+import { aiConnected } from "@/server/ai/settings";
+import { chatTurn, whatsappActionCommand } from "@/server/ai/engine";
 
 export const hashCode = (businessId: string, code: string) => crypto.createHash("sha256").update(`${businessId}:${code}`).digest("hex");
 
@@ -62,6 +65,28 @@ export async function handleAssistantInbound(input: { businessId: string; phoneE
     if (/^(דוח|הדוח|כן|שלח|תשלח|report|ok|אוקיי)[\s!.?]*$/i.test(input.text.trim())) return true;
   }
   const history = (await prisma.assistantMessage.findMany({ where: { linkId: link.id, createdAt: { gte: new Date(Date.now() - 6 * 3600_000) } }, orderBy: { createdAt: "desc" }, take: 11, select: { direction: true, text: true } })).reverse().slice(0, -1);
+  if (aiConnected()) {
+    // Same engine as the in-app "עוזר AI" (actions with approval, automations, diagnosis) – permissions re-resolved per turn.
+    const u = await prisma.user.findFirst({ where: { id: link.userId, businessId: input.businessId, isActive: true }, select: { id: true, role: true, teamId: true, email: true, fullName: true, accountId: true } });
+    if (!u) { await reply("⛔ הגישה של המשתמש הזה בוטלה.", { status: "blocked" }); return true; }
+    const session: SessionUser = { id: u.id, accountId: u.accountId, businessId: input.businessId, email: u.email, fullName: u.fullName, role: u.role, teamId: u.teamId };
+    const mem = (link.context ?? {}) as Memory & { aiConversationId?: string };
+    const biz = (await prisma.business.findUnique({ where: { id: input.businessId }, select: { name: true } }))?.name ?? "";
+    try {
+      const convId = mem.aiConversationId && (await prisma.aiConversation.findFirst({ where: { id: mem.aiConversationId, userId: u.id }, select: { id: true } })) ? mem.aiConversationId : null;
+      const cmd = convId ? await whatsappActionCommand(session, convId, input.text) : null;
+      if (cmd) { await reply(`*${biz}*\n${cmd}`, { intent: "ai_action" }); return true; }
+      const r = await chatTurn(session, { conversationId: convId, text: input.text, channel: "whatsapp" });
+      if (r.conversationId !== mem.aiConversationId) await prisma.assistantLink.update({ where: { id: link.id }, data: { context: { ...mem, aiConversationId: r.conversationId } as Prisma.InputJsonValue } });
+      const pending = r.message.actions.filter((a) => a && a.status === "proposed");
+      const extra = pending.length ? `\n\n⏳ ממתין לאישור: ${pending.map((a) => a!.summary).join(" · ")}\nלאישור השב "אשר", לביטול "בטל".` : "";
+      await reply(`*${biz}*\n${r.message.text}${extra}`, { intent: "ai", model: r.model });
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "⚠️ משהו השתבש. לא בוצעה אף פעולה – נסה שוב בעוד רגע.";
+      await reply(msg, { status: "error", error: (e as Error).message.slice(0, 200), model: "ai" });
+    }
+    return true;
+  }
   try {
     const a = await answer(ctx, input.text, (link.context ?? {}) as Memory, history);
     await prisma.assistantLink.update({ where: { id: link.id }, data: { context: a.memory as Prisma.InputJsonValue } });

@@ -88,8 +88,15 @@ export async function ingestOrder(store: StoreConnection, raw: OrderInput) {
   const e164 = input.phone ? normalizePhone(input.phone) : null;
   // The order's own cart first; otherwise the customer's most recent open/abandoned cart in the last 14 days.
   const cart = (input.externalId ? await prisma.cart.findUnique({ where: { storeId_externalId: { storeId: store.id, externalId: input.externalId } } }) : null)
-    ?? (email || e164 ? await prisma.cart.findFirst({ where: { storeId: store.id, status: { in: ["open", "abandoned"] }, updatedAt: { gte: new Date(Date.now() - 14 * 86400_000) }, OR: [...(email ? [{ email }] : []), ...(e164 ? [{ phoneE164: e164 }] : [])] }, orderBy: { lastActivityAt: "desc" } }) : null);
+    // …but never the cart of ANOTHER platform order ("order:<id>") – that order is still unpaid.
+    ?? (email || e164 ? await prisma.cart.findFirst({ where: { storeId: store.id, status: { in: ["open", "abandoned"] }, NOT: { externalId: { startsWith: "order:" } }, updatedAt: { gte: new Date(Date.now() - 14 * 86400_000) }, OR: [...(email ? [{ email }] : []), ...(e164 ? [{ phoneE164: e164 }] : [])] }, orderBy: { lastActivityAt: "desc" } }) : null);
   await prisma.storeConnection.update({ where: { id: store.id }, data: { lastEventAt: new Date() } });
+  if (!cart && input.externalId) {
+    // Paid before its "created" webhook arrived (out of order): record it as converted so the late "created"
+    // never reopens it as an open cart (which would later be "abandoned" and message a customer who already paid).
+    const paid = { status: "converted", convertedAt: new Date(), orderId: input.orderId, orderTotal: input.total !== undefined ? new Prisma.Decimal(input.total) : null };
+    return prisma.cart.upsert({ where: { storeId_externalId: { storeId: store.id, externalId: input.externalId } }, create: { businessId: store.businessId, storeId: store.id, externalId: input.externalId, email: email ?? null, phoneE164: e164, currency: input.currency ?? null, lastActivityAt: new Date(), ...paid }, update: paid });
+  }
   if (!cart || cart.status === "converted" || cart.status === "recovered") return cart;
   const recovered = cart.status === "abandoned" && Boolean(cart.recoveryMessageAt);
   return prisma.cart.update({ where: { id: cart.id }, data: { status: recovered ? "recovered" : "converted", convertedAt: new Date(), orderId: input.orderId, orderTotal: input.total !== undefined ? new Prisma.Decimal(input.total) : cart.total } });

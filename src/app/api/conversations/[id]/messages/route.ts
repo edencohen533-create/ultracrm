@@ -21,6 +21,8 @@ export const POST = organizationRequest(async function(request: Request, { param
   if (!parsed.success) return Response.json({ error: "תוכן ההודעה אינו תקין" }, { status: 400 });
   try {
     const result = await createOutboundMessage({ conversationId: id, ...parsed.data, requestKey: parsed.data.requestId ? `${session.user.id}:${id}:${parsed.data.requestId}` : undefined, sentByUserId: session.user.id });
+    // A human reply takes the conversation over from the customer-service AI (stops pending bot replies).
+    await prisma.conversation.updateMany({ where: { id, OR: [{ aiMode: null }, { aiMode: { not: "human" } }] }, data: { aiMode: "human" } });
     if (result.message.status === "FAILED") return Response.json({ error: "הספק דחה את שליחת ההודעה", messageId: result.message.id }, { status: 502 });
     return Response.json({ messageId: result.message.id, message: result.message });
   } catch (error) {
@@ -45,7 +47,7 @@ export const GET = organizationRequest(async function(request: Request, { params
       take: 101,
       where: before ? { OR: [{ createdAt: { lt: before } }, { createdAt: before, id: { lt: cursor.data.beforeId! } }] } : {},
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      select: { id: true, direction: true, type: true, body: true, status: true, createdAt: true, attachments: { select: { id: true, url: true, mimeType: true, fileName: true, sizeBytes: true } }, sentByUser: { select: { id: true, fullName: true } } },
+      select: { id: true, direction: true, type: true, body: true, status: true, createdAt: true, requestKey: true, attachments: { select: { id: true, url: true, mimeType: true, fileName: true, sizeBytes: true } }, sentByUser: { select: { id: true, fullName: true } } },
     } },
   });
   if (!conversation) return Response.json({ error: "Not found" }, { status: 404 });
@@ -53,5 +55,5 @@ export const GET = organizationRequest(async function(request: Request, { params
     ? (!conversation.providerCredential.isActive || conversation.providerCredential.sendingBlocked ? "המספר השולח מנותק או חסום. יש לבדוק את החיבור בהגדרות" : null)
     : conversation.providerCredentialId === null && await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api" }, select: { id: true } })
       ? "זו שיחת הדגמה. יש לפתוח שיחה דרך מספר WhatsApp מחובר" : null;
-  return Response.json({ senderUnavailable, messages: conversation.messages.slice(0, 100).reverse(), hasMore: conversation.messages.length > 100, lastInboundAt: conversation.lastInboundAt }, { headers: { "Cache-Control": "private, no-store" } });
+  return Response.json({ senderUnavailable, messages: conversation.messages.slice(0, 100).reverse().map(({ requestKey, ...m }) => ({ ...m, aiBot: Boolean(requestKey?.startsWith("ai:svc:")) })), hasMore: conversation.messages.length > 100, lastInboundAt: conversation.lastInboundAt }, { headers: { "Cache-Control": "private, no-store" } });
 });

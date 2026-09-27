@@ -20,6 +20,8 @@ beforeAll(async () => {
     return db.user.create({ data: { businessId: tenant.business.id, accountId: account.id, email: account.email, fullName: role, role } });
   }
   agent = await member('agent'); manager = await member('manager');
+  // These checks cover the team-scoped manager mode (settings → הרשאות); the default is business-wide.
+  await db.business.update({ where: { id: tenant.business.id }, data: { settings: { permissions: { managerScope: 'team' } } } });
   const contact = await db.contact.create({ data: { businessId: tenant.business.id, fullName: 'Task contact', phoneE164: '+972501239901', phoneRaw: '0501239901' } });
   contactId = contact.id;
   leadId = (await db.lead.create({ data: { businessId: tenant.business.id, contactId, ownerUserId: tenant.user.id, title: 'Private lead' } })).id;

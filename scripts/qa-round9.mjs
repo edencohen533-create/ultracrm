@@ -91,18 +91,20 @@ await step("R9 dialer: hang up → 'המשך לליד הבא' (no wrap-up screen
   if (await page.getByRole("button", { name: "העבר לכאן" }).count()) { await page.getByRole("button", { name: "העבר לכאן" }).click(); await page.waitForTimeout(4500); }
   if (await hang().count()) { await hang().click(); await page.waitForSelector('[data-testid="next-bar"]'); }
   if (await page.locator('[data-testid="next-bar"]').count()) await documentLeftover();
-  if (await page.getByRole("button", { name: "סיים סשן" }).count()) { await page.getByRole("button", { name: "סיים סשן" }).click(); await page.waitForTimeout(2500); }
-  // Fresh preview session on "הלידים שלי".
-  await page.goto(`${BASE}/dialer`); await page.waitForSelector('[data-testid="start-dialer"]');
-  await page.getByRole("button", { name: "Preview" }).first().click();
-  await page.waitForSelector('[data-testid="start-dialer"]:not([disabled])', { timeout: 60000 }); await page.click('[data-testid="start-dialer"]');
+  // Reuse a live session of this agent, or start a fresh preview session.
+  if (!(await page.locator('[data-testid="strip-dial-lead"]').count())) {
+    await page.waitForSelector('[data-testid="start-dialer"]');
+    await page.getByRole("button", { name: "Preview" }).first().click();
+    await page.waitForSelector('[data-testid="start-dialer"]:not([disabled])', { timeout: 60000 }); await page.click('[data-testid="start-dialer"]');
+  }
   await page.waitForSelector('[data-testid="call-strip"]');
   await page.waitForFunction(() => { const b = document.querySelector('[data-testid="strip-dial-lead"]'); return b && !b.hasAttribute("disabled"); }, null, { timeout: 60000 });
   await page.click('[data-testid="strip-dial-lead"]');
   await hang().waitFor({ timeout: 60000 }); await page.waitForTimeout(1500); await hang().click();
   await page.waitForSelector('[data-testid="next-bar"]', { timeout: 60000 }); await page.screenshot({ path: "docs/qa/r9-next-bar.png" });
   if (await page.locator('[data-testid="next-quick-answered_not_interested"]').count()) await page.click('[data-testid="next-quick-answered_not_interested"]');
-  await page.click('[data-testid="next-continue"]');
+  // Unanswered → the button sits right in the call strip; answered → quick result in the bar below.
+  if (await page.locator('[data-testid="strip-continue"]').count()) await page.click('[data-testid="strip-continue"]'); else await page.click('[data-testid="next-continue"]');
   await hang().waitFor({ timeout: 60000 }); // the next lead is being dialed – no wrap-up screen in between
   await page.waitForTimeout(1500); await hang().click();
   await page.waitForSelector('[data-testid="next-bar"]'); await documentLeftover();

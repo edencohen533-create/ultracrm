@@ -19,7 +19,7 @@ export default function ListsPage() {
   const [users, setUsers] = useState<Array<{ id: string; fullName: string; role: string }>>([]);
   const [scripts, setScripts] = useState<Array<{ id: string; title: string }>>([]);
   const [me, setMe] = useState<{ role: string } | null>(null);
-  const [form, setForm] = useState({ name: "", description: "", priority: 0, maxAttempts: "", retryIntervalMinutes: "", scriptId: "", phoneNumberId: "", isDynamic: false, agentIds: [] as string[], start: "09:00", end: "20:00", days: [0, 1, 2, 3, 4], filterSource: "", filterNeverCalled: false });
+  const [form, setForm] = useState({ name: "", description: "", priority: 0, maxAttempts: "", unansweredLimit: "", access: "all" as "all" | "selected", retryIntervalMinutes: "", scriptId: "", phoneNumberId: "", isDynamic: false, agentIds: [] as string[], start: "09:00", end: "20:00", days: [0, 1, 2, 3, 4], filterSource: "", filterNeverCalled: false });
   const [numbers, setNumbers] = useState<Array<{ id: string; e164: string; label: string | null }>>([]);
 
   const load = useCallback(async () => {
@@ -41,8 +41,8 @@ export default function ListsPage() {
     try {
       const r = await api.post<{ added: number }>("/api/lists", {
         name: form.name, description: form.description || undefined, priority: form.priority,
-        maxAttempts: form.maxAttempts ? Number(form.maxAttempts) : null, retryIntervalMinutes: form.retryIntervalMinutes ? Number(form.retryIntervalMinutes) : null,
-        dialWindow: { start: form.start, end: form.end, days: form.days }, scriptId: form.scriptId || null, phoneNumberId: form.phoneNumberId || null, isDynamic: form.isDynamic, agentIds: form.agentIds,
+        maxAttempts: form.maxAttempts ? Number(form.maxAttempts) : null, unansweredLimit: form.unansweredLimit === "" ? null : Number(form.unansweredLimit), retryIntervalMinutes: form.retryIntervalMinutes ? Number(form.retryIntervalMinutes) : null,
+        dialWindow: { start: form.start, end: form.end, days: form.days }, scriptId: form.scriptId || null, phoneNumberId: form.phoneNumberId || null, isDynamic: form.isDynamic, agentIds: form.access === "all" ? [] : form.agentIds,
         filter: form.filterSource || form.filterNeverCalled ? { source: form.filterSource || undefined, neverCalled: form.filterNeverCalled ? "true" : undefined } : undefined,
       });
       toast.success(`הרשימה נוצרה${r.added ? ` עם ${r.added} לידים` : ""}`);
@@ -62,6 +62,7 @@ export default function ListsPage() {
         <h1 className="text-lg font-semibold">קמפיינים – חייגן</h1>
         {isManager && <Button size="sm" className="ms-auto" onClick={() => setOpen(true)}>+ רשימה חדשה</Button>}
       </div>
+      {isManager && <QueueAlerts />}
       {!lists ? <div className="flex justify-center p-10"><Spinner /></div> : lists.length === 0 ? <EmptyState title="אין רשימות" hint="צור רשימה מסינון אנשי קשר או ידנית" /> : (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
           {lists.map((l) => (
@@ -82,7 +83,7 @@ export default function ListsPage() {
         </div>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="רשימת חיוג חדשה" width="max-w-2xl" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>ביטול</Button><Button onClick={create} disabled={!form.name.trim()}>צור</Button></>}>
+      <Modal open={open} onClose={() => setOpen(false)} title="רשימת חיוג חדשה" width="max-w-2xl" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>ביטול</Button><Button onClick={create} disabled={!form.name.trim() || (form.access === "selected" && !form.agentIds.length)}>צור</Button></>}>
         <div className="grid grid-cols-2 gap-3">
           <Input label="שם" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="col-span-2" />
           <Textarea label="תיאור" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="col-span-2" />
@@ -96,6 +97,10 @@ export default function ListsPage() {
             {numbers.map((n) => <option key={n.id} value={n.id}>{n.e164} {n.label ? `· ${n.label}` : ""}</option>)}
           </Select>
           <Input label="מקס׳ ניסיונות (ריק = הגדרת עסק)" type="number" value={form.maxAttempts} onChange={(e) => setForm({ ...form, maxAttempts: e.target.value })} />
+          <Select label="ניסיונות ללא מענה לפני ״לא רלוונטי״" value={form.unansweredLimit} onChange={(e) => setForm({ ...form, unansweredLimit: e.target.value })}>
+            <option value="">לפי הגדרת העסק</option><option value="0">כבוי</option>
+            {Array.from({ length: 30 }, (_, i) => <option key={i} value={i + 1}>{i + 1}</option>)}
+          </Select>
           <Input label="מרווח בין ניסיונות (דקות)" type="number" value={form.retryIntervalMinutes} onChange={(e) => setForm({ ...form, retryIntervalMinutes: e.target.value })} />
           <div className="col-span-2">
             <span className="block text-xs text-muted mb-1">חלון חיוג (שעון ישראל)</span>
@@ -111,12 +116,13 @@ export default function ListsPage() {
             </div>
           </div>
           <div className="col-span-2">
-            <span className="block text-xs text-muted mb-1">שיוך נציגים (ריק = כולם)</span>
-            <div className="flex flex-wrap gap-1.5">
+            <span className="block text-xs text-muted mb-1">למי הקמפיין פתוח</span>
+            <div className="flex gap-4 text-sm mb-2"><label className="flex items-center gap-1"><input type="radio" checked={form.access === "all"} onChange={() => setForm({ ...form, access: "all" })} /> כל הנציגים בעסק</label><label className="flex items-center gap-1"><input type="radio" checked={form.access === "selected"} onChange={() => setForm({ ...form, access: "selected" })} /> נציגים מסוימים</label></div>
+            {form.access === "selected" && <div className="flex flex-wrap gap-1.5">
               {users.filter((u) => u.role === "agent" || u.role === "manager").map((u) => (
                 <button key={u.id} type="button" onClick={() => setForm({ ...form, agentIds: form.agentIds.includes(u.id) ? form.agentIds.filter((x) => x !== u.id) : [...form.agentIds, u.id] })} className={`h-8 px-3 rounded-md text-xs ${form.agentIds.includes(u.id) ? "bg-accent text-white" : "bg-white/6 text-muted"}`}>{u.fullName}</button>
               ))}
-            </div>
+            </div>}
           </div>
           <div className="col-span-2 border-t border-line pt-3">
             <span className="block text-xs text-muted mb-1">מילוי ראשוני מ-CRM (אופציונלי)</span>
@@ -128,6 +134,21 @@ export default function ListsPage() {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+interface QueueAlert { id: string; agentId: string; agent: string; listId: string; list: string; state: string; exhaustedCount: number; nextAt: string | null; openedAt: string; closedAt: string | null }
+/** Managers: agents who ran out of dialable leads (open first). The same event also reaches linked managers on WhatsApp. */
+function QueueAlerts() {
+  const [items, setItems] = useState<QueueAlert[]>([]);
+  useEffect(() => { api.get<{ items: QueueAlert[] }>("/api/dialer/queue-alerts").then((r) => setItems(r.items)).catch(() => undefined); }, []);
+  const open = items.filter((a) => !a.closedAt);
+  if (!open.length) return null;
+  return (
+    <div className="rounded-xl border border-warn/40 bg-warn/10 p-3 space-y-1" data-testid="queue-alerts">
+      <p className="text-sm font-semibold">נציגים ללא לידים זמינים</p>
+      {open.map((a) => <p key={a.id} className="text-sm" data-testid="queue-alert">לנציג <b>{a.agent}</b> אין כרגע לידים זמינים לחיוג בקמפיין <Link className="underline" href={`/lists/${a.listId}`}>{a.list}</Link>. מוצו: {a.exhaustedCount}. {a.nextAt ? `החיוג הבא צפוי ב-${new Date(a.nextAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })}.` : "אין עבודה עתידית בקמפיין."}</p>)}
     </div>
   );
 }

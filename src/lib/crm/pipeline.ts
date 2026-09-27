@@ -80,9 +80,10 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
   const [attempts, followUps, settings] = await Promise.all([attemptStats(user.businessId, items.map((l) => l.contactId)), followUpsFor(user.businessId, items), getBusinessSettings(user.businessId)]);
   const transferTo = await prisma.user.findMany({ where: { id: { in: items.flatMap((l) => (l.pendingTransferToUserId ? [l.pendingTransferToUserId] : [])) } }, select: { id: true, fullName: true } });
   const now = Date.now();
+  const limits = await (await import("@/lib/dialer/exhaustion")).limitsForOwners(user.businessId, items.map((l) => l.ownerUserId));
   const enriched = items.map((l) => {
     const fu = followUps.get(l.id); const a = attempts.get(l.id);
-    return { ...l, attempts: a?.count ?? 0, lastAttemptAt: a?.lastAt ?? null,
+    return { ...l, attempts: a?.count ?? 0, attemptLimit: limits.get(l.ownerUserId ?? "") || null, lastAttemptAt: a?.lastAt ?? null,
       followUp: fu ? { taskId: fu.taskId, dueAt: fu.dueAt, note: fu.note, overdue: fu.dueAt.getTime() < now } : null,
       needsSchedule: l.status === "follow_up" && !fu,
       pendingTransfer: l.pendingTransferToUserId ? { to: transferTo.find((u) => u.id === l.pendingTransferToUserId)?.fullName ?? null, at: l.pendingTransferAt } : null };
@@ -137,7 +138,7 @@ export async function updateLead(user: SessionUser, id: string, input: z.infer<t
       where: { id: lead.id },
       data: {
         ...(input.title !== undefined ? { title: input.title || null } : {}),
-        ...(input.status ? { status: input.status, closedAt: closing ? new Date() : null } : {}),
+        ...(input.status ? { status: input.status, closedAt: closing ? new Date() : null, closeReason: null } : {}),
         ...(input.source !== undefined ? { source: input.source || null } : {}),
         ...(input.ownerUserId !== undefined ? { ownerUserId: input.ownerUserId } : {}),
         ...(input.priority !== undefined ? { priority: input.priority } : {}),

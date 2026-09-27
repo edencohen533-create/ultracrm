@@ -8,6 +8,8 @@ export const agentSettingsSchema = z.object({
   maxDailyUnanswered: z.number().int().min(1).max(20),
   newLead: schedule, followUp: schedule,
   strategy: z.enum(["business", "hot", "oldest", "attempts", "new_first"]),
+  /** Personal override of "unanswered attempts before לא רלוונטי" (null/absent = campaign or business setting, 0 = off). */
+  unansweredToIrrelevant: z.number().int().min(0).max(50).nullable().optional(),
 });
 export type AgentSettings = z.infer<typeof agentSettingsSchema>;
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {

@@ -85,8 +85,10 @@ export function AttemptsModal({ leadId, name, tz = TZ_DEFAULT, onClose }: { lead
 }
 
 /** Attempts counter + last attempt time; opens the history. */
-export function AttemptsCell({ count, lastAt, onOpen, tz = TZ_DEFAULT }: { count: number; lastAt: string | null; onOpen: () => void; tz?: string }) {
-  return <button type="button" className="lead-attempts" onClick={onOpen} title={lastAt ? `ניסיון אחרון: ${fmtBiz(tz, lastAt)}` : "אין ניסיונות"} data-testid="attempts-count"><PhoneCall size={13}/><b>{count}</b>{lastAt && <small dir="ltr">{fmtBiz(tz, lastAt)}</small>}</button>;
+export function AttemptsCell({ count, lastAt, onOpen, tz = TZ_DEFAULT, limit }: { count: number; lastAt: string | null; onOpen: () => void; tz?: string; limit?: number | null }) {
+  const full = Boolean(limit && count >= limit);
+  const title = [lastAt ? `ניסיון אחרון: ${fmtBiz(tz, lastAt)}` : "אין ניסיונות", limit ? `מכסה: ${limit} ניסיונות ללא מענה לפני "לא רלוונטי"` : ""].filter(Boolean).join(" · ");
+  return <button type="button" className="lead-attempts" onClick={onOpen} title={title} data-testid="attempts-count"><PhoneCall size={13}/><b className={full ? "text-bad" : undefined}>{count}{limit ? <span data-testid="attempts-limit">/{limit}</span> : null}</b>{lastAt && <small dir="ltr">{fmtBiz(tz, lastAt)}</small>}</button>;
 }
 
 /** Manager: transfer one or many leads to an active agent. */

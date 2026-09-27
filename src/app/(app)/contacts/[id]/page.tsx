@@ -63,7 +63,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const search = useSearchParams();
   const focusLeadId = search.get("lead");
   const [leadEdit, setLeadEdit] = useState<{ id: string; title: string; status: string; source: string; priority: number; ownerUserId: string; notes: string } | null>(null);
-  const [leadMeta, setLeadMeta] = useState<{ attempts: number; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null } | null>(null);
+  const [leadMeta, setLeadMeta] = useState<{ attempts: number; attemptLimit: number | null; closeReason: string | null; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null } | null>(null);
   const [leadModal, setLeadModal] = useState<"followup" | "attempts" | "deal" | null>(null);
   const [showChat, setShowChat] = useState(search.get("tab") === "chat");
 
@@ -77,8 +77,8 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
       setCustom(Object.entries(r.customFields ?? {}).map(([key, value]) => ({ key, value: value === null || value === undefined ? "" : String(value) })));
       const focus = (focusLeadId && r.leads.find((l) => l.id === focusLeadId)) || r.leads.find((l) => ["new", "contacted", "qualified", "follow_up"].includes(l.status)) || null;
       if (focus) {
-        const full = await api.get<{ id: string; title: string | null; status: string; source: string | null; priority: number; notes: string | null; owner: { id: string } | null; attempts: number; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null }>(`/api/leads/${focus.id}`);
-        setLeadMeta({ attempts: full.attempts, lastAttemptAt: full.lastAttemptAt, timezone: full.timezone, followUp: full.followUp, needsSchedule: full.needsSchedule, pendingTransfer: full.pendingTransfer });
+        const full = await api.get<{ id: string; title: string | null; status: string; source: string | null; priority: number; notes: string | null; owner: { id: string } | null; attempts: number; attemptLimit?: number | null; closeReason?: string | null; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null }>(`/api/leads/${focus.id}`);
+        setLeadMeta({ attempts: full.attempts, attemptLimit: full.attemptLimit ?? null, closeReason: full.closeReason ?? null, lastAttemptAt: full.lastAttemptAt, timezone: full.timezone, followUp: full.followUp, needsSchedule: full.needsSchedule, pendingTransfer: full.pendingTransfer });
         setLeadEdit({ id: full.id, title: full.title ?? "", status: full.status, source: full.source ?? "", priority: full.priority, ownerUserId: full.owner?.id ?? "", notes: full.notes ?? "" });
       } else setLeadEdit(null);
     } catch (e) {
@@ -235,9 +235,10 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
           {leadEdit && (
             <Panel title="הליד" actions={<div className="flex items-center gap-2"><Badge tone={leadEdit.status === "new" ? "info" : leadEdit.status === "qualified" ? "good" : ["lost", "unqualified"].includes(leadEdit.status) ? "bad" : "neutral"}>{statuses.label(leadEdit.status)}</Badge><Button size="sm" onClick={saveLead} data-testid="lead-save">שמור</Button></div>}>
               <div className="grid md:grid-cols-3 gap-2">
+                {leadMeta?.closeReason && <div role="status" className="md:col-span-3 lead-transfer-note" data-testid="lead-close-reason">נסגר אוטומטית: {leadMeta.closeReason}</div>}
                 {leadMeta && <div className="md:col-span-3 lead-dial-summary" data-testid="lead-dial-summary">
                   {leadMeta.pendingTransfer && <div className="lead-transfer-note">⇄ הליד בשיחה פעילה – יועבר ל{leadMeta.pendingTransfer.to ?? "נציג אחר"} בסיום השיחה</div>}
-                  <div><span>ניסיונות חיוג</span><AttemptsCell count={leadMeta.attempts} lastAt={leadMeta.lastAttemptAt} tz={leadMeta.timezone} onOpen={() => setLeadModal("attempts")} /></div>
+                  <div><span>ניסיונות חיוג</span><AttemptsCell limit={leadMeta.attemptLimit} count={leadMeta.attempts} lastAt={leadMeta.lastAttemptAt} tz={leadMeta.timezone} onOpen={() => setLeadModal("attempts")} /></div>
                   <div><span>ניסיון אחרון</span><b dir="ltr">{leadMeta.lastAttemptAt ? fmtBiz(leadMeta.timezone, leadMeta.lastAttemptAt) : "—"}</b></div>
                   <div><span>פולואפ</span><FollowUpBadge followUp={leadMeta.followUp} needsSchedule={leadMeta.needsSchedule} tz={leadMeta.timezone} onClick={() => setLeadModal("followup")} /><button className="lead-link" onClick={() => setLeadModal("followup")}>{leadMeta.followUp ? "ערוך" : "קבע פולואפ"}</button></div>
                 </div>}

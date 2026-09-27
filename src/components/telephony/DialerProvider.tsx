@@ -10,6 +10,7 @@
  *  - Drives the power-dialer loop: outcome saved → countdown → next lead → dial.
  *  - Enforces single-tab ownership of a session.
  */
+import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { api, ApiClientError } from "@/lib/client/api";
@@ -94,6 +95,11 @@ interface Ctx {
   rejectInbound: () => Promise<void>;
   sessionSummary: SessionSummary | null;
   dismissSummary: () => void;
+  /** "No leads available right now" for this agent in the session's campaign (server-classified). */
+  emptyState: EmptyState | null;
+  refreshEmptyState: () => Promise<EmptyState | null>;
+  /** Re-check permission on the server, end the session (never during a call) and open the launcher on that campaign. */
+  switchCampaign: (listId: string) => Promise<void>;
   /** Supervisor (manager) listen / whisper. */
   supervisor: {
     monitor: MonitorDto | null;
@@ -107,6 +113,12 @@ interface Ctx {
     setVolume: (v: number) => void;
     volume: number;
   };
+}
+
+export interface EmptyState {
+  availability: { state: "available" | "waiting" | "exhausted" | "blocked"; availableNow: number; waiting: number; nextAt: string | null; reason: string | null; exhaustedCount: number; listId: string; listName: string };
+  campaigns: Array<{ id: string; name: string; availableNow: number; nextAt: string | null; state: string }>;
+  dueElsewhere: Array<{ listId: string; listName: string; n: number }>;
 }
 
 export interface SessionSummary {
@@ -146,12 +158,14 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
   const [sessionTakenOver, setSessionTakenOver] = useState(false);
   const [countdown, setCountdown] = useState<Ctx["countdown"]>(null);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
+  const [emptyState, setEmptyState] = useState<EmptyState | null>(null);
   const [monitor, setMonitor] = useState<MonitorDto | null>(null);
   const [supMedia, setSupMedia] = useState<"none" | "ringing" | "active" | "ended">("none");
   const [volume, setVolumeState] = useState(1);
   const monitorRef = useRef<MonitorDto | null>(null);
   const whisperingRef = useRef(false);
   const browserSessionId = useMemo(() => getBrowserSessionId(), []);
+  const router = useRouter();
 
   // ── Phone (WebRTC) state ─────────────────────────────────────────────
   const connectionGeneration = useRef(0);
@@ -506,6 +520,8 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     try {
       const lead = await api.post<LeadDto | null>("/api/dialer/next-lead", { sessionId: s.session.id, browserSessionId });
       await refresh();
+      if (lead) setEmptyState(null);
+      else setEmptyState(await api.get<EmptyState>("/api/dialer/empty-state").catch(() => null));
       return lead;
     } catch (err) {
       const e = handleErr(err, "שגיאה במשיכת ליד");
@@ -517,35 +533,36 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     }
   }, [browserSessionId, handleErr, refresh]);
 
+  const refreshEmptyState = useCallback(async () => {
+    const r = await api.get<EmptyState>("/api/dialer/empty-state").catch(() => null);
+    setEmptyState(r && r.availability.state !== "available" ? r : null);
+    return r;
+  }, []);
+  const switchCampaign = useCallback(async (listId: string) => {
+    setBusy("switch");
+    try {
+      await api.post("/api/dialer/campaigns/switch", { listId, browserSessionId });
+      setEmptyState(null);
+      await refresh();
+      router.push(`/dialer?listId=${encodeURIComponent(listId)}`);
+    } catch (err) { handleErr(err, "לא ניתן לעבור לקמפיין"); } finally { setBusy(null); }
+  }, [browserSessionId, handleErr, refresh, router]);
+
   /** Power loop step: pull the next lead and dial it. */
   const advancePower = useCallback(async () => {
     const s = stateRef.current;
     if (!s?.session || s.session.mode !== "power" || s.session.status !== "active") return;
     const lead = s.lead && s.lead.status === "locked" ? s.lead : await nextLead();
     if (!lead) {
-      // Nothing due. If the list is truly exhausted (nothing waiting for a retry window either) end the session with a real summary.
-      const q = stateRef.current?.queue;
-      const nothingLater = !q || (q.total > 0 && q.dueIgnoringWindow === 0 && (q.unavailable?.notDueYet ?? 0) === 0 && !q.unavailable?.outsideDialWindow && (q.unavailable?.inProgress ?? 0) === 0);
-      if (nothingLater && s.session) {
-        try {
-          const sum = await api.get<SessionSummary>(`/api/dialer/session/summary?sessionId=${s.session.id}`);
-          await api.delete("/api/dialer/session", { sessionId: s.session.id, browserSessionId });
-          await refresh();
-          setSessionSummary({ ...sum, reason: "list_empty" });
-        } catch (err) {
-          handleErr(err);
-        }
-        return;
-      }
-      toast.info(q?.unavailable?.outsideDialWindow ? "מחוץ לחלון החיוג של הרשימה – בודק שוב בעוד 30 שניות" : "אין לידים זמינים כרגע – בודק שוב בעוד 30 שניות");
+      // Nothing dialable now: the dialer STOPS in "אין לידים זמינים כרגע" (see emptyState – exhausted / waiting /
+      // blocked). It never re-dials just to use up attempts and never moves the agent to another campaign by itself.
       if (emptyQueueRetry.current) clearTimeout(emptyQueueRetry.current);
-      emptyQueueRetry.current = setTimeout(() => advancePowerRef.current(), 30000);
       return;
     }
     const latest = stateRef.current;
     if (!latest?.session || latest.session.status !== "active" || latest.session.ownedByThisTab === false || latest.activeCall || latest.wrapUpCall) return;
     await dial({ mode: "power", leadId: lead.id, lockToken: lead.lockToken ?? undefined });
-  }, [dial, nextLead, browserSessionId, handleErr, refresh]);
+  }, [dial, nextLead]);
   useEffect(() => {
     advancePowerRef.current = advancePower;
   }, [advancePower]);
@@ -898,6 +915,9 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     acceptInbound,
     rejectInbound,
     sessionSummary,
+    emptyState,
+    refreshEmptyState,
+    switchCampaign,
     dismissSummary: () => setSessionSummary(null),
     supervisor: { monitor, media: supMedia, start: supStart, stop: supStop, whisperOn: supWhisperOn, whisperOff: supWhisperOff, refresh: supRefresh, setVolume, volume },
   };

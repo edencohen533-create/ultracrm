@@ -14,6 +14,9 @@ export const GET = withAuth(async ({ user, params }) => {
     include: { agents: { include: { user: { select: { id: true, fullName: true } } } }, script: { select: { id: true, title: true } } },
   });
   if (!list) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
+  // Agents: only campaigns open to them (all agents, or they were selected) – and never another agent's personal list.
+  const owner = (list.filterJson as { leadOwnerUserId?: string } | null)?.leadOwnerUserId;
+  if (user.role === "agent" && ((list.agents.length && !list.agents.some((a) => a.userId === user.id)) || (owner && owner !== user.id))) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
   return ok({ ...list, stats: await listQueueStats(list.id) });
 }, { module: "telephony" });
 
@@ -23,6 +26,7 @@ const patchSchema = z.object({
   isActive: z.boolean().optional(),
   priority: z.number().int().min(0).max(100).optional(),
   maxAttempts: z.number().int().min(1).max(20).nullable().optional(),
+  unansweredLimit: z.number().int().min(0).max(50).nullable().optional(),
   retryIntervalMinutes: z.number().int().min(1).max(10080).nullable().optional(),
   dialWindow: z.object({ start: z.string(), end: z.string(), days: z.array(z.number().int()), timezone: z.string().optional() }).nullable().optional(),
   scriptId: z.string().nullable().optional(),
@@ -45,6 +49,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
       ...(b.isActive !== undefined ? { isActive: b.isActive } : {}),
       ...(b.priority !== undefined ? { priority: b.priority } : {}),
       ...(b.maxAttempts !== undefined ? { maxAttempts: b.maxAttempts } : {}),
+      ...(b.unansweredLimit !== undefined ? { unansweredLimit: b.unansweredLimit } : {}),
       ...(b.retryIntervalMinutes !== undefined ? { retryIntervalMinutes: b.retryIntervalMinutes } : {}),
       ...(b.dialWindow !== undefined ? { dialWindowJson: b.dialWindow === null ? undefined : (b.dialWindow as Prisma.InputJsonValue) } : {}),
       ...(b.scriptId !== undefined ? { scriptId: b.scriptId } : {}),

@@ -201,6 +201,16 @@ const messageReceived: EventHandler = {
   },
 };
 
+/** "No leads available" for an agent in a campaign → managers who may see the agent (deduped per emptying). */
+const dialerQueueEmpty: EventHandler = {
+  name: "dialer.queue-empty-alert",
+  types: ["dialer.queue_empty"],
+  async run(event) {
+    const { notifyQueueEmpty } = await import("@/lib/dialer/exhaustion");
+    return await notifyQueueEmpty(event.businessId, payload<{ alertId: string }>(event).alertId);
+  },
+};
+
 /** Customer-service AI (off by default; per channel, hours and limits; skips conversations handled by a human). */
 const aiService: EventHandler = {
   name: "ai.service-agent",
@@ -278,4 +288,4 @@ const webhooks: EventHandler = {
   run: async (event) => { const { enqueueWebhookDeliveries } = await import("@/server/services/integrations"); return enqueueWebhookDeliveries(event); },
 };
 
-export const HANDLERS: EventHandler[] = [coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, suppressed, taskCreated, sequences, webhooks];
+export const HANDLERS: EventHandler[] = [coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, dialerQueueEmpty, suppressed, taskCreated, sequences, webhooks];

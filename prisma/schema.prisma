@@ -398,6 +398,7 @@ model Business {
   aiConversations        AiConversation[]
   aiActions              AiAction[]
   aiIncidents            AiIncident[]
+  dialerQueueAlerts      DialerQueueAlert[]
   knowledgeSources       KnowledgeSource[]
 
   @@map("businesses")
@@ -661,6 +662,8 @@ model Lead {
   /// Set when the lead was converted into a deal.
   dealId      String?    @map("deal_id")
   closedAt    DateTime?  @map("closed_at")
+  /// Why the lead was closed automatically (e.g. "מוצו ניסיונות חיוג").
+  closeReason String?    @map("close_reason")
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
@@ -927,6 +930,8 @@ model DialList {
   /// Saved CRM filter used to build/refresh this list (source, city, owner, createdAfter …)
   filterJson           Json?     @map("filter_json")
   maxAttempts          Int?      @map("max_attempts")
+  /// Unanswered real dial attempts before the lead moves to "unqualified" (null = agent/business setting, 0 = off).
+  unansweredLimit      Int?      @map("unanswered_limit")
   retryIntervalMinutes Int?      @map("retry_interval_minutes")
   /// {start:"09:00", end:"20:00", days:[0,1,2,3,4], timezone:"Asia/Jerusalem"}
   dialWindowJson       Json?     @map("dial_window_json")
@@ -2474,4 +2479,28 @@ model KnowledgeChunk {
   @@index([tsv], type: Gin, map: "knowledge_chunks_tsv_idx")
   /// NOTE: tsv is a GENERATED column; `prisma migrate diff` reports a spurious "DROP DEFAULT" for it – never apply that line.
   @@map("knowledge_chunks")
+}
+
+/// "No leads available right now" for one agent in one dial list. One OPEN row (closedAt null) per agent+list =
+/// the dedupe state for the manager alert: a new alert is possible only after work came back (row closed).
+model DialerQueueAlert {
+  id             String    @id @default(cuid())
+  businessId     String    @map("business_id")
+  userId         String    @map("user_id")
+  listId         String    @map("list_id")
+  /// exhausted | waiting
+  state          String
+  exhaustedCount Int       @default(0) @map("exhausted_count")
+  nextAt         DateTime? @map("next_at")
+  openedAt       DateTime  @default(now()) @map("opened_at")
+  closedAt       DateTime? @map("closed_at")
+  notifiedAt     DateTime? @map("notified_at")
+  /// [{ to, status, detail }]
+  delivery       Json      @default("[]")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, closedAt, openedAt])
+  @@index([listId, userId, closedAt])
+  @@map("dialer_queue_alerts")
 }

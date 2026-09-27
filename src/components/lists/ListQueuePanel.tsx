@@ -3,12 +3,13 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { LeadsWorkspace } from "@/components/leads/LeadsWorkspace";
 import { toast } from "sonner";
+import { ExhaustionPreview } from "@/components/dialer/ExhaustionPreview";
 import { api, qs } from "@/lib/client/api";
 import { Badge, Button, Input, Modal, Phone, Select, Spinner, Stat } from "@/components/ui";
 import { LEAD_STATUS_LABEL, formatDateTime, formatPhone } from "@/lib/client/format";
 import { OUTCOMES } from "@/lib/outcomes";
 
-interface ListFull { id: string; name: string; description: string | null; isActive: boolean; isPaused: boolean; isDynamic: boolean; archivedAt: string | null; lastRefreshedAt: string | null; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null; dialWindowJson: { start: string; end: string; days: number[] } | null; agents: Array<{ user: { id: string; fullName: string } }>; stats: { byStatus: Record<string, number>; dueNow: number; total: number; unavailable: { notDueYet: number; inProgress: number; exhausted: number; completed: number; dnc: number; removed: number; outsideDialWindow: boolean; listPaused: boolean; listInactive: boolean } } }
+interface ListFull { id: string; name: string; unansweredLimit?: number | null; description: string | null; isActive: boolean; isPaused: boolean; isDynamic: boolean; archivedAt: string | null; lastRefreshedAt: string | null; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null; dialWindowJson: { start: string; end: string; days: number[] } | null; agents: Array<{ user: { id: string; fullName: string } }>; stats: { byStatus: Record<string, number>; dueNow: number; total: number; unavailable: { notDueYet: number; inProgress: number; exhausted: number; completed: number; dnc: number; removed: number; outsideDialWindow: boolean; listPaused: boolean; listInactive: boolean } } }
 interface LeadRow { id: string; status: string; attempts: number; priority: number; lastAttemptAt: string | null; nextAttemptAt: string | null; lastOutcome: string | null; lastSkipReason: string | null; contact: { id: string; fullName: string; phoneE164: string; source: string | null }; lockedBy: { fullName: string } | null }
 
 /**
@@ -30,6 +31,9 @@ export function ListQueuePanel({ id }: { id: string }) {
   const [users, setUsers] = useState<Array<{ id: string; fullName: string; role: string }>>([]);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [agentIds, setAgentIds] = useState<string[]>([]);
+  const [agentMode, setAgentMode] = useState<"all" | "selected">("all");
+  const [limitOpen, setLimitOpen] = useState(false);
+  const [limitDraft, setLimitDraft] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -38,6 +42,8 @@ export function ListQueuePanel({ id }: { id: string }) {
       setRows(r.items);
       setTotal(r.total);
       setAgentIds(l.agents.map((a) => a.user.id));
+      setAgentMode(l.agents.length ? "selected" : "all");
+      setLimitDraft(l.unansweredLimit === null || l.unansweredLimit === undefined ? "" : String(l.unansweredLimit));
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -79,7 +85,7 @@ export function ListQueuePanel({ id }: { id: string }) {
     try { await api.post(`/api/queue/${leadId}/transfer`, { toUserId: toUserId.trim() ? match?.id ?? toUserId.trim() : null }); toast.success("הליד הועבר"); load(); } catch (e) { toast.error((e as Error).message); }
   }
   async function saveAgents() {
-    try { await api.put(`/api/lists/${id}/agents`, { agentIds }); setAgentsOpen(false); load(); } catch (e) { toast.error((e as Error).message); }
+    try { await api.put(`/api/lists/${id}/agents`, { mode: agentMode, agentIds: agentMode === "all" ? [] : agentIds }); toast.success(agentMode === "all" ? "הקמפיין פתוח לכל הנציגים" : `הקמפיין פתוח ל-${agentIds.length} נציגים`); setAgentsOpen(false); load(); } catch (e) { toast.error((e as Error).message); }
   }
 
   if (!list) return <div className="flex justify-center p-10"><Spinner /></div>;
@@ -100,7 +106,8 @@ export function ListQueuePanel({ id }: { id: string }) {
             <Button size="sm" variant="secondary" onClick={duplicate}>שכפל</Button>
             <Button size="sm" variant="secondary" onClick={() => patchList({ isPaused: !list.isPaused }, list.isPaused ? "החיוג ברשימה חודש" : "החיוג ברשימה הושהה")}>{list.isPaused ? "חדש חיוג" : "השהה חיוג"}</Button>
             <Button size="sm" variant="secondary" onClick={() => patchList({ archived: !list.archivedAt }, list.archivedAt ? "הוצא מארכיון" : "הועבר לארכיון")}>{list.archivedAt ? "הוצא מארכיון" : "ארכב"}</Button>
-            <Button size="sm" variant="secondary" onClick={() => setAgentsOpen(true)}>שיוך נציגים ({list.agents.length || "כולם"})</Button>
+            <Button size="sm" variant="secondary" onClick={() => setAgentsOpen(true)} data-testid="campaign-access-open">למי הקמפיין פתוח ({list.agents.length || "כולם"})</Button>
+            <Button size="sm" variant="secondary" onClick={() => setLimitOpen(true)} data-testid="campaign-limit-open">מכסת ניסיונות ללא מענה ({list.unansweredLimit === null || list.unansweredLimit === undefined ? "לפי העסק" : list.unansweredLimit || "כבוי"})</Button>
             <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>+ הוסף לידים מסינון</Button>
             <Button size="sm" variant={list.isActive ? "danger" : "good"} onClick={toggleActive}>{list.isActive ? "השבת רשימה" : "הפעל רשימה"}</Button>
           </div>
@@ -182,13 +189,28 @@ export function ListQueuePanel({ id }: { id: string }) {
           <p className="text-xs text-muted">אנשי קשר שכבר ברשימה, ומספרים חסומים, לא יתווספו.</p>
         </div>
       </Modal>
-      <Modal open={agentsOpen} onClose={() => setAgentsOpen(false)} title="שיוך נציגים לרשימה" footer={<><Button variant="ghost" onClick={() => setAgentsOpen(false)}>ביטול</Button><Button onClick={saveAgents}>שמור</Button></>}>
-        <div className="flex flex-wrap gap-1.5">
-          {users.filter((u) => u.role !== "owner").map((u) => (
-            <button key={u.id} type="button" onClick={() => setAgentIds(agentIds.includes(u.id) ? agentIds.filter((x) => x !== u.id) : [...agentIds, u.id])} className={`h-8 px-3 rounded-md text-xs ${agentIds.includes(u.id) ? "bg-accent text-white" : "bg-white/6 text-muted"}`}>{u.fullName}</button>
-          ))}
+      <Modal open={agentsOpen} onClose={() => setAgentsOpen(false)} title="למי הקמפיין פתוח" footer={<><Button variant="ghost" onClick={() => setAgentsOpen(false)}>ביטול</Button><Button onClick={saveAgents} disabled={agentMode === "selected" && !agentIds.length} data-testid="campaign-access-save">שמור</Button></>}>
+        <div className="space-y-2 text-sm" data-testid="campaign-access">
+          <label className="flex items-center gap-2"><input type="radio" name="access" checked={agentMode === "all"} onChange={() => setAgentMode("all")} data-testid="campaign-access-all" /> כל הנציגים בעסק</label>
+          <label className="flex items-center gap-2"><input type="radio" name="access" checked={agentMode === "selected"} onChange={() => setAgentMode("selected")} data-testid="campaign-access-selected" /> נציגים מסוימים</label>
+          {agentMode === "selected" && <div className="flex flex-wrap gap-1.5 ps-6">
+            {users.filter((u) => u.role !== "owner").map((u) => (
+              <button key={u.id} type="button" data-testid={`campaign-agent-${u.id}`} aria-pressed={agentIds.includes(u.id)} onClick={() => setAgentIds(agentIds.includes(u.id) ? agentIds.filter((x) => x !== u.id) : [...agentIds, u.id])} className={`h-8 px-3 rounded-md text-xs ${agentIds.includes(u.id) ? "bg-accent text-white" : "bg-white/6 text-muted"}`}>{u.fullName}</button>
+            ))}
+          </div>}
+          {agentMode === "selected" && !agentIds.length && <p className="text-xs text-bad">יש לבחור לפחות נציג אחד.</p>}
+          <p className="text-xs text-muted">ההרשאה נאכפת בשרת בהצגת הקמפיינים, בספירת הלידים, בכניסה לקמפיין ובהפעלת החייגן. היא אינה נותנת גישה ללידים פרטיים של נציגים אחרים.</p>
         </div>
-        <p className="text-xs text-muted mt-2">ללא שיוך – כל הנציגים יכולים לעבוד על הרשימה.</p>
+      </Modal>
+      <Modal open={limitOpen} onClose={() => setLimitOpen(false)} title="מכסת ניסיונות ללא מענה בקמפיין" footer={<><Button variant="ghost" onClick={() => setLimitOpen(false)}>סגור</Button><Button data-testid="campaign-limit-save" onClick={async () => { await patchList({ unansweredLimit: limitDraft === "" ? null : Number(limitDraft) }, "המכסה נשמרה"); setLimitOpen(false); }}>שמור</Button></>}>
+        <div className="space-y-3 text-sm">
+          <Select label="מספר ניסיונות חיוג ללא מענה לפני העברה ללא רלוונטי" value={limitDraft} onChange={(e) => setLimitDraft(e.target.value)} data-testid="campaign-limit">
+            <option value="">לפי הגדרת העסק</option><option value="0">כבוי בקמפיין הזה</option>
+            {Array.from({ length: 30 }, (_, i) => <option key={i} value={i + 1}>{i + 1}</option>)}
+          </Select>
+          <p className="text-xs text-muted">נציג שהגדיר מכסה אישית – המכסה האישית קובעת. נספרים רק חיוגים שיצאו בפועל.</p>
+          <ExhaustionPreview listId={id} />
+        </div>
       </Modal>
     </div>
   );

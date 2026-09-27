@@ -45,14 +45,14 @@ const ATTEMPT_LEAD = Prisma.sql`JOIN LATERAL (
 const IS_ATTEMPT = Prisma.sql`cl.direction = 'outbound' AND cl.lead_dialed_at IS NOT NULL`;
 
 export async function attemptStats(businessId: string, contactIds: string[], db: Db = prisma) {
-  const out = new Map<string, { count: number; lastAt: Date | null }>();
+  const out = new Map<string, { count: number; lastAt: Date | null; answered: number }>();
   if (!contactIds.length) return out;
-  const rows = await db.$queryRaw<Array<{ leadId: string; n: number; lastAt: Date | null }>>(Prisma.sql`
-    SELECT x.lead_id AS "leadId", count(*)::int AS n, max(cl.created_at) AS "lastAt"
+  const rows = await db.$queryRaw<Array<{ leadId: string; n: number; lastAt: Date | null; answered: number }>>(Prisma.sql`
+    SELECT x.lead_id AS "leadId", count(*)::int AS n, max(cl.created_at) AS "lastAt", count(cl.answered_at)::int AS answered
     FROM ${T("calls")} cl ${ATTEMPT_LEAD}
     WHERE cl.business_id = ${businessId} AND ${IS_ATTEMPT} AND cl.contact_id = ANY(${[...new Set(contactIds)]})
     GROUP BY x.lead_id`);
-  for (const r of rows) out.set(r.leadId, { count: r.n, lastAt: r.lastAt });
+  for (const r of rows) out.set(r.leadId, { count: r.n, lastAt: r.lastAt, answered: r.answered });
   return out;
 }
 

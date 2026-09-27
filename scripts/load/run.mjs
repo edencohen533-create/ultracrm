@@ -174,7 +174,7 @@ const peak = { liveCalls: 0 }; const peakTimer = setInterval(() => { const s = s
 await Promise.all(tasks); clearInterval(peakTimer);
 
 const all = [...lat.values()].flat(); const totalErr = [...errs.values()].reduce((n, v) => n + v.length, 0);
-const endpoints = [...lat.entries()].map(([k, v]) => ({ endpoint: k, n: v.length, p50: pct(v, 50), p95: pct(v, 95), p99: pct(v, 99), max: Math.round(Math.max(...v)), errors: errs.get(k)?.length ?? 0, errorKinds: [...new Set(errs.get(k) ?? [])].slice(0, 4), expected4xx: expected.get(k)?.length ?? 0 })).sort((a, b) => b.n - a.n);
+const endpoints = [...lat.entries()].map(([k, v]) => ({ endpoint: k, n: v.length, p50: pct(v, 50), p95: pct(v, 95), p99: pct(v, 99), max: Math.round(v.reduce((m, x) => (x > m ? x : m), 0)), errors: errs.get(k)?.length ?? 0, errorKinds: [...new Set(errs.get(k) ?? [])].slice(0, 4), expected4xx: expected.get(k)?.length ?? 0 })).sort((a, b) => b.n - a.n);
 const crmNames = ["GET leads", "POST note", "PATCH lead status", "GET state", "POST next-lead", "POST outcome", "GET manager live", "POST personal-list", "POST session", "POST heartbeat"];
 const crm = crmNames.flatMap((k) => lat.get(k) ?? []);
 const summary = {

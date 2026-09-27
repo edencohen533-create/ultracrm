@@ -115,6 +115,9 @@ it("callback assignment is enforced by the outcome service", async () => {
   expect(updated.preferredUserId).toBe(peer.id); expect(updated.followUpAttempts).toBe(0);
 });
 it("manager can only change settings for their visible team", async () => {
+  // Team-scoped managers (settings → הרשאות); since round 10 the default scope is the whole business.
+  const biz = await db.business.findUniqueOrThrow({ where: { id: a.business.id } });
+  await db.business.update({ where: { id: a.business.id }, data: { settings: { ...(biz.settings as object), permissions: { managerScope: "team" } } as object } });
   const manager = { ...peer, role: "manager" as const, teamId: null };
   await expect(run(() => saveAgentSettings(manager, agent.id, prefs()), manager)).rejects.toMatchObject({ status: 403 });
   await run(() => saveAgentSettings({ ...manager, teamId: agent.teamId }, agent.id, prefs({ rotateAfter: 7 })), { ...manager, teamId: agent.teamId });

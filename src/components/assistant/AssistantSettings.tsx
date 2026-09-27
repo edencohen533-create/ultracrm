@@ -42,7 +42,7 @@ export function AssistantSettings({ isOwner }: { isOwner: boolean }) {
         <p className="text-sm text-muted mb-3">שאלו בוואטסאפ בעברית חופשית (&quot;איך הולך היום?&quot;, &quot;כמה דנה מכרה השבוע?&quot;) וקבלו נתונים אמיתיים מה-CRM. העוזר קורא בלבד – הוא לא משנה לידים, לא מחייג ולא שולח הודעות ללקוחות.</p>
         <div className="grid sm:grid-cols-3 gap-3 text-sm">
           <div className="rounded-lg border border-line p-3" data-testid="assistant-connection"><div className="text-xs text-muted mb-1">חיבור WhatsApp</div>
-            {data.connection ? <><Badge tone={data.connection.simulated ? "warn" : "good"} dot>{data.connection.simulated ? "מצב דמו (סימולציה)" : "מחובר"}</Badge><div className="mt-1 ltr text-start">{data.connection.phone ?? ""}</div></> : <Badge tone="bad" dot>לא מחובר – חברו WhatsApp בלשונית &quot;חיבורים&quot;</Badge>}</div>
+            {data.connection ? <><Badge tone={data.connection.simulated ? "warn" : "good"} dot>{data.connection.simulated ? "מצב דמו (סימולציה) – אין חיבור WhatsApp אמיתי" : "מחובר"}</Badge><div className="mt-1 ltr text-start">{data.connection.phone ?? ""}</div></> : <Badge tone="bad" dot>לא מחובר – חברו WhatsApp בלשונית &quot;חיבורים&quot;</Badge>}</div>
           <div className="rounded-lg border border-line p-3"><div className="text-xs text-muted mb-1">מנוע</div><Badge tone={data.mode === "llm" ? "good" : "neutral"}>{data.mode === "llm" ? "AI (שפה חופשית)" : "בסיסי (זיהוי שאלות נפוצות)"}</Badge></div>
           <div className="rounded-lg border border-line p-3"><div className="text-xs text-muted mb-1">אזור זמן העסק</div><div className="ltr text-start">{data.timezone}</div></div>
         </div>

@@ -20,7 +20,8 @@ export const GET = withAuth(async ({ user }) => {
     user.role === "owner" ? prisma.user.findMany({ where: { businessId: user.businessId, isActive: true }, orderBy: { fullName: "asc" }, select: { id: true, fullName: true, role: true } }) : Promise.resolve([]),
   ]);
   return ok({
-    connection: cred ? { provider: cred.provider, simulated: cred.provider === "mock", phone: cred.displayPhoneNumber, name: cred.verifiedName } : null,
+    // No credential = the platform falls back to the mock provider (demo mode), exactly like the inbox.
+    connection: cred ? { provider: cred.provider, simulated: cred.provider === "mock", phone: cred.displayPhoneNumber, name: cred.verifiedName } : { provider: "mock", simulated: true, phone: null, name: null },
     mode: assistantMode(), timezone: s.timezone, settings: s.assistant, canEditSettings: user.role === "owner",
     links: links.map(linkView), templates, users,
   });

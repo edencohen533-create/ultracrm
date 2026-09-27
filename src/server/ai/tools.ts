@@ -98,7 +98,7 @@ export async function runAiTool(ctx: AiCtx, name: string, args: Json): Promise<T
       case "find_user": return { ok: true, result: { matches: (await findUsers(ctx.user, String(args.name ?? ""))).map((u) => ({ userId: u.id, name: u.fullName, role: u.role })) }, ms: Date.now() - t0 };
       case "search_knowledge": {
         const hits = await searchKnowledge(ctx.user.businessId, String(args.query ?? ""), { audience: "internal", limit: 4 });
-        return { ok: true, result: hits.length ? { sources: hits.map((h) => ({ title: h.title, category: h.category, text: h.text })) } : { sources: [], note: "לא נמצא ידע מאושר מתאים" }, ms: Date.now() - t0 };
+        return { ok: true, result: hits.length ? { sources: hits.map((h) => ({ title: h.title, category: h.category, type: h.kind === "conversation" ? (h.learnMode === "style" ? "style_example" : "conversation_example") : "policy", text: h.text })) } : { sources: [], note: "לא נמצא ידע מאושר מתאים" }, ms: Date.now() - t0 };
       }
       case "create_task": {
         const lead = await visibleLead(ctx.user, String(args.leadId));

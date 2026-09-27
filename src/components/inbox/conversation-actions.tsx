@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle } from "lucide-react";
+import { LearnFromConversation } from "./LearnFromConversation";
 
 const STATUS_OPTIONS = [
   { value: "OPEN", label: "פתוח" },
@@ -123,6 +124,7 @@ export function ConversationActions({
       </Select>
 
       <div className="flex-1" />
+      <LearnFromConversation conversationId={conversationId} />
 
       <Button variant={isSpam ? "destructive" : "ghost"} size="sm" onClick={toggleSpam} disabled={isPending}>
         <AlertTriangle className="h-4 w-4" /> {isSpam ? "מסומן כספאם" : "סמן כספאם"}

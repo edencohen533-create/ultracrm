@@ -473,6 +473,13 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
     // The follow-up that was due gets its result recorded (moved to the retry time, closed, or replaced by the new callback).
     if (call.contactId) await afterFollowUpAttempt(tx, { businessId: user.businessId, userId: user.id, callId: call.id, contactId: call.contactId, listLeadId: call.leadId, outcome: input.outcome, retry: Boolean(def.retry) && !def.addsToDnc, callbackTaskCreated: Boolean(def.requiresCallbackTime) });
 
+    // Unanswered-attempt quota (agent → campaign → business setting): an unanswered lead without a future follow-up
+    // moves to "לא רלוונטי" and leaves the dial queues. Never for answered calls, follow-ups, qualified or closed leads.
+    if (call.contactId && def.retry && !def.addsToDnc && !call.answeredAt) {
+      const { exhaustLeadIfNeeded } = await import("@/lib/dialer/exhaustion");
+      await exhaustLeadIfNeeded(tx, { businessId: user.businessId, userId: user.id, listId: call.listId, contactId: call.contactId });
+    }
+
     // Automation: a sale closes the contact's pending leads in every other list of the business.
     if (def.isSale && call.contactId) {
       const settings = await getBusinessSettings(user.businessId, tx);

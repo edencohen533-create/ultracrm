@@ -8,11 +8,12 @@ import { formatDateTime, formatPhone } from "@/lib/client/format";
 import { CoachAdmin } from "@/components/coach/CoachAdmin";
 import { AssistantSettings } from "@/components/assistant/AssistantSettings";
 import { PermissionsTab } from "@/components/settings/PermissionsTab";
+import { ExhaustionPreview } from "@/components/dialer/ExhaustionPreview";
 
 type Tab = "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "coach" | "assistant" | "permissions";
 interface Prio { callbackDue: number; priority: number; newLeadPerHour: number; newLeadMaxHours: number; agingPerHour: number; agingMaxHours: number; attemptPenalty: number; ownerMatch: number; sourceWeights: Record<string, number>; interestedBefore: number }
 interface Automations { newLeadTaskMinutes: number; followUpTaskOutcomes: string[]; followUpTaskHours: number; followUpMessage: { enabled: boolean; templateId: string | null; outcomes: string[]; variables: Record<string, string> } }
-interface Settings { automations: Automations; wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; retryIntervalMinutes: number; busyRetryMinutes: number; technicalFailureRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; recordingRetentionDays: number; amdEnabled: boolean; stickyOwner: boolean; removeFromOtherListsOnSale: boolean; dialingPaused: boolean; allowedCountries: string[]; maxDialsPerMinute: number; dialWindow: { start: string; end: string; days: number[] }; prioritization: Prio; inbound: { preferOwner: boolean; createCallbackTask: boolean; respectDialWindow: boolean } }
+interface Settings { automations: Automations; wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; unansweredToIrrelevant: number; retryIntervalMinutes: number; busyRetryMinutes: number; technicalFailureRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; recordingRetentionDays: number; amdEnabled: boolean; stickyOwner: boolean; removeFromOtherListsOnSale: boolean; dialingPaused: boolean; allowedCountries: string[]; maxDialsPerMinute: number; dialWindow: { start: string; end: string; days: number[] }; prioritization: Prio; inbound: { preferOwner: boolean; createCallbackTask: boolean; respectDialWindow: boolean } }
 interface Tel { provider: string; simulation: boolean; requested: string; telnyx: { configured: boolean; missing: string[] } }
 
 export default function SettingsPage() {
@@ -74,6 +75,7 @@ function GeneralTab({ isAdmin }: { isAdmin: boolean }) {
         {num("autoDialCountdownSeconds", "ספירה לאחור בין שיחות (שנ׳)", "בתותח שיחות, אחרי שמירת תוצאה")}
         {num("wrapUpSeconds", "זמן תיעוד (שנ׳)", "משפיע על הארכת נעילת הליד אחרי שיחה")}
         {num("maxAttempts", "מקס׳ ניסיונות לליד")}
+        {num("unansweredToIrrelevant", "מספר ניסיונות חיוג ללא מענה לפני העברה ללא רלוונטי", "0 = כבוי. נספרים רק חיוגים שיצאו בפועל; ליד שנענה או שיש לו פולואפ עתידי לא יועבר. קמפיין או נציג יכולים לדרוס")}
         {num("retryIntervalMinutes", "מרווח לניסיון חוזר – אין מענה (דק׳)")}
         {num("busyRetryMinutes", "מרווח לניסיון חוזר – תפוס (דק׳)")}
         {num("ringTimeoutSeconds", "זמן צלצול מקסימלי (שנ׳)")}
@@ -93,6 +95,7 @@ function GeneralTab({ isAdmin }: { isAdmin: boolean }) {
           </div>
         </div>
         <label className="flex items-center gap-2 text-sm md:col-span-3"><input type="checkbox" checked={s.recordingEnabled} disabled={!isAdmin} onChange={(e) => setS({ ...s, recordingEnabled: e.target.checked })} /> הקלטת שיחות (מרגע המענה, דו-ערוצי)</label>
+        {isAdmin && <div className="md:col-span-3"><ExhaustionPreview /></div>}
         <Textarea label="מדיניות הודעה למתקשר על הקלטה" rows={2} value={s.recordingAnnouncement} disabled={!isAdmin} onChange={(e) => setS({ ...s, recordingAnnouncement: e.target.value })} className="md:col-span-3" />
       </div>
     </Panel>

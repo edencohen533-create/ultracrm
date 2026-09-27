@@ -36,7 +36,8 @@ export type DomainEventType =
   | "message.delivery_failed"
   | "sequence.step_sent"
   | "task.created"
-  | "cart.abandoned";
+  | "cart.abandoned"
+  | "dialer.queue_empty";
 
 export type EventSource = "user" | "system" | "automation" | "webhook" | "import";
 

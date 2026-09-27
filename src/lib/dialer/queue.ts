@@ -52,6 +52,73 @@ export async function currentLockedLead(userId: string, db: Prisma.TransactionCl
   });
 }
 
+const QT = (t: string) => Prisma.raw(`"${dbSchema()}"."${t}"`);
+
+export interface QueueParams { businessId: string; userId: string; listId: string; personal: Awaited<ReturnType<typeof getAgentSettings>>; maxAttempts: number; newMax: number; followMax: number; dayStart: Date }
+
+/** Everything the eligibility filter needs for one agent in one list (list/business/agent attempt caps). */
+export async function queueParams(businessId: string, userId: string, listId: string, db: Prisma.TransactionClient = prisma): Promise<QueueParams> {
+  const settings = await getBusinessSettings(businessId, db);
+  const personal = await getAgentSettings(businessId, userId, db);
+  const list = await db.dialList.findUniqueOrThrow({ where: { id: listId }, select: { maxAttempts: true } });
+  const maxAttempts = list.maxAttempts ?? settings.maxAttempts;
+  return {
+    businessId, userId, listId, personal, maxAttempts,
+    newMax: personal ? Math.min(maxAttempts, retryRule(personal, false, 0).maxAttempts) : maxAttempts,
+    followMax: personal ? Math.min(maxAttempts, retryRule(personal, true, 0).maxAttempts) : maxAttempts,
+    dayStart: businessDayStart(settings.timezone),
+  };
+}
+
+/**
+ * The single definition of "a queue row this agent may dial" (used by the claim AND by the availability counts, so
+ * they can never disagree). `timeAware: false` drops only the time conditions (retry interval, future follow-up,
+ * today's unanswered cap) – what is left is work that WILL be dialable later ("waiting").
+ * Expects the aliases `l` (list_leads) and `c` (contacts).
+ */
+export function queueFilter(q: QueueParams, opts: { timeAware: boolean }) {
+  const { businessId, userId, listId, personal, maxAttempts, newMax, followMax, dayStart } = q;
+  const E = Prisma.raw(`"${dbSchema()}"."QueueLeadStatus"`);
+  const OPEN_LEADS = Prisma.sql`('new', 'contacted', 'follow_up', 'qualified')`;
+  const time = opts.timeAware ? Prisma.sql`
+          AND (${personal === null} OR (SELECT count(*) FROM ${QT("calls")} dc WHERE dc.business_id = ${businessId}
+            AND dc.to_e164 = c.phone_e164 AND dc.direction = 'outbound' AND dc.mode <> 'manual'
+            AND dc.created_at >= ${dayStart} AND dc.answered_at IS NULL AND dc.telephony_result IN ('no_answer','busy','rejected')) < ${personal?.maxDailyUnanswered ?? 20})
+          AND (l.next_attempt_at IS NULL OR l.next_attempt_at <= timezone('UTC', now()))
+          -- Follow-ups: never before their time.
+          AND NOT EXISTS (SELECT 1 FROM ${QT("tasks")} ft WHERE ft.business_id = l.business_id AND ft.contact_id = l.contact_id AND ft.status = 'open' AND ft.type = 'callback' AND ft.due_at > timezone('UTC', now()))` : Prisma.empty;
+  return Prisma.sql`l.list_id = ${listId}
+          AND l.business_id = ${businessId}
+          AND (
+            l.status IN ('pending'::${E}, 'callback'::${E})
+            OR (l.status = 'locked'::${E} AND l.lock_expires_at < timezone('UTC', now()))
+          )
+          AND (${personal !== null} = false AND (l.attempts < ${maxAttempts} OR l.status = 'callback'::${E})
+            OR ${personal !== null} = true AND COALESCE(l.follow_up_attempts, l.attempts) < CASE WHEN l.follow_up_attempts IS NULL THEN ${newMax}::integer ELSE ${followMax}::integer END)
+          ${time}
+          AND NOT EXISTS (SELECT 1 FROM ${QT("calls")} active_call WHERE active_call.lead_id = l.id AND active_call.outcome_saved_at IS NULL)
+          AND (
+            l.preferred_user_id IS NULL
+            OR l.preferred_user_id = ${userId}
+            OR l.next_attempt_at < timezone('UTC', now()) - (${CALLBACK_GRACE_MINUTES} || ' minutes')::interval
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM ${QT("dnc_entries")} d WHERE d.business_id = l.business_id AND d.phone_e164 = c.phone_e164
+          )
+          -- CRM ownership: a contact with open leads is dialed only by the owner of one of them (unassigned leads are
+          -- never auto-dialed; a transferred lead leaves the previous agent's queue at once).
+          AND (
+            NOT EXISTS (SELECT 1 FROM ${QT("leads")} ol WHERE ol.business_id = l.business_id AND ol.contact_id = l.contact_id AND ol.status::text IN ${OPEN_LEADS})
+            OR EXISTS (SELECT 1 FROM ${QT("leads")} ol WHERE ol.business_id = l.business_id AND ol.contact_id = l.contact_id AND ol.status::text IN ${OPEN_LEADS} AND ol.owner_user_id = ${userId})
+          )
+          AND NOT EXISTS (SELECT 1 FROM ${QT("leads")} pl WHERE pl.business_id = l.business_id AND pl.contact_id = l.contact_id AND pl.pending_transfer_to_user_id IS NOT NULL)
+          -- Follow-ups without any time are never dialed.
+          AND NOT EXISTS (
+            SELECT 1 FROM ${QT("leads")} sl WHERE sl.business_id = l.business_id AND sl.contact_id = l.contact_id AND sl.status = 'follow_up'
+              AND NOT EXISTS (SELECT 1 FROM ${QT("tasks")} st WHERE st.business_id = l.business_id AND st.contact_id = l.contact_id AND st.status = 'open' AND st.type = 'callback')
+          )`;
+}
+
 /**
  * Atomically claim the next eligible lead in a list for this agent.
  * Returns null when the queue is empty. Never hands the same lead to two agents.
@@ -65,7 +132,6 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
     throw new ApiError("מחוץ לחלון החיוג של הרשימה", 409, "outside_dial_window", { nextOpening: next?.toISOString() ?? null, window });
   }
   const personal = await getAgentSettings(businessId, userId);
-  const dayStart = businessDayStart(settings.timezone);
   return prisma.$transaction(async (tx) => {
     await lockAgent(tx, userId);
     const existing = await currentLockedLead(userId, tx);
@@ -74,10 +140,7 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
       return existing;
     }
 
-    const list = await tx.dialList.findUniqueOrThrow({ where: { id: listId }, select: { maxAttempts: true } });
-    const maxAttempts = list.maxAttempts ?? settings.maxAttempts;
-    const newMax = personal ? Math.min(maxAttempts, retryRule(personal, false, 0).maxAttempts) : maxAttempts;
-    const followMax = personal ? Math.min(maxAttempts, retryRule(personal, true, 0).maxAttempts) : maxAttempts;
+    const q = await queueParams(businessId, userId, listId, tx);
     const strategy = personal?.strategy ?? "business";
     // Inside the follow-up group the earliest due time goes first (a follow-up is never dialed before it – see WHERE).
     const dueFirst = Prisma.sql`CASE WHEN l.status = 'callback' THEN l.next_attempt_at END ASC NULLS LAST`;
@@ -85,56 +148,20 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
       : strategy === "new_first" ? Prisma.sql`(l.attempts = 0 AND l.status <> 'callback') DESC, (l.status = 'callback') DESC, ${dueFirst}, l.attempts ASC, l.created_at DESC`
       : strategy === "hot" ? Prisma.sql`(l.status = 'callback') DESC, ${dueFirst}, (l.attempts = 0) DESC, l.created_at DESC`
       : Prisma.sql`(l.status = 'callback') DESC, ${dueFirst}, COALESCE(l.follow_up_attempts, l.attempts) ASC, ${strategy === "oldest" ? Prisma.sql`l.created_at ASC` : Prisma.sql`l.created_at DESC`}`;
-    const OPEN_LEADS = Prisma.sql`('new', 'contacted', 'follow_up', 'qualified')`;
     const token = crypto.randomUUID();
     const ttl = settings.lockTtlSeconds;
-    const S = dbSchema();
-    const T = (t: string) => Prisma.raw(`"${S}"."${t}"`);
-    const E = Prisma.raw(`"${S}"."QueueLeadStatus"`);
+    const E = Prisma.raw(`"${dbSchema()}"."QueueLeadStatus"`);
     const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
-      UPDATE ${T("list_leads")} SET
+      UPDATE ${QT("list_leads")} SET
         status = 'locked'::${E},
         locked_by_user_id = ${userId},
         lock_token = ${token},
         lock_expires_at = timezone('UTC', now()) + (${ttl} || ' seconds')::interval,
         updated_at = timezone('UTC', now())
       WHERE id = (
-        SELECT l.id FROM ${T("list_leads")} l
-        JOIN ${T("contacts")} c ON c.id = l.contact_id
-        WHERE l.list_id = ${listId}
-          AND l.business_id = ${businessId}
-          AND (
-            l.status IN ('pending'::${E}, 'callback'::${E})
-            OR (l.status = 'locked'::${E} AND l.lock_expires_at < timezone('UTC', now()))
-          )
-          AND (${personal !== null} = false AND (l.attempts < ${maxAttempts} OR l.status = 'callback'::${E})
-            OR ${personal !== null} = true AND COALESCE(l.follow_up_attempts, l.attempts) < CASE WHEN l.follow_up_attempts IS NULL THEN ${newMax}::integer ELSE ${followMax}::integer END)
-          AND (${personal === null} OR (SELECT count(*) FROM ${T("calls")} dc WHERE dc.business_id = ${businessId}
-            AND dc.to_e164 = c.phone_e164 AND dc.direction = 'outbound' AND dc.mode <> 'manual'
-            AND dc.created_at >= ${dayStart} AND dc.answered_at IS NULL AND dc.telephony_result IN ('no_answer','busy','rejected')) < ${personal?.maxDailyUnanswered ?? 20})
-          AND NOT EXISTS (SELECT 1 FROM ${T("calls")} active_call WHERE active_call.lead_id = l.id AND active_call.outcome_saved_at IS NULL)
-          AND (l.next_attempt_at IS NULL OR l.next_attempt_at <= timezone('UTC', now()))
-          AND (
-            l.preferred_user_id IS NULL
-            OR l.preferred_user_id = ${userId}
-            OR l.next_attempt_at < timezone('UTC', now()) - (${CALLBACK_GRACE_MINUTES} || ' minutes')::interval
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM ${T("dnc_entries")} d WHERE d.business_id = l.business_id AND d.phone_e164 = c.phone_e164
-          )
-          -- CRM ownership: a contact with open leads is dialed only by the owner of one of them (unassigned leads are
-          -- never auto-dialed; a transferred lead leaves the previous agent's queue at once).
-          AND (
-            NOT EXISTS (SELECT 1 FROM ${T("leads")} ol WHERE ol.business_id = l.business_id AND ol.contact_id = l.contact_id AND ol.status::text IN ${OPEN_LEADS})
-            OR EXISTS (SELECT 1 FROM ${T("leads")} ol WHERE ol.business_id = l.business_id AND ol.contact_id = l.contact_id AND ol.status::text IN ${OPEN_LEADS} AND ol.owner_user_id = ${userId})
-          )
-          AND NOT EXISTS (SELECT 1 FROM ${T("leads")} pl WHERE pl.business_id = l.business_id AND pl.contact_id = l.contact_id AND pl.pending_transfer_to_user_id IS NOT NULL)
-          -- Follow-ups: never before their time, and never while they have no time at all.
-          AND NOT EXISTS (SELECT 1 FROM ${T("tasks")} ft WHERE ft.business_id = l.business_id AND ft.contact_id = l.contact_id AND ft.status = 'open' AND ft.type = 'callback' AND ft.due_at > timezone('UTC', now()))
-          AND NOT EXISTS (
-            SELECT 1 FROM ${T("leads")} sl WHERE sl.business_id = l.business_id AND sl.contact_id = l.contact_id AND sl.status = 'follow_up'
-              AND NOT EXISTS (SELECT 1 FROM ${T("tasks")} st WHERE st.business_id = l.business_id AND st.contact_id = l.contact_id AND st.status = 'open' AND st.type = 'callback')
-          )
+        SELECT l.id FROM ${QT("list_leads")} l
+        JOIN ${QT("contacts")} c ON c.id = l.contact_id
+        WHERE ${queueFilter(q, { timeAware: true })}
         ORDER BY
           ${order}, l.id ASC
         LIMIT 1

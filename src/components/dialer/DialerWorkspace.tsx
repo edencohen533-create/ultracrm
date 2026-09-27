@@ -7,6 +7,8 @@ import { Badge, Button, ErrorState, Modal, Spinner } from "@/components/ui";
 import { SessionControls } from "./SessionControls";
 import { LeadQueue } from "./LeadQueue";
 import { LeadCard } from "./LeadCard";
+import { NoLeadsPanel } from "./NoLeadsPanel";
+import { DueElsewhereBanner } from "./DueElsewhereBanner";
 import { CallPanel } from "./CallPanel";
 import { OutcomePanel } from "./OutcomePanel";
 import { CoachCard } from "@/components/coach/CoachCard";
@@ -58,7 +60,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
     if (call || wrapUp || !session || session.status !== "active" || sessionTakenOver) return;
     cancelCountdown();
     const next = lead && lead.status === "locked" ? lead : await d.nextLead();
-    if (!next) { toast.info("אין כרגע לידים זמינים לחיוג בתור"); return; }
+    if (!next) return; // the "אין לידים זמינים" panel explains why (loaded by nextLead)
     await dial({ mode: session.mode ?? "manual", leadId: next.id, lockToken: next.lockToken ?? undefined });
   }, [call, wrapUp, session, sessionTakenOver, cancelCountdown, lead, d, dial]);
 
@@ -129,6 +131,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
           {error && <Badge tone="bad">אין חיבור לשרת – מנסה שוב</Badge>}
         </div>}
         <SessionControls />
+        <DueElsewhereBanner />
         {sessionTakenOver && (
           <div className="mt-2 text-xs bg-bad/10 text-bad rounded-md p-2 flex items-center justify-between">
             <span>סשן החיוג פעיל בלשונית אחרת. לשונית זו במצב צפייה בלבד.</span>
@@ -157,7 +160,8 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
               <CoachCard callId={call.id} answered={call.status === "answered"} simulation={Boolean(state?.telephony.simulation)} />
             </div>
           )}
-          <div className="flex-1 min-h-0">
+          {d.emptyState && !call && !wrapUp && !(lead && lead.status === "locked") && <NoLeadsPanel />}
+          <div className={d.emptyState && !call && !wrapUp && !(lead && lead.status === "locked") ? "hidden" : "flex-1 min-h-0"}>
             <LeadCard
               contactId={focusContactId}
               lead={lead && lead.contactId === focusContactId ? lead : null}

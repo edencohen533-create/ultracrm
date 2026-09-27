@@ -20,8 +20,9 @@ export const GET = withAuth(async ({ user }) => {
     orderBy: [{ isActive: "desc" }, { priority: "desc" }, { createdAt: "desc" }],
     include: { agents: { include: { user: { select: { id: true, fullName: true } } } }, script: { select: { id: true, title: true } }, phoneNumber: { select: { id: true, e164: true, label: true } } },
   });
-  const stats = await Promise.all(lists.map((l) => listQueueStats(l.id)));
-  return ok(lists.map((l, i) => ({ ...l, stats: stats[i] })));
+  const visible = lists.filter((l) => { const owner = (l.filterJson as { leadOwnerUserId?: string } | null)?.leadOwnerUserId; return user.role !== "agent" || !owner || owner === user.id; });
+  const stats = await Promise.all(visible.map((l) => listQueueStats(l.id)));
+  return ok(visible.map((l, i) => ({ ...l, stats: stats[i] })));
 }, { module: "telephony" });
 
 const createSchema = z.object({
@@ -29,6 +30,7 @@ const createSchema = z.object({
   description: z.string().max(500).optional(),
   priority: z.number().int().min(0).max(100).optional(),
   maxAttempts: z.number().int().min(1).max(20).nullable().optional(),
+  unansweredLimit: z.number().int().min(0).max(50).nullable().optional(),
   retryIntervalMinutes: z.number().int().min(1).max(10080).nullable().optional(),
   dialWindow: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).nullable().optional(),
   scriptId: z.string().nullable().optional(),
@@ -50,6 +52,7 @@ export const POST = withAuth(async ({ req, user }) => {
       description: b.description || null,
       priority: b.priority ?? 0,
       maxAttempts: b.maxAttempts ?? null,
+      unansweredLimit: b.unansweredLimit ?? null,
       retryIntervalMinutes: b.retryIntervalMinutes ?? null,
       dialWindowJson: (b.dialWindow as Prisma.InputJsonValue | null) ?? undefined,
       scriptId: b.scriptId ?? null,

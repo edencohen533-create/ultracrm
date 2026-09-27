@@ -4,6 +4,7 @@ import { ok } from "@/lib/response";
 import { ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { claimNextLead, assertListAccess } from "@/lib/dialer/queue";
+import { closeQueueAlerts, openQueueAlert, queueAvailability } from "@/lib/dialer/exhaustion";
 
 export const dynamic = "force-dynamic";
 
@@ -22,5 +23,8 @@ export const POST = withAuth(async ({ req, user }) => {
   if (pending) throw new ApiError("יש שיחה שטרם תועדה – שמור תוצאה לפני המעבר לליד הבא", 409, "outcome_required", { callId: pending.id });
   await assertListAccess(user.businessId, user.id, user.role, s.listId);
   const lead = await claimNextLead(user.businessId, user.id, s.listId);
+  // Work came back → the next emptying may alert the managers again. Empty → classify and alert once (deduped).
+  if (lead) await closeQueueAlerts(user.businessId, user.id, s.listId);
+  else await openQueueAlert(user, await queueAvailability(user, s.listId)).catch((e: Error) => console.error("queue alert failed", e.message));
   return ok(lead);
 }, { module: "telephony" });

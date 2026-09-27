@@ -128,7 +128,7 @@ export function queryTerms(q: string) {
   return [...terms].filter((t) => /^[\p{L}\p{N}]+$/u.test(t));
 }
 
-export interface Retrieved { chunkId: string; sourceId: string; title: string; category: string; audience: string; text: string; rank: number }
+export interface Retrieved { chunkId: string; sourceId: string; title: string; category: string; audience: string; kind: string; learnMode: string | null; text: string; rank: number }
 /**
  * Top chunks for a query. audience "customer" = only approved + customer-facing sources (customer-service agent);
  * "internal" = approved sources of any audience (internal assistant). includeDrafts only for the owner's preview.
@@ -139,7 +139,7 @@ export async function searchKnowledge(businessId: string, query: string, opts: {
   const aud = opts.audience === "customer" ? Prisma.sql`AND s.audience = 'customer'` : Prisma.empty;
   const st = opts.includeDrafts ? Prisma.empty : Prisma.sql`AND s.status = 'approved'`;
   return prisma.$queryRaw<Retrieved[]>(Prisma.sql`
-    SELECT c.id AS "chunkId", s.id AS "sourceId", s.title, s.category, s.audience, c.text, ts_rank(c.tsv, to_tsquery('simple', ${tsq}))::float AS rank
+    SELECT c.id AS "chunkId", s.id AS "sourceId", s.title, s.category, s.audience, s.kind, s.learn_mode AS "learnMode", c.text, ts_rank(c.tsv, to_tsquery('simple', ${tsq}))::float AS rank
     FROM ${T("knowledge_chunks")} c JOIN ${T("knowledge_sources")} s ON s.id = c.source_id
     WHERE c.business_id = ${businessId} AND s.business_id = ${businessId} AND s.processing = 'ready' ${st} ${aud}
       AND c.tsv @@ to_tsquery('simple', ${tsq})

@@ -5,9 +5,10 @@ import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Badge, Button, EmptyState, Input, Modal, Panel, Select, Spinner, Textarea } from "@/components/ui";
 
-interface Source { id: string; title: string; category: string; kind: "text" | "file" | "link"; audience: "internal" | "customer"; status: "draft" | "approved"; processing: "pending" | "processing" | "ready" | "failed"; error: string | null; url: string | null; fileName: string | null; chunks: number; updatedAt: string }
+interface Source { id: string; title: string; category: string; kind: "text" | "file" | "link" | "conversation"; audience: "internal" | "customer"; status: "draft" | "approved" | "retired"; learnMode?: "info" | "style" | "both" | null; sourceConversationId?: string | null; conflicts?: Array<{ title: string; detail: string }> | null; proposedBy?: string | null; approvedBy?: string | null; processing: "pending" | "processing" | "ready" | "failed"; error: string | null; url: string | null; fileName: string | null; chunks: number; updatedAt: string }
 const PROC: Record<Source["processing"], { l: string; t: "neutral" | "warn" | "good" | "bad" }> = { pending: { l: "ממתין", t: "neutral" }, processing: { l: "בעיבוד", t: "warn" }, ready: { l: "מוכן", t: "good" }, failed: { l: "נכשל", t: "bad" } };
-const KIND: Record<Source["kind"], string> = { text: "טקסט", file: "קובץ", link: "קישור" };
+const KIND: Record<Source["kind"], string> = { text: "טקסט", file: "קובץ", link: "קישור", conversation: "נלמד משיחה" };
+const MODE: Record<string, string> = { info: "מידע ותהליך", style: "סגנון בלבד", both: "מידע + סגנון" };
 
 export function KnowledgeTab() {
   const [items, setItems] = useState<Source[] | null>(null); const [cats, setCats] = useState<Record<string, string>>({});
@@ -30,13 +31,13 @@ export function KnowledgeTab() {
       {!shown.length ? <EmptyState title="עדיין אין ידע" hint="הוסיפו שעות פעילות, מדיניות משלוחים והחזרות, שאלות נפוצות ומסמכים" /> :
         <Panel bodyClassName="p-0"><table className="w-full text-sm"><thead className="text-xs text-muted"><tr><th className="text-start p-2">כותרת</th><th className="text-start">קטגוריה</th><th className="text-start">סוג</th><th className="text-start">עיבוד</th><th className="text-start">קהל</th><th className="text-start">סטטוס</th><th /></tr></thead>
           <tbody className="divide-y divide-line">{shown.map((s) => <tr key={s.id} data-testid="kb-row">
-            <td className="p-2"><div className="font-medium">{s.title}</div>{s.url && <div className="text-xs text-muted ltr text-start truncate max-w-xs">{s.url}</div>}{s.fileName && <div className="text-xs text-muted">{s.fileName}</div>}</td>
+            <td className="p-2"><div className="font-medium">{s.title}</div>{s.kind === "conversation" && <div className="text-xs text-muted" data-testid="kb-learned-meta">{s.learnMode ? MODE[s.learnMode] : ""}{s.proposedBy ? ` · הציע: ${s.proposedBy}` : ""}{s.approvedBy ? ` · אישר: ${s.approvedBy}` : ""}{s.sourceConversationId && <> · <a className="underline" href={`/inbox/${s.sourceConversationId}`}>שיחת המקור</a></>}</div>}{s.conflicts?.length ? <div className="text-xs text-bad" data-testid="kb-conflict">סתירה אפשרית: {s.conflicts.map((c) => `${c.title} – ${c.detail}`).join("; ")}</div> : null}{s.url && <div className="text-xs text-muted ltr text-start truncate max-w-xs">{s.url}</div>}{s.fileName && <div className="text-xs text-muted">{s.fileName}</div>}</td>
             <td className="text-muted">{cats[s.category] ?? s.category}</td><td>{KIND[s.kind]}</td>
             <td><Badge tone={PROC[s.processing].t}>{PROC[s.processing].l}{s.processing === "ready" ? ` · ${s.chunks}` : ""}</Badge>{s.error && <div className="text-xs text-bad max-w-[200px]">{s.error}</div>}</td>
             <td><Select aria-label="קהל" value={s.audience} onChange={(e) => patch(s, { audience: e.target.value })} className="w-40"><option value="internal">פנימי בלבד</option><option value="customer">מותר מול לקוחות</option></Select></td>
-            <td>{s.status === "approved" ? <Badge tone="good">מאושר</Badge> : <Badge>טיוטה</Badge>}</td>
+            <td>{s.status === "approved" ? <Badge tone="good">מאושר</Badge> : s.status === "retired" ? <Badge tone="neutral">הוצא משימוש</Badge> : <Badge>טיוטה</Badge>}</td>
             <td className="whitespace-nowrap space-x-1 space-x-reverse p-2">
-              {s.status === "draft" ? <Button size="sm" disabled={s.processing !== "ready"} onClick={() => patch(s, { status: "approved" })} data-testid="kb-approve">אשר</Button> : <Button size="sm" variant="ghost" onClick={() => patch(s, { status: "draft" })}>החזר לטיוטה</Button>}
+              {s.status !== "approved" ? <Button size="sm" disabled={s.processing !== "ready"} onClick={() => { if (s.conflicts?.length && !confirm(`יש סתירה אפשרית מול ידע מאושר:\n${s.conflicts.map((c) => `${c.title} – ${c.detail}`).join("\n")}\n\nלאשר בכל זאת?`)) return; void patch(s, { status: "approved", acknowledgeConflicts: Boolean(s.conflicts?.length) }); }} data-testid="kb-approve">אשר</Button> : <><Button size="sm" variant="ghost" onClick={() => patch(s, { status: "draft" })}>החזר לטיוטה</Button><Button size="sm" variant="ghost" onClick={() => patch(s, { status: "retired" })} data-testid="kb-retire">הוצא משימוש</Button></>}
               {s.processing === "failed" && <Button size="sm" variant="secondary" onClick={() => retry(s)} data-testid="kb-retry">נסה שוב</Button>}
               <Button size="sm" variant="ghost" onClick={() => remove(s)}>מחק</Button>
             </td></tr>)}</tbody></table></Panel>}

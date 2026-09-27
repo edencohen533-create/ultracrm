@@ -24,7 +24,8 @@ import { aiConnected, canManage, getAiSettings } from "./settings";
 
 // ─── privacy ──────────────────────────────────────────────────────────────────────────────────────────────────────
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-export interface KnownPii { names: string[]; phones: string[]; emails: string[] }
+/** names = the customer's name (every word is removed); staff = agents' full names (+ first name of 3+ letters). */
+export interface KnownPii { names: string[]; phones: string[]; emails: string[]; staff?: string[] }
 
 /** Replace personal details with neutral placeholders. Returns the text and what kind of details were removed. */
 export function redact(text: string, known: KnownPii = { names: [], phones: [], emails: [] }) {
@@ -42,7 +43,8 @@ export function redact(text: string, known: KnownPii = { names: [], phones: [], 
   sub(/(?:ת\.?ז\.?|תעודת זהות)\s*[:\-]?\s*\d{5,9}/g, "[מספר מזהה]", "id");
   sub(/\b\d{9}\b/g, "[מספר מזהה]", "id");
   sub(/(?:רחוב|רח'|רח׳|שדרות|שד'|שד׳|דרך)\s+[֐-׿A-Za-z"'׳״ -]{2,30}\s*\d{1,4}(?:\s*(?:דירה|ד')\s*\d+)?/g, "[כתובת]", "address");
-  for (const n of known.names.flatMap((x) => [x, ...x.split(/\s+/)]).filter((x) => x && x.length >= 2)) sub(new RegExp(`(^|[^\\u0590-\\u05FFA-Za-z])${esc(n)}(?=$|[^\\u0590-\\u05FFA-Za-z])`, "g"), "$1[שם]", "name");
+  const staff = (known.staff ?? []).flatMap((x) => { const first = x.split(/\s+/)[0]; return [x, ...(first && first.length >= 3 ? [first] : [])]; });
+  for (const n of [...known.names.flatMap((x) => [x, ...x.split(/\s+/)]), ...staff].filter((x) => x && x.length >= 2).sort((x, y) => y.length - x.length)) sub(new RegExp(`(^|[^\\u0590-\\u05FFA-Za-z])${esc(n)}(?=$|[^\\u0590-\\u05FFA-Za-z])`, "g"), "$1[שם]", "name");
   sub(/\b\d{6,}\b/g, "[מספר]", "number");
   return { text: t.replace(/\$1\[שם\]/g, "[שם]"), removed: [...found] };
 }
@@ -64,7 +66,7 @@ export async function conversationForLearning(user: SessionUser, conversationId:
   if (!conv || conv.businessId !== user.businessId) throw new ApiError("השיחה לא נמצאה", 404, "not_found");
   const rows = await prisma.message.findMany({ where: { conversationId: conv.id, businessId: user.businessId, ...(messageIds?.length ? { id: { in: messageIds } } : {}) }, orderBy: { createdAt: "asc" }, take: 300, select: { id: true, direction: true, body: true, createdAt: true, requestKey: true, sentByUser: { select: { fullName: true } } } });
   const agents = await prisma.user.findMany({ where: { businessId: user.businessId }, select: { fullName: true } });
-  const known: KnownPii = { names: [conv.contact.fullName, ...agents.map((a) => a.fullName)].filter(Boolean), phones: [conv.contact.phoneE164], emails: [conv.contact.email ?? ""] };
+  const known: KnownPii = { names: [conv.contact.fullName].filter(Boolean), staff: agents.map((a) => a.fullName).filter(Boolean), phones: [conv.contact.phoneE164], emails: [conv.contact.email ?? ""] };
   const messages: LearnMessage[] = rows.filter((m) => (m.body ?? "").trim()).map((m) => ({ id: m.id, role: m.direction === "INBOUND" ? "customer" : m.requestKey?.startsWith("ai:svc:") ? "bot" : "agent", text: m.body ?? "", at: m.createdAt.toISOString() }));
   if (!messages.length) throw new ApiError("לא נבחרו הודעות טקסט מהשיחה", 400, "empty");
   return { conv, messages, known };

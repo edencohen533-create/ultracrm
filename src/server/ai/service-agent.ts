@@ -28,9 +28,9 @@ export function withinHours(s: AiSettings["service"], tz: string, at = new Date(
 
 type SvcResult = { status: string; reason?: string; messageId?: string };
 
-async function recordAction(businessId: string, conversationId: string, inboundId: string, kind: string, summary: string, status: string, extra: { result?: unknown; error?: string } = {}) {
+async function recordAction(businessId: string, conversationId: string, inboundId: string, kind: string, summary: string, status: string, extra: { result?: unknown; error?: string; dedupePrefix?: string } = {}) {
   try {
-    return await prisma.aiAction.create({ data: { businessId, channel: "whatsapp_service", kind, params: { conversationId, inboundMessageId: inboundId } as Prisma.InputJsonValue, summary: summary.slice(0, 500), requiresApproval: false, status, result: (extra.result ?? undefined) as Prisma.InputJsonValue | undefined, error: extra.error ?? null, executedAt: new Date(), dedupeKey: `svc:${inboundId}` } });
+    return await prisma.aiAction.create({ data: { businessId, channel: "whatsapp_service", kind, params: { conversationId, inboundMessageId: inboundId } as Prisma.InputJsonValue, summary: summary.slice(0, 500), requiresApproval: false, status, result: (extra.result ?? undefined) as Prisma.InputJsonValue | undefined, error: extra.error ?? null, executedAt: new Date(), dedupeKey: `${extra.dedupePrefix ?? "svc"}:${inboundId}` } });
   } catch (e) { if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return null; throw e; }
 }
 
@@ -117,7 +117,8 @@ export async function handleServiceInbound(businessId: string, payload: { messag
   // Only the newest inbound message is answered (a burst gets one answer that sees all of it).
   const newer = await prisma.message.findFirst({ where: { conversationId: conv.id, direction: "INBOUND", createdAt: { gt: msg.createdAt } }, select: { id: true } });
   if (newer) return { status: "skipped", reason: "newer message" };
-  if (!aiConnected()) { await recordAction(businessId, conv.id, msg.id, "service_reply", "לא נענה: נדרש חיבור למודל AI", "skipped", { error: "נדרש חיבור" }); return { status: "skipped", reason: "נדרש חיבור" }; }
+  // Logged once, under its own key: "not connected" must not take the reply slot (svc:<id>) of this message.
+  if (!aiConnected()) { await recordAction(businessId, conv.id, msg.id, "service_reply", "לא נענה: נדרש חיבור למודל AI", "skipped", { error: "נדרש חיבור", dedupePrefix: "svc-skip" }); return { status: "skipped", reason: "נדרש חיבור" }; }
 
   const text = msg.body ?? "";
   const claim = await recordAction(businessId, conv.id, msg.id, "service_reply", "מענה שירות אוטומטי", "executing");

@@ -320,25 +320,25 @@ model Plan {
 }
 
 model Business {
-  coachKnowledge   CoachKnowledge?
-  coachSessions    CoachSession[]
-  coachExamples    CoachExample[]
-  id                   String    @id @default(cuid())
+  coachKnowledge       CoachKnowledge?
+  coachSessions        CoachSession[]
+  coachExamples        CoachExample[]
+  id                   String          @id @default(cuid())
   name                 String
-  slug                 String    @unique
-  timezone             String    @default("Asia/Jerusalem")
-  isActive             Boolean   @default(true) @map("is_active")
-  planId               String?   @map("plan_id")
+  slug                 String          @unique
+  timezone             String          @default("Asia/Jerusalem")
+  isActive             Boolean         @default(true) @map("is_active")
+  planId               String?         @map("plan_id")
   /// Per-business module overrides on top of the plan: { crm?, messaging?, telephony? }
-  modules              Json      @default("{}")
+  modules              Json            @default("{}")
   /// Dialer / CRM / automation settings (see src/lib/settings.ts)
-  settings             Json      @default("{}")
+  settings             Json            @default("{}")
   /// Fair worker rotation between businesses.
-  lastCampaignScanAt   DateTime? @map("last_campaign_scan_at")
-  lastAutomationScanAt DateTime? @map("last_automation_scan_at")
-  lastEventScanAt      DateTime? @map("last_event_scan_at")
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
+  lastCampaignScanAt   DateTime?       @map("last_campaign_scan_at")
+  lastAutomationScanAt DateTime?       @map("last_automation_scan_at")
+  lastEventScanAt      DateTime?       @map("last_event_scan_at")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
 
   plan Plan? @relation(fields: [planId], references: [id])
 
@@ -383,6 +383,9 @@ model Business {
   campaigns              Campaign[]
   campaignDrafts         CampaignDraft[]
   storeConnections       StoreConnection[]
+  assistantLinks         AssistantLink[]
+  assistantMessages      AssistantMessage[]
+  assistantDeliveries    AssistantDelivery[]
   carts                  Cart[]
   conversationDrafts     ConversationDraft[]
   marketingSequences     MarketingSequence[]
@@ -393,16 +396,18 @@ model Business {
 
 /// A person who can log in. One account can be a member of several businesses.
 model Account {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  fullName     String    @map("full_name")
-  isActive     Boolean   @default(true) @map("is_active")
-  /** Bumped on every password change – sessions issued before it are rejected (see auth.ts). */
-  sessionVersion Int     @default(0) @map("session_version")
-  lastLoginAt  DateTime? @map("last_login_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id             String    @id @default(cuid())
+  email          String    @unique
+  passwordHash   String    @map("password_hash")
+  fullName       String    @map("full_name")
+  isActive       Boolean   @default(true) @map("is_active")
+  /**
+   * Bumped on every password change – sessions issued before it are rejected (see auth.ts).
+   */
+  sessionVersion Int       @default(0) @map("session_version")
+  lastLoginAt    DateTime? @map("last_login_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   memberships User[]
 
@@ -412,22 +417,22 @@ model Account {
 /// Membership of an account in a business ("business user"). All operational
 /// data (calls, tasks, conversations…) references this row, never the Account.
 model User {
-  id         String         @id @default(cuid())
-  businessId String         @map("business_id")
-  accountId  String         @map("account_id")
+  id           String         @id @default(cuid())
+  businessId   String         @map("business_id")
+  accountId    String         @map("account_id")
   /// Denormalised from Account for display/search.
-  email      String
-  fullName   String         @map("full_name")
-  role       UserRole       @default(agent)
-  teamId     String?        @map("team_id")
-  isActive   Boolean        @default(true) @map("is_active")
-  crmSettings Json? @map("crm_settings")
-  avatarUrl  String?        @map("avatar_url")
-  presence   PresenceStatus @default(offline)
-  presenceAt DateTime       @default(now()) @map("presence_at")
+  email        String
+  fullName     String         @map("full_name")
+  role         UserRole       @default(agent)
+  teamId       String?        @map("team_id")
+  isActive     Boolean        @default(true) @map("is_active")
+  crmSettings  Json?          @map("crm_settings")
+  avatarUrl    String?        @map("avatar_url")
+  presence     PresenceStatus @default(offline)
+  presenceAt   DateTime       @default(now()) @map("presence_at")
   /// Real-time sales coach shown to this agent (business-level switch in settings.coach). 
-  coachEnabled Boolean @default(true) @map("coach_enabled")
-  lastSeenAt DateTime?      @map("last_seen_at")
+  coachEnabled Boolean        @default(true) @map("coach_enabled")
+  lastSeenAt   DateTime?      @map("last_seen_at")
 
   /// Telnyx telephony credential (one per business user).
   telnyxCredentialId String? @map("telnyx_credential_id")
@@ -460,6 +465,7 @@ model User {
   drafts                ConversationDraft[]
   cannedReplies         CannedReply[]       @relation("CreatedByUser")
   campaigns             Campaign[]
+  assistantLinks        AssistantLink[]     @relation("AssistantLinkUser")
 
   @@unique([businessId, accountId])
   @@unique([businessId, email])
@@ -557,6 +563,7 @@ model Contact {
   listMemberships    DistributionListMember[]
   campaignRecipients CampaignRecipient[]
   sequenceRuns       SequenceRun[]
+  carts              Cart[]
 
   @@unique([businessId, phoneE164])
   @@index([businessId, fullName])
@@ -565,7 +572,6 @@ model Contact {
   @@index([businessId, ownerUserId])
   @@index([businessId, lastActivityAt])
   @@map("contacts")
-  carts Cart[]
 }
 
 model ContactPhone {
@@ -944,26 +950,26 @@ model DialListAgent {
 
 /// A contact queued in a dial list (the dialer's work item).
 model ListLead {
-  id              String          @id @default(cuid())
-  businessId      String          @map("business_id")
-  listId          String          @map("list_id")
-  contactId       String          @map("contact_id")
-  status          QueueLeadStatus @default(pending)
-  priority        Int             @default(0)
-  followUpAttempts Int? @map("follow_up_attempts")
-  attempts        Int             @default(0)
-  lastAttemptAt   DateTime?       @map("last_attempt_at")
-  nextAttemptAt   DateTime?       @map("next_attempt_at")
-  lastOutcome     OutcomeKey?     @map("last_outcome")
-  lastSkipReason  String?         @map("last_skip_reason")
-  preferredUserId String?         @map("preferred_user_id")
-  claimReason     String?         @map("claim_reason")
-  claimScore      Float?          @map("claim_score")
-  lockedByUserId  String?         @map("locked_by_user_id")
-  lockToken       String?         @map("lock_token")
-  lockExpiresAt   DateTime?       @map("lock_expires_at")
-  createdAt       DateTime        @default(now()) @map("created_at")
-  updatedAt       DateTime        @updatedAt @map("updated_at")
+  id               String          @id @default(cuid())
+  businessId       String          @map("business_id")
+  listId           String          @map("list_id")
+  contactId        String          @map("contact_id")
+  status           QueueLeadStatus @default(pending)
+  priority         Int             @default(0)
+  followUpAttempts Int?            @map("follow_up_attempts")
+  attempts         Int             @default(0)
+  lastAttemptAt    DateTime?       @map("last_attempt_at")
+  nextAttemptAt    DateTime?       @map("next_attempt_at")
+  lastOutcome      OutcomeKey?     @map("last_outcome")
+  lastSkipReason   String?         @map("last_skip_reason")
+  preferredUserId  String?         @map("preferred_user_id")
+  claimReason      String?         @map("claim_reason")
+  claimScore       Float?          @map("claim_score")
+  lockedByUserId   String?         @map("locked_by_user_id")
+  lockToken        String?         @map("lock_token")
+  lockExpiresAt    DateTime?       @map("lock_expires_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   list     DialList @relation(fields: [listId], references: [id], onDelete: Cascade)
@@ -1728,6 +1734,87 @@ model Cart {
   @@map("carts")
 }
 
+/// A phone number authorized to talk to the business's WhatsApp AI assistant, bound to a CRM user.
+/// Activated only by sending the one-time code (issued to a signed-in user) FROM that phone to the business number.
+model AssistantLink {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  userId        String    @map("user_id")
+  phoneE164     String    @map("phone_e164")
+  /// pending | active | revoked
+  status        String    @default("pending")
+  /// business = everything the user may see; own = only the user's own data
+  scope         String    @default("business")
+  codeHash      String?   @map("code_hash")
+  codeExpiresAt DateTime? @map("code_expires_at")
+  verifiedAt    DateTime? @map("verified_at")
+  revokedAt     DateTime? @map("revoked_at")
+  /// Last message FROM this phone (WhatsApp 24h service window).
+  lastInboundAt DateTime? @map("last_inbound_at")
+  /// Conversation memory for follow-ups: { lastIntent, lastPeriod, lastAgentId, lastContactId }
+  context       Json      @default("{}")
+  /// A proactive report waiting for the user to open the service window (sent with a template).
+  pendingReport String?   @map("pending_report")
+  createdById   String    @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  business Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User               @relation("AssistantLinkUser", fields: [userId], references: [id], onDelete: Cascade)
+  messages AssistantMessage[]
+
+  @@unique([businessId, phoneE164])
+  @@index([phoneE164])
+  @@map("assistant_links")
+}
+
+/// Protected activity log of the assistant: every request, the tools it ran and the outcome (no secrets).
+model AssistantMessage {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  linkId     String?  @map("link_id")
+  /// in | out
+  direction  String
+  /// Provider message id of an inbound message – unique, so a retried webhook is processed once.
+  inboundKey String?  @unique @map("inbound_key")
+  text       String
+  intent     String?
+  /// [{ name, args, ok, error?, ms }]
+  tools      Json     @default("[]")
+  /// ok | error | blocked | skipped
+  status     String   @default("ok")
+  error      String?
+  model      String?
+  latencyMs  Int?     @map("latency_ms")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  link     AssistantLink? @relation(fields: [linkId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([linkId, createdAt])
+  @@map("assistant_messages")
+}
+
+/// Scheduled reports / alerts already sent (dedupe key per business).
+model AssistantDelivery {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  key        String
+  linkId     String?  @map("link_id")
+  kind       String
+  /// sent | template | skipped | failed
+  status     String
+  detail     String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, key])
+  @@index([businessId, createdAt])
+  @@map("assistant_deliveries")
+}
+
 model CampaignRecipient {
   id            String          @id @default(cuid())
   campaignId    String          @map("campaign_id")
@@ -2000,7 +2087,7 @@ model CoachSession {
   sttSeconds     Float              @default(0) @map("stt_seconds")
   tokensIn       Int                @default(0) @map("tokens_in")
   tokensOut      Int                @default(0) @map("tokens_out")
-  costUsd        Decimal            @default(0) @db.Decimal(10, 5) @map("cost_usd")
+  costUsd        Decimal            @default(0) @map("cost_usd") @db.Decimal(10, 5)
   latencyMsTotal Int                @default(0) @map("latency_ms_total")
   latencySamples Int                @default(0) @map("latency_samples")
   provider       String?

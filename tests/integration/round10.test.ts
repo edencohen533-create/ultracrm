@@ -29,7 +29,7 @@ const accounts: string[] = [];
 const run = <T,>(u: SessionUser, fn: () => Promise<T>) => withBusiness(u.businessId, fn, u);
 const ctx = (p: Record<string, string> = {}) => ({ params: Promise.resolve(p) });
 const req = async (u: SessionUser, url: string, method = "GET", body?: unknown) => new NextRequest(`http://localhost${url}`, { method, headers: { cookie: `ultracrm_session=${await signSession(u)}`, "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
-const setPerms = async (p: Record<string, unknown>) => { const b = await db.business.findUniqueOrThrow({ where: { id: a.business.id } }); const s = (b.settings ?? {}) as Record<string, unknown>; await db.business.update({ where: { id: a.business.id }, data: { settings: { ...s, permissions: { ...((s.permissions as object) ?? {}), ...p } } } }); };
+const setPerms = async (p: Record<string, unknown>) => { const b = await db.business.findUniqueOrThrow({ where: { id: a.business.id } }); const s = (b.settings ?? {}) as Record<string, unknown>; await db.business.update({ where: { id: a.business.id }, data: { settings: { ...s, permissions: { ...((s.permissions as object) ?? {}), ...p } } as object } }); };
 let seq = 0;
 const lead = async (owner: string | null) => { seq++; const c = await db.contact.create({ data: { businessId: a.business.id, fullName: `איש ${seq}`, phoneE164: `+97253${String(1000000 + seq).slice(-7)}`, phoneRaw: "x", ownerUserId: null } }); return db.lead.create({ data: { businessId: a.business.id, contactId: c.id, ownerUserId: owner } }); };
 const page = (u: SessionUser) => run(u, () => listLeads(u, { sort: "createdAt", direction: "desc", page: 1, limit: 100 } as never));

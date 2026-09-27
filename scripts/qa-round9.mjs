@@ -6,7 +6,8 @@ import path from "node:path";
 import { chromium } from "playwright";
 const BASE = process.argv[2] ?? "https://ultracrm-eta.vercel.app";
 const TAG = `QA9 ${Date.now().toString().slice(-6)}`;
-const results = []; const step = async (n, fn) => { try { await fn(); results.push(`✅ ${n}`); } catch (e) { results.push(`❌ ${n}: ${e.message.split("\n")[0]}`); } };
+const ONLY = (process.env.QA_ONLY ?? "").split(",").filter(Boolean);
+const results = []; const step = async (n, fn) => { if (ONLY.length && !ONLY.includes(n.split(" ")[0])) return; try { await fn(); results.push(`✅ ${n}`); } catch (e) { await page.screenshot({ path: `/tmp/qa9-fail-${n.split(" ")[0]}.png` }).catch(() => undefined); results.push(`❌ ${n}: ${e.message.split("\n")[0]}`); } };
 const b = await chromium.launch(); const ctx = await b.newContext({ locale: "he-IL", viewport: { width: 1600, height: 1000 } }); const page = await ctx.newPage(); page.setDefaultTimeout(90000); page.on("dialog", (d) => d.accept());
 const api = async (p, m = "GET", d, headers = {}) => { const r = await page.request.fetch(`${BASE}${p}`, { method: m, data: d, headers: { "Content-Type": "application/json", ...headers } }); return { status: r.status(), json: await r.json().catch(() => null) }; };
 const login = async (email) => { await ctx.clearCookies(); await page.goto(`${BASE}/login`); await page.fill('input[type="email"]', email); await page.fill('input[type="password"]', "Demo1234!"); await page.click('button[type="submit"]'); await page.waitForURL((u) => !u.pathname.startsWith("/login")); };
@@ -82,19 +83,29 @@ await step("R8 agent performance report shows response time and conversion colum
   await page.locator('[data-testid="lead-quality"]').screenshot({ path: "docs/qa/r9-report.png" });
 });
 await step("R9 dialer: hang up → 'המשך לליד הבא' (no wrap-up screen) → the next lead is dialed", async () => {
-  await login("agent1@demo.local"); await page.goto(`${BASE}/dialer`); await page.waitForSelector('[data-testid="dialer-screen"]');
-  const live = await page.locator('[data-testid="dialer-embedded"]').count();
-  if (!live) { await page.getByRole("button", { name: "Preview" }).first().click(); await page.waitForSelector('[data-testid="start-dialer"]:not([disabled])', { timeout: 60000 }); await page.click('[data-testid="start-dialer"]'); }
+  await login("agent1@demo.local"); await page.goto(`${BASE}/dialer`); await page.waitForSelector('[data-testid="dialer-screen"]'); await page.waitForTimeout(2500);
+  const strip = page.locator('[data-testid="call-strip"]');
+  const hang = () => strip.getByRole("button", { name: /^נתק/ });
+  const documentLeftover = async () => { await page.click('[data-testid="next-full"]'); await page.getByRole("button", { name: "אין מענה" }).first().click(); await page.getByRole("button", { name: /שמור תוצאה/ }).click(); await page.waitForSelector('[data-testid="next-bar"]', { state: "detached" }).catch(() => undefined); };
+  // Leftovers from an earlier run: take the session over, finish any call, end the session.
+  if (await page.getByRole("button", { name: "העבר לכאן" }).count()) { await page.getByRole("button", { name: "העבר לכאן" }).click(); await page.waitForTimeout(4500); }
+  if (await hang().count()) { await hang().click(); await page.waitForSelector('[data-testid="next-bar"]'); }
+  if (await page.locator('[data-testid="next-bar"]').count()) await documentLeftover();
+  if (await page.getByRole("button", { name: "סיים סשן" }).count()) { await page.getByRole("button", { name: "סיים סשן" }).click(); await page.waitForTimeout(2500); }
+  // Fresh preview session on "הלידים שלי".
+  await page.goto(`${BASE}/dialer`); await page.waitForSelector('[data-testid="start-dialer"]');
+  await page.getByRole("button", { name: "Preview" }).first().click();
+  await page.waitForSelector('[data-testid="start-dialer"]:not([disabled])', { timeout: 60000 }); await page.click('[data-testid="start-dialer"]');
   await page.waitForSelector('[data-testid="call-strip"]');
-  const dial = page.locator('[data-testid="strip-dial-lead"]'); await dial.waitFor(); await page.waitForFunction(() => !document.querySelector('[data-testid="strip-dial-lead"]')?.hasAttribute("disabled"), null, { timeout: 60000 }); await dial.click();
-  await page.getByRole("button", { name: /^נתק/ }).waitFor({ timeout: 60000 }); await page.waitForTimeout(1500); await page.getByRole("button", { name: /^נתק/ }).click();
+  await page.waitForFunction(() => { const b = document.querySelector('[data-testid="strip-dial-lead"]'); return b && !b.hasAttribute("disabled"); }, null, { timeout: 60000 });
+  await page.click('[data-testid="strip-dial-lead"]');
+  await hang().waitFor({ timeout: 60000 }); await page.waitForTimeout(1500); await hang().click();
   await page.waitForSelector('[data-testid="next-bar"]', { timeout: 60000 }); await page.screenshot({ path: "docs/qa/r9-next-bar.png" });
   if (await page.locator('[data-testid="next-quick-answered_not_interested"]').count()) await page.click('[data-testid="next-quick-answered_not_interested"]');
   await page.click('[data-testid="next-continue"]');
-  await page.getByRole("button", { name: /^נתק/ }).waitFor({ timeout: 60000 }); // the next lead is being dialed
-  await page.waitForTimeout(1500); await page.getByRole("button", { name: /^נתק/ }).click();
-  await page.waitForSelector('[data-testid="next-bar"]'); await page.click('[data-testid="next-full"]');
-  await page.getByRole("button", { name: "אין מענה" }).first().click(); await page.getByRole("button", { name: /שמור תוצאה/ }).click();
+  await hang().waitFor({ timeout: 60000 }); // the next lead is being dialed – no wrap-up screen in between
+  await page.waitForTimeout(1500); await hang().click();
+  await page.waitForSelector('[data-testid="next-bar"]'); await documentLeftover();
   await page.getByRole("button", { name: "סיים סשן" }).click().catch(() => undefined);
 });
 await step("R10 cleanup: test leads closed, store / webhook removed", async () => {

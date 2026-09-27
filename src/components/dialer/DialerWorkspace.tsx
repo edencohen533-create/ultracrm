@@ -150,7 +150,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
 
         {/* Active lead */}
         <section className={minimal ? "flex-1 min-h-0 flex flex-col" : compact ? "min-h-[330px] flex flex-col order-2 shrink-0" : "min-h-0 flex flex-col"}>
-          {minimal && <CallStrip canDialLead={canDialLead} onDialLead={dialLead} onDialNext={dialNext} canDialNext={Boolean(session && session.status === "active" && session.mode !== "manual" && !call && !wrapUp && !sessionTakenOver)} blockedReason={!session ? "אין סשן חיוג פעיל – התחל חייגן מהתור או חייג מכרטיס ליד" : session.status !== "active" ? "הסשן מושהה – לחץ המשך" : sessionTakenOver ? "הסשן פעיל בלשונית אחרת" : wrapUp ? "תעד את תוצאת השיחה הקודמת כדי להמשיך" : session.mode === "manual" ? "סשן ידני – חייג מכרטיס ליד או מהלוח" : null} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />}
+          {minimal && <CallStrip onContinueAuto={wrapUp && !wrapUp.answeredAt && !fullWrapUp && session?.status === "active" && session.mode !== "manual" ? () => continueNext(wrapUp.telephonyResult === "busy" ? "busy" : "no_answer") : undefined} canDialLead={canDialLead} onDialLead={dialLead} onDialNext={dialNext} canDialNext={Boolean(session && session.status === "active" && session.mode !== "manual" && !call && !wrapUp && !sessionTakenOver)} blockedReason={!session ? "אין סשן חיוג פעיל – התחל חייגן מהתור או חייג מכרטיס ליד" : session.status !== "active" ? "הסשן מושהה – לחץ המשך" : sessionTakenOver ? "הסשן פעיל בלשונית אחרת" : wrapUp ? (wrapUp.answeredAt ? "השיחה הסתיימה – בחר תוצאה למטה והמשך" : "השיחה הסתיימה")  : session.mode === "manual" ? "סשן ידני – חייג מכרטיס ליד או מהלוח" : null} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />}
           {call && (
             <div className="p-3 border-b border-line shrink-0">
               <CoachCard callId={call.id} answered={call.status === "answered"} simulation={Boolean(state?.telephony.simulation)} />
@@ -215,7 +215,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
 }
 
 /** Slim call controls for the minimal screen: what is happening + hang up / dial / skip. Everything else lives in the lead card. */
-function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedReason, onSkip }: { canDialLead: boolean; onDialLead: () => void; onDialNext: () => void; canDialNext: boolean; blockedReason: string | null; onSkip?: () => void }) {
+function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedReason, onSkip, onContinueAuto }: { canDialLead: boolean; onDialLead: () => void; onDialNext: () => void; canDialNext: boolean; blockedReason: string | null; onSkip?: () => void; onContinueAuto?: () => void }) {
   const { state, phone, hangup, busy, countdown, acceptInbound, rejectInbound } = useDialer();
   const call = state?.activeCall ?? null;
   useTicker(Boolean(call));
@@ -240,6 +240,8 @@ function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedRe
           <><Button variant="good" onClick={acceptInbound} loading={busy === "accept"}>קבל</Button><Button variant="danger" onClick={rejectInbound} loading={busy === "reject"}>דחה</Button></>
         ) : inProgress ? (
           <><Button variant={phone.muted ? "warn" : "secondary"} onClick={phone.toggleMute} disabled={!answered || phone.status === "simulation"}>{phone.muted ? "בטל השתקה" : "השתק"} <Kbd>M</Kbd></Button><Button variant="danger" onClick={hangup} loading={busy === "hangup"}>נתק <Kbd>H</Kbd></Button></>
+        ) : onContinueAuto ? (
+          <Button variant="good" onClick={onContinueAuto} loading={busy === "outcome" || busy === "next" || busy === "dial"} data-testid="strip-continue">המשך לליד הבא ›</Button>
         ) : (
           <>{onSkip && <Button variant="secondary" onClick={onSkip} disabled={!canDialLead}>דלג <Kbd>S</Kbd></Button>}<Button variant="good" onClick={canDialLead ? onDialLead : onDialNext} disabled={(!canDialLead && !canDialNext) || !connOk || busy === "dial" || busy === "next"} loading={busy === "dial" || busy === "next"} title={blockedReason ?? undefined} data-testid="strip-dial-lead">חייג לליד <Kbd>D</Kbd></Button></>
         )}

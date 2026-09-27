@@ -26,7 +26,7 @@ async function outcomeForCall(call: { contactId: string | null; createdAt: Date 
 }
 
 /** Transcribe a saved recording into segments (speaker unknown – single channel) when allowed and possible. */
-async function transcriptFromRecording(callId: string, businessId: string) {
+export async function transcriptFromRecording(callId: string, businessId: string) {
   const settings = await getBusinessSettings(businessId);
   if (!settings.coach.learnFromRecordings || providerStatus().stt === "missing") return 0;
   const call = await prisma.call.findUnique({ where: { id: callId }, select: { recordingStatus: true, recordingId: true, talkSeconds: true } });

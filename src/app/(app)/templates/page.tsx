@@ -1,10 +1,11 @@
 import { organizationRequest } from "@/lib/auth-compat";
-import { NewTemplateDialog } from "@/components/templates/new-template-dialog";
+import { WhatsAppTemplatesScreen, type TemplateRow } from "@/components/templates/WhatsAppTemplatesScreen";
+import { prisma } from "@/lib/db";
+import { requireBusinessId } from "@/lib/tenant";
 import { listTemplates } from "@/server/services/template-service";
 import { listChannelTemplates } from "@/server/services/channel-template-service";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { TemplatePreviewDialog } from "@/components/templates/template-preview-dialog";
 import { campaignActor } from "@/lib/campaign-auth";
 import { SyncTemplatesButton } from "@/components/templates/sync-templates-button";
 import { DeleteTemplateButton, EmailTemplateDialog, SmsTemplateDialog, type ChannelTemplateRow } from "@/components/channels/channel-template-editor";
@@ -12,43 +13,24 @@ import { smsMetrics } from "@/lib/sms";
 import Link from "next/link";
 
 const CATEGORY_LABELS: Record<string, string> = { MARKETING: "שיווק", UTILITY: "שירות", AUTHENTICATION: "אימות" };
-const STATUS_LABELS: Record<string, string> = { DRAFT: "לא נתמך / טיוטה", PENDING_APPROVAL: "ממתין לאישור", APPROVED: "מאושר", REJECTED: "נדחה", PAUSED: "מושהה ע\"י Meta", DISABLED: "מושבת ע\"י Meta" };
 const TABS = [["whatsapp", "WhatsApp"], ["sms", "SMS"], ["email", "אימייל"]] as const;
 
 export default organizationRequest(async function TemplatesPage({ searchParams }: { searchParams: Promise<{ channel?: string }> }) {
   const { channel: raw } = await searchParams;
   const channel = (["whatsapp", "sms", "email"].includes(raw ?? "") ? raw : "whatsapp") as "whatsapp" | "sms" | "email";
-  const [templates, actor, channelTemplates] = await Promise.all([listTemplates(), campaignActor(), listChannelTemplates()]);
+  const [templates, actor, channelTemplates, business] = await Promise.all([listTemplates(), campaignActor(), listChannelTemplates(), prisma.business.findUnique({ where: { id: requireBusinessId() }, select: { name: true } })]);
   const rows = channelTemplates.filter((t) => t.channel === channel) as unknown as ChannelTemplateRow[];
 
   return (
     <div className="p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold">תבניות הודעה</h1>
-        {actor && <div className="flex gap-2">{channel === "whatsapp" ? <><NewTemplateDialog /><SyncTemplatesButton /></> : channel === "sms" ? <SmsTemplateDialog /> : <EmailTemplateDialog />}</div>}
+        {actor && channel !== "whatsapp" && <div className="flex gap-2">{channel === "sms" ? <SmsTemplateDialog /> : <EmailTemplateDialog />}</div>}
       </div>
       <div className="mb-4 flex gap-2 border-b">{TABS.map(([k, v]) => <Link key={k} href={`/templates?channel=${k}`} className={`-mb-px border-b-2 px-3 py-2 text-sm ${channel === k ? "border-primary font-medium" : "border-transparent text-muted-foreground"}`} data-testid={`templates-tab-${k}`}>{v}</Link>)}</div>
       {channel === "whatsapp" ? (
-        <>
-          {!templates.length && <p className="mb-4 text-muted-foreground">אין תבניות עדיין. חבר את חשבון Meta וסנכרן את התבניות המאושרות.</p>}
-          <div className="overflow-auto rounded-md border">
-            <Table>
-              <TableHeader><TableRow><TableHead>שם</TableHead><TableHead>שפה</TableHead><TableHead>קטגוריה</TableHead><TableHead>סטטוס</TableHead><TableHead>תוכן</TableHead><TableHead /></TableRow></TableHeader>
-              <TableBody>
-                {templates.map((template) => (
-                  <TableRow key={template.id}>
-                    <TableCell className="font-medium">{template.name}{template.syncError && <p className="mt-1 max-w-xs text-xs text-amber-700">{template.syncError}</p>}</TableCell>
-                    <TableCell>{template.language === "he" ? "עברית" : template.language}</TableCell>
-                    <TableCell><Badge variant="outline">{CATEGORY_LABELS[template.category] ?? template.category}</Badge></TableCell>
-                    <TableCell><Badge variant="secondary">{STATUS_LABELS[template.status] ?? template.status}</Badge></TableCell>
-                    <TableCell className="max-w-xs truncate text-sm text-muted-foreground">{template.headerFormat && template.headerFormat !== "TEXT" ? `[${template.headerFormat}] ` : ""}{template.body}{Array.isArray(template.buttons) && template.buttons.length ? ` · ${template.buttons.length} כפתורים` : ""}</TableCell>
-                    <TableCell><TemplatePreviewDialog name={template.name} body={template.body} variables={template.variables} headerFormat={template.headerFormat} buttons={template.buttons as Array<{ type: string; text: string; url?: string | null; dynamic?: boolean }> | null} /></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </>
+        <WhatsAppTemplatesScreen canEdit={Boolean(actor)} businessName={business?.name ?? "העסק שלך"} actions={actor ? <SyncTemplatesButton /> : null}
+          templates={templates.map((t) => ({ id: t.id, name: t.name, language: t.language, category: t.category, status: t.status, body: t.body, variables: t.variables, headerFormat: t.headerFormat, buttons: (t.buttons as unknown as TemplateRow["buttons"]) ?? null, components: (t.components as unknown as TemplateRow["components"]) ?? null, syncError: t.syncError, updatedAt: t.updatedAt.toISOString() }))} />
       ) : (
         <>
           {!rows.length && <p className="mb-4 text-muted-foreground">אין תבניות {channel === "sms" ? "SMS" : "אימייל"} עדיין. תבניות {channel === "sms" ? "SMS" : "אימייל"} אינן דורשות אישור ספק וזמינות לשליחה מיד עם השמירה.</p>}

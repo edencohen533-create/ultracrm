@@ -1,3 +1,4 @@
+import { sharesPool } from "@/lib/crm/access";
 import { withAuth } from "@/lib/api";
 import { ok } from "@/lib/response";
 import { prisma } from "@/lib/db";
@@ -18,8 +19,8 @@ export const GET = withAuth(async ({ user }) => {
   const [contacts, contactsWeek, leadsOpen, leadsWeek, dealsOpen, dealsWonMonth, tasksOverdue, tasksToday, suppressed] = await Promise.all([
     prisma.contact.count({ where: { businessId } }),
     prisma.contact.count({ where: { businessId, createdAt: { gte: weekAgo } } }),
-    prisma.lead.count({ where: { businessId, status: { in: ["new", "contacted", "qualified", "follow_up"] }, ...(userScope ? { OR: [{ ownerUserId: userScope }, { ownerUserId: null }] } : {}) } }),
-    prisma.lead.count({ where: { businessId, createdAt: { gte: weekAgo } } }),
+    prisma.lead.count({ where: { businessId, status: { in: ["new", "contacted", "qualified", "follow_up"] }, ...(userScope ? (sharesPool(ids) ? { OR: [{ ownerUserId: userScope }, { ownerUserId: null }] } : { ownerUserId: userScope }) : {}) } }),
+    prisma.lead.count({ where: { businessId, createdAt: { gte: weekAgo }, ...(userScope ? { ownerUserId: userScope } : {}) } }),
     prisma.deal.aggregate({ where: { businessId, status: "open", ...(userScope ? { ownerUserId: userScope } : {}) }, _count: { _all: true }, _sum: { amount: true } }),
     prisma.deal.aggregate({ where: { businessId, status: "won", closedAt: { gte: monthStart }, ...(userScope ? { ownerUserId: userScope } : {}) }, _count: { _all: true }, _sum: { amount: true } }),
     prisma.task.count({ where: { businessId, status: "open", dueAt: { lt: new Date() }, ...(userScope ? { userId: userScope } : {}) } }),

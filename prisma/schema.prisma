@@ -2106,6 +2106,9 @@ model CoachSession {
   latencyMsTotal Int                @default(0) @map("latency_ms_total")
   latencySamples Int                @default(0) @map("latency_samples")
   provider       String?
+  /// AI documentation of the whole call: { summary, timeline:[{from,to,title,details}], customerNeeds, objections, agreements, nextSteps, sentiment, source }
+  documentation  Json?
+  documentedAt   DateTime?          @map("documented_at")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 

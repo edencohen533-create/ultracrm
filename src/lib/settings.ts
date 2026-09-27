@@ -54,6 +54,8 @@ export interface CoachSettings {
   enabled: boolean;
   /** Transcribe saved recordings after the call for learning (costs STT minutes). */
   learnFromRecordings: boolean;
+  /** AI documentation of every answered call (summary + timeline) – on by default. */
+  documentCalls?: boolean;
 }
 
 export { DEFAULT_LEAD_STATUSES, mergeLeadStatuses, type LeadStatusKey, type LeadStatusConfig, type LeadAssignmentSettings } from "@/lib/lead-statuses";
@@ -73,7 +75,20 @@ export interface AssistantSettings {
 }
 export const DEFAULT_ASSISTANT: AssistantSettings = { enabled: false, paused: false, daily: { enabled: true, time: "19:00", days: [0, 1, 2, 3, 4] }, weekly: { enabled: false, day: 0, time: "09:00" }, untreatedAlert: { enabled: false, minutes: 60 }, salesGoal: { enabled: false, period: "day", amount: 0 }, recipients: [], templateId: null };
 
+/** Data visibility and lead rights per role ("הגדרות → הרשאות"). The owner always sees everything. */
+export interface PermissionSettings {
+  /** business = managers see every user's data; team = only their team(s) + themselves. */
+  managerScope: "business" | "team";
+  /** Agents always see only their own data; optionally also unassigned leads/contacts (the shared pool). */
+  agentSeesUnassigned: boolean;
+  /** Which agents may transfer their own leads to another user: none | all | selected (agentTransferUserIds). */
+  agentTransfer: "none" | "all" | "selected";
+  agentTransferUserIds: string[];
+}
+export const DEFAULT_PERMISSIONS: PermissionSettings = { managerScope: "business", agentSeesUnassigned: false, agentTransfer: "none", agentTransferUserIds: [] };
+
 export interface BusinessSettings {
+  permissions: PermissionSettings;
   assistant: AssistantSettings;
   coach: CoachSettings;
   leadStatuses: LeadStatusConfig[];
@@ -145,10 +160,11 @@ export const DEFAULT_PRIORITIZATION: PrioritizationWeights = {
 };
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
-  coach: { enabled: false, learnFromRecordings: false },
+  coach: { enabled: false, learnFromRecordings: false, documentCalls: true },
   leadStatuses: DEFAULT_LEAD_STATUSES,
   leadAssignment: { mode: "least_loaded", maxOpenLeadsPerAgent: 0, agentIds: [], perAgentMax: {}, lastAssignedUserId: null, notifyWhatsApp: { enabled: false, templateId: null } },
   assistant: DEFAULT_ASSISTANT,
+  permissions: DEFAULT_PERMISSIONS,
   retention: { messagesDays: 0, auditDays: 0 },
   marketing: { window: { start: "08:00", end: "21:00", days: [0, 1, 2, 3, 4, 5, 6], timezone: "Asia/Jerusalem" }, maxPerMinute: 60, minHoursBetweenMarketing: 24 },
   wrapUpSeconds: 60,
@@ -184,6 +200,7 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     retention: { ...DEFAULT_SETTINGS.retention, ...(r.retention ?? {}) },
     coach: { ...DEFAULT_SETTINGS.coach, ...(r.coach ?? {}) },
     leadStatuses: mergeLeadStatuses(r.leadStatuses),
+    permissions: { ...DEFAULT_PERMISSIONS, ...(r.permissions ?? {}), agentTransferUserIds: Array.isArray(r.permissions?.agentTransferUserIds) ? r.permissions!.agentTransferUserIds : [] },
     assistant: { ...DEFAULT_ASSISTANT, ...(r.assistant ?? {}), daily: { ...DEFAULT_ASSISTANT.daily, ...(r.assistant?.daily ?? {}) }, weekly: { ...DEFAULT_ASSISTANT.weekly, ...(r.assistant?.weekly ?? {}) }, untreatedAlert: { ...DEFAULT_ASSISTANT.untreatedAlert, ...(r.assistant?.untreatedAlert ?? {}) }, salesGoal: { ...DEFAULT_ASSISTANT.salesGoal, ...(r.assistant?.salesGoal ?? {}) }, recipients: Array.isArray(r.assistant?.recipients) ? r.assistant!.recipients : [] },
     leadAssignment: { ...DEFAULT_SETTINGS.leadAssignment, ...(r.leadAssignment ?? {}), agentIds: Array.isArray(r.leadAssignment?.agentIds) ? r.leadAssignment!.agentIds : [], perAgentMax: r.leadAssignment?.perAgentMax && typeof r.leadAssignment.perAgentMax === "object" ? r.leadAssignment.perAgentMax : {}, notifyWhatsApp: { enabled: false, templateId: null, ...(r.leadAssignment?.notifyWhatsApp ?? {}) } },
     prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },

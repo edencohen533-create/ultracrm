@@ -53,6 +53,7 @@ const schema = z.object({
       coach: z.object({ enabled: z.boolean().optional(), learnFromRecordings: z.boolean().optional() }).optional(),
       leadStatuses: z.array(z.object({ key: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost"]), label: z.string().trim().min(1).max(40), hidden: z.boolean().default(false) })).max(7).optional(),
       leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional() }).optional(),
+      permissions: z.object({ managerScope: z.enum(["business", "team"]), agentSeesUnassigned: z.boolean(), agentTransfer: z.enum(["none", "all", "selected"]), agentTransferUserIds: z.array(z.string()).max(500) }).partial().optional(),
       marketing: z.object({
         window: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
         maxPerMinute: z.number().int().min(0).max(600).optional(),
@@ -76,6 +77,7 @@ export const PATCH = withAuth(async ({ req, user }) => {
     coach: { ...before.coach, ...(b.settings?.coach ?? {}) },
     leadStatuses: b.settings?.leadStatuses ? mergeLeadStatuses(b.settings.leadStatuses) : before.leadStatuses,
     leadAssignment: { ...before.leadAssignment, ...(b.settings?.leadAssignment ?? {}) },
+    permissions: { ...before.permissions, ...(b.settings?.permissions ?? {}) },
   });
   const changed: Record<string, { from: unknown; to: unknown }> = {};
   for (const k of Object.keys(merged) as (keyof typeof merged)[]) {

@@ -54,7 +54,8 @@ export function validateTemplateVariables(body: string, variables: Record<string
   if (keys.some((key, i) => Number(key) !== i + 1 || (!variables[key]?.trim() || /\{[^{}]+\}/.test(stripTags(variables[key]))))) {
     throw new Error("יש למלא את כל משתני התבנית לפי הסדר");
   }
-  if (Object.keys(variables).some((key) => !keys.includes(key))) {
+  // "h1" = the value of a text-header variable (templates whose header is "…{{1}}…").
+  if (Object.keys(variables).some((key) => !keys.includes(key) && key !== "h1")) {
     throw new Error("משתנים שאינם מופיעים בתבנית");
   }
 }

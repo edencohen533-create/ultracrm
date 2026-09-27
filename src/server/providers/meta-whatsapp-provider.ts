@@ -141,6 +141,15 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
       const key = headerFormat.toLowerCase();
       components.push({ type: "header", parameters: [{ type: key, [key]: { link: payload.templateMedia.link, ...(key === "document" && payload.templateMedia.filename ? { filename: payload.templateMedia.filename } : {}) } }] });
     }
+    // Text header with one variable ({{1}}): the value comes as templateVariables.h1.
+    if (headerFormat === "TEXT") {
+      const headerText = ((template.components as Array<{ type?: string; text?: string }> | null) ?? []).find((c) => c.type === "HEADER")?.text ?? "";
+      if (/\{\{1\}\}/.test(headerText)) {
+        const h1 = payload.templateVariables?.h1;
+        if (!h1) return { providerMessageId: "", status: "FAILED", error: "לכותרת התבנית נדרש ערך (h1)", errorCode: "template_header_param_required", retryable: false };
+        components.push({ type: "header", parameters: [{ type: "text", text: h1 }] });
+      }
+    }
     if (parameters.length > 0) components.push({ type: "body", parameters });
     // Dynamic URL buttons: Meta expects one component per button with its index and the suffix text.
     const buttons = (template.buttons as Array<{ type: string; dynamic?: boolean }> | null) ?? [];

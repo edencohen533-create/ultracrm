@@ -16,6 +16,7 @@ import { CALL_STATUS_LABEL, formatDuration, formatPhone } from "@/lib/client/for
 import { Kbd, cx } from "@/components/ui";
 import type { CallDto, OutcomeKey } from "@/lib/client/types";
 import { DealCloseModal } from "@/components/leads/DealCloseModal";
+import { PostCallWhatsApp } from "./PostCallWhatsApp";
 
 const SKIP_REASONS = ["לא זמן מתאים", "פרטים חסרים", "כבר דיברתי איתו", "ליד לא רלוונטי", "אחר"];
 
@@ -171,7 +172,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
           {sale && <DealCloseModal contactId={sale.contactId} name={sale.name} onClose={() => setSale(null)} onDone={() => { const then = sale.then; setSale(null); if (then === "next") void continueNext("sale", true); }} />}
           {wrapUp && !call && (minimal && !fullWrapUp
             ? <NextBar call={wrapUp} canContinue={Boolean(session && session.status === "active" && session.mode !== "manual" && !sessionTakenOver)} busy={busy === "outcome" || busy === "next" || busy === "dial"} onContinue={continueNext} onFull={() => setFullWrapUp(true)} />
-            : <OutcomePanel call={wrapUp} note={note} onSave={onSave} saving={busy === "outcome"} />)}
+            : <><div className="px-4 pt-2"><PostCallWhatsApp callId={wrapUp.id} /></div><OutcomePanel call={wrapUp} note={note} onSave={onSave} saving={busy === "outcome"} /></>)}
         </section>
 
         {/* Call panel (left in RTL) */}
@@ -267,6 +268,7 @@ function NextBar({ call, canContinue, busy, onContinue, onFull }: { call: CallDt
         {answered ? <span>בחר תוצאה:</span> : <span>נרשם אוטומטית: <b>{auto === "busy" ? "תפוס" : "אין מענה"}</b></span>}
         {answered && <div className="next-bar-chips">{quick.map(([k, label]) => <button key={k} type="button" aria-pressed={pick === k} onClick={() => setPick(k)} data-testid={`next-quick-${k}`}>{label}</button>)}</div>}
       </div>
+      <PostCallWhatsApp callId={call.id} />
       <div className="next-bar-actions">
         <button type="button" className="next-bar-full" onClick={onFull} data-testid="next-full">תיעוד מלא / לחזור בהמשך</button>
         <Button variant="good" size="lg" disabled={!pick || busy} loading={busy} onClick={() => pick && onContinue(pick)} data-testid="next-continue">{canContinue ? "המשך לליד הבא ›" : "שמור"}</Button>

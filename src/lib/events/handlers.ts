@@ -249,6 +249,18 @@ const coachLearning: EventHandler = {
   },
 };
 
+/** AI documentation of the answered call (summary + timeline), stored on the call's coach session. */
+const callDocumentation: EventHandler = {
+  name: "call.documentation",
+  types: ["call.ended"],
+  async run(event) {
+    const { callId } = payload<{ callId?: string }>(event);
+    if (!callId) return { skipped: "no callId" };
+    const { documentCall } = await import("@/server/coach/documentation");
+    return documentCall(callId);
+  },
+};
+
 /** Outgoing webhooks (Make / Zapier …): queue one signed delivery per subscribed endpoint. */
 const webhooks: EventHandler = {
   name: "webhooks",
@@ -256,4 +268,4 @@ const webhooks: EventHandler = {
   run: async (event) => { const { enqueueWebhookDeliveries } = await import("@/server/services/integrations"); return enqueueWebhookDeliveries(event); },
 };
 
-export const HANDLERS: EventHandler[] = [coachLearning, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences, webhooks];
+export const HANDLERS: EventHandler[] = [coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences, webhooks];

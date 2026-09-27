@@ -1,13 +1,15 @@
 import { withAuth } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { csvRows } from "@/lib/csv-export";
+import { contactScope } from "@/lib/crm/access";
+import { visibleUserIds } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 /** CSV export of the business's contacts (managers). Formula-safe cells, UTF-8 BOM. */
 export const GET = withAuth(async ({ user }) => {
   const contacts = await prisma.contact.findMany({
-    where: { businessId: user.businessId },
+    where: { businessId: user.businessId, ...contactScope(await visibleUserIds(user)) },
     orderBy: { createdAt: "asc" },
     take: 20000,
     include: { tags: { include: { tag: { select: { name: true } } } }, owner: { select: { fullName: true } }, phones: { select: { e164: true } }, emails: { select: { email: true } } },

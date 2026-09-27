@@ -10,7 +10,7 @@ import { emitEvent, kickEventProcessing } from "@/lib/events";
 import { assertTenantReferences } from "@/lib/tenant-references";
 import { assertCanSeeUser, visibleUserIds, type SessionUser } from "@/lib/auth";
 import { assertOwnerAccess, ownerScope, conversationScope } from "./access";
-import { attemptStats, canAccessContact, followUpsFor, personalListId, transferLeads, waitingToday } from "./lead-ops";
+import { attemptStats, canAccessContact, canTransferLeads, followUpsFor, personalListId, transferLeads, waitingToday } from "./lead-ops";
 import { getBusinessSettings } from "@/lib/settings";
 
 // ─── Leads ───────────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
       needsSchedule: l.status === "follow_up" && !fu,
       pendingTransfer: l.pendingTransferToUserId ? { to: transferTo.find((u) => u.id === l.pendingTransferToUserId)?.fullName ?? null, at: l.pendingTransferAt } : null };
   });
-  return { items: enriched, total, page: f.page, limit: f.limit, timezone: settings.timezone,
+  return { items: enriched, total, page: f.page, limit: f.limit, timezone: settings.timezone, permissions: { canTransfer: await canTransferLeads(user) },
     byStatus: Object.fromEntries(byStatus.map((s) => [s.status, s._count._all])),
     byOwner: byOwner.map((g) => ({ id: g.ownerUserId, name: owners.find((o) => o.id === g.ownerUserId)?.fullName ?? "ללא שיוך", count: g._count._all })),
     sources: sources.map((s) => s.source!).filter(Boolean),

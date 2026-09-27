@@ -391,6 +391,10 @@ model Business {
   conversationDrafts     ConversationDraft[]
   marketingSequences     MarketingSequence[]
   sequenceRuns           SequenceRun[]
+  apiKeys                ApiKey[]
+  webhookEndpoints       WebhookEndpoint[]
+  webhookDeliveries      WebhookDelivery[]
+  dealItems              DealItem[]
 
   @@map("businesses")
 }
@@ -418,22 +422,24 @@ model Account {
 /// Membership of an account in a business ("business user"). All operational
 /// data (calls, tasks, conversations…) references this row, never the Account.
 model User {
-  id           String         @id @default(cuid())
-  businessId   String         @map("business_id")
-  accountId    String         @map("account_id")
+  id            String         @id @default(cuid())
+  businessId    String         @map("business_id")
+  accountId     String         @map("account_id")
   /// Denormalised from Account for display/search.
-  email        String
-  fullName     String         @map("full_name")
-  role         UserRole       @default(agent)
-  teamId       String?        @map("team_id")
-  isActive     Boolean        @default(true) @map("is_active")
-  crmSettings  Json?          @map("crm_settings")
-  avatarUrl    String?        @map("avatar_url")
-  presence     PresenceStatus @default(offline)
-  presenceAt   DateTime       @default(now()) @map("presence_at")
+  email         String
+  fullName      String         @map("full_name")
+  role          UserRole       @default(agent)
+  teamId        String?        @map("team_id")
+  isActive      Boolean        @default(true) @map("is_active")
+  /// Personal mobile (E.164) – new-lead WhatsApp notifications are sent here.
+  personalPhone String?        @map("personal_phone")
+  crmSettings   Json?          @map("crm_settings")
+  avatarUrl     String?        @map("avatar_url")
+  presence      PresenceStatus @default(offline)
+  presenceAt    DateTime       @default(now()) @map("presence_at")
   /// Real-time sales coach shown to this agent (business-level switch in settings.coach). 
-  coachEnabled Boolean        @default(true) @map("coach_enabled")
-  lastSeenAt   DateTime?      @map("last_seen_at")
+  coachEnabled  Boolean        @default(true) @map("coach_enabled")
+  lastSeenAt    DateTime?      @map("last_seen_at")
 
   /// Telnyx telephony credential (one per business user).
   telnyxCredentialId String? @map("telnyx_credential_id")
@@ -542,6 +548,8 @@ model Contact {
   emailStatus     String?       @map("email_status")
   emailBouncedAt  DateTime?     @map("email_bounced_at")
 
+  /// Set when the contact becomes a customer (a deal was won) – "לקוחות קיימים".
+  customerSince  DateTime? @map("customer_since")
   lastActivityAt DateTime? @map("last_activity_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
@@ -652,16 +660,16 @@ model Lead {
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business                Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   /// Manager transfer requested while the lead was in a live call / dial attempt – applied once the call's outcome is saved.
   pendingTransferToUserId String?   @map("pending_transfer_to_user_id")
   pendingTransferById     String?   @map("pending_transfer_by_id")
   pendingTransferAt       DateTime? @map("pending_transfer_at")
 
-  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  owner    User?    @relation("LeadOwner", fields: [ownerUserId], references: [id])
-  tasks    Task[]
-  deals    Deal[]
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  owner   User?   @relation("LeadOwner", fields: [ownerUserId], references: [id])
+  tasks   Task[]
+  deals   Deal[]
 
   @@index([businessId, status, createdAt])
   @@index([businessId, ownerUserId, status])
@@ -686,11 +694,12 @@ model Deal {
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
 
-  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  lead      Lead?    @relation(fields: [leadId], references: [id])
-  owner     User?    @relation("DealOwner", fields: [ownerUserId], references: [id])
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact   Contact    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  lead      Lead?      @relation(fields: [leadId], references: [id])
+  owner     User?      @relation("DealOwner", fields: [ownerUserId], references: [id])
   tasks     Task[]
+  items     DealItem[]
   noteItems Note[]
 
   @@index([businessId, status, stage])
@@ -2210,4 +2219,96 @@ model CoachExample {
   @@index([businessId, status])
   @@index([callId])
   @@map("coach_examples")
+}
+
+/// Key for the public API (/api/v1) – Make, Zapier, n8n, custom code. Only a hash is stored; the key is shown once.
+model ApiKey {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  name        String
+  /// First characters, to recognise the key in the list ("uk_live_ab12…").
+  prefix      String
+  keyHash     String    @unique @map("key_hash")
+  createdById String    @map("created_by_id")
+  lastUsedAt  DateTime? @map("last_used_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("api_keys")
+}
+
+/// Outgoing webhook subscription (Make / Zapier "catch hook" URL etc.).
+model WebhookEndpoint {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  url           String
+  description   String?
+  /// Event types, e.g. ["lead.created", "deal.won"].
+  events        String[]
+  /// { secret } sealed at rest – deliveries are signed with HMAC-SHA256.
+  config        Json      @default("{}")
+  isActive      Boolean   @default(true) @map("is_active")
+  failureCount  Int       @default(0) @map("failure_count")
+  lastSuccessAt DateTime? @map("last_success_at")
+  lastFailureAt DateTime? @map("last_failure_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  business   Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([businessId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  endpointId    String    @map("endpoint_id")
+  event         String
+  /// Source event id – one delivery per endpoint and source event.
+  eventKey      String    @map("event_key")
+  payload       Json
+  /// pending | delivered | failed
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  responseCode  Int?      @map("response_code")
+  error         String?
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  deliveredAt   DateTime? @map("delivered_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@unique([endpointId, eventKey])
+  @@index([businessId, status, nextAttemptAt])
+  @@map("webhook_deliveries")
+}
+
+/// A product bought in a deal, with its service period (for renewals – the existing-customers dialer).
+model DealItem {
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  dealId           String    @map("deal_id")
+  contactId        String    @map("contact_id")
+  name             String
+  quantity         Int       @default(1)
+  unitPrice        Decimal   @default(0) @map("unit_price") @db.Decimal(14, 2)
+  startsAt         DateTime  @map("starts_at")
+  /// When the product ends – from this moment the customer is due for a renewal call.
+  endsAt           DateTime? @map("ends_at")
+  /// Set when a renewal was sold (or the renewal was closed) so it is not dialed again.
+  renewalHandledAt DateTime? @map("renewal_handled_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  deal     Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, endsAt])
+  @@index([contactId])
+  @@map("deal_items")
 }

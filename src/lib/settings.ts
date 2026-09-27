@@ -147,7 +147,7 @@ export const DEFAULT_PRIORITIZATION: PrioritizationWeights = {
 export const DEFAULT_SETTINGS: BusinessSettings = {
   coach: { enabled: false, learnFromRecordings: false },
   leadStatuses: DEFAULT_LEAD_STATUSES,
-  leadAssignment: { mode: "least_loaded", maxOpenLeadsPerAgent: 0, agentIds: [], perAgentMax: {}, lastAssignedUserId: null },
+  leadAssignment: { mode: "least_loaded", maxOpenLeadsPerAgent: 0, agentIds: [], perAgentMax: {}, lastAssignedUserId: null, notifyWhatsApp: { enabled: false, templateId: null } },
   assistant: DEFAULT_ASSISTANT,
   retention: { messagesDays: 0, auditDays: 0 },
   marketing: { window: { start: "08:00", end: "21:00", days: [0, 1, 2, 3, 4, 5, 6], timezone: "Asia/Jerusalem" }, maxPerMinute: 60, minHoursBetweenMarketing: 24 },
@@ -185,7 +185,7 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     coach: { ...DEFAULT_SETTINGS.coach, ...(r.coach ?? {}) },
     leadStatuses: mergeLeadStatuses(r.leadStatuses),
     assistant: { ...DEFAULT_ASSISTANT, ...(r.assistant ?? {}), daily: { ...DEFAULT_ASSISTANT.daily, ...(r.assistant?.daily ?? {}) }, weekly: { ...DEFAULT_ASSISTANT.weekly, ...(r.assistant?.weekly ?? {}) }, untreatedAlert: { ...DEFAULT_ASSISTANT.untreatedAlert, ...(r.assistant?.untreatedAlert ?? {}) }, salesGoal: { ...DEFAULT_ASSISTANT.salesGoal, ...(r.assistant?.salesGoal ?? {}) }, recipients: Array.isArray(r.assistant?.recipients) ? r.assistant!.recipients : [] },
-    leadAssignment: { ...DEFAULT_SETTINGS.leadAssignment, ...(r.leadAssignment ?? {}), agentIds: Array.isArray(r.leadAssignment?.agentIds) ? r.leadAssignment!.agentIds : [], perAgentMax: r.leadAssignment?.perAgentMax && typeof r.leadAssignment.perAgentMax === "object" ? r.leadAssignment.perAgentMax : {} },
+    leadAssignment: { ...DEFAULT_SETTINGS.leadAssignment, ...(r.leadAssignment ?? {}), agentIds: Array.isArray(r.leadAssignment?.agentIds) ? r.leadAssignment!.agentIds : [], perAgentMax: r.leadAssignment?.perAgentMax && typeof r.leadAssignment.perAgentMax === "object" ? r.leadAssignment.perAgentMax : {}, notifyWhatsApp: { enabled: false, templateId: null, ...(r.leadAssignment?.notifyWhatsApp ?? {}) } },
     prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },
     inbound: { ...DEFAULT_SETTINGS.inbound, ...(r.inbound ?? {}) },
     automations: {

@@ -96,7 +96,7 @@ export function JourneyBuilder({ initial, templates, tags, lists }: { initial: J
             {(j.trigger === "DELIVERY_FAILED" || j.trigger === "SENT_NO_REPLY") && <label>ערוץ<select value={String(j.triggerConfig.channel ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, channel: e.target.value || undefined } })}><option value="">כל הערוצים</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">אימייל</option></select></label>}
             {j.trigger === "CONTACT_CREATED" && <label>מקור (אופציונלי)<input value={String(j.triggerConfig.contactSource ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, contactSource: e.target.value || undefined } })} placeholder="למשל facebook" /></label>}
             {j.trigger === "SENT_NO_REPLY" && <p className="jr-hint">השלב הראשון חייב להתחיל אחרי המתנה של 30 דקות לפחות.</p>}
-            {j.trigger === "CART_ABANDONED" && <p className="jr-hint">מתחיל כשעגלה עם פרטי לקוח ננטשת בחנות מחוברת (<Link href="/carts">עגלות נטושות</Link>). בהודעות: {"{{cart_url}}"}, {"{{cart_total}}"}, {"{{cart_items}}"}; במשתני WhatsApp: {"{cart_url}"}. המסע נעצר כשהעגלה נרכשת.</p>}
+            {j.trigger === "CART_ABANDONED" && <p className="jr-hint">מתחיל כשעגלה עם פרטי לקוח ננטשת בחנות מחוברת (<Link href="/automations/carts">עגלות נטושות</Link>). בהודעות: {"{{cart_url}}"}, {"{{cart_total}}"}, {"{{cart_items}}"}; במשתני WhatsApp: {"{cart_url}"}. המסע נעצר כשהעגלה נרכשת.</p>}
           </div>}
           {sel === "exit" && <div className="jr-form">
             <p className="jr-hint">איש קשר יוצא מהמסע בסוף הפעולות, או מוקדם יותר כש:</p>

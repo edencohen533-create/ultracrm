@@ -12,12 +12,14 @@ export const dynamic = "force-dynamic";
 /** Lead status labels/order/visibility + the lead-distribution policy. Every role reads; managers (not only owners) edit. */
 export const GET = withAuth(async ({ user }) => {
   const s = await getBusinessSettings(user.businessId);
-  return ok({ items: s.leadStatuses, leadAssignment: s.leadAssignment });
+  // Managers also get the WhatsApp templates (with approval status) for the "notify the agent" option.
+  const templates = user.role === "agent" ? [] : await prisma.template.findMany({ where: { businessId: user.businessId, channel: "whatsapp", internal: false }, orderBy: { name: "asc" }, select: { id: true, name: true, status: true, body: true } });
+  return ok({ items: s.leadStatuses, leadAssignment: s.leadAssignment, templates });
 }, { module: "crm" });
 
 const schema = z.object({
   leadStatuses: z.array(z.object({ key: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost"]), label: z.string().trim().min(1).max(40), hidden: z.boolean().default(false) })).max(7).optional(),
-  leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional() }).optional(),
+  leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional(), notifyWhatsApp: z.object({ enabled: z.boolean(), templateId: z.string().nullable() }).optional() }).optional(),
 });
 
 export const PATCH = withAuth(async ({ req, user }) => {

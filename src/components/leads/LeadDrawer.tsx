@@ -9,6 +9,7 @@ import { formatDateTime, formatDuration, formatPhone, CALL_STATUS_LABEL } from "
 import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 import { Button, Input, Spinner } from "@/components/ui";
 import { ContactChat } from "@/components/contacts/ContactChat";
+import { DealCloseModal } from "@/components/leads/DealCloseModal";
 import { AttemptsCell, AttemptsModal, FollowUpBadge, FollowUpModal, TransferModal, type FollowUpInfo } from "@/components/leads/LeadActions";
 
 interface LeadDetails { id: string; status: string; source: string | null; createdAt: string; notes: string | null; ownerUserId: string | null; contact: { id: string; fullName: string }; attempts: number; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null; at: string } | null }
@@ -26,7 +27,7 @@ export function LeadDrawer({ leadId, initialTab = "details", users, manager, mes
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [modal, setModal] = useState<"followup" | "attempts" | "transfer" | null>(null);
+  const [modal, setModal] = useState<"followup" | "attempts" | "transfer" | "deal" | null>(null);
   const [form, setForm] = useState({ fullName: "", phone: "", email: "", product: "", campaign: "", ad: "" });
   const active = useRef(true);
   const load = useCallback(async () => {
@@ -48,7 +49,7 @@ export function LeadDrawer({ leadId, initialTab = "details", users, manager, mes
           {lead.pendingTransfer && <div role="status" className="lead-transfer-note" data-testid="lead-pending-transfer">⇄ הליד בשיחה פעילה – יועבר ל{lead.pendingTransfer.to ?? "נציג אחר"} מיד בסיום השיחה. עד אז לא ניתן לחייג אליו במקביל.</div>}
           <div className="lead-dial-summary" data-testid="lead-dial-summary"><div><span>ניסיונות חיוג</span><AttemptsCell count={lead.attempts} lastAt={lead.lastAttemptAt} tz={lead.timezone} onOpen={() => setModal("attempts")} /></div><div><span>ניסיון אחרון</span><b dir="ltr">{lead.lastAttemptAt ? formatDateTime(lead.lastAttemptAt) : "—"}</b></div><div><span>פולואפ</span><FollowUpBadge followUp={lead.followUp} needsSchedule={lead.needsSchedule} tz={lead.timezone} onClick={() => setModal("followup")} /><button className="lead-link" onClick={() => setModal("followup")} data-testid="lead-followup-edit">{lead.followUp ? "ערוך" : "קבע פולואפ"}</button></div>{manager && <div><button className="lead-transfer" onClick={() => setModal("transfer")} data-testid="lead-transfer-open">העבר לנציג</button></div>}</div>
           {lead.followUp?.note && <p className="text-xs text-muted">הערה לשיחה: {lead.followUp.note}</p>}
-          <label className="lead-detail-field">סטטוס<select disabled={busy} value={lead.status} onChange={e => { if (e.target.value === "follow_up") setModal("followup"); else void updateLead({ status: e.target.value }); }}>{statuses.items.filter(s => !s.hidden || s.key === lead.status).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select></label>
+          <label className="lead-detail-field">סטטוס<select disabled={busy} value={lead.status} onChange={e => { if (e.target.value === "follow_up") setModal("followup"); else if (e.target.value === "converted") setModal("deal"); else void updateLead({ status: e.target.value }); }}>{statuses.items.filter(s => !s.hidden || s.key === lead.status).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select></label>
           <label className="lead-detail-field">נציג מטפל<select disabled={busy || !manager} value={lead.ownerUserId ?? ""} onChange={e => updateLead({ ownerUserId: e.target.value || null })}><option value="">ללא שיוך</option>{users.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}</select></label>
           <section className="lead-attribution"><h3>שיווק וייחוס</h3><dl className="lead-details-grid">{[['campaignId','מזהה קמפיין'],['adSet','Ad set'],['ad','מודעה'],['fbc','fbc'],['utm_source','UTM source'],['utm_campaign','UTM campaign']].map(([key,label]) => <div key={key}><dt>{label}</dt><dd>{value(contact.customFields,key)}</dd></div>)}</dl></section>
           <section className="lead-detail-notes"><h3>הערות ({contact.noteItems.length + (contact.notes ? 1 : 0) + (lead.notes ? 1 : 0)})</h3><form onSubmit={e => { e.preventDefault(); void addNote(); }}><input aria-label="הוסף הערה" placeholder="הוסף הערה..." value={note} maxLength={4000} onChange={e => setNote(e.target.value)}/><Button type="submit" loading={busy} disabled={!note.trim()}>הוסף</Button></form>{lead.notes && <article><p>{lead.notes}</p><small>הערות הליד</small></article>}{contact.notes && <article><p>{contact.notes}</p><small>הערות איש הקשר</small></article>}{contact.noteItems.map(n => <article key={n.id}><p>{n.body}</p><small>{n.author.fullName} · {formatDateTime(n.createdAt)}</small></article>)}</section>
@@ -57,6 +58,7 @@ export function LeadDrawer({ leadId, initialTab = "details", users, manager, mes
     </div>
     {lead && contact && modal === "followup" && <FollowUpModal leadId={lead.id} name={contact.fullName} tz={lead.timezone} current={lead.followUp} onClose={() => setModal(null)} onSaved={() => { void load(); onUpdated(); }} />}
     {lead && contact && modal === "attempts" && <AttemptsModal leadId={lead.id} name={contact.fullName} tz={lead.timezone} onClose={() => setModal(null)} />}
+    {lead && contact && modal === "deal" && <DealCloseModal contactId={contact.id} leadId={lead.id} name={contact.fullName} onClose={() => setModal(null)} onDone={() => { void load(); onUpdated(); }} />}
     {lead && modal === "transfer" && <TransferModal leadIds={[lead.id]} currentOwnerId={lead.ownerUserId} users={users} onClose={() => setModal(null)} onDone={() => { onUpdated(); onClose(); }} />}
   </dialog>;
 }

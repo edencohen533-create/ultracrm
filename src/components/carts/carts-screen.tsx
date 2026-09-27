@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Copy, ShoppingCart, Trash2, X } from "lucide-react";
 import { api } from "@/lib/client/api";
 
-type Store = { id: string; platform: "shopify" | "woocommerce" | "custom"; name: string; domain: string | null; publicKey: string; abandonAfterMinutes: number; isActive: boolean; lastEventAt: string | null; snippet: string; webhookUrl: string | null; webhookSecret: string | null; webhookSecretMasked: string | null };
+type Store = { api?: { connectedAt: string; target: string; webhooks: string[] } | null; id: string; platform: "shopify" | "woocommerce" | "custom"; name: string; domain: string | null; publicKey: string; abandonAfterMinutes: number; isActive: boolean; lastEventAt: string | null; snippet: string; webhookUrl: string | null; webhookSecret: string | null; webhookSecretMasked: string | null };
 type Cart = { id: string; status: string; email: string | null; phoneE164: string | null; customerName: string | null; currency: string | null; total: string | null; orderTotal: string | null; items: Array<{ name: string; quantity: number }>; checkoutUrl: string | null; lastActivityAt: string; abandonedAt: string | null; convertedAt: string | null; recoveryMessageAt: string | null; store: { name: string; platform: string }; contact: { id: string; fullName: string } | null };
 type Stats = { open: number; abandoned: number; abandonedValue: number; recovered: number; recoveredValue: number; converted: number; recoveryRate: number | null };
 const PLATFORM: Record<string, string> = { shopify: "Shopify", woocommerce: "WooCommerce", custom: "אתר אחר" };
@@ -76,6 +76,7 @@ function StoreSetup({ store, onClose, onSaved, onDeleted }: { store: Store | nul
           {platform === "shopify" && <label className="wz-field"><span className="wz-label">מפתח החתימה של Shopify (אפשר להוסיף גם אחר כך)</span><input dir="ltr" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Settings → Notifications → Webhooks: “Your webhooks will be signed with …”" /></label>}
           <div className="wz-modal-actions"><button className="wz-btn primary" disabled={!name.trim() || busy} onClick={create} data-testid="store-create">חיבור</button></div>
         </> : <>
+          {store.platform !== "custom" && <ApiConnect store={store} onConnected={onSaved} />}
           <ol className="carts-steps">
             <li><strong>1. הוסף את הקוד לאתר</strong>{store.platform === "shopify" ? " – Online Store → Themes → Edit code → theme.liquid, לפני </head>." : store.platform === "woocommerce" ? " – WordPress: תוסף כמו “Insert Headers and Footers” / WPCode → Header, או functions.php של התבנית." : " – לפני </head> בכל עמודי האתר."}<Code value={store.snippet} testid="store-snippet" />
               {store.platform === "custom" && <p className="wz-hint">באתר מותאם, קרא מהקוד שלך: <code dir="ltr">{"UltraCRM.cart({ externalId, email, phone, name, total, currency, checkoutUrl, items: [{ name, quantity, price }] })"}</code>, ובסיום רכישה <code dir="ltr">{"UltraCRM.order({ orderId, total })"}</code>. טלפון ואימייל שהגולש מקליד בטפסים נקלטים אוטומטית.</p>}
@@ -91,5 +92,37 @@ function StoreSetup({ store, onClose, onSaved, onDeleted }: { store: Store | nul
         </>}
       </div>
     </div></div>
+  );
+}
+
+/** Recommended: paste the store's API credentials – we verify them and register the webhooks in the store. */
+function ApiConnect({ store, onConnected }: { store: Store; onConnected: (s: Store) => void }) {
+  const shopify = store.platform === "shopify";
+  const [a, setA] = useState(shopify ? (store.api?.target ?? store.domain ?? "") : (store.api?.target ?? (store.domain ? `https://${store.domain}` : "")));
+  const [b, setB] = useState(""); const [c, setC] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function connect() {
+    setBusy(true);
+    try {
+      const r = await api.post<{ store: Store; registered: string[]; failed: string[]; shopName: string }>(`/api/stores/${store.id}/connect-api`, shopify ? { shop: a, accessToken: b, apiSecret: c } : { siteUrl: a, consumerKey: b, consumerSecret: c });
+      if (r.failed.length) toast.error(`מחובר ל-${r.shopName}, אבל חלק מה-Webhooks לא נרשמו: ${r.failed.join(", ")}`); else toast.success(`מחובר ל-${r.shopName} · ${r.registered.length} Webhooks נרשמו אוטומטית`);
+      setB(""); setC(""); onConnected(await api.get<Store>(`/api/stores/${store.id}?reveal=1`));
+    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  }
+  return (
+    <section className="carts-api" data-testid="store-api">
+      <h3>חיבור אוטומטי עם API <span className="cmp-badge sent">מומלץ</span></h3>
+      {store.api ? <p className="carts-api-ok" data-testid="store-api-status">✓ מחובר ל-<b dir="ltr">{store.api.target}</b> מאז {new Date(store.api.connectedAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })} · Webhooks רשומים: <span dir="ltr">{store.api.webhooks.join(", ") || "—"}</span></p>
+        : <p className="wz-hint">הדבק פעם אחת את פרטי ה-API של החנות – נבדוק אותם מול החנות ונרשום בה את ה-Webhooks לבד. אין צורך להעתיק כתובות ידנית.</p>}
+      {shopify ? <p className="wz-hint">ב-Shopify: Settings → Apps and sales channels → Develop apps → Create an app → הרשאות Admin API: <b dir="ltr">read_orders, read_checkouts</b> → Install. העתק את <b>Admin API access token</b> ואת <b>API secret key</b>.</p>
+        : <p className="wz-hint">ב-WooCommerce: Settings → Advanced → REST API → Add key, הרשאה <b>Read/Write</b>. העתק את <b dir="ltr">Consumer key</b> ו-<b dir="ltr">Consumer secret</b>.</p>}
+      <div className="carts-api-grid">
+        <label className="wz-field"><span className="wz-label">{shopify ? "כתובת החנות" : "כתובת האתר"}</span><input dir="ltr" value={a} onChange={(e) => setA(e.target.value)} placeholder={shopify ? "your-store.myshopify.com" : "https://shop.example.com"} data-testid="store-api-target" /></label>
+        <label className="wz-field"><span className="wz-label">{shopify ? "Admin API access token" : "Consumer key"}</span><input dir="ltr" type="password" autoComplete="off" value={b} onChange={(e) => setB(e.target.value)} placeholder={shopify ? "shpat_…" : "ck_…"} data-testid="store-api-key" /></label>
+        <label className="wz-field"><span className="wz-label">{shopify ? "API secret key" : "Consumer secret"}</span><input dir="ltr" type="password" autoComplete="off" value={c} onChange={(e) => setC(e.target.value)} placeholder={shopify ? "shpss_… / מפתח הסוד של האפליקציה" : "cs_…"} data-testid="store-api-secret" /></label>
+      </div>
+      <div className="wz-modal-actions"><button className="wz-btn primary" disabled={busy || !a.trim() || b.trim().length < 8 || c.trim().length < 8} onClick={connect} data-testid="store-api-connect">{busy ? "מתחבר…" : store.api ? "חבר מחדש ובדוק" : "חבר ובדוק"}</button></div>
+      <p className="wz-hint">המפתחות נשמרים מוצפנים ולא מוצגים שוב. אפשר גם לחבר ידנית לפי השלבים למטה.</p>
+    </section>
   );
 }

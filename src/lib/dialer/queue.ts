@@ -79,10 +79,13 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
     const newMax = personal ? Math.min(maxAttempts, retryRule(personal, false, 0).maxAttempts) : maxAttempts;
     const followMax = personal ? Math.min(maxAttempts, retryRule(personal, true, 0).maxAttempts) : maxAttempts;
     const strategy = personal?.strategy ?? "business";
-    const order = strategy === "business" ? Prisma.sql`${scoreSql(settings.prioritization, userId)} DESC, l.created_at ASC`
-      : strategy === "new_first" ? Prisma.sql`(l.attempts = 0) DESC, (l.status = 'callback') DESC, l.attempts ASC, l.created_at DESC`
-      : strategy === "hot" ? Prisma.sql`(l.status = 'callback') DESC, (l.attempts = 0) DESC, l.created_at DESC`
-      : Prisma.sql`(l.status = 'callback') DESC, COALESCE(l.follow_up_attempts, l.attempts) ASC, ${strategy === "oldest" ? Prisma.sql`l.created_at ASC` : Prisma.sql`l.created_at DESC`}`;
+    // Inside the follow-up group the earliest due time goes first (a follow-up is never dialed before it – see WHERE).
+    const dueFirst = Prisma.sql`CASE WHEN l.status = 'callback' THEN l.next_attempt_at END ASC NULLS LAST`;
+    const order = strategy === "business" ? Prisma.sql`${scoreSql(settings.prioritization, userId)} DESC, ${dueFirst}, l.created_at ASC`
+      : strategy === "new_first" ? Prisma.sql`(l.attempts = 0 AND l.status <> 'callback') DESC, (l.status = 'callback') DESC, ${dueFirst}, l.attempts ASC, l.created_at DESC`
+      : strategy === "hot" ? Prisma.sql`(l.status = 'callback') DESC, ${dueFirst}, (l.attempts = 0) DESC, l.created_at DESC`
+      : Prisma.sql`(l.status = 'callback') DESC, ${dueFirst}, COALESCE(l.follow_up_attempts, l.attempts) ASC, ${strategy === "oldest" ? Prisma.sql`l.created_at ASC` : Prisma.sql`l.created_at DESC`}`;
+    const OPEN_LEADS = Prisma.sql`('new', 'contacted', 'follow_up', 'qualified')`;
     const token = crypto.randomUUID();
     const ttl = settings.lockTtlSeconds;
     const S = dbSchema();
@@ -118,6 +121,19 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
           )
           AND NOT EXISTS (
             SELECT 1 FROM ${T("dnc_entries")} d WHERE d.business_id = l.business_id AND d.phone_e164 = c.phone_e164
+          )
+          -- CRM ownership: a contact with open leads is dialed only by the owner of one of them (unassigned leads are
+          -- never auto-dialed; a transferred lead leaves the previous agent's queue at once).
+          AND (
+            NOT EXISTS (SELECT 1 FROM ${T("leads")} ol WHERE ol.business_id = l.business_id AND ol.contact_id = l.contact_id AND ol.status::text IN ${OPEN_LEADS})
+            OR EXISTS (SELECT 1 FROM ${T("leads")} ol WHERE ol.business_id = l.business_id AND ol.contact_id = l.contact_id AND ol.status::text IN ${OPEN_LEADS} AND ol.owner_user_id = ${userId})
+          )
+          AND NOT EXISTS (SELECT 1 FROM ${T("leads")} pl WHERE pl.business_id = l.business_id AND pl.contact_id = l.contact_id AND pl.pending_transfer_to_user_id IS NOT NULL)
+          -- Follow-ups: never before their time, and never while they have no time at all.
+          AND NOT EXISTS (SELECT 1 FROM ${T("tasks")} ft WHERE ft.business_id = l.business_id AND ft.contact_id = l.contact_id AND ft.status = 'open' AND ft.type = 'callback' AND ft.due_at > timezone('UTC', now()))
+          AND NOT EXISTS (
+            SELECT 1 FROM ${T("leads")} sl WHERE sl.business_id = l.business_id AND sl.contact_id = l.contact_id AND sl.status = 'follow_up'
+              AND NOT EXISTS (SELECT 1 FROM ${T("tasks")} st WHERE st.business_id = l.business_id AND st.contact_id = l.contact_id AND st.status = 'open' AND st.type = 'callback')
           )
         ORDER BY
           ${order}, l.id ASC

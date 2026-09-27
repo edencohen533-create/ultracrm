@@ -32,7 +32,7 @@ export const GET = withAuth(async ({ req, user }) => {
       include: {
         owner: { select: { id: true, fullName: true } },
         tags: { include: { tag: { select: { id: true, name: true, color: true } } } },
-        _count: { select: { calls: true, conversations: true, leads: { where: { status: { in: ["new", "contacted", "qualified"] } } } } },
+        _count: { select: { calls: true, conversations: true, leads: { where: { status: { in: ["new", "contacted", "qualified", "follow_up"] } } } } },
         calls: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, outcome: true, telephonyResult: true } },
       },
     }),

@@ -10,6 +10,8 @@ import { emitEvent, kickEventProcessing } from "@/lib/events";
 import { assertTenantReferences } from "@/lib/tenant-references";
 import { assertCanSeeUser, visibleUserIds, type SessionUser } from "@/lib/auth";
 import { assertOwnerAccess, ownerScope, conversationScope } from "./access";
+import { attemptStats, canAccessContact, followUpsFor, personalListId, transferLeads, waitingToday } from "./lead-ops";
+import { getBusinessSettings } from "@/lib/settings";
 
 // ─── Leads ───────────────────────────────────────────────────────────────────
 
@@ -39,6 +41,8 @@ export const leadFilterSchema = z.object({
   ad: z.string().max(160).optional(),
   createdFrom: z.string().datetime({ offset: true }).optional(),
   createdTo: z.string().datetime({ offset: true }).optional(),
+  /** "ממתינים לשיחה היום" category (same ids as the card; ignores the created-date range). */
+  waiting: z.enum(["total", "new", "today", "overdue", "schedule"]).optional(),
   sort: z.enum(["createdAt", "name", "status", "owner", "source"]).default("createdAt"),
   direction: z.enum(["asc", "desc"]).default("desc"),
   page: z.coerce.number().int().min(1).default(1),
@@ -56,7 +60,8 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
     ...(f.status ? { status: f.status } : {}),
     ...(f.source ? { source: f.source } : {}),
     ...(f.ownerUserId ? { ownerUserId: f.ownerUserId === "unassigned" ? null : f.ownerUserId } : {}),
-    ...(f.createdFrom || f.createdTo ? { createdAt: { ...(f.createdFrom ? { gte: new Date(f.createdFrom) } : {}), ...(f.createdTo ? { lt: new Date(f.createdTo) } : {}) } } : {}),
+    ...(f.waiting ? { id: { in: (await waitingToday(user, f.ownerUserId || null)).ids[f.waiting] } } : {}),
+    ...(!f.waiting && (f.createdFrom || f.createdTo) ? { createdAt: { ...(f.createdFrom ? { gte: new Date(f.createdFrom) } : {}), ...(f.createdTo ? { lt: new Date(f.createdTo) } : {}) } } : {}),
     AND: [ownerScope(ids), ...metadata],
     ...(f.q ? { OR: [{ title: { contains: f.q, mode: "insensitive" } }, { contact: { fullName: { contains: f.q, mode: "insensitive" } } }, { contact: { email: { contains: f.q, mode: "insensitive" } } }, ...(f.q.replace(/\D/g, "").length >= 3 ? [{ contact: { phoneE164: { contains: f.q.replace(/\D/g, "") } } }] : [])] } : {}),
   };
@@ -72,7 +77,17 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
     prisma.user.findMany({ where: { businessId: user.businessId, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, fullName: true } }),
   ]);
   const converted = await prisma.lead.count({ where: { AND: [where, { deals: { some: { status: "won", ...ownerScope(ids) } } }] } });
-  return { items, total, page: f.page, limit: f.limit,
+  const [attempts, followUps, settings] = await Promise.all([attemptStats(user.businessId, items.map((l) => l.contactId)), followUpsFor(user.businessId, items), getBusinessSettings(user.businessId)]);
+  const transferTo = await prisma.user.findMany({ where: { id: { in: items.flatMap((l) => (l.pendingTransferToUserId ? [l.pendingTransferToUserId] : [])) } }, select: { id: true, fullName: true } });
+  const now = Date.now();
+  const enriched = items.map((l) => {
+    const fu = followUps.get(l.id); const a = attempts.get(l.id);
+    return { ...l, attempts: a?.count ?? 0, lastAttemptAt: a?.lastAt ?? null,
+      followUp: fu ? { taskId: fu.taskId, dueAt: fu.dueAt, note: fu.note, overdue: fu.dueAt.getTime() < now } : null,
+      needsSchedule: l.status === "follow_up" && !fu,
+      pendingTransfer: l.pendingTransferToUserId ? { to: transferTo.find((u) => u.id === l.pendingTransferToUserId)?.fullName ?? null, at: l.pendingTransferAt } : null };
+  });
+  return { items: enriched, total, page: f.page, limit: f.limit, timezone: settings.timezone,
     byStatus: Object.fromEntries(byStatus.map((s) => [s.status, s._count._all])),
     byOwner: byOwner.map((g) => ({ id: g.ownerUserId, name: owners.find((o) => o.id === g.ownerUserId)?.fullName ?? "ללא שיוך", count: g._count._all })),
     sources: sources.map((s) => s.source!).filter(Boolean),
@@ -101,6 +116,17 @@ export async function updateLead(user: SessionUser, id: string, input: z.infer<t
   const lead = await prisma.lead.findFirst({ where: { id, businessId: user.businessId } });
   if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
   await assertOwnerAccess(user, lead.ownerUserId);
+  // "פולואפ" always has a time: it is set through the follow-up endpoint (date + time), never as a bare status.
+  if (input.status === "follow_up" && lead.status !== "follow_up" && !(await followUpsFor(user.businessId, [lead])).get(lead.id)) throw new ApiError("לפולואפ חובה לבחור תאריך ושעה", 400, "follow_up_time_required");
+  // A manager moving a lead to an agent is a transfer (tasks, follow-ups, queue and access move with it).
+  if (input.ownerUserId && user.role !== "agent" && input.ownerUserId !== lead.ownerUserId) {
+    const r = await transferLeads(user, { leadIds: [lead.id], toUserId: input.ownerUserId });
+    if (r.notFound.length) throw new ApiError("ליד לא נמצא", 404, "not_found");
+    const { ownerUserId: _moved, ...rest } = input; void _moved;
+    if (!Object.keys(rest).length) return prisma.lead.findUniqueOrThrow({ where: { id: lead.id }, include: LEAD_INCLUDE });
+    input = rest;
+  }
+  const leavingFollowUp = lead.status === "follow_up" && input.status && input.status !== "follow_up";
   if (input.ownerUserId) {
     if (user.role === "agent" && input.ownerUserId !== user.id) throw new ApiError("נציג יכול לשייך ליד לעצמו בלבד", 403, "forbidden");
     await assertTenantReferences(user.businessId, { userIds: [input.ownerUserId] });
@@ -120,6 +146,12 @@ export async function updateLead(user: SessionUser, id: string, input: z.infer<t
       include: LEAD_INCLUDE,
     });
     await audit(user.businessId, user.id, "lead", lead.id, "lead.updated", { fields: Object.keys(input), status: input.status }, tx);
+    // Leaving "פולואפ" (or closing the lead) cancels its schedule so the dialer will not call it at the old time.
+    if (leavingFollowUp || closing) {
+      const cancelled = await tx.task.updateMany({ where: { businessId: user.businessId, status: "open", type: "callback", OR: [{ leadId: lead.id }, { contactId: lead.contactId, leadId: null }] }, data: { status: "cancelled" } });
+      if (cancelled.count) await tx.listLead.updateMany({ where: { businessId: user.businessId, contactId: lead.contactId, status: "callback" }, data: { status: closing ? "completed" : "pending", nextAttemptAt: null, preferredUserId: null } });
+      if (closing && lead.ownerUserId) { const pl = await personalListId(tx, user.businessId, lead.ownerUserId); if (pl) await tx.listLead.updateMany({ where: { listId: pl, contactId: lead.contactId, status: { in: ["pending", "callback"] } }, data: { status: "completed", nextAttemptAt: null } }); }
+    }
     if (input.status && input.status !== lead.status) {
       await emitEvent(tx, { businessId: user.businessId, type: "lead.status_changed", contactId: lead.contactId, actorUserId: user.id, source: "user", dedupeKey: `lead.status_changed:${lead.id}:${input.status}:${Date.now()}`, payload: { leadId: lead.id, from: lead.status, to: input.status } });
     }
@@ -399,8 +431,8 @@ export const noteInputSchema = z.object({
 });
 
 export async function createNote(user: SessionUser, input: z.infer<typeof noteInputSchema>) {
-  const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true } });
-  if (!contact) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
+  const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true, ownerUserId: true } });
+  if (!contact || !(await canAccessContact(user, contact))) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
   if (input.conversationId && !await prisma.conversation.findFirst({ where: { id: input.conversationId, contactId: contact.id, ...conversationScope(user) }, select: { id: true } })) throw new ApiError("שיחה לא נמצאה או שאין הרשאה", 404, "not_found");
   if (input.dealId) {
     const deal = await prisma.deal.findFirst({ where: { id: input.dealId, contactId: contact.id, businessId: user.businessId }, select: { ownerUserId: true } });

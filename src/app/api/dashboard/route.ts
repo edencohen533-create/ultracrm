@@ -18,7 +18,7 @@ export const GET = withAuth(async ({ user }) => {
   const [contacts, contactsWeek, leadsOpen, leadsWeek, dealsOpen, dealsWonMonth, tasksOverdue, tasksToday, suppressed] = await Promise.all([
     prisma.contact.count({ where: { businessId } }),
     prisma.contact.count({ where: { businessId, createdAt: { gte: weekAgo } } }),
-    prisma.lead.count({ where: { businessId, status: { in: ["new", "contacted", "qualified"] }, ...(userScope ? { OR: [{ ownerUserId: userScope }, { ownerUserId: null }] } : {}) } }),
+    prisma.lead.count({ where: { businessId, status: { in: ["new", "contacted", "qualified", "follow_up"] }, ...(userScope ? { OR: [{ ownerUserId: userScope }, { ownerUserId: null }] } : {}) } }),
     prisma.lead.count({ where: { businessId, createdAt: { gte: weekAgo } } }),
     prisma.deal.aggregate({ where: { businessId, status: "open", ...(userScope ? { ownerUserId: userScope } : {}) }, _count: { _all: true }, _sum: { amount: true } }),
     prisma.deal.aggregate({ where: { businessId, status: "won", closedAt: { gte: monthStart }, ...(userScope ? { ownerUserId: userScope } : {}) }, _count: { _all: true }, _sum: { amount: true } }),

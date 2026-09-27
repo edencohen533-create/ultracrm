@@ -272,6 +272,12 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
   private async handleInboundMessage(message: MetaInboundMessage, contactName: string | undefined) {
     const phone = normalizePhone(`+${message.from}`) ?? `+${message.from}`;
 
+    // A phone linked to the owner's WhatsApp AI assistant is handled there (verification / CRM questions) and never
+    // becomes a customer conversation. Unlinked or revoked phones fall through to the normal inbox unchanged.
+    const { handleAssistantInbound } = await import("@/server/assistant/inbound");
+    const assistantText = message.text?.body ?? message.button?.text ?? message.interactive?.button_reply?.title ?? message.interactive?.list_reply?.title ?? `[${message.type}]`;
+    if (await handleAssistantInbound({ businessId: requireBusinessId(), phoneE164: phone, text: assistantText, providerMessageId: message.id, credentialId: this.credentialId })) return;
+
     // The CRM contact is the single source of truth: find by any linked phone, otherwise create one card (race-safe).
     const { findOrCreateContactByPhone } = await import("@/lib/crm/contacts");
     const contact = await findOrCreateContactByPhone(requireBusinessId(), phone, { fullName: contactName ?? phone, phoneRaw: `+${message.from}`, source: "whatsapp" });

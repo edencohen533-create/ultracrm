@@ -3,6 +3,7 @@ import { ok } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { addLeadsToList } from "@/lib/lists";
 import { listQueueStats } from "@/lib/dialer/queue";
+import { syncFollowUpQueue } from "@/lib/crm/lead-ops";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ export const POST = withAuth(async ({ user }) => {
     await prisma.dialList.update({ where: { id: list.id }, data: { isActive: true, archivedAt: null } });
   }
   const added = await addLeadsToList(user.businessId, list.id, filter);
+  // Follow-ups scheduled while the dialer was off enter the queue now, as "callback" rows due at their time.
+  await prisma.$transaction((tx) => syncFollowUpQueue(tx, user.businessId, { userId: user.id }));
   await prisma.dialList.update({ where: { id: list.id }, data: { lastRefreshedAt: new Date() } });
   const stats = await listQueueStats(list.id);
   return ok({ id: list.id, name: list.name, isPaused: list.isPaused, added, stats });

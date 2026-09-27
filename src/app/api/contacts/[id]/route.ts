@@ -6,6 +6,7 @@ import { visibleUserIds } from "@/lib/auth";
 import { contactCardInclude, contactPatchSchema, updateContact } from "@/lib/crm/contacts";
 import { suppressionSummary } from "@/lib/suppression";
 import { TASK_INCLUDE } from "@/lib/crm/pipeline";
+import { canAccessContact, ownsContactHistory } from "@/lib/crm/lead-ops";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +14,14 @@ export const dynamic = "force-dynamic";
 export const GET = withAuth(async ({ user, params }) => {
   const ids = await visibleUserIds(user);
   const c = await prisma.contact.findFirst({ where: { id: params.id, businessId: user.businessId }, include: await contactCardInclude(user) });
-  if (!c) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
+  if (!c || !(await canAccessContact(user, c))) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
+  // The current owner of the contact / its lead sees the whole history (calls and tasks by earlier agents too).
+  const history = await ownsContactHistory(user, c);
+  const byUser = ids && !history ? { userId: { in: ids } } : {};
   const [tasks, calls, conversations, dnc, suppression, notes] = await Promise.all([
-    prisma.task.findMany({ where: { contactId: c.id, status: "open", ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { dueAt: "asc" }, include: TASK_INCLUDE }),
+    prisma.task.findMany({ where: { contactId: c.id, status: "open", ...byUser }, orderBy: { dueAt: "asc" }, include: TASK_INCLUDE }),
     prisma.call.findMany({
-      where: { contactId: c.id, ...(ids ? { userId: { in: ids } } : {}) },
+      where: { contactId: c.id, ...byUser },
       orderBy: { createdAt: "desc" },
       take: 50,
       select: { id: true, createdAt: true, direction: true, answeredAt: true, endedAt: true, talkSeconds: true, status: true, telephonyResult: true, outcome: true, outcomeNote: true, callbackAt: true, recordingStatus: true, mode: true, fromE164: true, user: { select: { id: true, fullName: true } } },

@@ -57,7 +57,24 @@ export interface CoachSettings {
 }
 
 export { DEFAULT_LEAD_STATUSES, mergeLeadStatuses, type LeadStatusKey, type LeadStatusConfig, type LeadAssignmentSettings } from "@/lib/lead-statuses";
+/** WhatsApp AI assistant: on/off, pause, scheduled reports and alerts (see src/server/assistant). */
+export interface AssistantSettings {
+  enabled: boolean;
+  /** Pauses scheduled reports/alerts only (questions keep working). */
+  paused: boolean;
+  daily: { enabled: boolean; time: string; days: number[] };
+  weekly: { enabled: boolean; day: number; time: string };
+  untreatedAlert: { enabled: boolean; minutes: number };
+  salesGoal: { enabled: boolean; period: "day" | "month"; amount: number };
+  /** Link ids that receive reports/alerts. Empty = every active link with business-wide access. */
+  recipients: string[];
+  /** Approved WhatsApp template (one variable) used to reach a recipient outside the 24h service window. */
+  templateId: string | null;
+}
+export const DEFAULT_ASSISTANT: AssistantSettings = { enabled: false, paused: false, daily: { enabled: true, time: "19:00", days: [0, 1, 2, 3, 4] }, weekly: { enabled: false, day: 0, time: "09:00" }, untreatedAlert: { enabled: false, minutes: 60 }, salesGoal: { enabled: false, period: "day", amount: 0 }, recipients: [], templateId: null };
+
 export interface BusinessSettings {
+  assistant: AssistantSettings;
   coach: CoachSettings;
   leadStatuses: LeadStatusConfig[];
   leadAssignment: LeadAssignmentSettings;
@@ -131,6 +148,7 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   coach: { enabled: false, learnFromRecordings: false },
   leadStatuses: DEFAULT_LEAD_STATUSES,
   leadAssignment: { mode: "least_loaded", maxOpenLeadsPerAgent: 0, agentIds: [], perAgentMax: {}, lastAssignedUserId: null },
+  assistant: DEFAULT_ASSISTANT,
   retention: { messagesDays: 0, auditDays: 0 },
   marketing: { window: { start: "08:00", end: "21:00", days: [0, 1, 2, 3, 4, 5, 6], timezone: "Asia/Jerusalem" }, maxPerMinute: 60, minHoursBetweenMarketing: 24 },
   wrapUpSeconds: 60,
@@ -166,6 +184,7 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     retention: { ...DEFAULT_SETTINGS.retention, ...(r.retention ?? {}) },
     coach: { ...DEFAULT_SETTINGS.coach, ...(r.coach ?? {}) },
     leadStatuses: mergeLeadStatuses(r.leadStatuses),
+    assistant: { ...DEFAULT_ASSISTANT, ...(r.assistant ?? {}), daily: { ...DEFAULT_ASSISTANT.daily, ...(r.assistant?.daily ?? {}) }, weekly: { ...DEFAULT_ASSISTANT.weekly, ...(r.assistant?.weekly ?? {}) }, untreatedAlert: { ...DEFAULT_ASSISTANT.untreatedAlert, ...(r.assistant?.untreatedAlert ?? {}) }, salesGoal: { ...DEFAULT_ASSISTANT.salesGoal, ...(r.assistant?.salesGoal ?? {}) }, recipients: Array.isArray(r.assistant?.recipients) ? r.assistant!.recipients : [] },
     leadAssignment: { ...DEFAULT_SETTINGS.leadAssignment, ...(r.leadAssignment ?? {}), agentIds: Array.isArray(r.leadAssignment?.agentIds) ? r.leadAssignment!.agentIds : [], perAgentMax: r.leadAssignment?.perAgentMax && typeof r.leadAssignment.perAgentMax === "object" ? r.leadAssignment.perAgentMax : {} },
     prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },
     inbound: { ...DEFAULT_SETTINGS.inbound, ...(r.inbound ?? {}) },

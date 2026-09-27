@@ -1,4 +1,5 @@
 import { organizationRequest } from "@/lib/auth-compat";
+import { campaignNeed, draftNeed, queryChannelNeed, bodyChannelNeed, campaignPatchNeed, CAMPAIGN_ANY } from "@/lib/access/campaigns";
 import { campaignActor } from "@/lib/campaign-auth";
 import { ApiError } from "@/lib/response";
 import { CampaignError } from "@/server/services/campaign-service";
@@ -12,15 +13,15 @@ const fail = (error: unknown) => {
 export const GET = organizationRequest(async function(_r: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!await campaignActor()) return Response.json({ error: "אין הרשאה" }, { status: 403 });
   try { const draft = await getDraft((await params).id); return Response.json({ draft, problems: draftChecks(draft) }); } catch (e) { return fail(e); }
-});
+}, (_r, p) => draftNeed(p.id, "draft"));
 export const PATCH = organizationRequest(async function(request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!await campaignActor()) return Response.json({ error: "אין הרשאה" }, { status: 403 });
   const parsed = draftPatchSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "נתונים לא תקינים" }, { status: 400 });
   try { const draft = await updateDraft((await params).id, parsed.data); return Response.json({ draft, problems: draftChecks(draft) }); } catch (e) { return fail(e); }
-});
+}, (_r, p) => draftNeed(p.id, "draft"));
 export const DELETE = organizationRequest(async function(_r: Request, { params }: { params: Promise<{ id: string }> }) {
   const actor = await campaignActor();
   if (!actor) return Response.json({ error: "אין הרשאה" }, { status: 403 });
   try { await deleteDraft((await params).id, actor.id); return Response.json({ ok: true }); } catch (e) { return fail(e); }
-});
+}, (_r, p) => draftNeed(p.id, "draft"));

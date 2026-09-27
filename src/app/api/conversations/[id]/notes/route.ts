@@ -23,4 +23,4 @@ export const POST = organizationRequest(async function(request: Request, { param
     });
     return note ? Response.json({ note }, { status: 201 }) : Response.json({ error: "Not found" }, { status: 404 });
   } catch { return Response.json({ error: "לא ניתן לשמור את ההערה כרגע" }, { status: 500 }); }
-});
+}, "whatsapp.reply");

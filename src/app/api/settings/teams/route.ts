@@ -14,4 +14,4 @@ export const POST = organizationRequest(async function(request: Request) {
     return created;
   });
   return Response.json({ team }, { status: 201 });
-});
+}, ["crm", "telephony", "whatsapp", "sms", "email"]);

@@ -94,4 +94,4 @@ export default organizationRequest(async function ConversationPage({
       </div>
     </div>
   );
-});
+}, "whatsapp.view");

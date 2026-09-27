@@ -17,7 +17,28 @@ import { canManage, type AiSettings } from "./settings";
 import { AUTOMATION_TOOL_DEFS, runAutomationTool } from "./automations";
 import { DIAGNOSE_TOOL_DEFS, runDiagnoseTool } from "./diagnostics";
 
-export interface AiCtx { user: SessionUser; read: ToolCtx; ai: AiSettings; tz: string; conversationId: string | null; channel: "app" | "whatsapp" }
+export interface AiCtx { user: SessionUser; read: ToolCtx; ai: AiSettings; tz: string; conversationId: string | null; channel: "app" | "whatsapp"; access?: import("@/lib/access/engine").EffectiveAccess }
+
+/**
+ * Module permissions per tool (any of). The assistant never offers or runs a tool the user may not use in the
+ * product itself – the same engine as the screens and the API (src/lib/access). Unlisted tools need any module.
+ */
+const TOOL_NEEDS: Record<string, string[]> = {
+  business_snapshot: ["crm.view", "telephony.use"], sales_summary: ["crm.view"], leads_summary: ["crm.view"], agents_performance: ["crm.view", "telephony.team_settings"],
+  calls_summary: ["telephony.use"], untreated_leads: ["crm.view"], overdue_tasks: ["crm.view", "telephony.use"], compare_periods: ["crm.view"],
+  find_contact: ["crm.view", "telephony.use", "whatsapp.view"], contact_summary: ["crm.view", "telephony.use", "whatsapp.view"], focus_today: ["crm.view", "telephony.use"],
+  my_queue_today: ["crm.view", "telephony.use"], find_lead: ["crm.view", "telephony.use"], create_task: ["crm.edit", "telephony.use"], set_follow_up: ["crm.edit"],
+  change_lead_status: ["crm.edit"], transfer_lead: ["crm.transfer"],
+  list_automations: ["whatsapp.automations", "sms.send", "email.send"], create_automation: ["whatsapp.automations", "sms.send", "email.send"], update_automation: ["whatsapp.automations", "sms.send", "email.send"],
+  pause_automation: ["whatsapp.automations", "sms.send", "email.send"], resume_automation: ["whatsapp.automations", "sms.send", "email.send"], apply_automation_to_existing: ["whatsapp.automations", "sms.send", "email.send"],
+  diagnose_automation: ["whatsapp.automations", "sms.send", "email.send"], diagnose_messaging: ["whatsapp.view", "sms.view", "email.view"], diagnose_lead: ["crm.view", "telephony.use"], diagnose_missing_lead: ["crm.view", "telephony.use"],
+};
+function toolAllowed(ctx: AiCtx, name: string) {
+  const a = ctx.access; if (!a) return false; // default deny
+  const need = TOOL_NEEDS[name];
+  const allowed = (n: string) => { const [m, act] = n.split(".") as [keyof typeof a.modules, string]; return a.modules[m]?.state === "active" && a.modules[m].actions.includes(act); };
+  return need ? need.some(allowed) : Object.values(a.modules).some((x) => x.state === "active");
+}
 type Json = Record<string, unknown>;
 export interface ToolDef { name: string; description: string; input_schema: Json; managerOnly?: boolean }
 
@@ -53,7 +74,7 @@ export function toolsFor(ctx: AiCtx): ToolDef[] {
   const crm = CRM_DEFS;
   const autos = AUTOMATION_TOOL_DEFS.filter((t) => !t.managerOnly || canManage(ctx.user, ctx.ai));
   const diag = DIAGNOSE_TOOL_DEFS.filter((t) => !t.managerOnly || manager);
-  return [...reads, ...crm, ...autos, ...diag];
+  return [...reads, ...crm, ...autos, ...diag].filter((t) => toolAllowed(ctx, t.name));
 }
 
 export interface ToolRun { ok: boolean; result?: unknown; error?: string; code?: string; data?: unknown; ms: number; actionIds?: string[] }
@@ -76,6 +97,10 @@ async function act(ctx: AiCtx, kind: (typeof ACTION_KINDS)[number], params: Json
 
 export async function runAiTool(ctx: AiCtx, name: string, args: Json): Promise<ToolRun> {
   const t0 = Date.now();
+  // Re-checked on every call with fresh permissions (a module removed mid-conversation is refused immediately).
+  try { const { effectiveAccess } = await import("@/lib/access/engine"); ctx.access = await effectiveAccess(ctx.user.businessId, ctx.user.id); }
+  catch { return { ok: false, error: "אין הרשאה", code: "forbidden", ms: Date.now() - t0 }; }
+  if (!toolAllowed(ctx, name)) return { ok: false, error: "אין לך הרשאה לפעולה הזו במערכת", code: "forbidden", ms: Date.now() - t0 };
   try {
     if (name in READ_TOOLS) { const r = await runReadTool(ctx.read, name, args); return { ...r, ms: Date.now() - t0 }; }
     const auto = AUTOMATION_TOOL_DEFS.find((t) => t.name === name); if (auto) { if (auto.managerOnly && !canManage(ctx.user, ctx.ai)) throw new ApiError("ניהול אוטומציות דורש הרשאת ניהול", 403, "forbidden"); const r = await runAutomationTool(ctx, name, args); return { ok: true, result: r.result, actionIds: r.actionIds, ms: Date.now() - t0 }; }

@@ -1,6 +1,7 @@
 import { normalizePhone } from "@/lib/phone";
 import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
+import { Prisma } from "@/generated/prisma/client";
 import bcrypt from "bcryptjs";
 import { withAuth, parseBody } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
@@ -37,11 +38,15 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
     // A reset invalidates every session of that account (sessionVersion is embedded in the JWT).
     await db.account.update({ where: { id: target.accountId }, data: { passwordHash: await bcrypt.hash(b.password, 12), sessionVersion: { increment: 1 } } });
   }
-  if (b.isActive === false && target.role === "owner") {
-    const owners = await prisma.user.count({ where: { businessId: user.businessId, role: "owner", isActive: true } });
-    if (owners <= 1) throw new ApiError("חייב להישאר לפחות בעלים פעיל אחד", 400, "last_owner");
-  }
-  const updated = await prisma.user.update({
+  const removesOwner = target.role === "owner" && (b.isActive === false || (b.role !== undefined && b.role !== "owner"));
+  const updated = await prisma.$transaction(async (tx) => {
+    // Never leave a business without an active owner – serialized so two owners cannot remove each other at once.
+    if (removesOwner) {
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`owners:${user.businessId}`}, 0))`);
+      const owners = await tx.user.count({ where: { businessId: user.businessId, role: "owner", isActive: true } });
+      if (owners <= 1) throw new ApiError("חייב להישאר לפחות בעלים פעיל אחד", 400, "last_owner");
+    }
+    return tx.user.update({
     where: { id: target.id },
     data: {
       ...(b.fullName ? { fullName: b.fullName.trim() } : {}),
@@ -51,6 +56,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
       ...(b.personalPhone !== undefined ? { personalPhone: b.personalPhone ? (normalizePhone(b.personalPhone) ?? (() => { throw new ApiError("מספר טלפון לא תקין", 400, "invalid_phone"); })()) : null } : {}),
     },
     select: { id: true, fullName: true, email: true, role: true, isActive: true, coachEnabled: true, teamId: true, personalPhone: true },
+  });
   });
   if (b.isActive === false) {
     // Revoke live work: end sessions and unassign open conversations.

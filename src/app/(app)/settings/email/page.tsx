@@ -16,4 +16,4 @@ export default organizationRequest(async function EmailSettingsPage() {
       <ChannelConnectionCard channel="email" initial={JSON.parse(JSON.stringify(active))} templates={templates.map((t) => ({ id: t.id, name: t.name, channel: t.channel }))} isOwner={session?.user?.role === "owner"} />
     </div>
   );
-});
+}, "email");

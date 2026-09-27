@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { campaignNeed, draftNeed, queryChannelNeed, bodyChannelNeed, campaignPatchNeed, CAMPAIGN_ANY } from "@/lib/access/campaigns";
 import { organizationRequest } from "@/lib/auth-compat";
 import { campaignActor } from "@/lib/campaign-auth";
 import { listChannelCredentials } from "@/server/services/channel-credential-service";
@@ -16,4 +17,4 @@ export const GET = organizationRequest(async function(request: Request) {
   }
   const creds = (await listChannelCredentials(ch.data)).filter((c) => c.isActive);
   return Response.json({ channel: ch.data, profiles: creds.map((c) => ({ id: c.id, label: c.label || c.provider, provider: c.provider, simulated: c.simulated, sendingBlocked: c.sendingBlocked, status: c.status, senderName: c.senderName, senderEmail: c.senderEmail, replyTo: c.replyTo, domainStatus: c.domainStatus, senders: c.senders, testRecipients: c.testRecipients, capabilities: c.capabilities, unitPrice: c.unitPrice, currency: c.unitPriceCurrency })) });
-});
+}, CAMPAIGN_ANY.draft);

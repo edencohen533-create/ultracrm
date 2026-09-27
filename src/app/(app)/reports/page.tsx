@@ -11,6 +11,6 @@ export default async function ReportsPage() {
   if (!session) redirect("/login");
   if (session.role === "agent") redirect("/leads");
   const ent = await getEntitlements(session.businessId);
-  if (!ent.modules.telephony) redirect(ent.modules.messaging ? "/analytics" : "/leads");
+  if (!ent.modules.telephony) redirect(ent.modules.whatsapp || ent.modules.sms || ent.modules.email ? "/analytics" : "/leads");
   return <><ReportsNav /><AgentPerformance /></>;
 }

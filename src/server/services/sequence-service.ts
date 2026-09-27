@@ -211,7 +211,10 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       if (blocked) { await finish("STOPPED", { stopReason: `unsubscribe: ${blocked}` }); continue; }
       // Per-step conditions (branching): reply / tags / lead status / custom field – skip this step, not the run.
       const cond = (step.condition ?? {}) as { requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; customKey?: string; customValue?: string };
-      const skipReason = step.action === "wait" ? null : await stepSkipReason(run, step.action === "condition" ? { requireNoReply: false, ...cond } : cond);
+      // Journeys belong to the business: a send step whose channel left the package is skipped (checked right before sending).
+      const { businessCanUse } = await import("@/lib/access/engine");
+      const channelOff = step.action === "send" && !(await businessCanUse(bid, step.channel as "whatsapp" | "sms" | "email")) ? "הערוץ אינו כלול כעת בחבילה של העסק" : null;
+      const skipReason = channelOff ?? (step.action === "wait" ? null : await stepSkipReason(run, step.action === "condition" ? { requireNoReply: false, ...cond } : cond));
       if (skipReason && step.action === "condition") {
         // A condition node is a gate: the contact leaves the journey ("יציאה") when it does not hold.
         await finish("STOPPED", { stopReason: `תנאי לא התקיים (${skipReason})`, log: [...log, { step: step.position, action: "condition", skipped: skipReason, at: new Date().toISOString() }] as Prisma.InputJsonValue });

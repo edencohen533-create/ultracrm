@@ -154,7 +154,7 @@ const outcomeFollowUpMessage: EventHandler = {
     const cfg = settings.automations.followUpMessage;
     if (!cfg.enabled || !cfg.templateId || !cfg.outcomes.includes(outcome)) return { skipped: "not configured for this outcome" };
     const { isModuleEnabled } = await import("@/lib/modules");
-    if (!(await isModuleEnabled(event.businessId, "messaging"))) return { skipped: "messaging module disabled" };
+    if (!(await isModuleEnabled(event.businessId, "whatsapp"))) return { skipped: "whatsapp module not in the package" };
     const { sendBlockReason } = await import("@/lib/suppression");
     const template = await prisma.template.findUnique({ where: { id: cfg.templateId } });
     if (!template || template.status !== "APPROVED") return { skipped: "template not approved" };
@@ -246,7 +246,7 @@ const sequences: EventHandler = {
   types: ["message.delivery_failed", "message.sent", "contact.tag_added", "contact.created", "lead.status_changed", "cart.abandoned", "call.outcome_saved"],
   async run(event) {
     const { isModuleEnabled } = await import("@/lib/modules");
-    if (!(await isModuleEnabled(event.businessId, "messaging"))) return { skipped: "messaging module disabled" };
+    if (!(await isModuleEnabled(event.businessId, "whatsapp")) && !(await isModuleEnabled(event.businessId, "sms")) && !(await isModuleEnabled(event.businessId, "email"))) return { skipped: "no messaging module in the package" };
     const { startSequencesForEvent } = await import("@/server/services/sequence-service");
     return await startSequencesForEvent(event);
   },

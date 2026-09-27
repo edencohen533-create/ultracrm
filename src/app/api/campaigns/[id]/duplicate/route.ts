@@ -1,4 +1,5 @@
 import { organizationRequest } from "@/lib/auth-compat";
+import { campaignNeed, draftNeed, queryChannelNeed, bodyChannelNeed, campaignPatchNeed, CAMPAIGN_ANY } from "@/lib/access/campaigns";
 import { prisma } from "@/lib/db";
 import { campaignActor } from "@/lib/campaign-auth";
 import { CampaignError, createCampaign } from "@/server/services/campaign-service";
@@ -24,6 +25,6 @@ export const POST = organizationRequest(async function(_request: Request, { para
     if (error instanceof CampaignError) return Response.json({ error: error.message }, { status: 409 });
     throw error;
   }
-});
+}, (_r, p) => campaignNeed(p.id, "draft"));
 
 export const maxDuration = 60;

@@ -15,4 +15,4 @@ export const GET = withAuth(async ({ user }) => {
   ]);
   const u = new Map(users.map((x) => [x.id, x.fullName])); const l = new Map(lists.map((x) => [x.id, x.name]));
   return ok({ items: rows.map((r) => ({ id: r.id, agentId: r.userId, agent: u.get(r.userId) ?? "", listId: r.listId, list: l.get(r.listId) ?? "", state: r.state, exhaustedCount: r.exhaustedCount, nextAt: r.nextAt, openedAt: r.openedAt, closedAt: r.closedAt, notified: Boolean(r.notifiedAt) })) });
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", perm: "telephony.team_settings" });

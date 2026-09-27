@@ -18,7 +18,7 @@ export const GET = withAuth(async ({ user, params }) => {
   const owner = (list.filterJson as { leadOwnerUserId?: string } | null)?.leadOwnerUserId;
   if (user.role === "agent" && ((list.agents.length && !list.agents.some((a) => a.userId === user.id)) || (owner && owner !== user.id))) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
   return ok({ ...list, stats: await listQueueStats(list.id) });
-}, { module: "telephony" });
+}, { perm: "telephony.use" });
 
 const patchSchema = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -60,7 +60,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
     },
   });
   return ok(updated);
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", perm: "telephony.team_settings" });
 
 export const DELETE = withAuth(async ({ user, params }) => {
   const list = await prisma.dialList.findFirst({ where: { id: params.id, businessId: user.businessId } });
@@ -69,4 +69,4 @@ export const DELETE = withAuth(async ({ user, params }) => {
   if (inCall > 0) throw new ApiError("יש שיחות פעילות ברשימה – לא ניתן למחוק כעת", 409, "list_busy");
   await prisma.dialList.update({ where: { id: list.id }, data: { isActive: false } });
   return ok({ deactivated: true });
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", perm: "telephony.team_settings" });

@@ -58,6 +58,9 @@ export async function authenticateApiKey(req: Request) {
   if (!actor || actor.role === "agent") throw new ApiError("המשתמש שיצר את המפתח אינו פעיל – צור מפתח חדש", 401, "unauthorized");
   if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 60_000) await db.apiKey.update({ where: { id: row.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
   const session: SessionUser = { id: actor.id, accountId: actor.accountId, businessId: business.id, email: actor.email, fullName: actor.fullName, role: actor.role, teamId: actor.teamId };
+  // The public API is a CRM feature, acting on behalf of the key's creator (same engine as the screens).
+  const { assertAccess } = await import("@/lib/access/engine");
+  await assertAccess(session, "crm.view");
   return { business, keyId: row.id, keyName: row.name, session };
 }
 

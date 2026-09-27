@@ -27,4 +27,4 @@ export default organizationRequest(async function DemoSimulatorPage() {
       <DemoSimulatorForm contacts={contacts} />
     </div>
   );
-});
+}, "whatsapp");

@@ -21,6 +21,6 @@ export const POST = organizationRequest(async function(request: Request) {
     return { list, created: created.count, existing: contacts.length - created.count, duplicateRows: parsed.duplicateRows };
   }, { timeout: 30000 });
   return Response.json(result, { status: 201 });
-});
+}, ["crm.edit", "sms.draft", "email.draft", "whatsapp.campaign_draft"]);
 
 export const maxDuration = 60;

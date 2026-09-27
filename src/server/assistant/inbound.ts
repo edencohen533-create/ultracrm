@@ -53,6 +53,13 @@ export async function handleAssistantInbound(input: { businessId: string; phoneE
   }
   if (!settings.assistant.enabled) { await reply("העוזר האישי כבוי כרגע. אפשר להפעיל אותו במערכת: הגדרות → העוזר האישי בוואטסאפ.", { status: "blocked" }); return true; }
   const ctx = await toolCtxFor(link, settings.timezone);
+  // Same module permissions as in the product (package ∩ what the business manager assigned to this user).
+  if (ctx) {
+    const { effectiveAccess } = await import("@/lib/access/engine");
+    const acc = await effectiveAccess(input.businessId, link.userId).catch(() => null);
+    const may = (m: "crm" | "telephony", act: string) => acc?.modules[m].state === "active" && acc.modules[m].actions.includes(act);
+    if (!acc || (!may("crm", "view") && !may("telephony", "use"))) { await reply("⛔ אין לך כרגע הרשאה לנתוני CRM או חייגן בעסק הזה.", { status: "blocked" }); return true; }
+  }
   if (!ctx) {
     await prisma.assistantLink.update({ where: { id: link.id }, data: { status: "revoked", revokedAt: new Date() } });
     await reply("⛔ הגישה של המשתמש הזה בוטלה.", { status: "blocked" });

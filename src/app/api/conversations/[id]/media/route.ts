@@ -33,4 +33,4 @@ export const POST = organizationRequest(async function(request: Request, { param
   } catch (error) {
     return Response.json({ error: error instanceof MessagePolicyError ? error.message : "לא ניתן לאמת את השליחה. יש לבדוק את השיחה לפני ניסיון נוסף" }, { status: error instanceof MessagePolicyError ? 409 : 502 });
   }
-});
+}, "whatsapp.reply");

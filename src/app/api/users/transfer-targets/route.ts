@@ -12,4 +12,4 @@ export const GET = withAuth(async ({ user }) => {
   const ids = user.role === "agent" ? null : await visibleUserIds(user);
   const items = await prisma.user.findMany({ where: { businessId: user.businessId, isActive: true, ...(ids ? { id: { in: ids } } : {}) }, orderBy: { fullName: "asc" }, select: { id: true, fullName: true } });
   return ok({ items });
-}, { module: "crm" });
+}, { perm: "crm.transfer" });

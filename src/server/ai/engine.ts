@@ -23,7 +23,8 @@ export async function buildCtx(user: SessionUser, channel: "app" | "whatsapp", c
   assertCanChat(user, ai);
   const ids = user.role === "agent" ? [user.id] : await visibleUserIds(user);
   const read: ToolCtx = { businessId: user.businessId, userId: user.id, role: user.role, scope: user.role === "agent" ? "own" : "business", tz: timezone, visibleIds: ids };
-  const ctx: AiCtx = { user, read, ai, tz: timezone, conversationId, channel };
+  const { effectiveAccess } = await import("@/lib/access/engine");
+  const ctx: AiCtx = { user, read, ai, tz: timezone, conversationId, channel, access: await effectiveAccess(user.businessId, user.id) };
   return { ctx, businessName };
 }
 
@@ -91,6 +92,9 @@ async function rulesTurn(ctx: AiCtx, text: string) {
     if (r.ok) { const x = r.result as { total: number; newNotDialed: number; followUpsToday: number; followUpsOverdue: number; scope: string }; return { text: `${x.scope === "שלי" ? "אצלך" : "בעסק"} ממתינים היום ${x.total} לידים (כל ליד נספר פעם אחת):\n• חדשים שטרם חויגו: ${x.newNotDialed}\n• פולואפים להיום: ${x.followUpsToday}\n• פולואפים באיחור: ${x.followUpsOverdue}`, log, actionIds: [], model: "rules" }; }
   }
   if (ACTION_WORDS.test(text)) return { text: NEEDS_CONNECTION, log, actionIds: [], model: "rules" };
+  // The basic answers are CRM / call data: only for users who may see that data in the product.
+  const may = (m: "crm" | "telephony", act: string) => ctx.access?.modules[m].state === "active" && ctx.access.modules[m].actions.includes(act);
+  if (!may("crm", "view") && !may("telephony", "use")) return { text: "אין לך הרשאה לנתוני CRM או חייגן בעסק הזה.", log, actionIds: [], model: "rules" };
   const a = await rulesAnswer(ctx.read, text, {});
   return { text: a.text, log: a.tools.map((t) => ({ name: t.name, ok: t.ok, error: t.error, ms: t.ms })), actionIds: [], model: "rules" };
 }

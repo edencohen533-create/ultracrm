@@ -12,4 +12,4 @@ export default organizationRequest(async function AnalyticsPage({ searchParams }
   const days = [7, 30, 90].includes(Number(rawDays)) ? Number(rawDays) : 30;
   const stats = await loadMessagingStats(days);
   return <><ReportsNav /><MessagingReport days={days} stats={stats} /></>;
-});
+}, ["whatsapp.view", "sms.view", "email.view", "whatsapp.campaign_draft"]);

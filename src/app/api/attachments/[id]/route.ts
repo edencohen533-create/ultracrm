@@ -35,4 +35,4 @@ export const GET = organizationRequest(async function(request: Request, { params
     for (const key of ["content-length", "content-range", "accept-ranges"]) { const value = source.headers.get(key); if (value) headers.set(key, value); }
     return new Response(limited, { status: source.status === 206 ? 206 : 200, headers });
   } catch { return Response.json({ error: "הקובץ אינו זמין כרגע או חורג ממגבלת 20MB" }, { status: 502 }); }
-});
+}, "whatsapp.view");

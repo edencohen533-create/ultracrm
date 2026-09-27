@@ -22,4 +22,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
       return ok(await connectSendingDomain(user, params.id, b.domain));
     case "verify_domain": return ok(await verifySendingDomain(user, params.id));
   }
-}, { minRole: "manager", module: "messaging" });
+}, { minRole: "manager", perm: (p) => (p.channel === "email" ? "email.draft" : "sms.draft") });

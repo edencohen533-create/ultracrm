@@ -21,6 +21,6 @@ export const GET = withAuth(async ({ user, params }) => {
     followUp: fu ? { taskId: fu.taskId, dueAt: fu.dueAt, note: fu.note, overdue: fu.dueAt.getTime() < Date.now() } : null,
     needsSchedule: lead.status === "follow_up" && !fu,
     pendingTransfer: lead.pendingTransferToUserId ? { to: transferTo?.fullName ?? null, at: lead.pendingTransferAt } : null });
-}, { module: "crm" });
+}, { perm: "crm.view" });
 
-export const PATCH = withAuth(async ({ req, user, params }) => ok(await updateLead(user, params.id, await parseBody(req, leadPatchSchema))), { module: "crm" });
+export const PATCH = withAuth(async ({ req, user, params }) => ok(await updateLead(user, params.id, await parseBody(req, leadPatchSchema))), { perm: "crm.edit" });

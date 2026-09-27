@@ -15,7 +15,7 @@ export const GET = withAuth(async ({ user }) => {
   // Managers also get the WhatsApp templates (with approval status) for the "notify the agent" option.
   const templates = user.role === "agent" ? [] : await prisma.template.findMany({ where: { businessId: user.businessId, channel: "whatsapp", internal: false }, orderBy: { name: "asc" }, select: { id: true, name: true, status: true, body: true } });
   return ok({ items: s.leadStatuses, leadAssignment: s.leadAssignment, templates });
-}, { module: "crm" });
+}, { perm: ["crm.view", "telephony.use"] });
 
 const schema = z.object({
   leadStatuses: z.array(z.object({ key: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost"]), label: z.string().trim().min(1).max(40), hidden: z.boolean().default(false) })).max(7).optional(),
@@ -40,4 +40,4 @@ export const PATCH = withAuth(async ({ req, user }) => {
   await audit(user.businessId, user.id, "settings", user.businessId, "settings.updated", { changed: { ...(b.leadStatuses ? { leadStatuses: true } : {}), ...(b.leadAssignment ? { leadAssignment: b.leadAssignment } : {}) } });
   const s = await getBusinessSettings(user.businessId);
   return ok({ items: s.leadStatuses, leadAssignment: s.leadAssignment });
-}, { module: "crm", minRole: "manager" });
+}, { minRole: "manager", perm: "crm.edit" });

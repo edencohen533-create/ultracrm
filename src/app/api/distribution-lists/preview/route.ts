@@ -10,5 +10,5 @@ export const POST = organizationRequest(async function(request: Request) {
   if (!input.success) return Response.json({ error: "יש לבחור קהל או תנאים תקינים" }, { status: 400 });
   try { return Response.json(await previewAudience(input.data)); }
   catch (error) { if (error instanceof AudienceError) return Response.json({ error: error.message }, { status: 400 }); throw error; }
-});
+}, ["crm.view", "sms.view", "email.view", "whatsapp.campaign_draft"]);
 export const maxDuration = 60;

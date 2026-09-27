@@ -7,4 +7,4 @@ import { CartsScreen } from "@/components/carts/carts-screen";
 export default organizationRequest(async function AutomationCartsPage() {
   if (!hasRole(await auth(), ROLES_ADMIN_MANAGER)) return <AccessDenied />;
   return <div className="p-3 sm:p-6"><AutomationsTabs /><CartsScreen /></div>;
-});
+}, ["whatsapp.automations", "sms.send", "email.send"]);

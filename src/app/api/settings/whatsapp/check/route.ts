@@ -20,6 +20,6 @@ export const POST = organizationRequest(async function(request: Request) {
   catch (error) {
     await prisma.providerCredential.update({ where: { id: active.id }, data: { sendingBlocked: true, lastCheckedAt: new Date(), lastConnectionError: "אימות הגישה נכשל. בדוק Token והרשאות" } });
     return Response.json({ error: error instanceof MetaConnectionError ? error.message : "בדיקת החיבור נכשלה" }, { status: 502 }); }
-});
+}, "whatsapp");
 
 export const maxDuration = 60;

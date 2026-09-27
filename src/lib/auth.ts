@@ -137,10 +137,14 @@ const mark = (ids: string[], sharedPool: boolean): VisibleIds => Object.assign(i
 export async function visibleUserIds(user: SessionUser): Promise<VisibleIds | null> {
   if (user.role === "owner") return null;
   const perms = await permissionsOf(user.businessId);
-  // Agents: only their own data; the unassigned pool only when the business allows it (settings → הרשאות).
-  if (user.role === "agent") return mark([user.id], perms.agentSeesUnassigned);
-  // Managers: the whole business (default) or only their teams.
-  if (perms.managerScope === "business") return null;
+  // Data scope assigned by the business manager (settings → משתמשים והרשאות) wins; otherwise the role decides, as before.
+  const row = await db.user.findUnique({ where: { id: user.id }, select: { permissions: true } });
+  const assigned = (row?.permissions as { scope?: string } | null)?.scope;
+  const scope = assigned === "own" || assigned === "team" || assigned === "business" ? assigned
+    : user.role === "agent" ? "own" : perms.managerScope === "business" ? "business" : "team";
+  // Own data only; the unassigned pool only when the business allows it (settings → הרשאות).
+  if (scope === "own") return mark([user.id], perms.agentSeesUnassigned);
+  if (scope === "business") return null;
   const teams = await db.team.findMany({
     where: { businessId: user.businessId, OR: [{ managerId: user.id }, ...(user.teamId ? [{ id: user.teamId }] : [])] },
     select: { members: { select: { id: true } } },

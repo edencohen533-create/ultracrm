@@ -9,8 +9,10 @@ import { CoachAdmin } from "@/components/coach/CoachAdmin";
 import { AssistantSettings } from "@/components/assistant/AssistantSettings";
 import { PermissionsTab } from "@/components/settings/PermissionsTab";
 import { ExhaustionPreview } from "@/components/dialer/ExhaustionPreview";
+import { PlanOverview } from "@/components/access/PlanOverview";
+import { AccessMatrix } from "@/components/access/AccessMatrix";
 
-type Tab = "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "coach" | "assistant" | "permissions";
+type Tab = "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "coach" | "assistant" | "permissions" | "access";
 interface Prio { callbackDue: number; priority: number; newLeadPerHour: number; newLeadMaxHours: number; agingPerHour: number; agingMaxHours: number; attemptPenalty: number; ownerMatch: number; sourceWeights: Record<string, number>; interestedBefore: number }
 interface Automations { newLeadTaskMinutes: number; followUpTaskOutcomes: string[]; followUpTaskHours: number; followUpMessage: { enabled: boolean; templateId: string | null; outcomes: string[]; variables: Record<string, string> } }
 interface Settings { automations: Automations; wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; unansweredToIrrelevant: number; retryIntervalMinutes: number; busyRetryMinutes: number; technicalFailureRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; recordingRetentionDays: number; amdEnabled: boolean; stickyOwner: boolean; removeFromOtherListsOnSale: boolean; dialingPaused: boolean; allowedCountries: string[]; maxDialsPerMinute: number; dialWindow: { start: string; end: string; days: number[] }; prioritization: Prio; inbound: { preferOwner: boolean; createCallbackTask: boolean; respectDialWindow: boolean } }
@@ -24,7 +26,7 @@ export default function SettingsPage() {
   const isAdmin = me?.user.role === "owner";
   const modules = me?.modules ?? { crm: true, messaging: true, telephony: true };
   const groups: Array<{ title: string; tabs: Array<[Tab, string]>; show: boolean }> = [
-    { title: "עסק", tabs: [["business", "פרטי העסק"], ["users", "משתמשים וצוותים"], ["permissions", "הרשאות"], ["connections", "חיבורים"], ["plan", "חבילה ומכסות"], ["automations", "אוטומציות"], ["marketing", "דיוור"], ["assistant", "העוזר האישי בוואטסאפ"], ["suppressions", "הסרות מדיוור"], ["history", "היסטוריית שינויים"]], show: true },
+    { title: "עסק", tabs: [["business", "פרטי העסק"], ["users", "משתמשים וצוותים"], ["access", "מודולים והרשאות"], ["permissions", "הרשאות נתונים"], ["connections", "חיבורים"], ["plan", "חבילה ומכסות"], ["automations", "אוטומציות"], ["marketing", "דיוור"], ["assistant", "העוזר האישי בוואטסאפ"], ["suppressions", "הסרות מדיוור"], ["history", "היסטוריית שינויים"]], show: true },
     { title: "טלפוניה", tabs: [["general", "חייגן"], ["priority", "תעדוף לידים"], ["safety", "בטיחות ושיחות נכנסות"], ["numbers", "מספרים יוצאים"], ["scripts", "תסריטים"], ["dnc", "לא ליצור קשר"], ["coach", "מאמן AI"]], show: modules.telephony },
   ];
   return (
@@ -40,7 +42,8 @@ export default function SettingsPage() {
       </div>
       {tab === "business" && <><BusinessTab isAdmin={isAdmin} /><AccountPanel /></>}
       {tab === "connections" && <ConnectionsTab modules={modules} />}
-      {tab === "plan" && <PlanTab isAdmin={isAdmin} />}
+      {tab === "plan" && <PlanOverview />}
+      {tab === "access" && <AccessMatrix />}
       {tab === "automations" && <AutomationsTab isAdmin={isAdmin} messaging={modules.messaging} />}
       {tab === "marketing" && <MarketingTab isAdmin={isAdmin} />}
       {tab === "suppressions" && <SuppressionsTab />}
@@ -365,39 +368,6 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
   );
 }
 
-function PlanTab({ isAdmin }: { isAdmin: boolean }) {
-  interface PlanInfo { planKey: string | null; planName: string | null; planId: string | null; modules: Record<string, boolean>; overrides: Record<string, boolean>; usage: Record<string, { used: number; limit: number | null; label: string }>; plans: Array<{ id: string; key: string; name: string; modules: Record<string, boolean>; quotas: Record<string, number> }> }
-  const [p, setP] = useState<PlanInfo | null>(null);
-  const load = useCallback(() => api.get<PlanInfo>("/api/settings/plan").then(setP).catch((e) => toast.error(e.message)), []);
-  useEffect(() => { load(); }, [load]);
-  if (!p) return <Spinner />;
-  const moduleLabel: Record<string, string> = { crm: "CRM", messaging: "דיוור והודעות", telephony: "טלפוניה וחייגן" };
-  async function setPlan(planId: string) { try { await api.patch("/api/settings/plan", { planId }); toast.success("החבילה עודכנה"); load(); } catch (e) { toast.error((e as Error).message); } }
-  async function toggleModule(k: string, v: boolean) { try { await api.patch("/api/settings/plan", { modules: { ...p!.overrides, [k]: v } }); load(); } catch (e) { toast.error((e as Error).message); } }
-  return (
-    <div className="space-y-4">
-      <Panel title="חבילה">
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span>חבילה נוכחית:</span><Badge tone="accent">{p.planName ?? "ללא חבילה (הכול פתוח)"}</Badge>
-          {isAdmin && <Select value={p.planId ?? ""} onChange={(e) => e.target.value && setPlan(e.target.value)} className="w-56"><option value="">בחר חבילה…</option>{p.plans.map((pl) => <option key={pl.id} value={pl.id}>{pl.name}</option>)}</Select>}
-        </div>
-        <p className="text-xs text-muted mt-2">אין סליקה בשלב זה – שיוך חבילה הוא פעולת בעלים/מפעיל ונרשם ב-Audit Log. המודולים והמכסות נאכפים בשרת.</p>
-      </Panel>
-      <Panel title="מודולים">
-        <ul className="text-sm space-y-2">
-          {Object.entries(p.modules).map(([k, v]) => <li key={k} className="flex items-center gap-3"><span className="w-40">{moduleLabel[k] ?? k}</span>{v ? <Badge tone="good">פעיל</Badge> : <Badge tone="neutral">כבוי</Badge>}{isAdmin && <Button size="sm" variant="ghost" onClick={() => toggleModule(k, !v)}>{v ? "כבה לעסק זה" : "הפעל לעסק זה"}</Button>}</li>)}
-        </ul>
-      </Panel>
-      <Panel title="שימוש ומכסות (החודש)">
-        <ul className="text-sm space-y-2">
-          {Object.entries(p.usage).map(([k, u]) => { const pct = u.limit ? Math.min(100, Math.round((u.used / u.limit) * 100)) : null; return (
-            <li key={k}><div className="flex justify-between"><span>{u.label}</span><span className="tabular text-muted">{u.used}{u.limit !== null ? ` / ${u.limit}` : " (ללא הגבלה)"}</span></div>{pct !== null && <div className="h-1.5 bg-white/8 rounded mt-1"><div className={cx("h-1.5 rounded", pct >= 90 ? "bg-bad" : pct >= 70 ? "bg-warn" : "bg-accent")} style={{ width: `${pct}%` }} /></div>}</li>
-          ); })}
-        </ul>
-      </Panel>
-    </div>
-  );
-}
 
 function AutomationsTab({ isAdmin, messaging }: { isAdmin: boolean; messaging: boolean }) {
   const [a, setA] = useState<Automations | null>(null);

@@ -12,4 +12,4 @@ export const POST = organizationRequest(async function() {
 
   await activateMockProvider(session.user.id);
   return NextResponse.json({ ok: true });
-});
+}, "whatsapp");

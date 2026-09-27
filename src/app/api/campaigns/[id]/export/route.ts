@@ -1,4 +1,5 @@
 import { csvCell } from "@/lib/csv-export";
+import { campaignNeed, draftNeed, queryChannelNeed, bodyChannelNeed, campaignPatchNeed, CAMPAIGN_ANY } from "@/lib/access/campaigns";
 import { organizationRequest } from "@/lib/auth-compat";
 import { campaignActor } from "@/lib/campaign-auth";
 import { prisma } from "@/lib/db";
@@ -16,4 +17,4 @@ export const GET = organizationRequest(async function(_request: Request, { param
   const lines = rows.map((r) => [r.contact.fullName, r.identifier ?? r.contact.phoneE164, recipientStatusLabels[r.status] ?? r.status, r.message ? (deliveryStatusLabels[r.message.status] ?? r.message.status) : "", r.attempts, r.message?.acceptedAt?.toISOString() ?? "", r.message?.sentAt?.toISOString() ?? "", r.message?.deliveredAt?.toISOString() ?? "", r.message?.readAt?.toISOString() ?? "", r.message?.failedAt?.toISOString() ?? "", r.message?.openedAt?.toISOString() ?? "", r.message?.clickedAt?.toISOString() ?? "", r.message?.errorCode ?? "", r.message?.errorReason ?? r.error ?? ""].map(esc).join(","));
   const csv = "﻿" + [header, ...lines].join("\n");
   return new Response(csv, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="campaign-${id}.csv"` } });
-});
+}, (_r, p) => campaignNeed(p.id, "view"));

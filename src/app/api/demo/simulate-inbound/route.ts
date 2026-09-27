@@ -27,4 +27,4 @@ export const POST = organizationRequest(async function(request: Request) {
   const { conversation, message } = await provider.simulateInbound(parsed.data);
 
   return NextResponse.json({ conversationId: conversation.id, messageId: message.id });
-});
+}, "whatsapp.view");

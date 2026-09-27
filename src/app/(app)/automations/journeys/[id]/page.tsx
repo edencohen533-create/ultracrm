@@ -20,4 +20,4 @@ export default organizationRequest(async function JourneyPage({ params, searchPa
     steps: seq.steps.map((s): JourneyStep => { const v = (s.variables ?? {}) as Record<string, string>; const rest = Object.fromEntries(Object.entries(v).filter(([k]) => !k.startsWith("__"))); return { action: s.action as JourneyStep["action"], channel: s.channel as JourneyStep["channel"], templateId: s.templateId ?? undefined, waitMinutes: s.waitMinutes, variables: rest, condition: (s.condition ?? {}) as JourneyStep["condition"], taskTitle: v.__taskTitle, taskDueHours: v.__taskDueHours ? Number(v.__taskDueHours) : undefined, actionTag: v.__tag, listId: v.__listId, webhookUrl: v.__webhook }; }),
   } : { name: wanted === "CART_ABANDONED" ? "שחזור עגלה נטושה" : "מסע לקוח חדש", isActive: false, trigger: wanted === "CART_ABANDONED" ? "CART_ABANDONED" : "CONTACT_CREATED", triggerConfig: {}, stopOn: ["reply", "conversion"], steps: [] };
   return <JourneyBuilder initial={JSON.parse(JSON.stringify(initial))} templates={templates} tags={tags.map((t) => t.name)} lists={lists} />;
-});
+}, ["whatsapp.automations", "sms.send", "email.send"]);

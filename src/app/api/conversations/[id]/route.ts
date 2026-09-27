@@ -25,7 +25,7 @@ export const GET = organizationRequest(async function(_request: Request, { param
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   return NextResponse.json({ conversation });
-});
+}, "whatsapp.view");
 
 export const PATCH = organizationRequest(async function(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -59,4 +59,4 @@ export const PATCH = organizationRequest(async function(request: Request, { para
   });
 
   return NextResponse.json({ conversation });
-});
+}, ["whatsapp.reply", "whatsapp.assign"]);

@@ -12,7 +12,7 @@ export const GET = withAuth(async ({ params }) => {
   const channel = channelParam.safeParse(params.channel);
   if (!channel.success) throw new ApiError("ערוץ לא תקין", 400, "bad_channel");
   return ok({ items: await listChannelCredentials(channel.data) });
-}, { minRole: "manager", module: "messaging" });
+}, { minRole: "manager", perm: (p) => (p.channel === "email" ? "email.view" : "sms.view") });
 
 /** Create/replace the connection of a channel and run the provider check. Owner only. */
 export const POST = withAuth(async ({ req, user, params }) => {
@@ -21,4 +21,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
   const body = await req.json().catch(() => null);
   try { return ok(await saveChannelCredential(user, channel.data, body)); }
   catch (err) { if (err instanceof z.ZodError) throw new ApiError(err.issues[0]?.message ?? "פרטי חיבור לא תקינים", 400, "validation", err.issues); throw err; }
-}, { minRole: "owner", module: "messaging" });
+}, { minRole: "owner", perm: (p) => (p.channel === "email" ? "email.view" : "sms.view") });

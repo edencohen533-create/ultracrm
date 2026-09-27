@@ -12,4 +12,4 @@ export const PATCH = organizationRequest(async function(request: Request, { para
   if (!parsed.success) return Response.json({ error: "פרטי מספר לא תקינים" }, { status: 400 });
   try { await updateProvider((await params).id, parsed.data, session.user.id); return Response.json({ ok: true }); }
   catch (error) { if (error instanceof MetaConnectionError) return Response.json({ error: error.message }, { status: 409 }); throw error; }
-});
+}, "whatsapp");

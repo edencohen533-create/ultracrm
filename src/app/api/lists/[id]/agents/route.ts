@@ -27,4 +27,4 @@ export const PUT = withAuth(async ({ req, user, params }) => {
   ]);
   await audit(user.businessId, user.id, "dial_list", list.id, "dial_list.agents_updated", { mode: wanted.length ? "selected" : "all", agentIds: wanted });
   return ok({ mode: wanted.length ? "selected" : "all", agentIds: users.map((u) => u.id) });
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", perm: "telephony.team_settings" });

@@ -55,4 +55,4 @@ export default organizationRequest(async function AutomationsPage() {
       <UnsubscribeCard />
     </div>
   );
-});
+}, ["whatsapp.automations", "sms.send", "email.send"]);

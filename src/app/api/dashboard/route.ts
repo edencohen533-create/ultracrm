@@ -27,7 +27,7 @@ export const GET = withAuth(async ({ user }) => {
     prisma.task.count({ where: { businessId, status: "open", dueAt: { gte: dayStart, lt: new Date(dayStart.getTime() + 86400_000) }, ...(userScope ? { userId: userScope } : {}) } }),
     prisma.suppression.count({ where: { businessId, revokedAt: null } }),
   ]);
-  const messaging = ent.modules.messaging
+  const messaging = (ent.modules.whatsapp || ent.modules.sms || ent.modules.email)
     ? await (async () => {
         const [openConversations, unread, messagesToday, inboundToday, campaignsRunning] = await Promise.all([
           prisma.conversation.count({ where: { businessId, status: { in: ["OPEN", "PENDING"] }, ...(user.role === "agent" ? { OR: [{ assignedAgentId: user.id }, { assignedAgentId: null }] } : {}) } }),

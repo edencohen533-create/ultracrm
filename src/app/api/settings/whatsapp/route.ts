@@ -15,7 +15,7 @@ export const GET = organizationRequest(async function() {
 
   const summary = await getActiveProviderSummary();
   return NextResponse.json(summary);
-});
+}, "whatsapp");
 
 export const POST = organizationRequest(async function(request: Request) {
   const session = await auth();
@@ -34,6 +34,6 @@ export const POST = organizationRequest(async function(request: Request) {
     throw error;
   }
   return NextResponse.json({ ok: true });
-});
+}, "whatsapp");
 
 export const maxDuration = 60;

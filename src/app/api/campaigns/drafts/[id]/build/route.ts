@@ -1,4 +1,5 @@
 import { organizationRequest } from "@/lib/auth-compat";
+import { campaignNeed, draftNeed, queryChannelNeed, bodyChannelNeed, campaignPatchNeed, CAMPAIGN_ANY } from "@/lib/access/campaigns";
 import { campaignActor } from "@/lib/campaign-auth";
 import { ApiError } from "@/lib/response";
 import { CampaignError, campaignPreflight } from "@/server/services/campaign-service";
@@ -16,5 +17,5 @@ export const POST = organizationRequest(async function(_r: Request, { params }: 
     if (error instanceof ApiError) return Response.json({ error: error.message, details: error.details }, { status: error.status });
     throw error;
   }
-});
+}, (_r, p) => draftNeed(p.id, "draft"));
 export const maxDuration = 60;

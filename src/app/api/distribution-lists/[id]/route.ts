@@ -10,7 +10,7 @@ export const PUT = organizationRequest(async function(request: Request, { params
   if (!parsed.success) return Response.json({ error: "תנאי קהל או רשימה אינם תקינים" }, { status: 400 });
   try { return Response.json({ list: await saveDistributionList(parsed.data, actor.id, (await params).id) }); }
   catch (error) { if (error instanceof AudienceError) return Response.json({ error: error.message }, { status: 400 }); throw error; }
-});
+}, ["crm.edit", "sms.draft", "email.draft", "whatsapp.campaign_draft"]);
 
 export const maxDuration = 60;
 
@@ -24,4 +24,4 @@ export const DELETE = organizationRequest(async function(_request: Request, { pa
   const r = await prisma.distributionList.deleteMany({ where: { id } });
   if (!r.count) return Response.json({ error: "לא נמצא" }, { status: 404 });
   return Response.json({ ok: true });
-});
+}, ["crm.edit", "sms.draft", "email.draft", "whatsapp.campaign_draft"]);

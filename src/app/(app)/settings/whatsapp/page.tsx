@@ -38,4 +38,4 @@ export default organizationRequest(async function WhatsAppSettingsPage() {
       )}
     </div>
   );
-});
+}, "whatsapp");

@@ -29,4 +29,4 @@ export const GET = withAuth(async ({ req }) => {
       recoveryRate: abandonedEver ? Math.round(((stat("recovered")?._count ?? 0) / abandonedEver) * 1000) / 10 : null,
     },
   });
-}, { minRole: "manager", module: "messaging" });
+}, { minRole: "manager", perm: ["whatsapp.automations", "sms.send", "email.send"] });

@@ -12,4 +12,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
   if (!channel.success) throw new ApiError("ערוץ לא תקין", 400, "bad_channel");
   const b = await parseBody(req, z.object({ templateId: z.string().min(1), to: z.string().trim().min(3).max(200), variables: z.record(z.string(), z.string().max(1024)).optional(), senderId: z.string().max(40).nullable().optional(), credentialId: z.string().nullable().optional() }));
   return ok(await sendChannelTest(user, { channel: channel.data, ...b }));
-}, { minRole: "manager", module: "messaging" });
+}, { minRole: "manager", perm: (p) => (p.channel === "email" ? "email.draft" : "sms.draft") });

@@ -28,4 +28,4 @@ export default organizationRequest(async function InboxLayout({ children }: { ch
       </div>
     </div>
   );
-});
+}, "whatsapp.view");

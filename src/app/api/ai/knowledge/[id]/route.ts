@@ -25,7 +25,8 @@ const schema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   category: z.enum(Object.keys(CATEGORIES) as [Category, ...Category[]]).optional(),
   audience: z.enum(["internal", "customer"]).optional(),
-  status: z.enum(["draft", "approved"]).optional(),
+  status: z.enum(["draft", "approved", "retired"]).optional(),
+  acknowledgeConflicts: z.boolean().optional(),
   content: z.string().max(400_000).optional(),
 });
 
@@ -34,13 +35,19 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   assertCanManage(user, (await getAiSettings(user.businessId)).ai);
   const s = await load(user, params.id);
   const b = await parseBody(req, schema);
+  // Learned-from-conversation items: approval checks contradictions and retires the item they replace.
+  if (b.status === "approved" && s.kind === "conversation" && b.content === undefined) {
+    const { approveLearned } = await import("@/server/ai/learn");
+    await approveLearned(user, s.id, Boolean(b.acknowledgeConflicts));
+    return ok(await load(user, s.id));
+  }
   const contentChanged = b.content !== undefined && s.kind === "text" && b.content !== s.content;
   if (b.status === "approved" && s.processing !== "ready" && !contentChanged) throw new ApiError("אפשר לאשר רק מקור שעיבודו הסתיים בהצלחה", 409, "not_ready");
   const approve = b.status === "approved" && !contentChanged;
   await prisma.knowledgeSource.update({ where: { id: s.id }, data: {
     ...(b.title ? { title: b.title } : {}), ...(b.category ? { category: b.category } : {}), ...(b.audience ? { audience: b.audience } : {}),
     ...(contentChanged ? { content: b.content, status: "draft", approvedById: null, approvedAt: null } : {}),
-    ...(approve ? { status: "approved", approvedById: user.id, approvedAt: new Date() } : b.status === "draft" ? { status: "draft", approvedById: null, approvedAt: null } : {}),
+    ...(approve ? { status: "approved", approvedById: user.id, approvedAt: new Date() } : b.status === "draft" ? { status: "draft", approvedById: null, approvedAt: null } : b.status === "retired" ? { status: "retired" } : {}),
   } });
   if (contentChanged) await processSource(s.id);
   await audit(user.businessId, user.id, "knowledge", s.id, "knowledge.updated", { fields: Object.keys(b), approved: approve, audience: b.audience });

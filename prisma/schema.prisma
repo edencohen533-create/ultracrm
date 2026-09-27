@@ -2435,12 +2435,22 @@ model KnowledgeSource {
   title        String
   /// business | products | faq | policy | guidelines | docs
   category     String
-  /// text | file | link
+  /// text | file | link | conversation ("נלמד משיחה")
   kind         String
   /// internal | customer
   audience     String    @default("internal")
-  /// draft | approved
+  /// draft | approved | retired ("הוצא משימוש" – never retrieved)
   status       String    @default("draft")
+  /// Learned from a conversation: info (facts + service process) | style (tone only, no facts) | both
+  learnMode    String?   @map("learn_mode")
+  /// { question, answer, example: { q, a }, whenToUse, limits, caseSpecific[], messageIds[], redactions }
+  structured   Json?
+  /// Source WhatsApp conversation (the link is only useful to users who may open that conversation).
+  sourceConversationId String? @map("source_conversation_id")
+  /// On approval, this item replaces (retires) the given existing item.
+  supersedesId String?   @map("supersedes_id")
+  /// Possible contradictions with approved knowledge found at analysis time: [{ sourceId, title, detail }]
+  conflicts    Json?
   /// pending | processing | ready | failed
   processing   String    @default("pending")
   error        String?
@@ -2459,6 +2469,7 @@ model KnowledgeSource {
   chunks   KnowledgeChunk[]
 
   @@index([businessId, status, audience])
+  @@index([businessId, sourceConversationId])
   @@map("knowledge_sources")
 }
 

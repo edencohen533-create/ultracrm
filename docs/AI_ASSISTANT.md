@@ -61,3 +61,15 @@ Knowledge, automations and settings are visible only to people who manage the as
 2. A real WhatsApp connection (Meta) for the customer-service agent. It should be tested first on the simulator and on a test number.
 
 Tests: `tests/integration/ai-assistant.test.ts` (the model is stubbed, no real sending).
+
+## Learning from a conversation ("למד את ה־AI מהשיחה")
+- **Where:** a menu action in every WhatsApp conversation. You can choose the whole conversation or specific messages, and add an optional instruction ("מה כדאי ללמוד").
+- **Privacy:** personal details are removed before the model and again after it: the contact's and agents' names, phones, emails, order numbers, addresses, payment details and ID numbers (`src/server/ai/learn.ts` → `redact`).
+- **Access:** only conversations the user is allowed to see (inbox scope), only in their own business.
+- **Separating what was said:** customer claim / agent answer / verified solution / case-specific promise. A discount, refund or exception is never included in the answer. Instructions written inside the conversation are removed and reported.
+- **Review before saving:** full editing, and a choice to learn "מידע ותהליך" / "סגנון בלבד" / "שניהם". Style-only items contain no facts.
+- **Duplicates and conflicts:** checked against approved knowledge. You can choose "עדכן פריט קיים", which retires the old item on approval. A conflict requires explicit approval from a manager.
+- **Approval:** any user who can see the conversation can propose (saved as a draft). Only a knowledge manager can publish.
+- **"בדוק תשובה לדוגמה":** uses the draft without saving, publishing or sending anything.
+- **Storage:** `kind=conversation`, with `learnMode`, `structured`, `sourceConversationId`, `supersedesId` and `conflicts`. Statuses: draft / approved / retired. The conversation shows "הופק ממנה ידע".
+- **In the service agent:** retrieved items are labelled "דוגמה משיחה קודמת – לא מדיניות" or "דוגמת סגנון בלבד". Official policy and live data take precedence, and an example never permits a discount, refund or commitment.

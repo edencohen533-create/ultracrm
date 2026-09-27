@@ -62,15 +62,17 @@ function StatusesEditor() {
 
 function AssignmentEditor() {
   const [s, setS] = useState<LeadAssignmentSettings | null>(null);
-  const [users, setUsers] = useState<Array<{ id: string; fullName: string; role: string; isActive: boolean }>>([]);
+  const [users, setUsers] = useState<Array<{ id: string; fullName: string; role: string; isActive: boolean; personalPhone?: string | null }>>([]);
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string; status: string; body: string }>>([]);
+  const [phones, setPhones] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    api.get<{ leadAssignment: LeadAssignmentSettings }>("/api/lead-statuses").then((r) => setS(r.leadAssignment)).catch((e) => toast.error(e.message));
-    api.get<{ items: typeof users }>("/api/users").then((r) => setUsers(r.items.filter((u) => u.isActive && u.role !== "owner"))).catch(() => undefined);
+    api.get<{ leadAssignment: LeadAssignmentSettings; templates: typeof templates }>("/api/lead-statuses").then((r) => { setS(r.leadAssignment); setTemplates(r.templates ?? []); }).catch((e) => toast.error(e.message));
+    api.get<{ items: typeof users }>("/api/users").then((r) => { const act = r.items.filter((u) => u.isActive && u.role !== "owner"); setUsers(act); setPhones(Object.fromEntries(act.map((u) => [u.id, u.personalPhone ?? ""]))); }).catch(() => undefined);
   }, []);
   async function save() {
     if (!s) return; setSaving(true);
-    try { await api.patch("/api/lead-statuses", { leadAssignment: { mode: s.mode, maxOpenLeadsPerAgent: s.maxOpenLeadsPerAgent, agentIds: s.agentIds, perAgentMax: s.perAgentMax ?? {} } }); toast.success("חלוקת הלידים נשמרה"); }
+    try { await api.patch("/api/lead-statuses", { leadAssignment: { mode: s.mode, maxOpenLeadsPerAgent: s.maxOpenLeadsPerAgent, agentIds: s.agentIds, perAgentMax: s.perAgentMax ?? {}, notifyWhatsApp: s.notifyWhatsApp ?? { enabled: false, templateId: null } } }); toast.success("חלוקת הלידים נשמרה"); }
     catch (e) { toast.error((e as Error).message); } finally { setSaving(false); }
   }
   if (!s) return null;
@@ -90,6 +92,15 @@ function AssignmentEditor() {
           <td className="p-1"><input type="number" min={0} className="h-8 w-28 rounded-md border border-line px-2 ltr" placeholder={s.maxOpenLeadsPerAgent ? String(s.maxOpenLeadsPerAgent) : "ללא הגבלה"} value={per[u.id] ?? ""} onChange={(e) => { const v = e.target.value; const next = { ...per }; if (v === "") delete next[u.id]; else next[u.id] = Math.max(0, Number(v) || 0); setS({ ...s, perAgentMax: next }); }} data-testid={`assignment-agent-cap-${u.id}`} /></td></tr>); })}</tbody></table>
       </div>
       <p className="text-[11px] text-muted">נציג שהגיע לתקרה מדולג; אם כולם בתקרה הליד נשאר ללא שיוך ומופיע במסנן &quot;ללא שיוך&quot;.</p>
+      <div className="rounded-lg border border-line p-3 space-y-2" data-testid="notify-agent">
+        <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={Boolean(s.notifyWhatsApp?.enabled)} onChange={(e) => setS({ ...s, notifyWhatsApp: { templateId: s.notifyWhatsApp?.templateId ?? null, enabled: e.target.checked } })} data-testid="notify-agent-enabled" /> שלח לנציג הודעת WhatsApp לטלפון האישי כשנכנס אליו ליד חדש</label>
+        <p className="text-xs text-muted">נשלח ממספר ה-WhatsApp של העסק, גם בחלוקה אוטומטית ובהעברה מנציג אחר. וואטסאפ מחייב תבנית מאושרת (הנציג לרוב לא כתב לעסק ב-24 השעות האחרונות). משתנים בתבנית: {"{{1}}"} שם הליד, {"{{2}}"} טלפון, {"{{3}}"} מקור.</p>
+        <Select label="תבנית" value={s.notifyWhatsApp?.templateId ?? ""} onChange={(e) => setS({ ...s, notifyWhatsApp: { enabled: Boolean(s.notifyWhatsApp?.enabled), templateId: e.target.value || null } })} data-testid="notify-agent-template"><option value="">בחר תבנית</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.status === "APPROVED" ? "מאושרת" : t.status === "PENDING" ? "ממתינה לאישור" : t.status === "REJECTED" ? "נדחתה" : t.status}</option>)}</Select>
+        {s.notifyWhatsApp?.enabled && s.notifyWhatsApp.templateId && templates.find((t) => t.id === s.notifyWhatsApp?.templateId)?.status !== "APPROVED" && <p className="text-xs text-warn">⚠️ התבנית עדיין לא מאושרת – הודעות לא יישלחו עד לאישורה.</p>}
+        <div className="text-sm font-medium pt-1">טלפון אישי של כל נציג</div>
+        <div className="grid sm:grid-cols-2 gap-2">{users.map((u) => <div key={u.id} className="flex items-center gap-2 text-sm"><span className="w-28 truncate">{u.fullName}</span><input dir="ltr" className="h-8 flex-1 rounded-md border border-line px-2" placeholder="050-0000000" value={phones[u.id] ?? ""} onChange={(e) => setPhones({ ...phones, [u.id]: e.target.value })} onBlur={async () => { if ((phones[u.id] ?? "") === (u.personalPhone ?? "")) return; try { const r = await api.patch<{ personalPhone: string | null }>(`/api/users/${u.id}`, { personalPhone: phones[u.id] || null }); setUsers((list) => list.map((x) => x.id === u.id ? { ...x, personalPhone: r.personalPhone } : x)); setPhones((p) => ({ ...p, [u.id]: r.personalPhone ?? "" })); toast.success(`הטלפון של ${u.fullName} נשמר`); } catch (err) { toast.error((err as Error).message); } }} data-testid={`agent-phone-${u.id}`} /></div>)}</div>
+        <p className="text-[11px] text-muted">שמירת טלפון זמינה לבעל העסק. נציג בלי טלפון לא יקבל הודעה (מסומן ביומן).</p>
+      </div>
       <div className="flex justify-end"><Button onClick={save} loading={saving} data-testid="assignment-save">שמור</Button></div>
     </div>
   );

@@ -1,3 +1,4 @@
-import { CartsScreen } from "@/components/carts/carts-screen";
+import { redirect } from "next/navigation";
 
-export default function CartsPage() { return <CartsScreen />; }
+/** Abandoned carts moved under "אוטומציות". */
+export default function CartsPage() { redirect("/automations/carts"); }

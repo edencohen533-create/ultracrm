@@ -10,6 +10,7 @@ import { useMe } from "@/lib/client/use-me";
 import { Badge, Button, EmptyState, Input, Modal, Panel, Phone, Select, Spinner, Textarea, cx } from "@/components/ui";
 import { formatDateTime, formatDuration, formatPhone, relativeTime, toLocalInputValue } from "@/lib/client/format";
 import { DEAL_STAGE_LABEL } from "@/lib/crm/labels";
+import { DealCloseModal } from "@/components/leads/DealCloseModal";
 import { AttemptsCell, AttemptsModal, FollowUpBadge, FollowUpModal, fmtBiz, type FollowUpInfo } from "@/components/leads/LeadActions";
 import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 import type { TimelineItem } from "@/lib/crm/timeline";
@@ -63,7 +64,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const focusLeadId = search.get("lead");
   const [leadEdit, setLeadEdit] = useState<{ id: string; title: string; status: string; source: string; priority: number; ownerUserId: string; notes: string } | null>(null);
   const [leadMeta, setLeadMeta] = useState<{ attempts: number; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null } | null>(null);
-  const [leadModal, setLeadModal] = useState<"followup" | "attempts" | null>(null);
+  const [leadModal, setLeadModal] = useState<"followup" | "attempts" | "deal" | null>(null);
   const [showChat, setShowChat] = useState(search.get("tab") === "chat");
 
   const load = useCallback(async () => {
@@ -241,9 +242,10 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
                   <div><span>פולואפ</span><FollowUpBadge followUp={leadMeta.followUp} needsSchedule={leadMeta.needsSchedule} tz={leadMeta.timezone} onClick={() => setLeadModal("followup")} /><button className="lead-link" onClick={() => setLeadModal("followup")}>{leadMeta.followUp ? "ערוך" : "קבע פולואפ"}</button></div>
                 </div>}
                 {leadModal === "followup" && <FollowUpModal leadId={leadEdit.id} name={c.fullName} tz={leadMeta?.timezone} current={leadMeta?.followUp} onClose={() => setLeadModal(null)} onSaved={() => load()} />}
+                {leadModal === "deal" && <DealCloseModal contactId={c.id} leadId={leadEdit.id} name={c.fullName} onClose={() => setLeadModal(null)} onDone={() => load()} />}
                 {leadModal === "attempts" && <AttemptsModal leadId={leadEdit.id} name={c.fullName} tz={leadMeta?.timezone} onClose={() => setLeadModal(null)} />}
                 <Input label="כותרת" value={leadEdit.title} onChange={(e) => setLeadEdit({ ...leadEdit, title: e.target.value })} />
-                <Select label="סטטוס" value={leadEdit.status} onChange={(e) => { if (e.target.value === "follow_up" && leadEdit.status !== "follow_up") setLeadModal("followup"); else setLeadEdit({ ...leadEdit, status: e.target.value }); }} data-testid="lead-status">{statuses.items.filter((st) => !st.hidden || st.key === leadEdit.status).map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</Select>
+                <Select label="סטטוס" value={leadEdit.status} onChange={(e) => { if (e.target.value === "follow_up" && leadEdit.status !== "follow_up") setLeadModal("followup"); else if (e.target.value === "converted" && leadEdit.status !== "converted") setLeadModal("deal"); else setLeadEdit({ ...leadEdit, status: e.target.value }); }} data-testid="lead-status">{statuses.items.filter((st) => !st.hidden || st.key === leadEdit.status).map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</Select>
                 <Input label="מקור" value={leadEdit.source} onChange={(e) => setLeadEdit({ ...leadEdit, source: e.target.value })} />
                 <Input label="עדיפות (0–100)" type="number" value={String(leadEdit.priority)} onChange={(e) => setLeadEdit({ ...leadEdit, priority: Number(e.target.value) })} />
                 {isManager ? <Select label="נציג אחראי" value={leadEdit.ownerUserId} onChange={(e) => setLeadEdit({ ...leadEdit, ownerUserId: e.target.value })}><option value="">ללא</option>{users.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select> : <Input label="נציג אחראי" value={users.find((u) => u.id === leadEdit.ownerUserId)?.fullName ?? "ללא"} disabled />}

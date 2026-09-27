@@ -14,7 +14,7 @@ import { findOrCreateContactByPhone } from "@/lib/crm/contacts";
 import { emitEvent } from "@/lib/events";
 import { openConfig, sealConfig } from "@/server/channels/registry";
 
-export const STORE_SECRET_KEYS = ["webhookSecret"] as const;
+export const STORE_SECRET_KEYS = ["webhookSecret", "accessToken", "consumerKey", "consumerSecret"] as const;
 export const cartItemSchema = z.object({ name: z.string().trim().max(300), quantity: z.coerce.number().min(0).max(100000).default(1), price: z.coerce.number().min(0).max(10_000_000).optional(), url: z.string().max(1000).optional(), image: z.string().max(1000).optional() });
 export const cartInputSchema = z.object({
   externalId: z.string().trim().min(1).max(200),

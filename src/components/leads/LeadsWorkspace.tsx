@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowDownUp, CalendarDays, Check, CheckSquare, ChevronLeft, ChevronRight, Download, Filter, MessageCircle, Percent, Phone as PhoneIcon, RefreshCw, Search, Settings, ShoppingBag, TrendingUp, Users, X } from "lucide-react";
+import { ArrowDownUp, CalendarDays, Check, CheckSquare, ChevronLeft, ChevronRight, Download, MessageCircle, Percent, Phone as PhoneIcon, RefreshCw, Search, Settings, ShoppingBag, TrendingUp, Users, X } from "lucide-react";
 import { api, qs } from "@/lib/client/api";
 import { useDialer } from "@/components/telephony/DialerProvider";
 import { useMe } from "@/lib/client/use-me";
@@ -15,6 +15,8 @@ import { LeadDrawer } from "@/components/leads/LeadDrawer";
 import { LeadsSettingsModal } from "@/components/leads/LeadsSettingsModal";
 import { TasksPanel } from "@/components/tasks/TasksPanel";
 import { CallsInbox } from "@/components/inbox/CallsInbox";
+import { LeadImportModal } from "@/components/leads/LeadImportModal";
+import { DealCloseModal } from "@/components/leads/DealCloseModal";
 import { AttemptsCell, AttemptsModal, FollowUpBadge, FollowUpModal, TransferModal, WaitingCard, type FollowUpInfo, type WaitingKey } from "@/components/leads/LeadActions";
 
 interface Lead { id: string; title: string | null; status: string; source: string | null; createdAt: string; contact: { id: string; fullName: string; phoneE164: string; email: string | null; customFields: Record<string, unknown> | null }; owner: { id: string; fullName: string } | null; attempts: number; lastAttemptAt: string | null; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null; at: string } | null }
@@ -46,11 +48,11 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState({ status: params.get("status") ?? "", q: params.get("q") ?? "", ownerUserId: params.get("mine") === "1" ? "me" : params.get("ownerUserId") ?? "", source: "", product: "", campaign: "", ad: "", period: listId ? "all" : "month", from: "", to: "", waiting: "" as WaitingKey | "" });
   const [followUpFor, setFollowUpFor] = useState<Lead | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [attemptsFor, setAttemptsFor] = useState<Lead | null>(null);
   const [transferIds, setTransferIds] = useState<{ ids: string[]; owner?: string | null } | null>(null);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState({ key: "createdAt", direction: "desc" });
-  const [group, setGroup] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [users, setUsers] = useState<{ id: string; fullName: string }[]>([]);
   const [open, setOpen] = useState(false);
@@ -60,7 +62,6 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   const [newContact, setNewContact] = useState(false);
   const [saving, setSaving] = useState(false);
   const [convert, setConvert] = useState<Lead | null>(null);
-  const [dealForm, setDealForm] = useState({ title: "", amount: "" });
   const [bulkBusy, setBulkBusy] = useState(false);
   const requestId = useRef(0);
   const manager = Boolean(me && me.user.role !== "agent");
@@ -92,7 +93,7 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   function change(key: keyof typeof filter, value: string) { setFilter(f => ({ ...f, [key]: value })); setPage(1); setSelected([]); }
   const tz = data?.timezone ?? "Asia/Jerusalem";
   /** Status select: "פולואפ" never saves without a time – it opens the date/time picker first. */
-  function onStatus(l: Lead, value: string) { if (value === "follow_up") setFollowUpFor(l); else void patch(l.id, { status: value }); }
+  function onStatus(l: Lead, value: string) { if (value === "follow_up") setFollowUpFor(l); else if (value === "converted") setConvert(l); else void patch(l.id, { status: value }); }
   function onOwner(l: Lead, value: string) { if (!value) void patch(l.id, { ownerUserId: null }); else void transferNow([l.id], value); }
   async function transferNow(ids: string[], to: string) {
     try {
@@ -118,13 +119,8 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
       setOpen(false); setForm({ contactId: "", contactName: "", phone: "", title: "", source: "", ownerUserId: "" }); setSearch(""); setNewContact(false); toast.success("הליד נוצר"); await load();
     } catch (e) { toast.error((e as Error).message); } finally { setSaving(false); }
   }
-  async function doConvert() { if (!convert) return; setSaving(true); try { await api.post(`/api/leads/${convert.id}/convert`, { title: dealForm.title || undefined, amount: dealForm.amount ? Number(dealForm.amount) : undefined }); setConvert(null); toast.success("העסקה נוצרה"); await load(); } catch (e) { toast.error((e as Error).message); } finally { setSaving(false); } }
   function exportSelected() { const rows = data?.items.filter(l => selected.includes(l.id)) ?? []; const csv = [["שם", "טלפון", "מקור", "סטטוס", "נציג"], ...rows.map(l => [l.contact.fullName, l.contact.phoneE164, l.source ?? "", statuses.label(l.status), l.owner?.fullName ?? ""])].map(row => row.map(value => { const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value; return `"${safe.replaceAll('"', '""')}"`; }).join(",")).join("\r\n"); const url = URL.createObjectURL(new Blob(["﻿", csv], { type: "text/csv;charset=utf-8" })); const a = document.createElement("a"); a.href = url; a.download = "leads.csv"; a.click(); URL.revokeObjectURL(url); }
-  const groups = useMemo(() => {
-    const map = new Map<string, Lead[]>();
-    for (const lead of data?.items ?? []) { const key = group === "owner" ? lead.owner?.fullName ?? "ללא שיוך" : group === "status" ? statuses.label(lead.status) : group === "source" ? lead.source ?? "ללא מקור" : ""; map.set(key, [...map.get(key) ?? [], lead]); }
-    return [...map];
-  }, [data, group, statuses]);
+  const groups = useMemo(() => [["", data?.items ?? []]] as Array<[string, Lead[]]>, [data]);
   const cards = [
     { label: "סה״כ לידים", value: number(data?.metrics.leads ?? 0), Icon: Users, tone: "blue", hint: "לידים שנוצרו בטווח ובמסננים שנבחרו" },
     { label: "עסקאות שנסגרו", value: number(data?.metrics.deals ?? 0), Icon: ShoppingBag, tone: "indigo", hint: "עסקאות שנסגרו בהצלחה ומקושרות ללידים בטווח" },
@@ -135,7 +131,8 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   return <div className="leads-page" data-testid="leads-redesign">
     {listHeader}
     <header className="leads-header"><h1>{listName ? `רשימת חיוג: ${listName}` : "CRM"}</h1><div className="leads-header-actions"><span className="leads-count">{number(data?.total ?? 0)} לידים</span>
-      {!listId && manager && <Link href="/contacts" className="lead-button">אנשי קשר וייבוא</Link>}
+      {!listId && manager && <button className="lead-button" onClick={() => setImportOpen(true)} data-testid="open-lead-import"><Download size={15} className="rotate-180" />ייבוא לידים (Excel)</button>}
+      {!listId && manager && <Link href="/contacts" className="lead-button">אנשי קשר</Link>}
       {!listId && manager && telephony && <Link href="/lists" className="lead-button" data-testid="open-lists">רשימות חיוג</Link>}
       <button className="lead-button" onClick={() => setTasksOpen(true)} data-testid="open-tasks"><CheckSquare size={15} />משימות וחזרות</button>
       {manager && <button className="lead-button" onClick={() => { setSettingsTab("statuses"); setSettingsOpen(true); }} data-testid="open-statuses">עריכת סטטוסים</button>}
@@ -152,7 +149,6 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
       <input aria-label="קמפיין" placeholder="חיפוש לפי קמפיין..." value={filter.campaign} onChange={e => change("campaign", e.target.value)} />
       <input aria-label="מודעה" placeholder="חיפוש לפי מודעה..." value={filter.ad} onChange={e => change("ad", e.target.value)} />
       <select aria-label="נציג" value={filter.ownerUserId} onChange={e => change("ownerUserId", e.target.value)}><option value="">כל הנציגים</option><option value="me">הלידים שלי</option><option value="unassigned">ללא שיוך</option>{manager && users.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}</select>
-      <div className="lead-period"><Filter size={15}/><select aria-label="קיבוץ" value={group} onChange={e => setGroup(e.target.value)}><option value="">קבץ: ללא</option><option value="owner">לפי נציג</option><option value="status">לפי סטטוס</option><option value="source">לפי מקור</option></select></div>
     </section>
     {filter.period === "custom" && <div className="lead-date-range"><label>מתאריך <input type="date" aria-label="מתאריך" value={filter.from} max={filter.to || undefined} onChange={e => change("from", e.target.value)} /></label><label>עד תאריך <input type="date" aria-label="עד תאריך" value={filter.to} min={filter.from || undefined} onChange={e => change("to", e.target.value)} /></label></div>}
     <div className="leads-tools"><span>טווח: {periods[filter.period]}</span><div>{telephony && <button className="lead-button dialer-launch" data-testid="open-dialer" disabled={!state} onClick={() => router.push(dialerHref)}><PhoneIcon size={18}/>{live ? "לחייגן הפעיל" : "הפעל חייגן"}</button>}</div></div>
@@ -160,11 +156,11 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
     <section className="lead-stats" aria-label="נתוני לידים">{manager && !listId && <WaitingCard agent={owner} users={users} active={filter.waiting} version={data} onPick={k => change("waiting", k)} onAgent={id => change("ownerUserId", id)} />}{cards.map(({ label, value, Icon, tone, hint }) => <article className="lead-stat" key={label} title={hint}><span className={`stat-icon ${tone}`}><Icon size={21} strokeWidth={1.8}/></span><strong dir="ltr">{data ? value : "…"}</strong><span>{label}</span></article>)}</section>
     <section className="lead-distribution"><h2>לידים לפי נציג</h2>{data?.byOwner.length ? data.byOwner.map(o => <button key={o.id ?? "none"} title={`סנן לפי ${o.name}`} onClick={() => change("ownerUserId", o.id ?? "unassigned")} className="lead-bar-row"><span className="lead-bar-name">{o.name}</span><span className="lead-bar-track"><span style={{ width: `${data.total ? o.count / data.total * 100 : 0}%` }}/></span><strong>{number(o.count)}</strong><span className="lead-bar-percent">{number(data.total ? o.count / data.total * 100 : 0)}%</span></button>) : <p className="text-sm text-muted py-4">אין לידים בטווח שנבחר</p>}</section>
     {error && <div role="alert" className="lead-error">{error}<button onClick={load}>נסה שוב</button></div>}
-    {selected.length > 0 && <div className="lead-bulk"><span><Check size={16}/> {selected.length} לידים נבחרו</span><select aria-label="שינוי סטטוס לנבחרים" value="" disabled={bulkBusy} onChange={e => e.target.value && bulk({ status: e.target.value })}><option value="">שנה סטטוס</option>{statusOptions.filter(s => s.key !== "follow_up").map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>{manager && <button className="lead-button" disabled={bulkBusy} onClick={() => setTransferIds({ ids: selected })} data-testid="bulk-transfer">העבר לנציג</button>}{manager && <button className="lead-button" disabled={bulkBusy} onClick={() => bulk({ ownerUserId: null })}>בטל שיוך</button>}<button className="lead-button" onClick={exportSelected}><Download size={15}/>ייצוא נבחרים</button><button aria-label="בטל בחירה" onClick={() => setSelected([])}><X size={16}/></button></div>}
+    {selected.length > 0 && <div className="lead-bulk"><span><Check size={16}/> {selected.length} לידים נבחרו</span><select aria-label="שינוי סטטוס לנבחרים" value="" disabled={bulkBusy} onChange={e => e.target.value && bulk({ status: e.target.value })}><option value="">שנה סטטוס</option>{statusOptions.filter(s => s.key !== "follow_up" && s.key !== "converted").map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>{manager && <button className="lead-button" disabled={bulkBusy} onClick={() => setTransferIds({ ids: selected })} data-testid="bulk-transfer">העבר לנציג</button>}{manager && <button className="lead-button" disabled={bulkBusy} onClick={() => bulk({ ownerUserId: null })}>בטל שיוך</button>}<button className="lead-button" onClick={exportSelected}><Download size={15}/>ייצוא נבחרים</button><button aria-label="בטל בחירה" onClick={() => setSelected([])}><X size={16}/></button></div>}
     <section className="lead-table-card" aria-busy={loading}>
-      {!data ? <div className="p-12 flex justify-center"><Spinner/></div> : <><div className="lead-table-scroll"><table className="leads-table"><thead><tr><th><input type="checkbox" aria-label="בחר את כל הלידים בעמוד" checked={data.items.length > 0 && data.items.every(l => selected.includes(l.id))} onChange={e => setSelected(e.target.checked ? data.items.map(l => l.id) : [])}/></th><th><button onClick={() => sorting("name")}>שם <ArrowDownUp size={13}/></button></th><th>טלפון</th><th><button onClick={() => sorting("source")}>מקור <ArrowDownUp size={13}/></button></th><th>מוצר</th><th>קמפיין</th><th>מודעה</th><th><button onClick={() => sorting("status")}>סטטוס <ArrowDownUp size={13}/></button></th><th>ניסיונות חיוג</th><th>פולואפ</th><th><button onClick={() => sorting("owner")}>נציג <ArrowDownUp size={13}/></button></th><th><button onClick={() => sorting("createdAt")}>נוצר <ArrowDownUp size={13}/></button></th><th>פעולות</th></tr></thead><tbody>{groups.map(([name, rows]) => <Fragment key={name}>{group && <tr className="lead-group"><td colSpan={13}>{name} · {rows.length} בעמוד זה</td></tr>}{rows.map(l => <tr key={l.id} data-testid={`lead-row-${l.id}`} className={selected.includes(l.id) ? "selected" : ""}>
+      {!data ? <div className="p-12 flex justify-center"><Spinner/></div> : <><div className="lead-table-scroll"><table className="leads-table"><thead><tr><th><input type="checkbox" aria-label="בחר את כל הלידים בעמוד" checked={data.items.length > 0 && data.items.every(l => selected.includes(l.id))} onChange={e => setSelected(e.target.checked ? data.items.map(l => l.id) : [])}/></th><th><button onClick={() => sorting("name")}>שם <ArrowDownUp size={13}/></button></th><th>טלפון</th><th><button onClick={() => sorting("source")}>מקור <ArrowDownUp size={13}/></button></th><th>מוצר</th><th>קמפיין</th><th>מודעה</th><th><button onClick={() => sorting("status")}>סטטוס <ArrowDownUp size={13}/></button></th><th>ניסיונות חיוג</th><th>פולואפ</th><th><button onClick={() => sorting("owner")}>נציג <ArrowDownUp size={13}/></button></th><th><button onClick={() => sorting("createdAt")}>נוצר <ArrowDownUp size={13}/></button></th><th>פעולות</th></tr></thead><tbody>{groups.map(([name, rows]) => <Fragment key={name}>{rows.map(l => <tr key={l.id} data-testid={`lead-row-${l.id}`} className={selected.includes(l.id) ? "selected" : ""}>
         <td><input type="checkbox" aria-label={`בחר ${l.contact.fullName}`} checked={selected.includes(l.id)} onChange={e => setSelected(s => e.target.checked ? [...s, l.id] : s.filter(id => id !== l.id))}/></td>
-        <td><button className="lead-name" onClick={() => setDetail({ id: l.id, tab: "details" })}>{l.contact.fullName}</button>{l.status !== "converted" && <button className="lead-new-deal" onClick={() => { setConvert(l); setDealForm({ title: l.title ?? `עסקה – ${l.contact.fullName}`, amount: "" }); }}>+ עסקה חדשה</button>}</td>
+        <td><button className="lead-name" onClick={() => setDetail({ id: l.id, tab: "details" })}>{l.contact.fullName}</button>{l.status !== "converted" && <button className="lead-new-deal" onClick={() => setConvert(l)}>+ עסקה חדשה</button>}</td>
         <td className="lead-phone" dir="ltr">{formatPhone(l.contact.phoneE164)}</td><td>{l.source ?? "—"}</td><td>{metadata(l, "product")}</td><td className="lead-campaign">{metadata(l, "campaign")}</td><td className="lead-campaign">{metadata(l, "ad")}</td>
         <td><select aria-label={`סטטוס ${l.contact.fullName}`} className={`lead-status status-${l.status}`} value={l.status} onChange={e => onStatus(l, e.target.value)}>{statuses.items.filter(s => !s.hidden || s.key === l.status).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>{l.pendingTransfer && <small className="lead-pending-transfer" title="ההעברה תתבצע בסיום השיחה">⇄ בהעברה ל{l.pendingTransfer.to ?? "נציג"}</small>}</td>
         <td><AttemptsCell count={l.attempts} lastAt={l.lastAttemptAt} tz={tz} onOpen={() => setAttemptsFor(l)} /></td>
@@ -177,11 +173,12 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
     {telephony && live && <Link href="/dialer" className="dialer-live-pill" data-testid="dialer-reopen">📞 החייגן פעיל – פתח</Link>}
     {detail && <LeadDrawer key={detail.id} leadId={detail.id} initialTab={detail.tab} users={users} manager={manager} messaging={Boolean(me?.modules.messaging)} canDial={canDial} onDial={contactId => dialAndOpen(contactId)} onClose={() => setDetail(null)} onUpdated={() => { void load(); }}/>}
     {tasksOpen && <aside className="lead-side-drawer" aria-label="משימות וחזרות" data-testid="tasks-drawer"><header><strong>משימות וחזרות</strong>{telephony && <div className="drawer-tabs" role="tablist"><button role="tab" aria-selected={drawerView === "tasks"} onClick={() => setDrawerView("tasks")} data-testid="drawer-tab-tasks">משימות</button><button role="tab" aria-selected={drawerView === "calls"} onClick={() => setDrawerView("calls")} data-testid="drawer-tab-calls">שיחות שלא נענו</button></div>}<button aria-label="סגור משימות" onClick={() => { setTasksOpen(false); if (params.get("tasks")) router.replace(listId ? `/lists/${listId}` : "/leads"); }}><X size={17}/></button></header><div>{drawerView === "calls" && telephony ? <CallsInbox /> : <TasksPanel embedded />}</div></aside>}
+    {importOpen && <LeadImportModal users={users} onClose={() => setImportOpen(false)} onDone={() => { void load(); }} />}
     {followUpFor && <FollowUpModal leadId={followUpFor.id} name={followUpFor.contact.fullName} tz={tz} current={followUpFor.followUp} onClose={() => setFollowUpFor(null)} onSaved={() => { void load(); }} />}
     {attemptsFor && <AttemptsModal leadId={attemptsFor.id} name={attemptsFor.contact.fullName} tz={tz} onClose={() => setAttemptsFor(null)} />}
     {transferIds && <TransferModal leadIds={transferIds.ids} currentOwnerId={transferIds.owner} users={users} onClose={() => setTransferIds(null)} onDone={() => { setSelected([]); void load(); }} />}
     <LeadsSettingsModal open={settingsOpen} onClose={closeSettings} manager={manager} initialTab={settingsTab} />
     <Modal open={open} onClose={() => !saving && setOpen(false)} title="ליד חדש" footer={<><Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>ביטול</Button><Button onClick={create} loading={saving} disabled={newContact ? !form.contactName || !form.phone : !form.contactId}>צור ליד</Button></>}><div className="space-y-3"><div className="flex gap-3"><button className={!newContact ? "text-accent font-medium" : "text-muted"} onClick={() => { setNewContact(false); setForm(f => ({ ...f, contactId: "" })); }}>איש קשר קיים</button><button className={newContact ? "text-accent font-medium" : "text-muted"} onClick={() => { setNewContact(true); setForm(f => ({ ...f, contactId: "", contactName: "" })); }}>איש קשר חדש</button></div>{newContact ? <><Input label="שם מלא" value={form.contactName} onChange={e => setForm({ ...form, contactName: e.target.value })}/><Input label="טלפון" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} ltr/></> : form.contactId ? <div>{form.contactName}<button className="ms-3 text-accent" onClick={() => setForm({ ...form, contactId: "" })}>שנה</button></div> : <><Input label="חיפוש איש קשר" value={search} onChange={e => setSearch(e.target.value)}/><ul className="max-h-44 overflow-auto">{hits.map(h => <li key={h.id}><button className="w-full text-start p-2 hover:bg-panel-2" onClick={() => setForm({ ...form, contactId: h.id, contactName: h.fullName })}>{h.fullName} · {formatPhone(h.phoneE164)}</button></li>)}</ul></>}<Input label="כותרת" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}/><Input label="מקור" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}/>{manager && <Select label="נציג" value={form.ownerUserId} onChange={e => setForm({ ...form, ownerUserId: e.target.value })}><option value="">ללא שיוך (לפי חלוקת הלידים)</option>{users.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select>}</div></Modal>
-    <Modal open={Boolean(convert)} onClose={() => !saving && setConvert(null)} title="עסקה חדשה מהליד" footer={<Button onClick={doConvert} loading={saving}>צור עסקה</Button>}><div className="space-y-3"><Input label="כותרת העסקה" value={dealForm.title} onChange={e => setDealForm({ ...dealForm, title: e.target.value })}/><Input label="סכום (₪)" type="number" min="0" value={dealForm.amount} onChange={e => setDealForm({ ...dealForm, amount: e.target.value })} ltr/></div></Modal>
+    {convert && <DealCloseModal contactId={convert.contact.id} leadId={convert.id} name={convert.contact.fullName} onClose={() => setConvert(null)} onDone={() => { void load(); }} />}
   </div>;
 }

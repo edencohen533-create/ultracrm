@@ -14,7 +14,8 @@ import { useHotkeys } from "./useHotkeys";
 import { callElapsed, useTicker } from "@/components/telephony/CallBar";
 import { CALL_STATUS_LABEL, formatDuration, formatPhone } from "@/lib/client/format";
 import { Kbd, cx } from "@/components/ui";
-import type { OutcomeKey } from "@/lib/client/types";
+import type { CallDto, OutcomeKey } from "@/lib/client/types";
+import { DealCloseModal } from "@/components/leads/DealCloseModal";
 
 const SKIP_REASONS = ["לא זמן מתאים", "פרטים חסרים", "כבר דיברתי איתו", "ליד לא רלוונטי", "אחר"];
 
@@ -29,6 +30,9 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
   const [note, setNote] = useState("");
   const [skipOpen, setSkipOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [fullWrapUp, setFullWrapUp] = useState(false);
+  /** A sale in the dialer opens the "עסקה נסגרה" popup (products, value, renewal date) before moving on. */
+  const [sale, setSale] = useState<{ contactId: string; name: string; then: "next" | "none" } | null>(null);
 
   const session = state?.session;
   const lead = state?.lead ?? null;
@@ -66,6 +70,18 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
     [call, wrapUp, dial],
   );
 
+  useEffect(() => { setFullWrapUp(false); }, [wrapUp?.id]);
+  /** "המשך לליד הבא": save the (auto / quick) outcome with the typed note and dial the next lead now. */
+  const continueNext = useCallback(async (outcome: OutcomeKey, afterDeal = false) => {
+    if (!wrapUp) return;
+    if (outcome === "sale" && wrapUp.contactId && !afterDeal) { setSale({ contactId: wrapUp.contactId, name: formatPhone(wrapUp.toE164), then: "next" }); return; }
+    try {
+      await d.continueToNext(wrapUp.id, outcome, { note });
+      setNote("");
+      if (wrapUp.contactId) { try { localStorage.removeItem(`dialer.note.${wrapUp.contactId}`); } catch { /* ignore */ } }
+    } catch { /* toast shown by provider */ }
+  }, [wrapUp, d, note]);
+
   const onSave = useCallback(
     async (outcome: OutcomeKey, callbackAt?: Date, callbackUserId?: string) => {
       if (!wrapUp) return;
@@ -80,6 +96,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
           }
         }
         toast.success("התוצאה נשמרה");
+        if (outcome === "sale" && wrapUp.contactId) setSale({ contactId: wrapUp.contactId, name: formatPhone(wrapUp.toE164), then: "none" });
       } catch {
         /* toast shown by provider */
       }
@@ -133,7 +150,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
 
         {/* Active lead */}
         <section className={minimal ? "flex-1 min-h-0 flex flex-col" : compact ? "min-h-[330px] flex flex-col order-2 shrink-0" : "min-h-0 flex flex-col"}>
-          {minimal && <CallStrip canDialLead={canDialLead} onDialLead={dialLead} onDialNext={dialNext} canDialNext={Boolean(session && session.status === "active" && session.mode !== "manual" && !call && !wrapUp && !sessionTakenOver)} blockedReason={!session ? "אין סשן חיוג פעיל – התחל חייגן מהתור או חייג מכרטיס ליד" : session.status !== "active" ? "הסשן מושהה – לחץ המשך" : sessionTakenOver ? "הסשן פעיל בלשונית אחרת" : wrapUp ? "תעד את תוצאת השיחה הקודמת כדי להמשיך" : session.mode === "manual" ? "סשן ידני – חייג מכרטיס ליד או מהלוח" : null} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />}
+          {minimal && <CallStrip onContinueAuto={wrapUp && !wrapUp.answeredAt && !fullWrapUp && session?.status === "active" && session.mode !== "manual" ? () => continueNext(wrapUp.telephonyResult === "busy" ? "busy" : "no_answer") : undefined} canDialLead={canDialLead} onDialLead={dialLead} onDialNext={dialNext} canDialNext={Boolean(session && session.status === "active" && session.mode !== "manual" && !call && !wrapUp && !sessionTakenOver)} blockedReason={!session ? "אין סשן חיוג פעיל – התחל חייגן מהתור או חייג מכרטיס ליד" : session.status !== "active" ? "הסשן מושהה – לחץ המשך" : sessionTakenOver ? "הסשן פעיל בלשונית אחרת" : wrapUp ? (wrapUp.answeredAt ? "השיחה הסתיימה – בחר תוצאה למטה והמשך" : "השיחה הסתיימה")  : session.mode === "manual" ? "סשן ידני – חייג מכרטיס ליד או מהלוח" : null} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />}
           {call && (
             <div className="p-3 border-b border-line shrink-0">
               <CoachCard callId={call.id} answered={call.status === "answered"} simulation={Boolean(state?.telephony.simulation)} />
@@ -151,7 +168,10 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
               refreshKey={refreshKey}
             />
           </div>
-          {wrapUp && !call && <OutcomePanel call={wrapUp} note={note} onSave={onSave} saving={busy === "outcome"} />}
+          {sale && <DealCloseModal contactId={sale.contactId} name={sale.name} onClose={() => setSale(null)} onDone={() => { const then = sale.then; setSale(null); if (then === "next") void continueNext("sale", true); }} />}
+          {wrapUp && !call && (minimal && !fullWrapUp
+            ? <NextBar call={wrapUp} canContinue={Boolean(session && session.status === "active" && session.mode !== "manual" && !sessionTakenOver)} busy={busy === "outcome" || busy === "next" || busy === "dial"} onContinue={continueNext} onFull={() => setFullWrapUp(true)} />
+            : <OutcomePanel call={wrapUp} note={note} onSave={onSave} saving={busy === "outcome"} />)}
         </section>
 
         {/* Call panel (left in RTL) */}
@@ -195,7 +215,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
 }
 
 /** Slim call controls for the minimal screen: what is happening + hang up / dial / skip. Everything else lives in the lead card. */
-function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedReason, onSkip }: { canDialLead: boolean; onDialLead: () => void; onDialNext: () => void; canDialNext: boolean; blockedReason: string | null; onSkip?: () => void }) {
+function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedReason, onSkip, onContinueAuto }: { canDialLead: boolean; onDialLead: () => void; onDialNext: () => void; canDialNext: boolean; blockedReason: string | null; onSkip?: () => void; onContinueAuto?: () => void }) {
   const { state, phone, hangup, busy, countdown, acceptInbound, rejectInbound } = useDialer();
   const call = state?.activeCall ?? null;
   useTicker(Boolean(call));
@@ -220,9 +240,36 @@ function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedRe
           <><Button variant="good" onClick={acceptInbound} loading={busy === "accept"}>קבל</Button><Button variant="danger" onClick={rejectInbound} loading={busy === "reject"}>דחה</Button></>
         ) : inProgress ? (
           <><Button variant={phone.muted ? "warn" : "secondary"} onClick={phone.toggleMute} disabled={!answered || phone.status === "simulation"}>{phone.muted ? "בטל השתקה" : "השתק"} <Kbd>M</Kbd></Button><Button variant="danger" onClick={hangup} loading={busy === "hangup"}>נתק <Kbd>H</Kbd></Button></>
+        ) : onContinueAuto ? (
+          <Button variant="good" onClick={onContinueAuto} loading={busy === "outcome" || busy === "next" || busy === "dial"} data-testid="strip-continue">המשך לליד הבא ›</Button>
         ) : (
           <>{onSkip && <Button variant="secondary" onClick={onSkip} disabled={!canDialLead}>דלג <Kbd>S</Kbd></Button>}<Button variant="good" onClick={canDialLead ? onDialLead : onDialNext} disabled={(!canDialLead && !canDialNext) || !connOk || busy === "dial" || busy === "next"} loading={busy === "dial" || busy === "next"} title={blockedReason ?? undefined} data-testid="strip-dial-lead">חייג לליד <Kbd>D</Kbd></Button></>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * After a hang-up (minimal dialer screen): no wrap-up screen – one big "המשך לליד הבא".
+ * Unanswered calls are documented automatically from the provider result (אין מענה / תפוס); for an answered call the
+ * agent taps the result first. The full documentation form (callback time, contact edits…) stays one click away.
+ */
+function NextBar({ call, canContinue, busy, onContinue, onFull }: { call: CallDto; canContinue: boolean; busy: boolean; onContinue: (o: OutcomeKey) => void; onFull: () => void }) {
+  const answered = Boolean(call.answeredAt);
+  const auto: OutcomeKey = call.telephonyResult === "busy" ? "busy" : "no_answer";
+  const [pick, setPick] = useState<OutcomeKey | null>(answered ? null : auto);
+  const quick: Array<[OutcomeKey, string]> = [["answered_interested", "מעוניין"], ["answered_not_interested", "לא מעוניין"], ["sale", "בוצעה מכירה"]];
+  return (
+    <div className="next-bar" data-testid="next-bar">
+      <div className="next-bar-info">
+        <b>השיחה הסתיימה</b>
+        {answered ? <span>בחר תוצאה:</span> : <span>נרשם אוטומטית: <b>{auto === "busy" ? "תפוס" : "אין מענה"}</b></span>}
+        {answered && <div className="next-bar-chips">{quick.map(([k, label]) => <button key={k} type="button" aria-pressed={pick === k} onClick={() => setPick(k)} data-testid={`next-quick-${k}`}>{label}</button>)}</div>}
+      </div>
+      <div className="next-bar-actions">
+        <button type="button" className="next-bar-full" onClick={onFull} data-testid="next-full">תיעוד מלא / לחזור בהמשך</button>
+        <Button variant="good" size="lg" disabled={!pick || busy} loading={busy} onClick={() => pick && onContinue(pick)} data-testid="next-continue">{canContinue ? "המשך לליד הבא ›" : "שמור"}</Button>
       </div>
     </div>
   );

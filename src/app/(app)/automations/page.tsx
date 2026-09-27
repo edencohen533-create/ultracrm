@@ -15,6 +15,7 @@ import { JourneyList } from "@/components/automations/journey/journey-list";
 import { UnsubscribeCard } from "@/components/automations/unsubscribe-card";
 import { StatusWhatsAppCard } from "@/components/automations/status-whatsapp-card";
 import { listSequences } from "@/server/services/sequence-service";
+import { AutomationsTabs } from "@/components/automations/AutomationsTabs";
 
 export default organizationRequest(async function AutomationsPage() {
   if (!hasRole(await auth(), ROLES_ADMIN_MANAGER)) return <AccessDenied />;
@@ -31,6 +32,7 @@ export default organizationRequest(async function AutomationsPage() {
 
   return (
     <div className="p-3 sm:p-6">
+      <AutomationsTabs />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold">אוטומציות</h1>
         <div className="flex flex-wrap items-center gap-2">

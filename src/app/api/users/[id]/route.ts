@@ -1,3 +1,4 @@
+import { normalizePhone } from "@/lib/phone";
 import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -16,6 +17,8 @@ const schema = z.object({
   isActive: z.boolean().optional(),
   coachEnabled: z.boolean().optional(),
   password: z.string().min(8).max(100).optional(),
+  /** Personal mobile for new-lead WhatsApp notifications ("" / null clears it). */
+  personalPhone: z.string().trim().max(30).nullable().optional(),
 });
 
 export const PATCH = withAuth(async ({ req, user, params }) => {
@@ -45,8 +48,9 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
       ...(b.role ? { role: b.role } : {}),
       ...(b.teamId !== undefined ? { teamId: b.teamId } : {}),
       ...(b.isActive !== undefined ? { isActive: b.isActive } : {}),
+      ...(b.personalPhone !== undefined ? { personalPhone: b.personalPhone ? (normalizePhone(b.personalPhone) ?? (() => { throw new ApiError("מספר טלפון לא תקין", 400, "invalid_phone"); })()) : null } : {}),
     },
-    select: { id: true, fullName: true, email: true, role: true, isActive: true, coachEnabled: true, teamId: true },
+    select: { id: true, fullName: true, email: true, role: true, isActive: true, coachEnabled: true, teamId: true, personalPhone: true },
   });
   if (b.isActive === false) {
     // Revoke live work: end sessions and unassign open conversations.

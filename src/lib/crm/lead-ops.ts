@@ -295,6 +295,7 @@ export async function transferLeads(user: SessionUser, input: z.infer<typeof tra
     }
     await applyTransfer(user.businessId, l.id, target.id, user.id);
     result.transferred.push(l.id);
+    await notifyTransferred(user.businessId, l.id, target.id);
   }
   return { ...result, to: target };
 }
@@ -308,9 +309,16 @@ export async function applyPendingTransfers(businessId: string, contactId?: stri
     const target = await prisma.user.findFirst({ where: { id: l.pendingTransferToUserId!, businessId, isActive: true }, select: { id: true } });
     if (!target) { await prisma.lead.update({ where: { id: l.id }, data: { pendingTransferToUserId: null, pendingTransferById: null, pendingTransferAt: null } }); continue; }
     await applyTransfer(businessId, l.id, target.id, l.pendingTransferById ?? target.id);
+    await notifyTransferred(businessId, l.id, target.id);
     applied++;
   }
   return applied;
+}
+
+/** The new agent gets the personal WhatsApp "new lead" message too (if enabled; deduped per lead + agent). */
+async function notifyTransferred(businessId: string, leadId: string, userId: string) {
+  const { notifyAgentNewLead } = await import("@/server/services/agent-notify");
+  await notifyAgentNewLead(businessId, leadId, userId).catch((e: Error) => console.error("agent notify failed", { leadId, error: e.message }));
 }
 
 // ─── "Waiting for a call today" ────────────────────────────────────────────────────────────────────────────────

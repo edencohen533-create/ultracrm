@@ -85,6 +85,8 @@ interface Ctx {
   hangup: () => Promise<void>;
   sendDtmf: (digit: string) => Promise<void>;
   saveOutcome: (callId: string, outcome: OutcomeKey, opts?: { note?: string; callbackAt?: Date; callbackUserId?: string; contactUpdates?: Record<string, string | undefined> }) => Promise<void>;
+  /** After a hang-up: save the outcome and dial the next lead of the session right away (no wrap-up screen, no countdown). */
+  continueToNext: (callId: string, outcome: OutcomeKey, opts?: { note?: string }) => Promise<void>;
   countdown: { secondsLeft: number; leadId: string | null } | null;
   cancelCountdown: () => void;
   lastError: { code: string; message: string } | null;
@@ -750,6 +752,26 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     [advancePower, handleErr, nextLead, refresh, startCountdown],
   );
 
+  const continueToNext = useCallback<Ctx["continueToNext"]>(
+    async (callId, outcome, opts) => {
+      setBusy("outcome");
+      try {
+        await api.post(`/api/dialer/call/${callId}/outcome`, { outcome, note: opts?.note });
+      } catch (err) { handleErr(err, "שגיאה בשמירת תוצאה"); setBusy(null); throw err; }
+      setBusy(null);
+      await refresh();
+      cancelCountdown();
+      const s = stateRef.current;
+      if (!s?.session || s.session.status !== "active" || s.session.mode === "manual" || s.activeCall) return;
+      const lead = s.lead && s.lead.status === "locked" ? s.lead : await nextLead();
+      if (!lead) { toast.info("אין כרגע לידים זמינים לחיוג בתור"); return; }
+      const latest = stateRef.current;
+      if (!latest?.session || latest.session.status !== "active" || latest.activeCall || latest.wrapUpCall) return;
+      await dial({ mode: latest.session.mode, leadId: lead.id, lockToken: lead.lockToken ?? undefined });
+    },
+    [cancelCountdown, dial, handleErr, nextLead, refresh],
+  );
+
   // Stop any pending auto-advance if the tab lost the session, the session ended, or a call (e.g. inbound) is live.
   useEffect(() => {
     if (sessionTakenOver || !state?.session || state.session.status !== "active" || state.activeCall) {
@@ -869,6 +891,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     hangup,
     sendDtmf,
     saveOutcome,
+    continueToNext,
     countdown,
     cancelCountdown,
     lastError,

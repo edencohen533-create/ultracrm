@@ -76,6 +76,9 @@ const leadCreated: EventHandler = {
       if (ownerUserId) await prisma.lead.updateMany({ where: { id: lead.id, ownerUserId: null }, data: { ownerUserId } });
     }
     if (!ownerUserId) return { skipped: "no active agent" };
+    // Personal WhatsApp to the agent (if enabled) – never blocks the assignment / task.
+    const { notifyAgentNewLead } = await import("@/server/services/agent-notify");
+    await notifyAgentNewLead(event.businessId, lead.id, ownerUserId).catch((e: Error) => console.error("agent notify failed", { leadId: lead.id, error: e.message }));
     const settings = await getBusinessSettings(event.businessId);
     const task = await prisma.task.upsert({
       where: { businessId_requestKey: { businessId: event.businessId, requestKey: `lead:${lead.id}:first-contact` } },
@@ -246,4 +249,11 @@ const coachLearning: EventHandler = {
   },
 };
 
-export const HANDLERS: EventHandler[] = [coachLearning, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences];
+/** Outgoing webhooks (Make / Zapier …): queue one signed delivery per subscribed endpoint. */
+const webhooks: EventHandler = {
+  name: "webhooks",
+  types: ["lead.created", "lead.status_changed", "deal.created", "deal.won", "deal.lost", "call.outcome_saved", "message.received", "contact.created", "contact.suppressed", "cart.abandoned", "task.created"],
+  run: async (event) => { const { enqueueWebhookDeliveries } = await import("@/server/services/integrations"); return enqueueWebhookDeliveries(event); },
+};
+
+export const HANDLERS: EventHandler[] = [coachLearning, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, suppressed, taskCreated, sequences, webhooks];

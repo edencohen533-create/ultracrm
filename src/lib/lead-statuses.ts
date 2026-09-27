@@ -30,4 +30,6 @@ export interface LeadAssignmentSettings {
   perAgentMax: Record<string, number>;
   /** Round-robin pointer: the user who received the previous lead. */
   lastAssignedUserId: string | null;
+  /** WhatsApp to the agent's personal phone when a lead is assigned to them (approved template, business number). */
+  notifyWhatsApp?: { enabled: boolean; templateId: string | null };
 }

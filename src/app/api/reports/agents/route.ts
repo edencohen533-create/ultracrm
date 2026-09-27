@@ -6,6 +6,7 @@ import { visibleUserIds } from "@/lib/auth";
 import { agentMetrics } from "@/lib/stats";
 import { getBusinessSettings } from "@/lib/settings";
 import { businessDayStart } from "@/lib/business-day";
+import { leadQualityByAgent } from "@/lib/lead-quality";
 
 export const dynamic = "force-dynamic";
 const schema = z.object({
@@ -21,10 +22,11 @@ export const GET = withAuth(async ({ req, user }) => {
   const settings = await getBusinessSettings(user.businessId);
   const from = f.from ? new Date(f.from) : businessDayStart(settings.timezone);
   const to = f.to ? new Date(f.to) : new Date();
-  const [agents, metrics, deals] = await Promise.all([
+  const [agents, metrics, deals, quality] = await Promise.all([
     prisma.user.findMany({ where: { businessId: user.businessId, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, fullName: true, isActive: true, presence: true, presenceAt: true, lastSeenAt: true }, orderBy: { fullName: "asc" } }),
     agentMetrics({ businessId: user.businessId, userIds, from, to }),
     prisma.deal.groupBy({ by: ["ownerUserId"], where: { businessId: user.businessId, status: "won", closedAt: { gte: from, lte: to }, ...(userIds ? { ownerUserId: { in: userIds } } : {}) }, _count: { _all: true } }),
+    leadQualityByAgent(user.businessId, userIds, from, to),
   ]);
   const now = Date.now();
   const rows = agents.filter(a => !f.userId || a.id === f.userId).map(a => {
@@ -32,7 +34,9 @@ export const GET = withAuth(async ({ req, user }) => {
     return { id: a.id, fullName: a.fullName, presence: a.isActive && a.lastSeenAt && now - a.lastSeenAt.getTime() < 120_000 ? a.presence : "offline", presenceAt: a.presenceAt,
       outbound: m?.outboundAttempts ?? 0, answered: m?.outboundAnswered ?? 0, handled: m?.outboundHandled ?? 0, manual: m?.outboundManual ?? 0,
       closed: deals.find(d => d.ownerUserId === a.id)?._count._all ?? 0,
-      dialSeconds: m?.dialSeconds ?? 0, talkSeconds: m?.outboundTalkSeconds ?? 0 };
+      dialSeconds: m?.dialSeconds ?? 0, talkSeconds: m?.outboundTalkSeconds ?? 0,
+      avgTalkSeconds: m?.outboundAnswered ? Math.round((m.outboundTalkSeconds ?? 0) / m.outboundAnswered) : null,
+      quality: quality[a.id] ?? { responseMinutes: null, notCalled: 0, newLeads: 0, newWon: 0, transferred: 0, transferredWon: 0, allLeads: 0, allWon: 0, avgDealValue: null, wonDeals: 0 } };
   });
   const totals = rows.reduce((t, r) => ({ outbound: t.outbound + r.outbound, answered: t.answered + r.answered, handled: t.handled + r.handled, closed: t.closed + r.closed, talkSeconds: t.talkSeconds + r.talkSeconds }), { outbound: 0, answered: 0, handled: 0, closed: 0, talkSeconds: 0 });
   return ok({ rows, totals, agents: agents.map(a => ({ id: a.id, fullName: a.fullName })), from: from.toISOString(), to: to.toISOString(), timezone: settings.timezone });

@@ -48,6 +48,7 @@ enum TaskType {
 enum LeadStatus {
   new
   contacted
+  follow_up
   qualified
   unqualified
   converted
@@ -652,6 +653,11 @@ model Lead {
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// Manager transfer requested while the lead was in a live call / dial attempt – applied once the call's outcome is saved.
+  pendingTransferToUserId String?   @map("pending_transfer_to_user_id")
+  pendingTransferById     String?   @map("pending_transfer_by_id")
+  pendingTransferAt       DateTime? @map("pending_transfer_at")
+
   contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   owner    User?    @relation("LeadOwner", fields: [ownerUserId], references: [id])
   tasks    Task[]

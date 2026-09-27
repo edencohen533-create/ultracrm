@@ -18,7 +18,8 @@ import { dueMockEvents } from "@/lib/telephony/mock";
 import { afterCallFinalized, dialLeadLeg, processProviderEvent } from "@/lib/telephony/events";
 import { getBusinessSettings, isWithinDialWindow } from "@/lib/settings";
 import { OUTCOME_BY_KEY } from "@/lib/outcomes";
-import { applyOutcomeToLead, assertListAccess, assertLeadLock, isDnc, listDialWindow } from "@/lib/dialer/queue";
+import { applyOutcomeToLead, assertListAccess, assertLeadLock, isDnc, listDialWindow, releaseLead } from "@/lib/dialer/queue";
+import { afterFollowUpAttempt, applyPendingTransfers, assertDialAllowed } from "@/lib/crm/lead-ops";
 import { audit } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { emitEvent, kickEventProcessing } from "@/lib/events";
@@ -108,6 +109,10 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
   } else {
     throw new ApiError("חסר יעד לחיוג", 400, "missing_destination");
   }
+
+  // Ownership / transfer / follow-up time are re-checked at the moment of dialing (the lead may have moved since the claim).
+  try { await assertDialAllowed(user, contactId, input.mode !== "manual"); }
+  catch (e) { if (leadId) await releaseLead(user.id, leadId, "dial_guard").catch(() => undefined); throw e; }
 
   // DNC / do-not-contact is checked again at the moment of dialing – for every mode.
   const blocked = await callBlockReason(user.businessId, toE164);
@@ -464,6 +469,9 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
       await addToDnc(user.businessId, user.id, call.toE164, `outcome:${input.outcome}`, tx);
     }
 
+    // The follow-up that was due gets its result recorded (moved to the retry time, closed, or replaced by the new callback).
+    if (call.contactId) await afterFollowUpAttempt(tx, { businessId: user.businessId, userId: user.id, callId: call.id, contactId: call.contactId, listLeadId: call.leadId, outcome: input.outcome, retry: Boolean(def.retry) && !def.addsToDnc, callbackTaskCreated: Boolean(def.requiresCallbackTime) });
+
     // Automation: a sale closes the contact's pending leads in every other list of the business.
     if (def.isSale && call.contactId) {
       const settings = await getBusinessSettings(user.businessId, tx);
@@ -486,6 +494,8 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
     });
     return u;
   });
+  // A manager's transfer that waited for this call is applied now that the call is documented.
+  if (call.contactId) await applyPendingTransfers(user.businessId, call.contactId).catch((e: Error) => console.error("pending transfer failed", { callId: call.id, error: e.message }));
   kickEventProcessing(user.businessId);
   return updated;
 }

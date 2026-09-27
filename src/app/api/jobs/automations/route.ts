@@ -5,6 +5,7 @@ import { processDueAutomationRuns } from "@/jobs/automation-runner";
 import { processDueSequenceRuns } from "@/server/services/sequence-service";
 import { processAbandonedCarts } from "@/server/services/cart-service";
 import { processAssistantSchedules } from "@/server/assistant/scheduler";
+import { applyPendingTransfers } from "@/lib/crm/lead-ops";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -19,7 +20,9 @@ export async function GET(request: Request) {
       const b = await processDueSequenceRuns(deadline, businessId);
       // The assistant must never break the other automations of this business.
       const d = await processAssistantSchedules(businessId).catch((e: Error) => { console.error("assistant scheduler failed", { businessId, error: e.message }); return { processed: 0 }; });
-      return { processed: a.processed + b.processed + c.processed + d.processed };
+      // Safety net for transfers that waited for a call that has since been documented.
+      const t = await applyPendingTransfers(businessId).catch((e: Error) => { console.error("pending transfers failed", { businessId, error: e.message }); return 0; });
+      return { processed: a.processed + b.processed + c.processed + d.processed + t };
     }));
   } catch (err) {
     return handleError(err);

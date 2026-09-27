@@ -48,7 +48,7 @@ describe("lead statuses, round robin, dial-list workspace", () => {
     const s = await getBusinessSettings(t.business.id);
     expect(s.leadStatuses.find((x) => x.key === "qualified")?.label).toBe("חם 🔥");
     expect(s.leadStatuses.find((x) => x.key === "unqualified")?.hidden).toBe(true);
-    expect(s.leadStatuses.map((x) => x.key).sort()).toEqual(["contacted", "converted", "lost", "new", "qualified", "unqualified"]); // keys never disappear
+    expect(s.leadStatuses.map((x) => x.key).sort()).toEqual(["contacted", "converted", "follow_up", "lost", "new", "qualified", "unqualified"]); // keys never disappear
     expect(s.leadStatuses[0].key).toBe("qualified"); // saved order first, defaults appended
     const bad = await statusesPatch(await req("/api/lead-statuses", t.session, "PATCH", { leadStatuses: [{ key: "hot", label: "x", hidden: false }] }), ctx);
     expect(bad.status).toBe(400);

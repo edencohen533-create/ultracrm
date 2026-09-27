@@ -15,7 +15,7 @@ import { periodRange, PERIODS, PREVIOUS, type PeriodKey, type Range } from "./pe
 export interface ToolCtx { businessId: string; userId: string; role: "owner" | "manager" | "agent"; scope: "business" | "own"; tz: string; /** null = whole business */ visibleIds: string[] | null; now?: Date }
 export class ToolError extends Error { constructor(message: string, public readonly code: "ambiguous" | "forbidden" | "not_found" | "invalid", public readonly data?: unknown) { super(message); } }
 
-const LEAD_OPEN = ["new", "contacted", "qualified"] as const;
+const LEAD_OPEN = ["new", "contacted", "qualified", "follow_up"] as const;
 const num = (d: Prisma.Decimal | number | null | undefined) => (d === null || d === undefined ? 0 : Number(d));
 
 /** Users this link may see; `agentId` narrows (and is checked). */

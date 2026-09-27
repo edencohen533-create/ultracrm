@@ -10,6 +10,7 @@ import { useMe } from "@/lib/client/use-me";
 import { Badge, Button, EmptyState, Input, Modal, Panel, Phone, Select, Spinner, Textarea, cx } from "@/components/ui";
 import { formatDateTime, formatDuration, formatPhone, relativeTime, toLocalInputValue } from "@/lib/client/format";
 import { DEAL_STAGE_LABEL } from "@/lib/crm/labels";
+import { AttemptsCell, AttemptsModal, FollowUpBadge, FollowUpModal, fmtBiz, type FollowUpInfo } from "@/components/leads/LeadActions";
 import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 import type { TimelineItem } from "@/lib/crm/timeline";
 import { ContactChat } from "@/components/contacts/ContactChat";
@@ -61,6 +62,8 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const search = useSearchParams();
   const focusLeadId = search.get("lead");
   const [leadEdit, setLeadEdit] = useState<{ id: string; title: string; status: string; source: string; priority: number; ownerUserId: string; notes: string } | null>(null);
+  const [leadMeta, setLeadMeta] = useState<{ attempts: number; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null } | null>(null);
+  const [leadModal, setLeadModal] = useState<"followup" | "attempts" | null>(null);
   const [showChat, setShowChat] = useState(search.get("tab") === "chat");
 
   const load = useCallback(async () => {
@@ -71,9 +74,10 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
       setNow(Date.now());
       setForm({ fullName: r.fullName, phone: r.phoneE164, email: r.email ?? "", company: r.company ?? "", city: r.city ?? "", source: r.source ?? "", notes: r.notes ?? "", ownerUserId: r.owner?.id ?? "" });
       setCustom(Object.entries(r.customFields ?? {}).map(([key, value]) => ({ key, value: value === null || value === undefined ? "" : String(value) })));
-      const focus = (focusLeadId && r.leads.find((l) => l.id === focusLeadId)) || r.leads.find((l) => ["new", "contacted", "qualified"].includes(l.status)) || null;
+      const focus = (focusLeadId && r.leads.find((l) => l.id === focusLeadId)) || r.leads.find((l) => ["new", "contacted", "qualified", "follow_up"].includes(l.status)) || null;
       if (focus) {
-        const full = await api.get<{ id: string; title: string | null; status: string; source: string | null; priority: number; notes: string | null; owner: { id: string } | null }>(`/api/leads/${focus.id}`);
+        const full = await api.get<{ id: string; title: string | null; status: string; source: string | null; priority: number; notes: string | null; owner: { id: string } | null; attempts: number; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null }>(`/api/leads/${focus.id}`);
+        setLeadMeta({ attempts: full.attempts, lastAttemptAt: full.lastAttemptAt, timezone: full.timezone, followUp: full.followUp, needsSchedule: full.needsSchedule, pendingTransfer: full.pendingTransfer });
         setLeadEdit({ id: full.id, title: full.title ?? "", status: full.status, source: full.source ?? "", priority: full.priority, ownerUserId: full.owner?.id ?? "", notes: full.notes ?? "" });
       } else setLeadEdit(null);
     } catch (e) {
@@ -139,7 +143,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   if (!c) return <div className="flex justify-center p-10"><Spinner /></div>;
   const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall && !state?.wrapUpCall && !c.isDnc && !c.suppression.fullyBlocked;
   const isManager = me?.user.role === "manager" || me?.user.role === "owner";
-  const openLeads = c.leads.filter((l) => ["new", "contacted", "qualified"].includes(l.status));
+  const openLeads = c.leads.filter((l) => ["new", "contacted", "qualified", "follow_up"].includes(l.status));
 
   return (
     <div className="p-5 space-y-4 max-w-6xl">
@@ -230,8 +234,16 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
           {leadEdit && (
             <Panel title="הליד" actions={<div className="flex items-center gap-2"><Badge tone={leadEdit.status === "new" ? "info" : leadEdit.status === "qualified" ? "good" : ["lost", "unqualified"].includes(leadEdit.status) ? "bad" : "neutral"}>{statuses.label(leadEdit.status)}</Badge><Button size="sm" onClick={saveLead} data-testid="lead-save">שמור</Button></div>}>
               <div className="grid md:grid-cols-3 gap-2">
+                {leadMeta && <div className="md:col-span-3 lead-dial-summary" data-testid="lead-dial-summary">
+                  {leadMeta.pendingTransfer && <div className="lead-transfer-note">⇄ הליד בשיחה פעילה – יועבר ל{leadMeta.pendingTransfer.to ?? "נציג אחר"} בסיום השיחה</div>}
+                  <div><span>ניסיונות חיוג</span><AttemptsCell count={leadMeta.attempts} lastAt={leadMeta.lastAttemptAt} tz={leadMeta.timezone} onOpen={() => setLeadModal("attempts")} /></div>
+                  <div><span>ניסיון אחרון</span><b dir="ltr">{leadMeta.lastAttemptAt ? fmtBiz(leadMeta.timezone, leadMeta.lastAttemptAt) : "—"}</b></div>
+                  <div><span>פולואפ</span><FollowUpBadge followUp={leadMeta.followUp} needsSchedule={leadMeta.needsSchedule} tz={leadMeta.timezone} onClick={() => setLeadModal("followup")} /><button className="lead-link" onClick={() => setLeadModal("followup")}>{leadMeta.followUp ? "ערוך" : "קבע פולואפ"}</button></div>
+                </div>}
+                {leadModal === "followup" && <FollowUpModal leadId={leadEdit.id} name={c.fullName} tz={leadMeta?.timezone} current={leadMeta?.followUp} onClose={() => setLeadModal(null)} onSaved={() => load()} />}
+                {leadModal === "attempts" && <AttemptsModal leadId={leadEdit.id} name={c.fullName} tz={leadMeta?.timezone} onClose={() => setLeadModal(null)} />}
                 <Input label="כותרת" value={leadEdit.title} onChange={(e) => setLeadEdit({ ...leadEdit, title: e.target.value })} />
-                <Select label="סטטוס" value={leadEdit.status} onChange={(e) => setLeadEdit({ ...leadEdit, status: e.target.value })} data-testid="lead-status">{statuses.items.filter((st) => !st.hidden || st.key === leadEdit.status).map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</Select>
+                <Select label="סטטוס" value={leadEdit.status} onChange={(e) => { if (e.target.value === "follow_up" && leadEdit.status !== "follow_up") setLeadModal("followup"); else setLeadEdit({ ...leadEdit, status: e.target.value }); }} data-testid="lead-status">{statuses.items.filter((st) => !st.hidden || st.key === leadEdit.status).map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</Select>
                 <Input label="מקור" value={leadEdit.source} onChange={(e) => setLeadEdit({ ...leadEdit, source: e.target.value })} />
                 <Input label="עדיפות (0–100)" type="number" value={String(leadEdit.priority)} onChange={(e) => setLeadEdit({ ...leadEdit, priority: Number(e.target.value) })} />
                 {isManager ? <Select label="נציג אחראי" value={leadEdit.ownerUserId} onChange={(e) => setLeadEdit({ ...leadEdit, ownerUserId: e.target.value })}><option value="">ללא</option>{users.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select> : <Input label="נציג אחראי" value={users.find((u) => u.id === leadEdit.ownerUserId)?.fullName ?? "ללא"} disabled />}

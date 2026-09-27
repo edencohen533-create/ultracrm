@@ -36,7 +36,7 @@ export async function ensureSession(callId: string) {
   if (existing) return existing;
   // Call.leadId is the dial-list row; the coach links to the CRM lead (pipeline) of the contact – newest open one.
   const call = await prisma.call.findUniqueOrThrow({ where: { id: callId }, select: { id: true, businessId: true, userId: true, contactId: true } });
-  const crmLead = call.contactId ? await prisma.lead.findFirst({ where: { contactId: call.contactId, status: { in: ["new", "contacted", "qualified"] } }, orderBy: { createdAt: "desc" }, select: { id: true } }) : null;
+  const crmLead = call.contactId ? await prisma.lead.findFirst({ where: { contactId: call.contactId, status: { in: ["new", "contacted", "qualified", "follow_up"] } }, orderBy: { createdAt: "desc" }, select: { id: true } }) : null;
   return prisma.coachSession.upsert({ where: { callId }, update: {}, create: { businessId: call.businessId, callId, userId: call.userId, contactId: call.contactId, leadId: crmLead?.id ?? null, provider: providerStatus().llm } });
 }
 

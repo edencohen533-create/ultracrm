@@ -56,8 +56,8 @@ export function contactWhere(businessId: string, f: ContactFilter): Prisma.Conta
   }
   if (f.neverCalled === "true") where.calls = { none: {} };
   if (f.notInListId) where.queueLeads = { none: { listId: f.notInListId } };
-  if (f.hasOpenLead === "true") where.leads = { some: { status: { in: ["new", "contacted", "qualified"] } } };
-  if (f.leadOwnerUserId) where.leads = { some: { status: { in: ["new", "contacted", "qualified"] }, ownerUserId: f.leadOwnerUserId } };
+  if (f.hasOpenLead === "true") where.leads = { some: { status: { in: ["new", "contacted", "qualified", "follow_up"] } } };
+  if (f.leadOwnerUserId) where.leads = { some: { status: { in: ["new", "contacted", "qualified", "follow_up"] }, ownerUserId: f.leadOwnerUserId } };
   return where;
 }
 
@@ -206,6 +206,9 @@ export async function createContact(user: SessionUser, input: ContactInput) {
 /** Agents may edit contacts they own, hold in a dial list or have called; managers/owners edit all. */
 export async function assertCanEditContact(user: SessionUser, contact: { id: string; ownerUserId: string | null }) {
   if (user.role !== "agent" || contact.ownerUserId === user.id) return;
+  // An agent whose lead was transferred away (or whose contact belongs to another agent) cannot edit it any more.
+  const { canAccessContact } = await import("./lead-ops");
+  if (!(await canAccessContact(user, contact))) throw new ApiError("אין הרשאה לערוך איש קשר זה", 403, "forbidden");
   const held = await prisma.listLead.findFirst({ where: { contactId: contact.id, lockedByUserId: user.id }, select: { id: true } });
   const called = held ? null : await prisma.call.findFirst({ where: { contactId: contact.id, userId: user.id }, select: { id: true } });
   const chatted = held || called ? null : await prisma.conversation.findFirst({ where: { contactId: contact.id, assignedAgentId: user.id }, select: { id: true } });

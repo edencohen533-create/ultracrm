@@ -21,7 +21,7 @@ export const GET = withAuth(async ({ user }) => {
   const userScope = mine ? { equals: user.id } : ids ? { in: ids } : undefined;
   const [leadsNew, leadsOpen, callbacksDue, tasksDue, tasksOverdue] = await Promise.all([
     prisma.lead.count({ where: { businessId, status: "new", ...(userScope ? { OR: [{ ownerUserId: userScope }, { ownerUserId: null }] } : {}) } }),
-    prisma.lead.count({ where: { businessId, status: { in: ["new", "contacted", "qualified"] }, ...(userScope ? { ownerUserId: userScope } : {}) } }),
+    prisma.lead.count({ where: { businessId, status: { in: ["new", "contacted", "qualified", "follow_up"] }, ...(userScope ? { ownerUserId: userScope } : {}) } }),
     prisma.task.count({ where: { businessId, status: "open", type: "callback", dueAt: { lt: dayEnd }, ...(userScope ? { userId: userScope } : {}) } }),
     prisma.task.count({ where: { businessId, status: "open", type: { not: "callback" }, dueAt: { lt: dayEnd }, ...(userScope ? { userId: userScope } : {}) } }),
     prisma.task.count({ where: { businessId, status: "open", dueAt: { lt: dayStart }, ...(userScope ? { userId: userScope } : {}) } }),

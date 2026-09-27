@@ -31,7 +31,10 @@ export async function contactTimeline(user: SessionUser, contactId: string, limi
     prisma.domainEvent.findMany({ where: { businessId, contactId, type: { in: ["contact.suppressed", "contact.resubscribed", ...(ids ? [] : ["lead.status_changed", "deal.won"]), "contact.merged"] } }, orderBy: { occurredAt: "desc" }, take: 30, select: { id: true, occurredAt: true, type: true, payload: true, source: true } }),
     prisma.sequenceRun.findMany({ where: { businessId, contactId }, orderBy: { startedAt: "desc" }, take: 20, select: { id: true, startedAt: true, status: true, stopReason: true, stepIndex: true, log: true, completedAt: true, sequence: { select: { name: true } } } }),
   ]);
+  const signals = await prisma.callbackSignal.findMany({ where: { businessId, contactId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { requestedAt: "desc" }, take: 20 });
   const items: TimelineItem[] = [];
+  const SIG: Record<string, string> = { active: "הועבר/ה לראש תור החיוג", handled: "תעדוף טופל – חויג/ה", expired: "תעדוף פג – לא חויג/ה בזמן", cancelled: "תעדוף בוטל", scheduled: "נקבע פולואפ לפי בקשה", needs_review: "ממתין לבדיקת נציג", ineligible: "לא ניתן לתעדף" };
+  for (const s of signals) items.push({ id: `signal:${s.id}`, kind: "event", at: s.updatedAt.toISOString(), title: `זמינות מוואטסאפ · ${SIG[s.status] ?? s.status}`, body: `"${s.text}"${s.reason ? ` – ${s.reason}` : ""}`, meta: { intent: s.intent, analyzer: s.analyzer } });
   for (const r of runs) {
     const log = Array.isArray(r.log) ? (r.log as Array<{ step: number; channel: string; messageId: string | null; skipped: string | null; at: string }>) : [];
     const st: Record<string, string> = { PENDING: "ממתין לשלב הבא", RUNNING: "בביצוע", COMPLETED: "הושלם", STOPPED: "נעצר", FAILED: "נכשל" };

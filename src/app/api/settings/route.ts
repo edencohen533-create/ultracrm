@@ -23,6 +23,8 @@ const schema = z.object({
       autoDialCountdownSeconds: z.number().int().min(0).max(60).optional(),
       maxAttempts: z.number().int().min(1).max(20).optional(),
       unansweredToIrrelevant: z.number().int().min(0).max(50).optional(),
+      whatsappAvailability: z.boolean().optional(),
+      availableNowTtlMinutes: z.number().int().min(1).max(240).optional(),
       retryIntervalMinutes: z.number().int().min(1).max(10080).optional(),
       busyRetryMinutes: z.number().int().min(1).max(1440).optional(),
       lockTtlSeconds: z.number().int().min(30).max(600).optional(),

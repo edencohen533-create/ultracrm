@@ -473,6 +473,12 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
     // The follow-up that was due gets its result recorded (moved to the retry time, closed, or replaced by the new callback).
     if (call.contactId) await afterFollowUpAttempt(tx, { businessId: user.businessId, userId: user.id, callId: call.id, contactId: call.contactId, listLeadId: call.leadId, outcome: input.outcome, retry: Boolean(def.retry) && !def.addsToDnc, callbackTaskCreated: Boolean(def.requiresCallbackTime) });
 
+    // A real dial attempt clears a "זמינה עכשיו" priority; what happens next follows the outcome and the dialer rules.
+    if (call.contactId && call.leadDialedAt) {
+      const { markSignalsHandled } = await import("@/lib/dialer/availability");
+      await markSignalsHandled(user.businessId, call.contactId, call.id, tx);
+    }
+
     // Unanswered-attempt quota (agent → campaign → business setting): an unanswered lead without a future follow-up
     // moves to "לא רלוונטי" and leaves the dial queues. Never for answered calls, follow-ups, qualified or closed leads.
     if (call.contactId && def.retry && !def.addsToDnc && !call.answeredAt) {

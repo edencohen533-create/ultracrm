@@ -563,6 +563,18 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     if (!latest?.session || latest.session.status !== "active" || latest.session.ownedByThisTab === false || latest.activeCall || latest.wrapUpCall) return;
     await dial({ mode: "power", leadId: lead.id, lockToken: lead.lockToken ?? undefined });
   }, [dial, nextLead]);
+  // A "זמינה עכשיו" reply arrived while the power dialer sits idle (queue was empty): dial her now – once per signal.
+  // During a call / wrap-up nothing happens here: she is simply the next claim when the current call is documented.
+  const autoDialed = useRef(new Set<string>());
+  useEffect(() => {
+    const s = state;
+    const hot = s?.hot?.find((h) => h.status === "active" && h.mine && !autoDialed.current.has(h.id));
+    if (!hot || !s?.session || s.session.mode !== "power" || s.session.status !== "active" || s.session.ownedByThisTab === false) return;
+    if (s.activeCall || s.wrapUpCall || (s.lead && s.lead.status === "locked") || countdown || busy) return;
+    autoDialed.current.add(hot.id);
+    void advancePowerRef.current();
+  }, [state, countdown, busy]);
+
   useEffect(() => {
     advancePowerRef.current = advancePower;
   }, [advancePower]);

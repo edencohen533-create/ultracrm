@@ -7,6 +7,7 @@ import { DialerProvider } from "@/components/telephony/DialerProvider";
 import { CallBar } from "@/components/telephony/CallBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AccessGate } from "@/components/layout/AccessGate";
+import { HotLeadsBanner } from "@/components/telephony/HotLeadsBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         />
         <div className="flex-1 min-w-0 flex flex-col">
           {dialer && <CallBar />}
+          {dialer && <HotLeadsBanner />}
           <main className="flex-1 min-w-0 min-h-0"><AccessGate access={access.modules}>{children}</AccessGate></main>
         </div>
       </div>

@@ -81,9 +81,11 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
   const transferTo = await prisma.user.findMany({ where: { id: { in: items.flatMap((l) => (l.pendingTransferToUserId ? [l.pendingTransferToUserId] : [])) } }, select: { id: true, fullName: true } });
   const now = Date.now();
   const limits = await (await import("@/lib/dialer/exhaustion")).limitsForOwners(user.businessId, items.map((l) => l.ownerUserId));
+  const hot = await prisma.callbackSignal.findMany({ where: { businessId: user.businessId, contactId: { in: items.map((l) => l.contactId) }, status: "active", expiresAt: { gt: new Date() } }, select: { id: true, contactId: true, requestedAt: true, text: true, messageId: true } });
   const enriched = items.map((l) => {
     const fu = followUps.get(l.id); const a = attempts.get(l.id);
-    return { ...l, attempts: a?.count ?? 0, attemptLimit: limits.get(l.ownerUserId ?? "") || null, lastAttemptAt: a?.lastAt ?? null,
+    const h = hot.find((x) => x.contactId === l.contactId);
+    return { ...l, availableNow: h ? { signalId: h.id, at: h.requestedAt, text: h.text } : null, attempts: a?.count ?? 0, attemptLimit: limits.get(l.ownerUserId ?? "") || null, lastAttemptAt: a?.lastAt ?? null,
       followUp: fu ? { taskId: fu.taskId, dueAt: fu.dueAt, note: fu.note, overdue: fu.dueAt.getTime() < now } : null,
       needsSchedule: l.status === "follow_up" && !fu,
       pendingTransfer: l.pendingTransferToUserId ? { to: transferTo.find((u) => u.id === l.pendingTransferToUserId)?.fullName ?? null, at: l.pendingTransferAt } : null };

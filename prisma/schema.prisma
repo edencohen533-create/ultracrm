@@ -412,6 +412,7 @@ model Business {
   aiActions              AiAction[]
   aiIncidents            AiIncident[]
   entitlementGrants      EntitlementGrant[]
+  callbackSignals        CallbackSignal[]
   dialerQueueAlerts      DialerQueueAlert[]
   knowledgeSources       KnowledgeSource[]
 
@@ -2589,4 +2590,36 @@ model AccessAuditLog {
 
   @@index([businessId, createdAt])
   @@map("access_audit_logs")
+}
+
+/// A customer's WhatsApp reply about availability, turned into a dial-queue signal for the lead's owner.
+/// One row per inbound message (idempotent). intent: now | later | unavailable | do_not_call | unclear.
+/// status: active (priority "זמינה עכשיו" until expiresAt) | scheduled (follow-up set) | needs_review (agent decides)
+///   | handled (dial attempt made) | expired (not handled in time) | cancelled (customer / agent) | ineligible (blocked + reason)
+model CallbackSignal {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  contactId   String    @map("contact_id")
+  leadId      String?   @map("lead_id")
+  userId      String?   @map("user_id")
+  messageId   String    @unique @map("message_id")
+  intent      String
+  confidence  Float     @default(0)
+  /// ai | basic (rules without an AI key)
+  analyzer    String    @default("basic")
+  text        String
+  requestedAt DateTime  @map("requested_at")
+  dueAt       DateTime? @map("due_at")
+  expiresAt   DateTime? @map("expires_at")
+  status      String
+  reason      String?
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, userId, status])
+  @@index([contactId, status])
+  @@map("callback_signals")
 }

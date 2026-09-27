@@ -54,7 +54,15 @@ export const GET = withAuth(async ({ req, user, params }) => {
       include: { contact: { select: { id: true, fullName: true, phoneE164: true, source: true, company: true, city: true } }, lockedBy: { select: { id: true, fullName: true } } },
     }),
   ]);
-  return ok({ items, total, page: f.page, limit: f.limit });
+  // "זמינה עכשיו" (WhatsApp reply) rows lead the queue view, oldest request first – exactly like the claim order.
+  const hot = await prisma.callbackSignal.findMany({ where: { businessId: user.businessId, status: "active", expiresAt: { gt: new Date() } }, orderBy: { requestedAt: "asc" }, select: { contactId: true, requestedAt: true, text: true } });
+  let rows = items.map((r) => ({ ...r, availableNow: hot.find((h) => h.contactId === r.contactId) ?? null }));
+  if (f.sort === "queue" && f.page === 1 && hot.length) {
+    const pinned = await prisma.listLead.findMany({ where: { ...where, contactId: { in: hot.map((h) => h.contactId) } }, include: { contact: { select: { id: true, fullName: true, phoneE164: true, source: true, company: true, city: true } }, lockedBy: { select: { id: true, fullName: true } } } });
+    const first = pinned.map((r) => ({ ...r, availableNow: hot.find((h) => h.contactId === r.contactId) ?? null })).sort((x, y) => x.availableNow!.requestedAt.getTime() - y.availableNow!.requestedAt.getTime());
+    rows = [...first, ...rows.filter((r) => !first.some((p) => p.id === r.id))];
+  }
+  return ok({ items: rows, total, page: f.page, limit: f.limit });
 }, { perm: "telephony.use" });
 
 const addSchema = z.object({ filter: contactFilterSchema.optional(), contactIds: z.array(z.string()).max(10000).optional() });

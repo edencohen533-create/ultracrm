@@ -201,6 +201,18 @@ const messageReceived: EventHandler = {
   },
 };
 
+/** A customer's WhatsApp reply about availability → the lead owner's dial queue (idempotent per message). */
+const whatsappAvailability: EventHandler = {
+  name: "dialer.whatsapp-availability",
+  types: ["message.received"],
+  async run(event) {
+    const { messageId } = payload<{ messageId?: string }>(event);
+    if (!messageId) return { skipped: "no message" };
+    const { handleInboundAvailability } = await import("@/lib/dialer/availability");
+    return await handleInboundAvailability(event.businessId, messageId);
+  },
+};
+
 /** "No leads available" for an agent in a campaign → managers who may see the agent (deduped per emptying). */
 const dialerQueueEmpty: EventHandler = {
   name: "dialer.queue-empty-alert",
@@ -288,4 +300,4 @@ const webhooks: EventHandler = {
   run: async (event) => { const { enqueueWebhookDeliveries } = await import("@/server/services/integrations"); return enqueueWebhookDeliveries(event); },
 };
 
-export const HANDLERS: EventHandler[] = [coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, dialerQueueEmpty, suppressed, taskCreated, sequences, webhooks];
+export const HANDLERS: EventHandler[] = [coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, whatsappAvailability, dialerQueueEmpty, suppressed, taskCreated, sequences, webhooks];

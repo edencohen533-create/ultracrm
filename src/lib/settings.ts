@@ -100,6 +100,10 @@ export interface BusinessSettings {
   maxAttempts: number;
   /** Unanswered real dial attempts after which an unanswered lead (no future follow-up) moves to "unqualified". 0 = off. */
   unansweredToIrrelevant: number;
+  /** WhatsApp replies about availability update the dial queue (src/lib/dialer/availability.ts). */
+  whatsappAvailability: boolean;
+  /** How long a "זמינה עכשיו" priority lasts before it expires (minutes). */
+  availableNowTtlMinutes: number;
   retryIntervalMinutes: number;
   busyRetryMinutes: number;
   /** Technical failure (provider error before ringing): re-queue after this many minutes, attempt not counted. */
@@ -173,6 +177,8 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   autoDialCountdownSeconds: 5,
   maxAttempts: 3,
   unansweredToIrrelevant: 0,
+  whatsappAvailability: true,
+  availableNowTtlMinutes: 15,
   retryIntervalMinutes: 120,
   busyRetryMinutes: 15,
   technicalFailureRetryMinutes: 10,

@@ -17,7 +17,12 @@ export async function GET(request: Request) {
     const due = await db.webhookDelivery.findMany({ where: { status: "pending", nextAttemptAt: { lte: new Date() } }, distinct: ["businessId"], select: { businessId: true }, take: 20 });
     let webhooks = 0;
     for (const { businessId } of due) webhooks += (await withBusiness(businessId, () => deliverDueWebhooks(businessId, Date.now() + 15_000)).catch((e: Error) => { console.error("webhook delivery failed", { businessId, error: e.message }); return { processed: 0 }; })).processed;
-    return Response.json({ ...events, webhooks });
+    // "זמינה עכשיו" priorities that were not dialed in time → expired (the agent is told).
+    const { expireSignals } = await import("@/lib/dialer/availability");
+    const stale = await db.callbackSignal.findMany({ where: { status: "active", expiresAt: { lte: new Date() } }, distinct: ["businessId"], select: { businessId: true }, take: 50 });
+    let expired = 0;
+    for (const { businessId } of stale) expired += (await withBusiness(businessId, () => expireSignals(businessId)).catch(() => ({ expired: 0 }))).expired;
+    return Response.json({ ...events, webhooks, expired });
   } catch (err) {
     return handleError(err);
   }

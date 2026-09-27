@@ -113,7 +113,11 @@ export interface DialerStateDto {
   sipUsername: string | null;
   queue: { byStatus: Record<string, number>; dueNow: number; dueIgnoringWindow: number; total: number; unavailable: { notDueYet: number; inProgress: number; exhausted: number; completed: number; dnc: number; removed: number; outsideDialWindow: boolean; listPaused: boolean; listInactive: boolean } } | null;
   script: { id: string; title: string; body: string } | null;
+  /** WhatsApp availability replies for this agent's leads. */
+  hot?: HotSignal[];
   draft: string | null;
   settings: { wrapUpSeconds: number; autoDialCountdownSeconds: number; lockTtlSeconds: number; dialWindow: { start: string; end: string; days: number[] } };
   telephony: TelephonyStatus;
 }
+
+export interface HotSignal { id: string; status: "active" | "needs_review" | "expired" | "ineligible" | string; intent: string; text: string; reason: string | null; requestedAt: string; expiresAt: string | null; dueAt: string | null; analyzer: string; leadId: string | null; contactId: string; contact: { id: string; fullName: string; phoneE164: string } | null; conversationId: string | null; mine: boolean }

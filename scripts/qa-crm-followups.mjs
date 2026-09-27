@@ -33,6 +33,12 @@ await step("Q3 list shows 'ניסיונות חיוג' + 'פולואפ' columns; 
   await page.screenshot({ path: "docs/qa/crm-followup-list.png" });
 });
 await step("Q4 outside dial hours shows a clear message and a valid suggestion", async () => {
+  // The demo business dials 24/7 – narrow the window for this step and restore it right after.
+  const sd = (await api("/api/settings")).json.data; const before = (sd.settings ?? sd).dialWindow; if (!before?.days) throw new Error("dial window not readable");
+  const set = await api("/api/settings", "PATCH", { settings: { dialWindow: { ...before, start: "09:00", end: "20:00" } } }); if (set.status !== 200) throw new Error(`window ${set.status}`);
+  try { await q4(); } finally { await api("/api/settings", "PATCH", { settings: { dialWindow: before } }); }
+});
+async function q4() {
   await row().locator('[data-testid="followup-badge"]').click(); await page.waitForSelector('[data-testid="followup-modal"]');
   await page.fill('[data-testid="followup-time"]', "23:30"); await page.click('[data-testid="followup-save"]');
   const p = await page.waitForSelector('[data-testid="followup-problem"]'); if (!(await p.textContent()).includes("מחוץ לשעות")) throw new Error(await p.textContent());
@@ -40,7 +46,7 @@ await step("Q4 outside dial hours shows a clear message and a valid suggestion",
   await page.fill('[data-testid="followup-time"]', "12:00"); await page.click('[data-testid="followup-save"]'); await page.waitForSelector('[data-testid="followup-modal"]', { state: "detached" });
   const lead = (await api(`/api/leads/${leadId}`)).json.data; const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: lead.timezone, hour: "2-digit", minute: "2-digit" }).format(new Date(lead.followUp.dueAt));
   if (hhmm !== "12:00") throw new Error(hhmm);
-});
+}
 await step("Q5 attempts counter opens the history", async () => {
   await row().locator('[data-testid="attempts-count"]').click(); await page.waitForSelector("text=ניסיונות חיוג – "); await page.keyboard.press("Escape");
 });

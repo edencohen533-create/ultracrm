@@ -150,7 +150,6 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
     sessionId = s.id;
   }
 
-  await consumeQuota(user.businessId, "calls_started");
   let call: CallWithRefs;
   let createdHere = false;
   try {
@@ -184,6 +183,8 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
         const unanswered = await tx.call.count({ where: { businessId: user.businessId, toE164, direction: "outbound", mode: { not: "manual" }, createdAt: { gte: businessDayStart(settings.timezone) }, answeredAt: null, telephonyResult: { in: ["no_answer", "busy", "rejected"] } } });
         if (unanswered >= personal.maxDailyUnanswered) throw new ApiError("הושגה מגבלת הניסיונות היומית ללא מענה לליד", 409, "daily_unanswered_limit");
       }
+      // Usage is counted in the same transaction as the call row: a rejected / duplicate dial never counts (no double charge).
+      await consumeQuota(user.businessId, "calls_started", 1, tx);
       // Caller id is chosen under the number-pool lock, in the same transaction as the call row.
       const selection = await selectOutboundNumber(tx, { businessId: user.businessId, userId: user.id, listId, phoneNumberId: input.phoneNumberId, toE164, simulation: telephony.simulation });
       const from = selection.number;

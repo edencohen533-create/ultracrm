@@ -5,6 +5,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { AudienceError, listAudienceWhere } from "@/server/services/audience-service";
 import { prisma } from "@/lib/db";
 import { contactFilterSchema, contactInputSchema, contactWhere, createContact } from "@/lib/crm/contacts";
+import { contactScope } from "@/lib/crm/access";
+import { visibleUserIds } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +17,8 @@ const listSchema = contactFilterSchema.extend({
 
 export const GET = withAuth(async ({ req, user }) => {
   const f = parseQuery(req, listSchema);
-  let where: Prisma.ContactWhereInput = contactWhere(user.businessId, f);
+  // Agents (and team-scoped managers) list only their contacts – settings → הרשאות.
+  let where: Prisma.ContactWhereInput = { AND: [contactWhere(user.businessId, f), contactScope(await visibleUserIds(user))] };
   if (f.segmentId) {
     const list = await prisma.distributionList.findUnique({ where: { id: f.segmentId }, select: { id: true, segment: true } });
     if (!list) throw new ApiError("הסגמנט לא נמצא", 404, "not_found");

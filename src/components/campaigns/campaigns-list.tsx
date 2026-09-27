@@ -96,7 +96,7 @@ export function CampaignsList({ channel, timezone }: { channel: ChannelKey; time
       </aside>
       <section className="cmp-main">
         <header className="cmp-head">
-          <h1>קמפיינים <span className="cmp-count">({total})</span></h1>
+          <h1>הודעות תפוצה <span className="cmp-count">({total})</span></h1>
           <div className="cmp-head-actions">
             <label className="cmp-search"><Search size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש" aria-label="חיפוש קמפיינים" data-testid="campaigns-search" /></label>
             <button className="cmp-btn" onClick={() => setView(view === "list" ? "calendar" : "list")} data-testid="campaigns-view-toggle">{view === "list" ? <><CalendarDays size={15} /> תצוגת יומן</> : <><List size={15} /> תצוגת רשימה</>}</button>

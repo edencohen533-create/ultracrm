@@ -23,4 +23,6 @@ export interface MessageItem {
   createdAt: string;
   attachments?: { id: string; url: string; mimeType: string; fileName: string | null; sizeBytes?: number | null }[];
   sentByUser: { id: string; name: string } | null;
+  /** Sent by the customer-service AI (not by a person). */
+  aiBot?: boolean;
 }

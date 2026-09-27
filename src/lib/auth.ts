@@ -125,16 +125,29 @@ export const ROLE_LABEL: Record<UserRole, string> = { owner: "בעלים", manag
  * - manager: self + members of teams they manage (+ their own team)
  * - owner: everyone in the business (returns null = no filter)
  */
-export async function visibleUserIds(user: SessionUser): Promise<string[] | null> {
+export type VisibleIds = string[] & { sharedPool?: boolean };
+/** Raw permission settings (kept here – importing lib/settings would create an import cycle). */
+async function permissionsOf(businessId: string) {
+  const b = await db.business.findUnique({ where: { id: businessId }, select: { settings: true } });
+  const p = ((b?.settings as { permissions?: Record<string, unknown> } | null)?.permissions ?? {}) as Record<string, unknown>;
+  return { managerScope: p.managerScope === "team" ? "team" : "business", agentSeesUnassigned: p.agentSeesUnassigned === true };
+}
+const mark = (ids: string[], sharedPool: boolean): VisibleIds => Object.assign(ids, { sharedPool });
+
+export async function visibleUserIds(user: SessionUser): Promise<VisibleIds | null> {
   if (user.role === "owner") return null;
-  if (user.role === "agent") return [user.id];
+  const perms = await permissionsOf(user.businessId);
+  // Agents: only their own data; the unassigned pool only when the business allows it (settings → הרשאות).
+  if (user.role === "agent") return mark([user.id], perms.agentSeesUnassigned);
+  // Managers: the whole business (default) or only their teams.
+  if (perms.managerScope === "business") return null;
   const teams = await db.team.findMany({
     where: { businessId: user.businessId, OR: [{ managerId: user.id }, ...(user.teamId ? [{ id: user.teamId }] : [])] },
     select: { members: { select: { id: true } } },
   });
   const ids = new Set<string>([user.id]);
   for (const t of teams) for (const m of t.members) ids.add(m.id);
-  return [...ids];
+  return mark([...ids], true);
 }
 
 export async function assertCanSeeUser(user: SessionUser, targetUserId: string) {

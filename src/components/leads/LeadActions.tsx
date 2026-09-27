@@ -93,6 +93,8 @@ export function AttemptsCell({ count, lastAt, onOpen, tz = TZ_DEFAULT }: { count
 export function TransferModal({ leadIds, users, currentOwnerId, onClose, onDone }: { leadIds: string[]; users: Array<{ id: string; fullName: string }>; currentOwnerId?: string | null; onClose: () => void; onDone: () => void }) {
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [targets, setTargets] = useState(users);
+  useEffect(() => { api.get<{ items: Array<{ id: string; fullName: string }> }>("/api/users/transfer-targets").then((r) => setTargets(r.items)).catch(() => undefined); }, []);
   async function go() {
     setBusy(true);
     try {
@@ -107,7 +109,7 @@ export function TransferModal({ leadIds, users, currentOwnerId, onClose, onDone 
     <Modal open onClose={() => !busy && onClose()} title={leadIds.length === 1 ? "העבר לנציג" : `העברת ${leadIds.length} לידים לנציג`}
       footer={<><Button variant="ghost" onClick={onClose} disabled={busy}>ביטול</Button><Button onClick={go} loading={busy} disabled={!to} data-testid="transfer-submit">העבר</Button></>}>
       <div className="space-y-3" data-testid="transfer-modal">
-        <Select label="נציג יעד" value={to} onChange={(e) => setTo(e.target.value)} data-testid="transfer-to"><option value="">בחר נציג פעיל</option>{users.filter((u) => u.id !== currentOwnerId).map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select>
+        <Select label="נציג יעד" value={to} onChange={(e) => setTo(e.target.value)} data-testid="transfer-to"><option value="">בחר נציג פעיל</option>{targets.filter((u) => u.id !== currentOwnerId).map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select>
         <p className="text-xs text-muted">הליד יוסר מיד מהרשימה ומתור החיוג של הנציג הקודם, וגישתו אליו תיחסם. הנציג החדש יקבל את כל ההערות, השיחות, ניסיונות החיוג והפולואפים (באותו מועד). ליד שנמצא בשיחה פעילה יועבר בסיום השיחה.</p>
       </div>
     </Modal>

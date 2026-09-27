@@ -17,8 +17,13 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Plus } from "lucide-react";
+import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 
-const TRIGGER_LABELS: Record<AutomationTrigger, string> = {
+/** "סטטוס CRM השתנה" is a contact-level trigger – saved on the customer-journey engine (LEAD_STATUS_CHANGED). */
+const CRM_STATUS = "CRM_STATUS_CHANGED" as const;
+type TriggerChoice = AutomationTrigger | typeof CRM_STATUS;
+const TRIGGER_LABELS: Record<TriggerChoice, string> = {
+  CRM_STATUS_CHANGED: "סטטוס CRM השתנה",
   NEW_INBOUND_MESSAGE: "הודעה נכנסת חדשה",
   NEW_CONVERSATION: "שיחה חדשה",
   TAG_ADDED: "תגית נוספה",
@@ -48,7 +53,11 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [name, setName] = useState("");
-  const [trigger, setTrigger] = useState<AutomationTrigger>(AutomationTrigger.NEW_INBOUND_MESSAGE);
+  const [trigger, setTrigger] = useState<TriggerChoice>(AutomationTrigger.NEW_INBOUND_MESSAGE);
+  const statuses = useLeadStatuses();
+  const [leadStatus, setLeadStatus] = useState("");
+  const [waitMinutes, setWaitMinutes] = useState(0);
+  const crm = trigger === CRM_STATUS;
   const [minutes, setMinutes] = useState("30");
   const [tagName, setTagName] = useState("");
   const [actionType, setActionType] = useState<AutomationActionType>(AutomationActionType.ASSIGN_AGENT);
@@ -119,6 +128,18 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
       toast.error("נא להזין שם לחוק");
       return;
     }
+    if (crm) {
+      const tpl = templates.find((t) => t.id === templateId);
+      if (!leadStatus || !tpl) { toast.error("יש לבחור סטטוס ותבנית WhatsApp"); return; }
+      if ((tpl.variables ?? []).some((k) => !variables[k]?.trim())) { toast.error("יש למלא את כל משתני התבנית"); return; }
+      setIsSubmitting(true);
+      try {
+        const res = await fetch("/api/sequences", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, isActive, trigger: "LEAD_STATUS_CHANGED", triggerConfig: { leadStatus }, stopOn: [], steps: [{ action: "send", channel: "whatsapp", templateId, waitMinutes, variables, condition: { requireNoReply: false } }] }) });
+        if (!res.ok) { const j = await res.json().catch(() => ({})); toast.error(j.error ?? "שגיאה ביצירת החוק"); return; }
+        toast.success(isActive ? "החוק נוצר והופעל" : "החוק נוצר (לא פעיל)"); setOpen(false); router.refresh();
+      } catch { toast.error("שמירת החוק נכשלה"); } finally { setIsSubmitting(false); }
+      return;
+    }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/automations", {
@@ -154,7 +175,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
 
           <div className="space-y-1.5">
             <Label>טריגר</Label>
-            <Select value={trigger} onValueChange={(v) => v && setTrigger(v as AutomationTrigger)}>
+            <Select value={trigger} onValueChange={(v) => { if (!v) return; setTrigger(v as TriggerChoice); if (v === CRM_STATUS) setActionType(AutomationActionType.SEND_TEMPLATE); }}>
               <SelectTrigger className="w-full">
                 <SelectValue>{TRIGGER_LABELS[trigger]}</SelectValue>
               </SelectTrigger>
@@ -168,7 +189,16 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
             </Select>
           </div>
 
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={onlyOutsideHours} onChange={(e) => setOnlyOutsideHours(e.target.checked)} />להפעיל רק מחוץ לשעות הפעילות (חלון השליחה בהגדרות → דיוור)</label>
+          {crm && (
+            <div className="space-y-1.5 rounded border p-3" data-testid="crm-status-trigger">
+              <Label>כשסטטוס הליד משתנה ל</Label>
+              <select aria-label="סטטוס CRM" className="w-full rounded border p-2" value={leadStatus} onChange={(e) => setLeadStatus(e.target.value)} data-testid="rule-lead-status"><option value="">בחר סטטוס</option>{statuses.items.map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</select>
+              <Label>לשלוח ללקוח</Label>
+              <select aria-label="המתנה" className="w-full rounded border p-2" value={waitMinutes} onChange={(e) => setWaitMinutes(Number(e.target.value))}><option value={0}>מיד</option><option value={5}>אחרי 5 דקות</option><option value={30}>אחרי חצי שעה</option><option value={60}>אחרי שעה</option><option value={1440}>אחרי יום</option></select>
+              <p className="text-xs text-muted-foreground">פעולה: שליחת תבנית WhatsApp מאושרת ללקוח של הליד (רק אם לא הסיר את עצמו מדיוור). במשתנים אפשר לכתוב {"{name}"} לשם הלקוח.</p>
+            </div>
+          )}
+          {!crm && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={onlyOutsideHours} onChange={(e) => setOnlyOutsideHours(e.target.checked)} />להפעיל רק מחוץ לשעות הפעילות (חלון השליחה בהגדרות → דיוור)</label>}
           {trigger === AutomationTrigger.NO_REPLY_TIMEOUT && (
             <div className="space-y-1.5">
               <Label>דקות ללא מענה</Label>
@@ -182,7 +212,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
             </div>
           )}
 
-          <div className="space-y-1.5">
+          <div className={crm ? "hidden" : "space-y-1.5"}>
             <Label>פעולה</Label>
             <Select value={actionType} onValueChange={(v) => v && setActionType(v as AutomationActionType)}>
               <SelectTrigger className="w-full" aria-label="פעולת האוטומציה">
@@ -303,6 +333,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
           )}
         </div>
         <div className="space-y-2 rounded border p-3">
+          {crm ? <p className="text-sm text-muted-foreground">החוק יופיע ברשימת &quot;מסעות לקוח&quot; ויפעל על כל ליד שעובר לסטטוס שנבחר.</p> : <>
           <label className="block text-sm">שיחה לבדיקה ללא ביצוע (50 השיחות האחרונות)
             <select aria-label="שיחה לבדיקת אוטומציה" className="w-full rounded border p-2" value={conversationId} onChange={(event) => setConversationId(event.target.value)}>
               <option value="">בחר שיחה</option>{conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.label}</option>)}
@@ -317,6 +348,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
             {preview.result.delayMinutes > 0 && <p>השהיה מוגדרת: {preview.result.delayMinutes} דקות; הבדיקה בוחנת את המצב כעת</p>}
             <p className="text-muted-foreground">{preview.result.notice}</p>
           </div>}
+          </>}
           <label className="flex gap-2 text-sm"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />הפעל את החוק לאחר השמירה</label>
           <p className="text-xs text-muted-foreground">ברירת המחדל היא חוק לא פעיל. הבדיקה אינה מפעילה את החוק ואינה שולחת הודעות.</p>
         </div>

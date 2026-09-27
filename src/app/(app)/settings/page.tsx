@@ -7,8 +7,9 @@ import { Badge, Button, Input, Modal, Panel, Phone, Select, Spinner, Textarea, c
 import { formatDateTime, formatPhone } from "@/lib/client/format";
 import { CoachAdmin } from "@/components/coach/CoachAdmin";
 import { AssistantSettings } from "@/components/assistant/AssistantSettings";
+import { PermissionsTab } from "@/components/settings/PermissionsTab";
 
-type Tab = "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "coach" | "assistant";
+type Tab = "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "coach" | "assistant" | "permissions";
 interface Prio { callbackDue: number; priority: number; newLeadPerHour: number; newLeadMaxHours: number; agingPerHour: number; agingMaxHours: number; attemptPenalty: number; ownerMatch: number; sourceWeights: Record<string, number>; interestedBefore: number }
 interface Automations { newLeadTaskMinutes: number; followUpTaskOutcomes: string[]; followUpTaskHours: number; followUpMessage: { enabled: boolean; templateId: string | null; outcomes: string[]; variables: Record<string, string> } }
 interface Settings { automations: Automations; wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; retryIntervalMinutes: number; busyRetryMinutes: number; technicalFailureRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; recordingRetentionDays: number; amdEnabled: boolean; stickyOwner: boolean; removeFromOtherListsOnSale: boolean; dialingPaused: boolean; allowedCountries: string[]; maxDialsPerMinute: number; dialWindow: { start: string; end: string; days: number[] }; prioritization: Prio; inbound: { preferOwner: boolean; createCallbackTask: boolean; respectDialWindow: boolean } }
@@ -22,7 +23,7 @@ export default function SettingsPage() {
   const isAdmin = me?.user.role === "owner";
   const modules = me?.modules ?? { crm: true, messaging: true, telephony: true };
   const groups: Array<{ title: string; tabs: Array<[Tab, string]>; show: boolean }> = [
-    { title: "עסק", tabs: [["business", "פרטי העסק"], ["users", "משתמשים וצוותים"], ["connections", "חיבורים"], ["plan", "חבילה ומכסות"], ["automations", "אוטומציות"], ["marketing", "דיוור"], ["assistant", "העוזר האישי בוואטסאפ"], ["suppressions", "הסרות מדיוור"], ["history", "היסטוריית שינויים"]], show: true },
+    { title: "עסק", tabs: [["business", "פרטי העסק"], ["users", "משתמשים וצוותים"], ["permissions", "הרשאות"], ["connections", "חיבורים"], ["plan", "חבילה ומכסות"], ["automations", "אוטומציות"], ["marketing", "דיוור"], ["assistant", "העוזר האישי בוואטסאפ"], ["suppressions", "הסרות מדיוור"], ["history", "היסטוריית שינויים"]], show: true },
     { title: "טלפוניה", tabs: [["general", "חייגן"], ["priority", "תעדוף לידים"], ["safety", "בטיחות ושיחות נכנסות"], ["numbers", "מספרים יוצאים"], ["scripts", "תסריטים"], ["dnc", "לא ליצור קשר"], ["coach", "מאמן AI"]], show: modules.telephony },
   ];
   return (
@@ -48,6 +49,7 @@ export default function SettingsPage() {
       {tab === "history" && <HistoryTab />}
       {tab === "coach" && <CoachAdmin isAdmin={isAdmin} />}
       {tab === "assistant" && <AssistantSettings isOwner={isAdmin} />}
+      {tab === "permissions" && <PermissionsTab isOwner={isAdmin} />}
       {tab === "numbers" && <NumbersTab isAdmin={isAdmin} />}
       {tab === "users" && <UsersTab isAdmin={isAdmin} />}
       {tab === "scripts" && <ScriptsTab />}

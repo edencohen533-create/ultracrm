@@ -59,7 +59,7 @@ export default function ListsPage() {
   return (
     <div className="p-5 space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold">רשימות חיוג</h1>
+        <h1 className="text-lg font-semibold">קמפיינים – חייגן</h1>
         {isManager && <Button size="sm" className="ms-auto" onClick={() => setOpen(true)}>+ רשימה חדשה</Button>}
       </div>
       {!lists ? <div className="flex justify-center p-10"><Spinner /></div> : lists.length === 0 ? <EmptyState title="אין רשימות" hint="צור רשימה מסינון אנשי קשר או ידנית" /> : (

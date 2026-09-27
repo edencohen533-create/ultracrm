@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
-import { BarChart3, FileText, Megaphone, MessageCircle, Settings, ShoppingCart, Star, Users, Zap } from "lucide-react";
+import { Bot, PhoneCall, BarChart3, FileText, Megaphone, MessageCircle, Settings, ShoppingCart, Star, Users, Zap } from "lucide-react";
 import { useDialer } from "@/components/telephony/DialerProvider";
 import { Badge, cx } from "@/components/ui";
 import { PRESENCE_LABEL } from "@/lib/client/format";
@@ -24,12 +24,14 @@ const MGMT: Role[] = ["manager", "owner"];
  * behind the settings gear at the bottom.
  */
 const ITEMS: Item[] = [
-  { href: "/leads", label: "CRM", roles: ALL, module: "crm", Icon: Star, testid: "nav-leads", match: (p) => p === "/leads" || p.startsWith("/leads/") || (p.startsWith("/contacts/") && !p.startsWith("/contacts/duplicates")) || p === "/dialer" || p.startsWith("/lists") || p.startsWith("/deals") },
+  { href: "/leads", label: "CRM", roles: ALL, module: "crm", Icon: Star, testid: "nav-leads", match: (p) => p === "/leads" || p.startsWith("/leads/") || (p.startsWith("/contacts/") && !p.startsWith("/contacts/duplicates")) || p === "/dialer" || p.startsWith("/deals") },
+  { href: "/lists", label: "קמפיינים", roles: ALL, module: "telephony", Icon: PhoneCall, testid: "nav-dial-campaigns", match: (p) => p.startsWith("/lists") },
   { href: "/inbox", label: "וואטסאפ", roles: ALL, module: "messaging", Icon: MessageCircle, testid: "nav-inbox", match: (p) => p.startsWith("/inbox") },
   { href: "/contacts", label: "קהלים ואנשי קשר", roles: ALL, module: "crm", Icon: Users, testid: "nav-contacts", match: (p) => p === "/contacts" || p.startsWith("/contacts/duplicates") || p.startsWith("/audiences") },
   { href: "/templates", label: "תבניות WhatsApp", roles: MGMT, module: "messaging", Icon: FileText, testid: "nav-templates", match: (p) => p.startsWith("/templates") },
-  { href: "/campaigns/whatsapp", label: "קמפיינים", roles: MGMT, module: "messaging", Icon: Megaphone, testid: "nav-campaigns", match: (p) => p.startsWith("/campaigns") },
+  { href: "/campaigns/whatsapp", label: "הודעות תפוצה", roles: MGMT, module: "messaging", Icon: Megaphone, testid: "nav-campaigns", match: (p) => p.startsWith("/campaigns") },
   { href: "/automations", label: "אוטומציות", roles: MGMT, module: "messaging", Icon: Zap, testid: "nav-automations", match: (p) => p.startsWith("/automations") || p.startsWith("/carts") },
+  { href: "/ai", label: "עוזר AI", roles: ALL, Icon: Bot, testid: "nav-ai", match: (p) => p.startsWith("/ai") },
   { href: "/reports", label: "דוחות", roles: MGMT, Icon: BarChart3, testid: "nav-reports", match: (p) => p.startsWith("/reports") || p.startsWith("/analytics") || p.startsWith("/manager") },
 ];
 

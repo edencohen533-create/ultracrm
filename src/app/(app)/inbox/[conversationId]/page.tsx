@@ -10,6 +10,8 @@ import { ChatPanel } from "@/components/inbox/chat-panel";
 import { ContactProfilePanel } from "@/components/inbox/contact-profile-panel";
 import { ConversationActions } from "@/components/inbox/conversation-actions";
 import type { MessageItem } from "@/types/domain";
+import { getAiSettings } from "@/server/ai/settings";
+import { AiHandlingBar } from "@/components/inbox/ai-handling-bar";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -38,7 +40,10 @@ export default organizationRequest(async function ConversationPage({
     createdAt: message.createdAt.toISOString(),
     attachments: message.attachments.map(({ id, url, mimeType, fileName, sizeBytes }) => ({ id, url, mimeType, fileName, sizeBytes })),
     sentByUser: message.sentByUser ? { id: message.sentByUser.id, name: message.sentByUser.fullName } : null,
+    aiBot: Boolean(message.requestKey?.startsWith("ai:svc:")),
   }));
+  const { ai } = await getAiSettings(conversation.businessId);
+  const aiEnabledHere = ai.service.enabled && ai.service.credentialIds.includes(conversation.providerCredentialId ?? "demo");
 
   const now = Date.now();
   const composerDisabled =
@@ -62,6 +67,7 @@ export default organizationRequest(async function ConversationPage({
         agents={agents.map((a) => ({ id: a.id, name: a.fullName }))}
         isSpam={conversation.isSpam}
       />
+      {(aiEnabledHere || conversation.aiMode) && <AiHandlingBar conversationId={conversation.id} aiMode={conversation.aiMode} enabledHere={aiEnabledHere} reason={conversation.aiHandoffReason} summary={conversation.aiHandoffSummary} />}
       <div className="flex items-center justify-between border-b px-3 py-2 text-sm"><span>{conversation.contact.fullName}</span><Link className="underline" href={`/contacts/${conversation.contactId}`}>כרטיס לקוח והסרה מדיוור</Link></div>
       <div className="border-b px-3 py-1 text-xs text-muted-foreground">מספר השיחה: {conversation.providerCredential ? `${conversation.providerCredential.label || "WhatsApp"} · ${conversation.providerCredential.displayPhoneNumber || "מספר עסקי"}` : "הדגמה בלבד"}</div>
       <Tasks key={`tasks:${conversation.id}`} contactId={conversation.contactId} conversationId={conversation.id} userId={session.user.id} />

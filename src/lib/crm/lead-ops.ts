@@ -18,7 +18,7 @@ import { emitEvent, kickEventProcessing } from "@/lib/events";
 import { visibleUserIds, type SessionUser } from "@/lib/auth";
 import { getBusinessSettings, isWithinDialWindow, nextDialWindowOpening } from "@/lib/settings";
 import { businessDayStart, zonedDateTime, zonedParts } from "@/lib/business-day";
-import { ownerScope } from "./access";
+import { ownerScope, sharesPool } from "./access";
 import { OPEN_LEAD_STATUSES } from "./labels";
 
 type Db = Prisma.TransactionClient;
@@ -87,7 +87,7 @@ export async function canAccessContact(user: SessionUser, contact: { id: string;
   if (contact.ownerUserId && ids.includes(contact.ownerUserId)) return true;
   const leads = await prisma.lead.findMany({ where: { businessId: user.businessId, contactId: contact.id }, select: { ownerUserId: true, status: true } });
   if (leads.some((l) => l.ownerUserId && ids.includes(l.ownerUserId))) return true;
-  if (contact.ownerUserId) return false;
+  if (contact.ownerUserId || !sharesPool(ids)) return false;
   return !leads.some((l) => l.ownerUserId && !CLOSED.includes(l.status));
 }
 
@@ -243,11 +243,13 @@ async function activeCallOn(db: Db, businessId: string, contactId: string) {
 }
 
 /** Move one lead now: owner, contact, open tasks (same times), queue rows; audited as who/from/to/when. */
-async function applyTransfer(businessId: string, leadId: string, toUserId: string, actorId: string) {
+async function applyTransfer(businessId: string, leadId: string, toUserId: string, actorId: string, onlyIfPending = false) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${"lead-followup:" + leadId}, 0))`);
     const lead = await tx.lead.findFirst({ where: { id: leadId, businessId }, include: { contact: { select: { id: true, ownerUserId: true } } } });
     if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
+    // A deferred transfer is applied by whoever gets the lock first (outcome save or the cron safety net) – exactly once.
+    if (onlyIfPending && lead.pendingTransferToUserId !== toUserId) return null;
     const from = lead.ownerUserId;
     await tx.lead.update({ where: { id: lead.id }, data: { ownerUserId: toUserId, pendingTransferToUserId: null, pendingTransferById: null, pendingTransferAt: null } });
     if (!lead.contact.ownerUserId || lead.contact.ownerUserId === from) await tx.contact.update({ where: { id: lead.contactId }, data: { ownerUserId: toUserId } });
@@ -277,12 +279,21 @@ export const transferSchema = z.object({ leadIds: z.array(z.string()).min(1).max
  * Manager: transfer leads to an active agent of the same business (a manager only within their team).
  * A lead in a live call / started dial attempt is marked pending and moved right after that call is documented.
  */
+/** Managers/owner always; an agent only when settings → הרשאות allow it (all agents or selected ones). */
+export async function canTransferLeads(user: SessionUser) {
+  if (user.role !== "agent") return true;
+  const { permissions } = await getBusinessSettings(user.businessId);
+  return permissions.agentTransfer === "all" || (permissions.agentTransfer === "selected" && permissions.agentTransferUserIds.includes(user.id));
+}
+
 export async function transferLeads(user: SessionUser, input: z.infer<typeof transferSchema>) {
-  if (user.role === "agent") throw new ApiError("רק מנהל יכול להעביר לידים", 403, "forbidden");
+  const agent = user.role === "agent";
+  if (!(await canTransferLeads(user))) throw new ApiError("אין לך הרשאה להעביר לידים (ניתן לאפשר בהגדרות → הרשאות)", 403, "forbidden");
   const ids = await visibleUserIds(user);
   const target = await prisma.user.findFirst({ where: { id: input.toUserId, businessId: user.businessId, isActive: true }, select: { id: true, fullName: true } });
-  if (!target || (ids && !ids.includes(target.id))) throw new ApiError("יש לבחור נציג פעיל בעסק", 400, "invalid_agent");
-  const leads = await prisma.lead.findMany({ where: { id: { in: input.leadIds }, businessId: user.businessId, ...ownerScope(ids) }, select: { id: true, contactId: true, ownerUserId: true } });
+  // Agents may hand their leads to any active user; a team-scoped manager only within their teams.
+  if (!target || (!agent && ids && !ids.includes(target.id))) throw new ApiError("יש לבחור נציג פעיל בעסק", 400, "invalid_agent");
+  const leads = await prisma.lead.findMany({ where: { id: { in: input.leadIds }, businessId: user.businessId, ...(agent ? { ownerUserId: user.id } : ownerScope(ids)) }, select: { id: true, contactId: true, ownerUserId: true } });
   const found = new Set(leads.map((l) => l.id));
   const result = { transferred: [] as string[], pending: [] as string[], unchanged: [] as string[], notFound: input.leadIds.filter((id) => !found.has(id)) };
   for (const l of leads) {
@@ -308,7 +319,8 @@ export async function applyPendingTransfers(businessId: string, contactId?: stri
     if (await activeCallOn(prisma, businessId, l.contactId)) continue;
     const target = await prisma.user.findFirst({ where: { id: l.pendingTransferToUserId!, businessId, isActive: true }, select: { id: true } });
     if (!target) { await prisma.lead.update({ where: { id: l.id }, data: { pendingTransferToUserId: null, pendingTransferById: null, pendingTransferAt: null } }); continue; }
-    await applyTransfer(businessId, l.id, target.id, l.pendingTransferById ?? target.id);
+    const done = await applyTransfer(businessId, l.id, target.id, l.pendingTransferById ?? target.id, true);
+    if (!done) continue;
     await notifyTransferred(businessId, l.id, target.id);
     applied++;
   }

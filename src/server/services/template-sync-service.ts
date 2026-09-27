@@ -32,13 +32,13 @@ export function mapRemoteTemplate(template: z.infer<typeof remoteTemplate>) {
   if ([...body.matchAll(/\{\{([^}]+)\}\}/g)].some((match) => !/^\d+$/.test(match[1])) || templateParameterKeys(body).some((key, index) => Number(key) !== index + 1)) reasons.push("משתני גוף לא ממוספרים ברצף");
   if (template.components.some((component) => !["BODY", "FOOTER", "HEADER", "BUTTONS"].includes(component.type))) reasons.push("רכיב לא מוכר");
   if (header && (!headerFormat || !SUPPORTED_HEADERS.has(headerFormat))) reasons.push(`כותרת מסוג ${headerFormat ?? "?"} אינה נתמכת`);
-  if (headerFormat === "TEXT" && /\{\{/.test(header?.text ?? "")) reasons.push("כותרת טקסט עם משתנה אינה נתמכת עדיין");
+  if (headerFormat === "TEXT" && /\{\{(?!1\}\})/.test(header?.text ?? "")) reasons.push("כותרת טקסט עם יותר ממשתנה אחד אינה נתמכת");
   if (buttons.some((b) => !SUPPORTED_BUTTONS.has(b.type))) reasons.push("סוג כפתור לא נתמך");
   const unsupported = reasons.length > 0;
   const status: TemplateStatus = unsupported ? "DRAFT" : template.status === "APPROVED" ? "APPROVED" : template.status === "PENDING" ? "PENDING_APPROVAL" : template.status === "PAUSED" ? "PAUSED" : template.status === "DISABLED" ? "DISABLED" : "REJECTED";
   return {
     name: template.name, language: template.language, category: template.category, body,
-    variables: templateParameterKeys(body), status, providerTemplateId: template.id,
+    variables: [...templateParameterKeys(body), ...(headerFormat === "TEXT" && /\{\{1\}\}/.test(header?.text ?? "") ? ["h1"] : [])], status, providerTemplateId: template.id,
     components: template.components as unknown as Prisma.InputJsonValue, headerFormat, buttons: buttons as unknown as Prisma.InputJsonValue,
     syncError: unsupported ? `התבנית מכילה רכיבים שאינם נתמכים: ${reasons.join(", ")}` : null,
   };

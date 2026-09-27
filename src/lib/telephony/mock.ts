@@ -12,6 +12,7 @@
  */
 import { prisma } from "@/lib/db";
 import type { DialAgentInput, DialLeadInput, DialResult, ProviderEvent, TelephonyAdapter } from "./types";
+import { TelephonyRequestTimeout } from "./types";
 
 export const MOCK_TIMELINE = {
   inboundRingTimeoutMs: 25_000,
@@ -28,6 +29,11 @@ export const mockAdapter: TelephonyAdapter = {
   simulation: true,
 
   async dialAgent(input: DialAgentInput): Promise<DialResult> {
+    // Fault injection for load tests only (never set in production): a slow provider that sometimes times out.
+    if (process.env.MOCK_TELEPHONY_SLOW === "1") {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (Math.random() < 0.25) throw new TelephonyRequestTimeout("simulated provider timeout");
+    }
     return { legId: `mock-agent-${input.callId}`, providerSessionId: `mock-session-${input.callId}` };
   },
   async dialLead(input: DialLeadInput): Promise<DialResult> {

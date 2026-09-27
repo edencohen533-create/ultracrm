@@ -1,3 +1,4 @@
+import { sharesPool } from "@/lib/crm/access";
 import { withAuth } from "@/lib/api";
 import { ok } from "@/lib/response";
 import { prisma } from "@/lib/db";
@@ -20,7 +21,7 @@ export const GET = withAuth(async ({ user }) => {
   const mine = user.role === "agent";
   const userScope = mine ? { equals: user.id } : ids ? { in: ids } : undefined;
   const [leadsNew, leadsOpen, callbacksDue, tasksDue, tasksOverdue] = await Promise.all([
-    prisma.lead.count({ where: { businessId, status: "new", ...(userScope ? { OR: [{ ownerUserId: userScope }, { ownerUserId: null }] } : {}) } }),
+    prisma.lead.count({ where: { businessId, status: "new", ...(userScope ? (sharesPool(ids) ? { OR: [{ ownerUserId: userScope }, { ownerUserId: null }] } : { ownerUserId: userScope }) : {}) } }),
     prisma.lead.count({ where: { businessId, status: { in: ["new", "contacted", "qualified", "follow_up"] }, ...(userScope ? { ownerUserId: userScope } : {}) } }),
     prisma.task.count({ where: { businessId, status: "open", type: "callback", dueAt: { lt: dayEnd }, ...(userScope ? { userId: userScope } : {}) } }),
     prisma.task.count({ where: { businessId, status: "open", type: { not: "callback" }, dueAt: { lt: dayEnd }, ...(userScope ? { userId: userScope } : {}) } }),

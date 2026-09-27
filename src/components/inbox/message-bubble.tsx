@@ -27,6 +27,7 @@ export function MessageBubble({ message }: { message: MessageItem }) {
           isOutbound ? "bg-primary text-primary-foreground" : "bg-muted"
         )}
       >
+        {message.aiBot && <div className="mb-0.5 text-[10px] font-semibold opacity-80" data-testid="ai-bot-label">🤖 נשלח ע״י נציג AI</div>}
         <p className="whitespace-pre-wrap break-words">{message.body}</p>
         {message.attachments?.map((attachment) => {
           const safeUrl = attachment.url.startsWith("/api/attachments/") || attachment.url.startsWith("https://") ? attachment.url : null;

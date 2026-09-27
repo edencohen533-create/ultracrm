@@ -395,6 +395,10 @@ model Business {
   webhookEndpoints       WebhookEndpoint[]
   webhookDeliveries      WebhookDelivery[]
   dealItems              DealItem[]
+  aiConversations        AiConversation[]
+  aiActions              AiAction[]
+  aiIncidents            AiIncident[]
+  knowledgeSources       KnowledgeSource[]
 
   @@map("businesses")
 }
@@ -1141,6 +1145,8 @@ model TelephonyEvent {
   call     Call?     @relation(fields: [callId], references: [id])
 
   @@unique([provider, providerEventId])
+  /// Under RLS the enum-led unique index is not usable (enum "=" is not leakproof) → lookups by event id use this one.
+  @@index([providerEventId])
   @@index([callId])
   @@map("telephony_events")
 }
@@ -1340,6 +1346,11 @@ model Conversation {
   channel              Channel            @default(whatsapp)
   contactId            String             @map("contact_id")
   providerCredentialId String?            @map("provider_credential_id")
+  /// Customer-service AI: null/"off" = not handled by AI, "ai" = AI answers, "human" = an agent took over (AI silent).
+  aiMode               String?            @map("ai_mode")
+  aiHandoffReason      String?            @map("ai_handoff_reason")
+  aiHandoffSummary     String?            @map("ai_handoff_summary")
+  aiHandoffAt          DateTime?          @map("ai_handoff_at")
   assignedAgentId      String?            @map("assigned_agent_id")
   status               ConversationStatus @default(OPEN)
   source               ConversationSource @default(MOCK)
@@ -1896,6 +1907,8 @@ enum SequenceTrigger {
   LEAD_STATUS_CHANGED
   /// An online-store cart with the contact's details was left without checkout (see Cart).
   CART_ABANDONED
+  /// A call to the contact was not answered and the lead reached N unanswered attempts (triggerConfig.minAttempts).
+  CALL_UNANSWERED
 }
 
 enum SequenceRunStatus {
@@ -2106,6 +2119,9 @@ model CoachSession {
   latencyMsTotal Int                @default(0) @map("latency_ms_total")
   latencySamples Int                @default(0) @map("latency_samples")
   provider       String?
+  /// AI documentation of the whole call: { summary, timeline:[{from,to,title,details}], customerNeeds, objections, agreements, nextSteps, sentiment, source }
+  documentation  Json?
+  documentedAt   DateTime?          @map("documented_at")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 
@@ -2311,4 +2327,151 @@ model DealItem {
   @@index([businessId, endsAt])
   @@index([contactId])
   @@map("deal_items")
+}
+
+/// "עוזר AI" – internal chat threads (app; WhatsApp threads of linked users are logged in AssistantMessage).
+model AiConversation {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  userId     String   @map("user_id")
+  title      String   @default("שיחה חדשה")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+  actions  AiAction[]
+
+  @@index([businessId, userId, updatedAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+  businessId     String   @map("business_id")
+  conversationId String   @map("conversation_id")
+  /// user | assistant
+  role           String
+  text           String
+  /// Tools used for this answer: [{ name, ok, ms, error? }] (never raw data)
+  tools          Json     @default("[]")
+  model          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("ai_messages")
+}
+
+/// Every action the assistant proposes or performs (chat, WhatsApp, customer service, repairs) – approval + audit trail.
+model AiAction {
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  conversationId   String?   @map("conversation_id")
+  incidentId       String?   @map("incident_id")
+  requestedById    String?   @map("requested_by_id")
+  /// app | whatsapp | service | system
+  channel          String    @default("app")
+  kind             String
+  params           Json      @default("{}")
+  summary          String
+  /// Impact shown before approval (affected records, messages that would be sent, …).
+  impact           String?
+  /// proposed | executed | failed | cancelled | skipped
+  status           String    @default("proposed")
+  requiresApproval Boolean   @default(false) @map("requires_approval")
+  approvedById     String?   @map("approved_by_id")
+  approvedAt       DateTime? @map("approved_at")
+  /// Snapshot of what is being changed (previous config) – for undo and "changed since diagnosis" checks.
+  before           Json?
+  result           Json?
+  error            String?
+  /// Idempotency (e.g. one customer-service reply per inbound message).
+  dedupeKey        String?   @map("dedupe_key")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  executedAt       DateTime? @map("executed_at")
+
+  business     Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversation AiConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  incident     AiIncident?     @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, dedupeKey])
+  @@index([businessId, createdAt])
+  @@map("ai_actions")
+}
+
+/// "תקלות ותיקונים": a diagnosis requested in chat/WhatsApp, its evidence, proposed/applied fixes and verification.
+model AiIncident {
+  id            String   @id @default(cuid())
+  businessId    String   @map("business_id")
+  requestedById String?  @map("requested_by_id")
+  module        String
+  question      String
+  /// diagnosed | approval_required | fixed_verified | changed_pending_verification | needs_code_fix | needs_external | escalated
+  status        String
+  /// { summary, classification, evidence:[…], unknowns:[…], fixes:[…] }
+  findings      Json     @default("{}")
+  verification  Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  actions  AiAction[]
+
+  @@index([businessId, createdAt])
+  @@map("ai_incidents")
+}
+
+/// Business knowledge for the assistant (text / document / link). New items: draft + internal only.
+model KnowledgeSource {
+  id           String    @id @default(cuid())
+  businessId   String    @map("business_id")
+  title        String
+  /// business | products | faq | policy | guidelines | docs
+  category     String
+  /// text | file | link
+  kind         String
+  /// internal | customer
+  audience     String    @default("internal")
+  /// draft | approved
+  status       String    @default("draft")
+  /// pending | processing | ready | failed
+  processing   String    @default("pending")
+  error        String?
+  content      String    @default("")
+  url          String?
+  fileName     String?   @map("file_name")
+  mimeType     String?   @map("mime_type")
+  sizeBytes    Int?      @map("size_bytes")
+  createdById  String?   @map("created_by_id")
+  approvedById String?   @map("approved_by_id")
+  approvedAt   DateTime? @map("approved_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  chunks   KnowledgeChunk[]
+
+  @@index([businessId, status, audience])
+  @@map("knowledge_sources")
+}
+
+model KnowledgeChunk {
+  id         String                   @id @default(cuid())
+  businessId String                   @map("business_id")
+  sourceId   String                   @map("source_id")
+  position   Int
+  text       String
+  /// Generated full-text vector (migration 20260927200000_ai_assistant) – read-only.
+  tsv        Unsupported("tsvector")?
+  createdAt  DateTime                 @default(now()) @map("created_at")
+
+  source KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([sourceId])
+  @@index([tsv], type: Gin, map: "knowledge_chunks_tsv_idx")
+  /// NOTE: tsv is a GENERATED column; `prisma migrate diff` reports a spurious "DROP DEFAULT" for it – never apply that line.
+  @@map("knowledge_chunks")
 }

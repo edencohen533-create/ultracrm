@@ -47,3 +47,4 @@ qa-results-*.json
 
 # Tracked on purpose: documented example without secrets
 !.env.example
+.next-load/

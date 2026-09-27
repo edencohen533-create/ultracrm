@@ -21,8 +21,8 @@ import { MAX_AUTOMATION_DEPTH } from "@/lib/events";
 export const sequenceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   isActive: z.boolean().default(true),
-  trigger: z.enum(["DELIVERY_FAILED", "SENT_NO_REPLY", "TAG_ADDED", "CONTACT_CREATED", "LEAD_STATUS_CHANGED", "CART_ABANDONED"]),
-  triggerConfig: z.object({ channel: z.enum(["whatsapp", "sms", "email"]).optional(), tagName: z.string().trim().max(40).optional(), campaignId: z.string().optional(), marketingOnly: z.boolean().default(true), leadStatus: z.enum(["new", "contacted", "qualified", "unqualified", "converted"]).optional(), contactSource: z.string().trim().max(100).optional() }).default({ marketingOnly: true }),
+  trigger: z.enum(["DELIVERY_FAILED", "SENT_NO_REPLY", "TAG_ADDED", "CONTACT_CREATED", "LEAD_STATUS_CHANGED", "CART_ABANDONED", "CALL_UNANSWERED"]),
+  triggerConfig: z.object({ channel: z.enum(["whatsapp", "sms", "email"]).optional(), tagName: z.string().trim().max(40).optional(), campaignId: z.string().optional(), marketingOnly: z.boolean().default(true), leadStatus: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost"]).optional(), minAttempts: z.number().int().min(1).max(50).optional(), contactSource: z.string().trim().max(100).optional() }).default({ marketingOnly: true }),
   stopOn: z.array(z.enum(["reply", "conversion", "unsubscribe"])).default(["reply", "conversion", "unsubscribe"]),
   steps: z.array(z.object({
     /** Journey actions. wait = a pause node; condition = continue only if the condition holds, otherwise exit. */
@@ -32,7 +32,7 @@ export const sequenceSchema = z.object({
     waitMinutes: z.number().int().min(0).max(43200),
     variables: z.record(z.string(), z.string().max(1024)).default({}),
     /** Branching by reply / customer data: every listed condition must hold or the step is skipped. */
-    condition: z.object({ requireNoReply: z.boolean().default(true), tagName: z.string().trim().max(40).optional(), notTagName: z.string().trim().max(40).optional(), leadStatus: z.enum(["new", "contacted", "qualified", "unqualified", "converted", "none"]).optional(), customKey: z.string().trim().max(100).optional(), customValue: z.string().max(200).optional(), consent: z.enum(["OPTED_IN"]).optional() }).default({ requireNoReply: true }),
+    condition: z.object({ requireNoReply: z.boolean().default(true), tagName: z.string().trim().max(40).optional(), notTagName: z.string().trim().max(40).optional(), leadStatus: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost", "none"]).optional(), customKey: z.string().trim().max(100).optional(), customValue: z.string().max(200).optional(), consent: z.enum(["OPTED_IN"]).optional() }).default({ requireNoReply: true }),
     /** task steps: title and due offset for the contact owner / creator. */
     taskTitle: z.string().trim().max(200).optional(),
     taskDueHours: z.number().int().min(1).max(720).optional(),
@@ -112,7 +112,7 @@ export async function startSequencesForEvent(event: DomainEvent) {
   if (!event.contactId) return { started: 0 };
   if (event.depth >= MAX_AUTOMATION_DEPTH) return { started: 0, skipped: "automation depth" };
   const p = (event.payload ?? {}) as Record<string, unknown>;
-  const trigger = event.type === "cart.abandoned" ? "CART_ABANDONED" : event.type === "message.delivery_failed" ? "DELIVERY_FAILED" : event.type === "message.sent" ? "SENT_NO_REPLY" : event.type === "contact.tag_added" ? "TAG_ADDED" : event.type === "contact.created" ? "CONTACT_CREATED" : event.type === "lead.status_changed" ? "LEAD_STATUS_CHANGED" : null;
+  const trigger = event.type === "call.outcome_saved" ? "CALL_UNANSWERED" : event.type === "cart.abandoned" ? "CART_ABANDONED" : event.type === "message.delivery_failed" ? "DELIVERY_FAILED" : event.type === "message.sent" ? "SENT_NO_REPLY" : event.type === "contact.tag_added" ? "TAG_ADDED" : event.type === "contact.created" ? "CONTACT_CREATED" : event.type === "lead.status_changed" ? "LEAD_STATUS_CHANGED" : null;
   if (!trigger) return { started: 0 };
   const sequences = await prisma.marketingSequence.findMany({ where: { businessId: event.businessId, trigger, isActive: true }, include: { steps: { orderBy: { position: "asc" } } } });
   if (!sequences.length) return { started: 0 };
@@ -124,16 +124,23 @@ export async function startSequencesForEvent(event: DomainEvent) {
   if (typeof p.sequenceRunId === "string") return { started: 0, skipped: "sequence-originated message" };
   let started = 0;
   for (const seq of sequences) {
-    const cfg = (seq.triggerConfig ?? {}) as { channel?: string; tagName?: string; campaignId?: string; marketingOnly?: boolean; leadStatus?: string; contactSource?: string };
+    const cfg = (seq.triggerConfig ?? {}) as { channel?: string; tagName?: string; campaignId?: string; marketingOnly?: boolean; leadStatus?: string; contactSource?: string; minAttempts?: number };
     if (trigger === "DELIVERY_FAILED" || trigger === "SENT_NO_REPLY") {
       if (cfg.channel && p.channel !== cfg.channel) continue;
       if (cfg.campaignId && p.campaignId !== cfg.campaignId) continue;
       if (cfg.marketingOnly !== false && p.category !== "marketing") continue;
     } else if (trigger === "TAG_ADDED") { if (cfg.tagName && p.tagName !== cfg.tagName) continue; }
     else if (trigger === "LEAD_STATUS_CHANGED") { if (cfg.leadStatus && p.to !== cfg.leadStatus) continue; }
+    else if (trigger === "CALL_UNANSWERED") {
+      // Only unanswered outcomes; the lead must have reached N unanswered attempts (counted from the call log).
+      if (!["no_answer", "busy"].includes(String(p.outcome))) continue;
+      const unanswered = await prisma.call.count({ where: { businessId: event.businessId, contactId: event.contactId, direction: "outbound", leadDialedAt: { not: null }, answeredAt: null } });
+      if (unanswered < (cfg.minAttempts ?? 1)) continue;
+    }
     else if (trigger === "CONTACT_CREATED") { if (cfg.contactSource && p.source !== cfg.contactSource) continue; }
     if (!seq.steps.length) continue;
-    const sourceKey = typeof p.cartId === "string" ? `cart:${p.cartId}` : typeof p.messageId === "string" ? `message:${p.messageId}` : `event:${event.id}`;
+    // "no answer after N attempts" fires once per contact (not on every later unanswered call).
+    const sourceKey = trigger === "CALL_UNANSWERED" ? `unanswered:${event.contactId}` : typeof p.cartId === "string" ? `cart:${p.cartId}` : typeof p.messageId === "string" ? `message:${p.messageId}` : `event:${event.id}`;
     try {
       await prisma.sequenceRun.create({ data: { businessId: event.businessId, sequenceId: seq.id, contactId: event.contactId, sourceKey, nextAt: new Date(Date.now() + seq.steps[0].waitMinutes * 60_000), log: [] } });
       started++;

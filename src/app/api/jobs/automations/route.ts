@@ -6,6 +6,7 @@ import { processDueSequenceRuns } from "@/server/services/sequence-service";
 import { processAbandonedCarts } from "@/server/services/cart-service";
 import { processAssistantSchedules } from "@/server/assistant/scheduler";
 import { applyPendingTransfers } from "@/lib/crm/lead-ops";
+import { runOpsTick } from "@/server/ops/engine";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -22,7 +23,9 @@ export async function GET(request: Request) {
       const d = await processAssistantSchedules(businessId).catch((e: Error) => { console.error("assistant scheduler failed", { businessId, error: e.message }); return { processed: 0 }; });
       // Safety net for transfers that waited for a call that has since been documented.
       const t = await applyPendingTransfers(businessId).catch((e: Error) => { console.error("pending transfers failed", { businessId, error: e.message }); return 0; });
-      return { processed: a.processed + b.processed + c.processed + d.processed + t };
+      // "מנהל AI": expiries, momentum detection, unattended "available now", at-risk allocations. Never blocks the rest.
+      const o = await runOpsTick(businessId).catch((e: Error) => { console.error("ai ops tick failed", { businessId, error: e.message }); return { processed: 0 }; });
+      return { processed: a.processed + b.processed + c.processed + d.processed + t + o.processed };
     }));
   } catch (err) {
     return handleError(err);

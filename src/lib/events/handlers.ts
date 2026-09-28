@@ -30,24 +30,31 @@ async function touchContact(contactId: string | null, at: Date) {
  * owner is the manager/owner who imported it goes through the distribution policy (round robin / least loaded, cap per
  * agent) and only falls back to that manager when the policy finds nobody.
  */
-async function pickOwner(businessId: string, preferredUserId?: string | null) {
+async function pickOwner(businessId: string, preferredUserId?: string | null, source: string | null = null): Promise<{ owner: string | null; overrideId: string | null; listId: string | null }> {
   let fallback: string | null = null;
   if (preferredUserId) {
     const u = await prisma.user.findFirst({ where: { id: preferredUserId, businessId, isActive: true }, select: { id: true, role: true } });
-    if (u?.role === "agent") return u.id;
+    if (u?.role === "agent") return { owner: u.id, overrideId: null, listId: null };
     if (u) fallback = u.id;
   }
   // Distribution policy (settings → leads → חלוקת לידים): least-loaded (default) or round robin, optional cap per agent.
   // Read pointer → choose → write pointer runs under a per-business advisory lock, so two workers handling two new
   // leads at the same moment cannot both hand them to the same agent.
+  // "מנהל AI" load rule (auto): agents with too many untouched leads are skipped until the load drops.
+  const { ruleFor } = await import("@/server/ops/rules");
+  const loadCap = await ruleFor(businessId, "load_cap").catch(() => null);
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lead-assign:${businessId}`}))`;
     const biz = await tx.business.findUnique({ where: { id: businessId }, select: { settings: true } });
     const policy = mergeSettings(biz?.settings).leadAssignment;
     const agents = await tx.user.findMany({ where: { businessId, isActive: true, role: { in: ["agent", "manager"] }, ...(policy.agentIds.length ? { id: { in: policy.agentIds } } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, _count: { select: { ownedLeads: { where: { status: { in: ["new", "contacted", "qualified"] } } } } } } });
     const capOf = (id: string) => (policy.perAgentMax ?? {})[id] ?? policy.maxOpenLeadsPerAgent;
-    const eligible = agents.filter((a) => { const cap = capOf(a.id); return !cap || a._count.ownedLeads < cap; });
-    if (eligible.length === 0) return agents.length === 0 ? fallback : null; // no pool at all → the importing manager; pool exhausted (cap) → unassigned
+    let eligible = agents.filter((a) => { const cap = capOf(a.id); return !cap || a._count.ownedLeads < cap; });
+    if (loadCap?.autonomy === "auto" && eligible.length) {
+      const untouched = await tx.lead.groupBy({ by: ["ownerUserId"], where: { businessId, ownerUserId: { in: eligible.map((a) => a.id) }, status: "new", NOT: { contact: { calls: { some: { direction: "outbound", leadDialedAt: { not: null } } } } } }, _count: { _all: true } });
+      eligible = eligible.filter((a) => (untouched.find((x) => x.ownerUserId === a.id)?._count._all ?? 0) < loadCap.config.maxUntouched);
+    }
+    if (eligible.length === 0) return { owner: agents.length === 0 ? fallback : null, overrideId: null, listId: null }; // no pool at all → the importing manager; pool exhausted (cap / load) → unassigned
     let chosen: string;
     if (policy.mode === "round_robin") {
       const idx = eligible.findIndex((a) => a.id === policy.lastAssignedUserId);
@@ -55,11 +62,16 @@ async function pickOwner(businessId: string, preferredUserId?: string | null) {
     } else {
       chosen = [...eligible].sort((a, b) => a._count.ownedLeads - b._count.ownedLeads)[0].id;
     }
+    // A temporary allocation approved by the manager (and the agent) – see src/server/ops/engine.ts.
+    const { applyAllocation } = await import("@/server/ops/engine");
+    const alloc = await applyAllocation(tx, businessId, eligible.map((a) => a.id), chosen, source);
+    if (!alloc.movePointer) return { owner: alloc.owner, overrideId: alloc.overrideId, listId: alloc.listId };
+    chosen = alloc.owner;
     // Persist the pointer (raw JSON merge – no other settings touched).
     const raw = (biz?.settings && typeof biz.settings === "object" ? biz.settings : {}) as Record<string, unknown>;
     const la = (raw.leadAssignment && typeof raw.leadAssignment === "object" ? raw.leadAssignment : {}) as Record<string, unknown>;
     await tx.business.update({ where: { id: businessId }, data: { settings: { ...raw, leadAssignment: { ...la, lastAssignedUserId: chosen } } as Prisma.InputJsonValue } });
-    return chosen;
+    return { owner: chosen, overrideId: alloc.overrideId, listId: alloc.listId };
   });
 }
 
@@ -72,8 +84,15 @@ const leadCreated: EventHandler = {
     if (!lead) return { skipped: "lead missing" };
     let ownerUserId = lead.ownerUserId;
     if (!ownerUserId) {
-      ownerUserId = await pickOwner(event.businessId, lead.contact.ownerUserId);
-      if (ownerUserId) await prisma.lead.updateMany({ where: { id: lead.id, ownerUserId: null }, data: { ownerUserId } });
+      const picked = await pickOwner(event.businessId, lead.contact.ownerUserId, lead.source);
+      ownerUserId = picked.owner;
+      const set = ownerUserId ? await prisma.lead.updateMany({ where: { id: lead.id, ownerUserId: null }, data: { ownerUserId } }) : { count: 0 };
+      if (set.count && picked.overrideId) {
+        // Allocated through an approved "מנהל AI" allocation: traceable per lead, queued in its campaign if set.
+        const ov = await prisma.assignmentOverride.findUnique({ where: { id: picked.overrideId }, select: { recommendationId: true } });
+        await audit(event.businessId, null, "lead", lead.id, "ai_ops.lead_allocated", { recommendationId: ov?.recommendationId ?? null, overrideId: picked.overrideId, agentId: ownerUserId });
+        if (picked.listId) await prisma.listLead.createMany({ data: [{ businessId: event.businessId, listId: picked.listId, contactId: lead.contactId, preferredUserId: ownerUserId }], skipDuplicates: true });
+      }
     }
     if (!ownerUserId) return { skipped: "no active agent" };
     // Personal WhatsApp to the agent (if enabled) – never blocks the assignment / task.

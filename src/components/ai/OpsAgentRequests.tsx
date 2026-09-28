@@ -6,7 +6,7 @@ import { api } from "@/lib/client/api";
 import { Button } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
 
-interface Req { id: string; code: string; managerApprovedCount: number | null; expiresAt: string; text: string }
+interface Req { proposal?: { leadId?: string }; id: string; kind: string; code: string; managerApprovedCount: number | null; expiresAt: string; text: string }
 
 /**
  * Agent: an extra-leads request approved by the manager, waiting for MY answer (the in-app twin of the WhatsApp
@@ -23,6 +23,7 @@ export function OpsAgentRequests() {
     try {
       const res = await api.post<{ status: string; message?: string; reason?: string }>(`/api/ops/my-requests/${r.id}`, body);
       if (res.status === "unclear") toast.message(res.message ?? t("לא הובן", "Not understood"));
+      else if (r.kind === "followup_checkin") toast.message(res.message ?? t("התשובה נשמרה", "Reply saved"));
       else toast.success(res.status === "active" || res.status === "completed" ? t("ההקצאה הופעלה", "Assignment activated") : res.status === "rejected" ? t("נרשם – לא יוקצו לידים", "Noted – no leads will be assigned") : res.reason ?? res.status);
       await load();
     } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
@@ -32,9 +33,10 @@ export function OpsAgentRequests() {
       {items.map((r) => { const max = r.managerApprovedCount ?? 1; const v = n[r.id] ?? max; return (
         <div key={r.id} className="flex flex-wrap items-center gap-2" data-testid={`ops-agent-request-${r.id}`}>
           <span className="whitespace-pre-line flex-1 min-w-[260px]">{r.text.split("\n\nאפשר לענות")[0]}</span>
+          {r.kind === "lead_response_sla" ? <span className="text-xs text-warn">{t("יעד הזמן עבר. ההתראה תיסגר כשיירשם ניסיון חיוג בפועל.", "The response deadline has passed. The alert closes once an actual dial attempt is recorded.")} {r.proposal?.leadId && <a className="underline" href={`/leads?leadId=${encodeURIComponent(r.proposal.leadId)}`}>{t("פתח ליד", "Open lead")}</a>}</span> : r.kind === "followup_checkin" ? <><Button size="sm" loading={busy} onClick={() => answer(r, { text: "connect" })} data-testid="followup-connect">{t("אני מתחבר לחייגן", "I'm connecting to the dialer")}</Button><Button size="sm" variant="secondary" loading={busy} onClick={() => answer(r, { text: "transfer" })} data-testid="followup-transfer">{t("בקש להעביר לנציג אחר", "Ask to transfer to another agent")}</Button></> : <>
           <Button size="sm" loading={busy} onClick={() => answer(r, { answer: "yes" })} data-testid="ops-agent-yes">{t(`כן, אפשר להעביר ${max}`, `Yes, send ${max}`)}</Button>
           <span className="flex items-center gap-1 text-xs">{t("או", "or")}<input type="number" min={1} max={max} value={v} onChange={(e) => setN({ ...n, [r.id]: Math.max(1, Math.min(max, Number(e.target.value))) })} className="h-8 w-14 rounded border border-line bg-bg px-1" /><Button size="sm" variant="secondary" loading={busy} onClick={() => answer(r, { answer: "yes", count: v })} data-testid="ops-agent-partial">{t(`רק ${v}`, `Only ${v}`)}</Button></span>
-          <Button size="sm" variant="ghost" loading={busy} onClick={() => answer(r, { answer: "no" })} data-testid="ops-agent-no">{t("לא היום", "Not today")}</Button>
+          <Button size="sm" variant="ghost" loading={busy} onClick={() => answer(r, { answer: "no" })} data-testid="ops-agent-no">{t("לא היום", "Not today")}</Button></>}
         </div>); })}
     </div>
   );

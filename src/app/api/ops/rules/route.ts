@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { ALLOWED_AUTONOMY, RULE_KINDS, parseConfig, type RuleKind } from "@/server/ops/rules";
 
-export const ruleSchema = z.object({
+const ruleSchema = z.object({
   kind: z.enum(RULE_KINDS), name: z.string().trim().min(2).max(120), config: z.record(z.string(), z.unknown()).default({}),
   autonomy: z.enum(["insight", "recommend", "auto"]), priority: z.number().int().min(1).max(1000).default(100),
   sourceText: z.string().max(1000).nullable().optional(), expiresAt: z.string().datetime().nullable().optional(),

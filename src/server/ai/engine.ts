@@ -6,6 +6,7 @@
  * was done only when its row status is "executed" – the UI renders the real status from the row, not from the text.
  * Without ANTHROPIC_API_KEY the deterministic read-only router answers questions and actions show "נדרש חיבור".
  */
+import { knownProductGap, UNSUPPORTED_REQUEST } from "./capabilities";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
@@ -44,6 +45,8 @@ function systemPrompt(ctx: AiCtx, businessName: string) {
     "6. אוטומציות: בנה רק מהקטלוג (create_automation). הן נשמרות כטיוטה ומופעלות רק אחרי אישור הגרסה המדויקת. הפעלה חלה על אירועים חדשים בלבד; להחלה על קיימים יש apply_automation_to_existing עם ספירה ואישור נפרד.",
     "7. ידע על העסק (search_knowledge) אינו נתון חי. מחיר/מלאי/סטטוס הזמנה – רק מכלי נתונים חיים, ואם אין – אמור שאין.",
     "8. אבחון תקלות: הסתמך רק על ממצאי כלי האבחון; הבחן בין 'לא הופעל', 'דולג', 'השליחה נכשלה', 'נשלח ולא נמסר'. אל תשלח מחדש הודעות שהוחמצו בלי הצעה נפרדת עם ספירה ואישור. תקלה בקוד – דווח שנאסף תיעוד, לא מתקנים קוד מהצ׳אט.",
+    "יכולת חסרה: אם אין כלי/כלל שמממש את כל הבקשה, השתמש ב-report_unsupported_request. אמור במפורש שהיכולת אינה נתמכת ודורשת פיתוח, ומה חסר. אל תבטיח לבצע בעתיד ואל תפעיל תחליף חלקי בלי אישור. חוסר הרשאה, חיבור חסר, פרטים חסרים או תקלה הם מצבים נפרדים ואינם בהכרח צורך בפיתוח.",
+    "חוקים קבועים: השתמש ב-prepare_ops_rule. הפירוש אינו הפעלה; הפנה לאישור במנהל AI > כללים. רק סוגי החוקים הנתמכים ניתנים להפעלה.",
     "9. אין לך גישה למפתחות או סודות ואין להציג אותם. אין לשלוח הודעות ללקוחות מהצ׳אט.",
     ctx.channel === "whatsapp" ? "10. הערוץ הוא WhatsApp: תשובות קצרות, בלי טבלאות. פעולה שממתינה לאישור – המשתמש מאשר בהודעה 'אשר' או מבטל ב'בטל'." : "",
   ].filter(Boolean).join("\n");
@@ -66,6 +69,16 @@ async function llmTurn(ctx: AiCtx, businessName: string, history: Array<{ role: 
     const res = await fetch(`${base}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 1200, temperature: 0, system: systemPrompt(ctx, businessName), tools, messages }), signal: AbortSignal.timeout(40_000) });
     if (!res.ok) throw new Error(`anthropic ${res.status}`);
     const data = (await res.json()) as { content: Block[]; stop_reason: string };
+    // Check the whole batch before executing anything: an unsupported composite request
+    // must not execute a supported fragment merely because it appeared first.
+    const unsupported = data.content.find(b => b.type === "tool_use" && b.name === "report_unsupported_request");
+    if (unsupported) {
+      const r = await runAiTool(ctx, "report_unsupported_request", unsupported.input ?? {});
+      log.push({ name: "report_unsupported_request", ok: r.ok, ms: r.ms });
+      const missing = r.ok ? (r.result as { missingCapability: string }).missingCapability : "נדרש פירוט של היכולת החסרה";
+      const prefix = actionIds.length ? "לא ניתן להשלים את הבקשה: חסרה יכולת שדורשת פיתוח. פעולות משלבים קודמים מוצגות בנפרד עם מצבן בפועל." : UNSUPPORTED_REQUEST;
+      return { text: prefix + " חסר: " + missing + ".", log, actionIds, model };
+    }
     if (data.stop_reason !== "tool_use") return { text: data.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n").trim() || "לא הצלחתי לנסח תשובה.", log, actionIds, model };
     messages.push({ role: "assistant", content: data.content as unknown as Array<Record<string, unknown>> });
     const results: Array<Record<string, unknown>> = [];
@@ -120,7 +133,14 @@ export async function chatTurn(user: SessionUser, input: { conversationId?: stri
   const history = (await prisma.aiMessage.findMany({ where: { conversationId: conv.id, createdAt: { gte: new Date(Date.now() - 12 * 3600_000) } }, orderBy: { createdAt: "desc" }, take: 12, select: { role: true, text: true } })).reverse();
   await prisma.aiMessage.create({ data: { businessId: user.businessId, conversationId: conv.id, role: "user", text } });
   let out: { text: string; log: ToolLog[]; actionIds: string[]; model: string };
-  if (aiConnected()) {
+  const gap = knownProductGap(text);
+  if (gap) out = { text: UNSUPPORTED_REQUEST + " חסר: " + gap + ".", log: [], actionIds: [], model: "capability-check" };
+  else if (/(כלל|חוק|כשמגיע|כשיש|אם .*נציג)/.test(text) && /(פולואפ|פולו.?אפ|חיוג ראשון|זמן תגובה)/.test(text)) {
+    const r = await runAiTool(ctx, "prepare_ops_rule", { text });
+    const v = r.result as { kind?: string; summary?: { action: string }; note?: string } | undefined;
+    out = { text: r.ok ? (v?.kind ? "החוק הזה נתמך. " + v.summary?.action + "\nהחוק עדיין לא נשמר או הופעל. פתח עוזר AI → מנהל AI → כללים, הדבק את ההוראה ובדוק את הפירוש לפני ההפעלה." : v?.note ?? UNSUPPORTED_REQUEST) : r.error ?? "לא ניתן לבדוק את הכלל כרגע", log: [{ name: "prepare_ops_rule", ok: r.ok, ms: r.ms }], actionIds: [], model: "capability-check" };
+  }
+  else if (aiConnected()) {
     try { out = await llmTurn(ctx, businessName, history, text); }
     catch (e) { const r = await rulesTurn(ctx, text); out = { ...r, text: `${r.text}\n\n(מענה במצב בסיסי – שירות ה-AI לא זמין כרגע)`, model: `rules (llm failed: ${(e as Error).message.slice(0, 60)})` }; }
   } else out = await rulesTurn(ctx, text);

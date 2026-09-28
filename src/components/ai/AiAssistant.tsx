@@ -34,16 +34,16 @@ export function AiAssistant() {
   if (!o) return <div className="py-16 flex justify-center"><Spinner /></div>;
   const tabs = TABS.filter((x) => !("manage" in x) || o.canManage);
   return (
-    <div className="p-4 md:p-6 space-y-4 max-w-6xl mx-auto" data-testid="ai-page">
+    <div className="p-4 md:p-6 space-y-4 min-w-0 max-w-6xl mx-auto" data-testid="ai-page">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold">{t("עוזר AI", "AI Assistant")}</h1>
         {o.connected ? <Badge tone="good" dot>{t("מחובר למודל", "Model connected")}</Badge> : <Badge tone="warn" dot data-testid="ai-needs-connection">{t("נדרש חיבור", "Connection required")}</Badge>}
         {o.pendingApprovals > 0 && <Badge tone="info">{t(`${o.pendingApprovals} ממתינות לאישור`, `${o.pendingApprovals} awaiting approval`)}</Badge>}
         <Badge tone={o.service.enabled ? "accent" : "neutral"}>{t("נציג שירות ב-WhatsApp:", "WhatsApp service agent:")} {o.service.enabled ? t("פעיל", "On") : t("כבוי", "Off")}</Badge>
       </div>
-      {!o.connected && <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm" data-testid="ai-connection-banner">{t("נדרש חיבור: לא הוגדר מפתח למודל AI בשרת (ANTHROPIC_API_KEY). במצב הזה אפשר לשאול שאלות על נתונים (מצב בסיסי), לנהל ידע ואוטומציות קיימות – אך העוזר לא יבצע פעולות מהצ׳אט ונציג השירות לא יענה ללקוחות.", "Connection required: no AI model key is configured on the server (ANTHROPIC_API_KEY). In this mode you can ask questions about your data (basic mode) and manage knowledge and existing automations – but the assistant won't perform actions from the chat and the service agent won't reply to customers.")}</div>}
-      <div className="flex gap-1 border-b border-line" role="tablist">
-        {tabs.map((x) => <button key={x.key} role="tab" aria-selected={tab === x.key} data-testid={`ai-tab-${x.key}`} onClick={() => router.replace(`/ai?tab=${x.key}`)} className={cx("px-4 h-10 text-sm -mb-px border-b-2", tab === x.key ? "border-accent text-accent font-semibold" : "border-transparent text-muted hover:text-text")}>{t(x.label, x.en)}</button>)}
+      {!o.connected && <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm" data-testid="ai-connection-banner">{t("המודל אינו מחובר. שאלות על נתונים זמינות במצב בסיסי, וכללים נתמכים במנהל AI פועלים לפי ההגדרות שאישרת. פענוח חופשי של בקשות ופעולות מהצ׳אט דורש חיבור למודל; נציג השירות לא יענה ללקוחות עד לחיבור.", "The AI model is not connected. Questions about your data work in basic mode, and supported AI Manager rules run according to the settings you approved. Free-text understanding of requests and actions from the chat require a model connection; the service agent will not reply to customers until it is connected.")}</div>}
+      <div className="flex gap-1 overflow-x-auto border-b border-line" role="tablist">
+        {tabs.map((x) => <button key={x.key} role="tab" aria-selected={tab === x.key} data-testid={`ai-tab-${x.key}`} onClick={() => router.replace(`/ai?tab=${x.key}`)} className={cx("px-4 h-10 shrink-0 whitespace-nowrap text-sm -mb-px border-b-2", tab === x.key ? "border-accent text-accent font-semibold" : "border-transparent text-muted hover:text-text")}>{t(x.label, x.en)}</button>)}
       </div>
       {tab === "chat" && (o.canChat ? <ChatTab overview={o} /> : <ErrorState message={t("העוזר זמין כרגע למנהלים בלבד", "The assistant is currently available to managers only")} />)}
       {tab === "ops" && o.canManage && <OpsTab />}

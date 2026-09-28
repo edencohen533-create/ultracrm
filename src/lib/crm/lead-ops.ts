@@ -45,6 +45,16 @@ const ATTEMPT_LEAD = Prisma.sql`JOIN LATERAL (
 // A lead reopened on transfer starts counting again (the earlier calls stay in its history).
 const IS_ATTEMPT = Prisma.sql`cl.direction = 'outbound' AND cl.lead_dialed_at IS NOT NULL AND (x.reopened_at IS NULL OR cl.created_at >= x.reopened_at)`;
 
+/** First actual dial attributed by the same CRM-lead policy as the dial-attempt counters. */
+export async function firstDialForLead(businessId: string, leadId: string, contactId: string, since: Date, now: Date) {
+  const rows = await prisma.$queryRaw<Array<{ at: Date }>>(Prisma.sql`
+    SELECT cl.lead_dialed_at AS at FROM ${T("calls")} cl ${ATTEMPT_LEAD}
+    WHERE cl.business_id = ${businessId} AND cl.contact_id = ${contactId} AND x.lead_id = ${leadId}
+      AND ${IS_ATTEMPT} AND cl.lead_dialed_at >= ${since} AND cl.lead_dialed_at <= ${now}
+    ORDER BY cl.lead_dialed_at ASC LIMIT 1`);
+  return rows[0]?.at ?? null;
+}
+
 export async function attemptStats(businessId: string, contactIds: string[], db: Db = prisma) {
   const out = new Map<string, { count: number; lastAt: Date | null; answered: number }>();
   if (!contactIds.length) return out;
@@ -247,13 +257,14 @@ async function activeCallOn(db: Db, businessId: string, contactId: string) {
 /** Closed statuses that restart as "new" when the lead is transferred to another agent. */
 export const REOPEN_ON_TRANSFER: string[] = ["lost"];
 
-async function applyTransfer(businessId: string, leadId: string, toUserId: string, actorId: string, onlyIfPending = false) {
+async function applyTransfer(businessId: string, leadId: string, toUserId: string, actorId: string, onlyIfPending = false, guard?: (tx: Db) => Promise<boolean>) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${"lead-followup:" + leadId}, 0))`);
     const lead = await tx.lead.findFirst({ where: { id: leadId, businessId }, include: { contact: { select: { id: true, ownerUserId: true } } } });
     if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
     // A deferred transfer is applied by whoever gets the lock first (outcome save or the cron safety net) – exactly once.
     if (onlyIfPending && lead.pendingTransferToUserId !== toUserId) return null;
+    if (guard && !(await guard(tx))) return null;
     const from = lead.ownerUserId;
     // A lost lead handed to another agent starts over for them as a new lead; everything before stays in its history.
     const reopen = REOPEN_ON_TRANSFER.includes(lead.status);
@@ -442,4 +453,35 @@ export async function leadHistory(businessId: string, leadIds: string[]): Promis
     else if (r.action === "lead.attempts_exhausted") out.push({ ...base, kind: "exhausted", title: "הועבר ללא רלוונטי – מכסת ניסיונות ללא מענה", body: null });
   }
   return out;
+}
+
+/** Rule-only transfer. The recommendation and original follow-up are checked under the SAME lock as a
+ * reschedule/manual transfer; completing the request and moving the lead commit together. No deferred transfer.
+ */
+export async function transferFollowupFromRule(actor: SessionUser, toUserId: string, rec: import("@/generated/prisma/client").OpsRecommendation, automatic = false, via = automatic ? "rule" : "app") {
+  if (actor.businessId !== rec.businessId || !(await canTransferLeads(actor))) throw new ApiError("אין הרשאה להעברה", 403, "forbidden");
+  const ids = await visibleUserIds(actor);
+  if (ids && (!ids.includes(toUserId) || !rec.agentId || !ids.includes(rec.agentId))) throw new ApiError("אין הרשאה לנציג", 403, "forbidden");
+  const p = rec.proposal as { taskId: string; leadId: string; dueAt: string; version: number; ruleVersion: string };
+  const result = await applyTransfer(rec.businessId, p.leadId, toUserId, actor.id, false, async tx => {
+    const now = new Date(), since = new Date(now.getTime() - 180000);
+    const rule = await tx.opsRule.findFirst({ where: { id: rec.ruleId!, businessId: rec.businessId, status: "active", updatedAt: new Date(p.ruleVersion), OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } });
+    if (!rule) return false;
+    if (automatic) {
+      const policy = await tx.opsRule.findFirst({ where: { businessId: rec.businessId, kind: "approval_policy", status: "active", OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }, orderBy: [{ priority: "asc" }, { createdAt: "asc" }] });
+      const actions = (policy?.config as { actions?: string[] } | null)?.actions;
+      if (rule.autonomy !== "auto" || !actions || actions.includes("ownership")) return false;
+    }
+    const task = await tx.task.findFirst({ where: { id: p.taskId, businessId: rec.businessId, leadId: p.leadId, userId: rec.agentId!, status: "open", dueAt: new Date(p.dueAt), version: p.version, lead: { ownerUserId: rec.agentId, pendingTransferToUserId: null, status: { in: [...OPEN_LEAD_STATUSES] } } } });
+    const contact = task ? await tx.contact.findFirst({ where: { id: task.contactId, businessId: rec.businessId } }) : null;
+    if (!contact || contact.isBlocked || contact.consentStatus === "OPTED_OUT" || await tx.dncEntry.findFirst({ where: { businessId: rec.businessId, phoneE164: contact.phoneE164 } })) return false;
+    if (!task || task.dueAt > now || await activeCallOn(tx, rec.businessId, task.contactId)) return false;
+    if (await tx.dialerSession.findFirst({ where: { businessId: rec.businessId, userId: rec.agentId!, status: "active", lastHeartbeatAt: { gte: since } } })) return false;
+    if (!(await tx.dialerSession.findFirst({ where: { businessId: rec.businessId, userId: toUserId, status: "active", lastHeartbeatAt: { gte: since }, user: { isActive: true } } }))) return false;
+    if (await tx.call.findFirst({ where: { businessId: rec.businessId, userId: toUserId, endedAt: null } })) return false;
+    const changed = await tx.opsRecommendation.updateMany({ where: { id: rec.id, businessId: rec.businessId, kind: "followup_checkin", status: "pending_manager", expiresAt: { gt: now }, agentReply: "transfer" }, data: { status: "completed", decidedById: actor.id, decidedAt: now, decidedVia: via, result: { transferred: true, toAgentId: toUserId, reason: "הפולואפ הועבר לאחר בקשת הנציג" } } });
+    return changed.count === 1;
+  });
+  if (result) await audit(rec.businessId, actor.id, "ai_ops", rec.id, "ai_ops.transfer_executed", { leadId: p.leadId, to: toUserId, source: "followup_checkin", via });
+  return Boolean(result);
 }

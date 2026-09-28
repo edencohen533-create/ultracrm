@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookieName, getSessionFromRequest } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { assertSameOriginMutation } from "@/lib/request-origin";
+import { handleError } from "@/lib/response";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  try { assertSameOriginMutation(req); } catch (err) { return handleError(err); }
   const session = await getSessionFromRequest(req);
   if (session) {
     const live = await prisma.call.findUnique({ where: { activeForUser: session.id }, select: { id: true } });

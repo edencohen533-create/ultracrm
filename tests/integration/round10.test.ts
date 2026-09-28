@@ -11,6 +11,12 @@ import { withBusiness } from "@/lib/tenant";
 import { signSession, type SessionUser } from "@/lib/auth";
 import { createBusiness, destroyBusiness } from "./helpers";
 
+// Keep sample-media downloads local to this fixture; safe-url-security tests exercise real transport guards.
+vi.mock("@/lib/safe-url", async (original) => {
+  const actual = await original<typeof import("@/lib/safe-url")>();
+  return { ...actual, safeFetch: (url: string, init?: RequestInit) => { actual.assertPublicHttpsUrl(url); return fetch(url, { ...init, redirect: "manual" }); } };
+});
+
 process.env.ENCRYPTION_KEY ||= crypto.randomBytes(32).toString("hex");
 const { listLeads } = await import("@/lib/crm/pipeline");
 const { transferLeads } = await import("@/lib/crm/lead-ops");

@@ -15,10 +15,10 @@ npm run build
 
 Seed the demo owner, manager and agents using the repository seed. Configure mock telephony, numbers and messaging providers; use an isolated local database, local application URL and local test secrets. For coach testing set `COACH_PROVIDER=mock`, `COACH_ALLOW_MOCK_IN_PRODUCTION=1` and `COACH_ALLOW_SIMULATION_INPUT=1` in the local environment. Do not enable those simulation switches in a live deployment.
 
-Start the production server, then run sequentially (they mutate the same demo business):
+Set a unique local password on the seeded QA accounts and supply the same value as `QA_PASSWORD`; the public seed password is rejected in production builds. Start the production server, then run sequentially (they mutate the same demo business):
 
 ```sh
-node scripts/qa-functional-core.mjs http://localhost:3109
+node --import dotenv/config scripts/qa-functional-core.mjs http://localhost:3109
 node --import dotenv/config scripts/qa-campaigns.mjs http://localhost:3109
 node --import dotenv/config scripts/qa-coach.mjs http://localhost:3109
 ```

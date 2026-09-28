@@ -14,13 +14,14 @@ npm run dev                    # http://localhost:3000
 
 בדיקות: `npm run typecheck` · `npm run lint` · `npm test` (יחידה) · `npm run test:integration` (מול המסד ב-.env, יוצר עסקי `test-*` ומוחק אותם) · `BASE_URL=http://localhost:3000 node scripts/qa-browser.mjs` (Playwright, מול שרת רץ).
 
+התחברות ללא סיסמה הוסרה. בבניית ייצור סיסמת הדמו המתועדת אינה מתקבלת; יש להכין חשבון בעלים אישי עם סיסמה ייחודית לפני פריסה. שינוי זה אינו מבטל סשנים קיימים — השבתת חשבונות דמו מחייבת גם הגדלת `sessionVersion`.
+
 ## משתני סביבה
 
 | משתנה | משותף / ייעודי | תיאור |
 |---|---|---|
 | `DATABASE_URL` | משותף | חיבור pooled ל-PostgreSQL של UltraCRM (**מסד נפרד**; לא `dialer`, לא `solinainbox`). |
 | `DATABASE_URL_UNPOOLED` | משותף | חיבור ישיר ל-`prisma migrate`. |
-| `QUICK_LOGIN_EMAIL` + `NEXT_PUBLIC_QUICK_LOGIN=1` | **זמני** | כפתור "כניסה מהירה" במסך הכניסה שמחבר את החשבון הנתון ללא סיסמה. **כבוי בייצור** מאז 25.9.2026 לבקשת המשתמש (המשתנים נמחקו); להפעלה זמנית מגדירים את שניהם ופורסים מחדש. **כל מי שמגיע לכתובת נכנס כבעלים כשזה פעיל.** |
 | `DB_RLS` | משותף | ברירת מחדל פעיל. `off` מכבה את מעטפת ה-RLS (רק למסד שהמיגרציה `20260925090000_rls_session_version` טרם הוחלה עליו). |
 | `DATABASE_POOL_MAX` | משותף | חיבורים לכל instance (ברירת מחדל 10). |
 | `JWT_SECRET` | משותף | חתימת עוגיית הסשן (`ultracrm_session`, HS256, 12 שעות). |

@@ -24,6 +24,12 @@ const MODES: Array<[Proposal["mode"], string, string, string, string]> = [
 ];
 const STAGES = [["pending_manager", "אישור מנהל", "Manager approval"], ["pending_agent", "אישור נציג", "Agent approval"], ["active", "הקצאה פעילה", "Active allocation"], ["completed", "הושלם", "Completed"]] as const;
 const TERMINAL: Record<string, "bad" | "warn" | "neutral"> = { rejected: "bad", expired: "warn", cancelled: "neutral", failed: "bad", needs_adjustment: "warn" };
+/** Rule kinds and capacity notes arrive from the server in Hebrew; English versions keyed by kind / text. */
+const KIND_EN: Record<string, string> = { momentum: "Agent on a roll", extra_leads_policy: "Extra leads with agent approval", availability: "Availability from WhatsApp", load_cap: "Stop assigning under load", approval_policy: "Approval policy" };
+const reasonEn = (r: string) => r === "שעות העבודה של הנציג לא הוגדרו – לא מניחים שהוא פנוי" ? "Agent working hours not set – not assuming availability"
+  : r === "הנציג לא במשמרת היום" ? "Agent is not on shift today"
+  : r === "אין מספיק נתונים על קצב הטיפול של הנציג" ? "Not enough data on the agent's handling pace"
+  : r.replace(/^המשמרת הסתיימה \((.*)\)$/, "Shift ended ($1)");
 const STATE: Record<string, [string, "good" | "warn" | "bad" | "neutral" | "info", string]> = { momentum: ["במומנטום", "good", "On a roll"], insufficient_data: ["אין מספיק נתונים", "neutral", "Not enough data"], normal: ["רגיל", "neutral", "Normal"], overloaded: ["עמוס", "warn", "Overloaded"], not_available: ["לא בחלוקה", "neutral", "Not in distribution"] };
 const ACTION: Record<string, [string, string]> = { "ai_ops.detected": ["זוהה", "Detected"], "ai_ops.manager_approved": ["מנהל אישר", "Manager approved"], "ai_ops.rejected": ["נדחה", "Rejected"], "ai_ops.agent_approved": ["נציג אישר", "Agent approved"], "ai_ops.agent_declined": ["נציג סירב", "Agent declined"], "ai_ops.allocation_started": ["הקצאה הופעלה", "Allocation started"], "ai_ops.allocation_ended": ["הקצאה הסתיימה – חזרה לחלוקה הרגילה", "Allocation ended – back to normal distribution"], "ai_ops.lead_allocated": ["ליד הוקצה במסגרת אישור", "Lead allocated under approval"], "ai_ops.expired": ["פג תוקף", "Expired"], "ai_ops.cancelled": ["בוטל", "Cancelled"], "ai_ops.failed": ["לא בוצע", "Not executed"], "ai_ops.needs_adjustment": ["נדרשת התאמה", "Needs adjustment"], "ai_ops.transfer_executed": ["ליד הועבר לנציג זמין", "Lead transferred to an available agent"], "ai_ops.settings_updated": ["הגדרות עודכנו", "Settings updated"], "ops_rule.created": ["כלל נוצר", "Rule created"], "ops_rule.updated": ["כלל עודכן", "Rule updated"], "ops_rule.deleted": ["כלל נמחק", "Rule deleted"] };
 const DAYS: Array<[string, string]> = [["א", "S"], ["ב", "M"], ["ג", "T"], ["ד", "W"], ["ה", "T"], ["ו", "F"], ["ש", "S"]];
@@ -58,7 +64,7 @@ function Evidence({ r }: { r: Rec }) {
         <tr><td className="text-muted">{t("קצב טיפול", "Handling pace")}</td><td>{c.pacePerHour ?? "—"} {t("לידים לשעה", "leads/hour")} {c.paceBasis ? `(${c.paceBasis})` : ""}</td></tr>
         <tr><td className="text-muted">{t("עומס קיים", "Current load")}</td><td>{t(`${c.untouched} שטרם טופלו + ${c.followUpsBeforeEnd} פולואפים = ${c.load}`, `${c.untouched} untouched + ${c.followUpsBeforeEnd} follow-ups = ${c.load}`)}</td></tr>
         <tr><td className="text-muted">{t("הערכת קיבולת", "Capacity estimate")}</td><td>{t(`${c.capacityLeads} לידים עד סוף המשמרת → פנוי ל-`, `${c.capacityLeads} leads until end of shift → room for `)}<b>{c.spare}</b></td></tr>
-        {c.reason && <tr><td className="text-muted">{t("הערה", "Note")}</td><td>{c.reason}</td></tr>}
+        {c.reason && <tr><td className="text-muted">{t("הערה", "Note")}</td><td>{t(c.reason, reasonEn(c.reason))}</td></tr>}
       </tbody></table>}
       {r.evidence.interpretation && <p className="md:col-span-2 text-muted italic">{t("פרשנות המודל:", "Model interpretation:")} {r.evidence.interpretation}</p>}
     </div>
@@ -211,14 +217,14 @@ export function OpsTab() {
               <td>{a.today.wins}/{a.today.handled} ({pct(a.today.rate)})</td><td>{pct(a.baseline.rate)} <span className="text-muted">({a.baseline.handled})</span></td><td>{pct(a.peers.rate)}</td>
               <td><Badge tone={tone}>{t(l, lEn)}</Badge>{a.assessment?.reasons.length ? <div className="text-muted mt-0.5">{a.assessment.reasons.join(" · ")}</div> : null}</td>
               <td><ShiftCell a={a} onSaved={load} /></td>
-              <td>{a.capacity.known ? t(`${a.capacity.spare} (${a.capacity.untouched} ממתינים)`, `${a.capacity.spare} (${a.capacity.untouched} waiting)`) : <span className="text-warn">{a.capacity.reason}</span>}</td></tr>); })}</tbody></table></div>
+              <td>{a.capacity.known ? t(`${a.capacity.spare} (${a.capacity.untouched} ממתינים)`, `${a.capacity.spare} (${a.capacity.untouched} waiting)`) : <span className="text-warn">{a.capacity.reason && t(a.capacity.reason, reasonEn(a.capacity.reason))}</span>}</td></tr>); })}</tbody></table></div>
       </Panel>
 
       <Panel title={t("כללים", "Rules")}>
         <RuleBuilder onSaved={load} />
         <div className="mt-3 space-y-2" data-testid="ops-rules">{d.rules.map((r) => (
           <div key={r.id} className={cx("rounded-md border border-line p-2 text-xs space-y-1", r.status !== "active" && "opacity-60")} data-testid={`ops-rule-${r.kind}`}>
-            <div className="flex flex-wrap items-center gap-2"><Badge tone="neutral">{r.kindLabel}</Badge><b className="text-sm">{r.name}</b>{r.status !== "active" && <Badge tone="warn">{t("מושהה", "Paused")}</Badge>}{r.expired && <Badge tone="warn">{t("פג תוקף", "Expired")}</Badge>}<span className="text-muted">{t("עדיפות", "Priority")} {r.priority}</span>
+            <div className="flex flex-wrap items-center gap-2"><Badge tone="neutral">{t(r.kindLabel, KIND_EN[r.kind] ?? r.kindLabel)}</Badge><b className="text-sm">{r.name}</b>{r.status !== "active" && <Badge tone="warn">{t("מושהה", "Paused")}</Badge>}{r.expired && <Badge tone="warn">{t("פג תוקף", "Expired")}</Badge>}<span className="text-muted">{t("עדיפות", "Priority")} {r.priority}</span>
               <select className="ms-auto h-7 rounded border border-line bg-bg px-1" value={r.autonomy} onChange={(e) => rule(r.id, { autonomy: e.target.value })}>{r.allowedAutonomy.map((x) => <option key={x} value={x}>{t(({ insight: "תובנה בלבד", recommend: "המלצה באישור", auto: "ביצוע אוטומטי בגבולות" } as Record<string, string>)[x], ({ insight: "Insight only", recommend: "Recommend with approval", auto: "Automatic within limits" } as Record<string, string>)[x])}</option>)}</select>
               <Button size="sm" variant="ghost" onClick={() => setEditRule(editRule === r.id ? null : r.id)}>{t("עריכה", "Edit")}</Button>
               <Button size="sm" variant="ghost" onClick={() => rule(r.id, { status: r.status === "active" ? "paused" : "active" })} data-testid={`ops-rule-toggle-${r.kind}`}>{r.status === "active" ? t("השהה", "Pause") : t("הפעל", "Activate")}</Button>

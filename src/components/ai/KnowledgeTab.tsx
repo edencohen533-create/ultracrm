@@ -9,13 +9,15 @@ import { useT } from "@/components/i18n/LangProvider";
 interface Source { id: string; title: string; category: string; kind: "text" | "file" | "link" | "conversation"; audience: "internal" | "customer"; status: "draft" | "approved" | "retired"; learnMode?: "info" | "style" | "both" | null; sourceConversationId?: string | null; conflicts?: Array<{ title: string; detail: string }> | null; proposedBy?: string | null; approvedBy?: string | null; processing: "pending" | "processing" | "ready" | "failed"; error: string | null; url: string | null; fileName: string | null; chunks: number; updatedAt: string }
 const PROC: Record<Source["processing"], { l: string; en: string; t: "neutral" | "warn" | "good" | "bad" }> = { pending: { l: "ממתין", en: "Pending", t: "neutral" }, processing: { l: "בעיבוד", en: "Processing", t: "warn" }, ready: { l: "מוכן", en: "Ready", t: "good" }, failed: { l: "נכשל", en: "Failed", t: "bad" } };
 const KIND: Record<Source["kind"], [string, string]> = { text: ["טקסט", "Text"], file: ["קובץ", "File"], link: ["קישור", "Link"], conversation: ["נלמד משיחה", "Learned from conversation"] };
+/** Category names come from the API in Hebrew; English by key. */
+const CAT_EN: Record<string, string> = { business: "Business details & hours", products: "Products & services", faq: "FAQ", policy: "Shipping, cancellations & returns", guidelines: "Service & sales guidelines", docs: "Documents & sources" };
 const MODE: Record<string, [string, string]> = { info: ["מידע ותהליך", "Info & process"], style: ["סגנון בלבד", "Style only"], both: ["מידע + סגנון", "Info + style"] };
 
 export function KnowledgeTab() {
   const t = useT();
   const [items, setItems] = useState<Source[] | null>(null); const [cats, setCats] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false); const [testOpen, setTestOpen] = useState(false); const [filter, setFilter] = useState("");
-  const load = useCallback(async () => { try { const r = await api.get<{ items: Source[]; categories: Record<string, string> }>("/api/ai/knowledge"); setItems(r.items); setCats(r.categories); } catch (e) { toast.error((e as Error).message); } }, []);
+  const load = useCallback(async () => { try { const r = await api.get<{ items: Source[]; categories: Record<string, string> }>("/api/ai/knowledge"); setItems(r.items); setCats(Object.fromEntries(Object.entries(r.categories).map(([k, v]) => [k, t(v, CAT_EN[k] ?? v)]))); } catch (e) { toast.error((e as Error).message); } }, [t]);
   useEffect(() => { void load(); }, [load]);
   async function patch(s: Source, body: Record<string, unknown>) { try { await api.patch(`/api/ai/knowledge/${s.id}`, body); await load(); } catch (e) { toast.error((e as Error).message); } }
   async function remove(s: Source) { if (!confirm(t(`למחוק את "${s.title}"? הוא יוסר מיד מהתשובות.`, `Delete "${s.title}"? It will be removed from answers immediately.`))) return; try { await api.delete(`/api/ai/knowledge/${s.id}`); await load(); } catch (e) { toast.error((e as Error).message); } }

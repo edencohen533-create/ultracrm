@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Badge, Button, Panel, Spinner } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
-import { ACCESS_STATUS_LABEL, MODULE_LABEL, MODULES, SOURCE_LABEL, type ModuleKey } from "@/lib/access/catalog";
+import { ACCESS_STATUS_LABEL, MODULE_LABEL, MODULES, QUOTA_LABEL, SOURCE_LABEL, type ModuleKey, type QuotaMetric } from "@/lib/access/catalog";
 
 interface Ent { planName: string | null; planVersion: number | null; accessStatus: string; accessUntil: string | null; billingStatus: string; suspended: boolean; modules: Record<ModuleKey, { included: boolean; seats: number | null; sources: Array<{ type: string; expiresAt: string | null }> }> }
 interface Data { entitlement: Ent; seats: Record<ModuleKey, { included: boolean; seats: number | null; used: number; free: number | null }>; usage: Record<string, { used: number; limit: number | null; label: string }> }
@@ -47,7 +47,7 @@ export function PlanOverview() {
       </Panel>
       <Panel title={t("שימוש ומכסות (החודש)", "Usage and quotas (this month)")}>
         <ul className="text-sm space-y-2">{Object.entries(d.usage).map(([k, u]) => { const pct = u.limit ? Math.min(100, Math.round((u.used / u.limit) * 100)) : null; return (
-          <li key={k}><div className="flex justify-between"><span>{u.label}</span><span className="tabular text-muted">{u.used}{u.limit !== null ? ` / ${u.limit}` : t(" (ללא הגבלה)", " (unlimited)")}</span></div>{pct !== null && <div className="h-1.5 bg-panel-2 rounded mt-1"><div className={pct > 90 ? "h-full bg-bad rounded" : "h-full bg-accent rounded"} style={{ width: `${pct}%` }} /></div>}</li>); })}</ul>
+          <li key={k}><div className="flex justify-between"><span>{QUOTA_LABEL[k as QuotaMetric] ?? u.label}</span><span className="tabular text-muted">{u.used}{u.limit !== null ? ` / ${u.limit}` : t(" (ללא הגבלה)", " (unlimited)")}</span></div>{pct !== null && <div className="h-1.5 bg-panel-2 rounded mt-1"><div className={pct > 90 ? "h-full bg-bad rounded" : "h-full bg-accent rounded"} style={{ width: `${pct}%` }} /></div>}</li>); })}</ul>
       </Panel>
     </div>
   );

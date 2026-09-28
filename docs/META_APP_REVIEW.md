@@ -2,6 +2,15 @@
 
 Everything the product needs for review is built and deployed. This file covers what to fill in at Meta, and the exact videos and texts to submit.
 
+## Status (checked 2026-09-28 against production)
+Ready: public pages, privacy policy matches the two permissions, signed webhook, Embedded Signup flow, template/quality webhooks, in-app deletion, English UI, app icon.
+Still open (not code):
+- [ ] `META_APP_ID`, `META_APP_SECRET`, `META_ES_CONFIG_ID` missing in Vercel – until set, `/api/meta/data-deletion` and `/api/meta/deauthorize` answer 503 and Embedded Signup cannot open.
+- [ ] `PLATFORM_LEGAL_NAME`, `PLATFORM_ADDRESS`, `SUPPORT_EMAIL` missing – the public pages name only "UltraCRM", with no legal entity or contact email. Must match the verified business.
+- [ ] Own domain (recommended): Business Verification expects the business's own website; `*.vercel.app` cannot be domain-verified.
+- [ ] No reviewer account in production yet (step 4).
+- [ ] No real WhatsApp test yet (step 5).
+
 ## 0. Before you start (outside the code)
 1. **Business Verification** (Business Settings → Security Center). Required before Advanced Access.
 2. **Two-factor authentication** on the Facebook account that admins the app.
@@ -20,7 +29,7 @@ Everything the product needs for review is built and deployed. This file covers 
 ## 1. App Dashboard settings
 | Field | Value |
 |---|---|
-| App icon | 1024×1024, the "U" mark |
+| App icon | `docs/meta/app-icon-1024.png` (1024×1024, the "U" mark) |
 | Category | Business and pages / Messaging |
 | App domains | your domain (e.g. `ultracrm-eta.vercel.app`) |
 | Privacy Policy URL | `https://<domain>/privacy` |

@@ -8,11 +8,13 @@ import { ChatTab } from "./ChatTab";
 import { KnowledgeTab } from "./KnowledgeTab";
 import { AutomationsTab } from "./AutomationsTab";
 import { SettingsTab } from "./SettingsTab";
+import { OpsTab } from "./OpsTab";
 
 export interface Overview { connected: boolean; businessName: string; role: "owner" | "manager" | "agent"; canManage: boolean; canChat: boolean; pendingApprovals: number; service: { enabled: boolean; channels: Array<{ id: string; label: string; status: string; active: boolean; simulated: boolean; enabled: boolean }> }; knowledge: Record<string, number> }
 
 const TABS = [
   { key: "chat", label: "צ׳אט" },
+  { key: "ops", label: "מנהל AI", manage: true },
   { key: "knowledge", label: "ידע על העסק", manage: true },
   { key: "automations", label: "אוטומציות", manage: true },
   { key: "settings", label: "הגדרות והרשאות", manage: true },
@@ -42,6 +44,7 @@ export function AiAssistant() {
         {tabs.map((t) => <button key={t.key} role="tab" aria-selected={tab === t.key} data-testid={`ai-tab-${t.key}`} onClick={() => router.replace(`/ai?tab=${t.key}`)} className={cx("px-4 h-10 text-sm -mb-px border-b-2", tab === t.key ? "border-accent text-accent font-semibold" : "border-transparent text-muted hover:text-text")}>{t.label}</button>)}
       </div>
       {tab === "chat" && (o.canChat ? <ChatTab overview={o} /> : <ErrorState message="העוזר זמין כרגע למנהלים בלבד" />)}
+      {tab === "ops" && o.canManage && <OpsTab />}
       {tab === "knowledge" && o.canManage && <KnowledgeTab />}
       {tab === "automations" && o.canManage && <AutomationsTab />}
       {tab === "settings" && o.canManage && <SettingsTab overview={o} onSaved={load} />}

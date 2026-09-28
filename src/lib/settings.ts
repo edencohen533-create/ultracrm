@@ -87,6 +87,18 @@ export interface PermissionSettings {
 }
 export const DEFAULT_PERMISSIONS: PermissionSettings = { managerScope: "business", agentSeesUnassigned: false, agentTransfer: "none", agentTransferUserIds: [] };
 
+/** "מנהל AI" (src/server/ops). Shifts are set by the manager; an agent without a known shift is never assumed free. */
+export interface AiOpsSettings {
+  enabled: boolean;
+  /** Recommendations / requests to linked managers and agents on WhatsApp. */
+  notifyWhatsApp: boolean;
+  /** Anti-flood: at most this many manager alerts per day, and one per agent+kind per cooldown. */
+  maxAlertsPerDay: number;
+  cooldownMinutes: number;
+  shifts: Record<string, { start: string; end: string; days: number[] }>;
+}
+export const DEFAULT_AI_OPS: AiOpsSettings = { enabled: true, notifyWhatsApp: true, maxAlertsPerDay: 8, cooldownMinutes: 120, shifts: {} };
+
 export interface BusinessSettings {
   permissions: PermissionSettings;
   assistant: AssistantSettings;
@@ -104,6 +116,7 @@ export interface BusinessSettings {
   whatsappAvailability: boolean;
   /** How long a "זמינה עכשיו" priority lasts before it expires (minutes). */
   availableNowTtlMinutes: number;
+  aiOps: AiOpsSettings;
   retryIntervalMinutes: number;
   busyRetryMinutes: number;
   /** Technical failure (provider error before ringing): re-queue after this many minutes, attempt not counted. */
@@ -179,6 +192,7 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   unansweredToIrrelevant: 0,
   whatsappAvailability: true,
   availableNowTtlMinutes: 15,
+  aiOps: DEFAULT_AI_OPS,
   retryIntervalMinutes: 120,
   busyRetryMinutes: 15,
   technicalFailureRetryMinutes: 10,
@@ -221,6 +235,7 @@ export function mergeSettings(raw: unknown): BusinessSettings {
       unsubscribe: { ...DEFAULT_SETTINGS.automations.unsubscribe, ...(r.automations?.unsubscribe ?? {}) },
       followUpTaskOutcomes: Array.isArray(r.automations?.followUpTaskOutcomes) ? r.automations!.followUpTaskOutcomes : DEFAULT_SETTINGS.automations.followUpTaskOutcomes,
     },
+    aiOps: { ...DEFAULT_AI_OPS, ...(r.aiOps ?? {}), shifts: r.aiOps?.shifts && typeof r.aiOps.shifts === "object" ? r.aiOps.shifts : {} },
     allowedCountries: Array.isArray(r.allowedCountries) ? r.allowedCountries : DEFAULT_SETTINGS.allowedCountries,
   };
 }

@@ -71,6 +71,19 @@ export async function handleAssistantInbound(input: { businessId: string; phoneE
     await reply(fresh.pendingReport, { intent: "pending_report" });
     if (/^(דוח|הדוח|כן|שלח|תשלח|report|ok|אוקיי)[\s!.?]*$/i.test(input.text.trim())) return true;
   }
+  // "מנהל AI": approvals by a manager ("אשר 4821") and an agent's answer to an extra-leads request. Only verified,
+  // linked users of THIS business get here – a customer's message can never reach these commands.
+  {
+    const u = await prisma.user.findFirst({ where: { id: link.userId, businessId: input.businessId, isActive: true }, select: { id: true, role: true, teamId: true, email: true, fullName: true, accountId: true } });
+    if (u) {
+      const { opsWhatsAppReply } = await import("@/server/ops/engine");
+      const { withBusiness } = await import("@/lib/tenant");
+      const me: SessionUser = { id: u.id, accountId: u.accountId, businessId: input.businessId, email: u.email, fullName: u.fullName, role: u.role, teamId: u.teamId };
+      const ops = await withBusiness(input.businessId, () => opsWhatsAppReply(me, input.text), me).catch((e: Error) => { console.error("ops reply failed", e.message); return null; });
+      if (ops === "") return true;
+      if (ops) { await reply(ops, { intent: "ai_ops" }); return true; }
+    }
+  }
   const history = (await prisma.assistantMessage.findMany({ where: { linkId: link.id, createdAt: { gte: new Date(Date.now() - 6 * 3600_000) } }, orderBy: { createdAt: "desc" }, take: 11, select: { direction: true, text: true } })).reverse().slice(0, -1);
   if (aiConnected()) {
     // Same engine as the in-app "עוזר AI" (actions with approval, automations, diagnosis) – permissions re-resolved per turn.

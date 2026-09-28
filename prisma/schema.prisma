@@ -413,6 +413,9 @@ model Business {
   aiIncidents            AiIncident[]
   entitlementGrants      EntitlementGrant[]
   callbackSignals        CallbackSignal[]
+  opsRules               OpsRule[]
+  opsRecommendations     OpsRecommendation[]
+  assignmentOverrides    AssignmentOverride[]
   dialerQueueAlerts      DialerQueueAlert[]
   knowledgeSources       KnowledgeSource[]
 
@@ -2627,4 +2630,106 @@ model CallbackSignal {
   @@index([businessId, userId, status])
   @@index([contactId, status])
   @@map("callback_signals")
+}
+
+/// "מנהל AI": a structured operating rule (from free text or a form). kind = momentum | availability | load_cap |
+/// approval_policy. `config` holds the thresholds/actions for that kind (see src/server/ops/rules.ts).
+model OpsRule {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  kind        String
+  name        String
+  /// The manager's original wording (null when created from the form / as a default).
+  sourceText  String?   @map("source_text")
+  config      Json
+  /// insight | recommend | auto
+  autonomy    String    @default("recommend")
+  /// active | paused
+  status      String    @default("active")
+  /// Lower = stronger (checked first).
+  priority    Int       @default(100)
+  expiresAt   DateTime? @map("expires_at")
+  createdById String?   @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, kind, status])
+  @@map("ops_rules")
+}
+
+/// A detected opportunity + proposed action waiting for (or past) a manager decision. `evidence` = the numbers
+/// computed in code; `proposal` = the exact change. Decided once (atomic status change), linked by `code` on WhatsApp.
+model OpsRecommendation {
+  id           String    @id @default(cuid())
+  businessId   String    @map("business_id")
+  ruleId       String?   @map("rule_id")
+  /// momentum | availability_unattended
+  kind         String
+  agentId      String?   @map("agent_id")
+  /// pending_manager → pending_agent → active → completed · rejected | expired | cancelled | failed |
+  /// needs_adjustment (capacity changed while waiting) · insight (information only, nothing to approve)
+  status       String    @default("pending_manager")
+  /// Short code for WhatsApp approval ("אשר 4821").
+  code         String
+  title        String
+  explanation  String
+  evidence     Json
+  proposal     Json
+  dedupeKey    String    @map("dedupe_key")
+  expiresAt    DateTime  @map("expires_at")
+  decidedById  String?   @map("decided_by_id")
+  decidedAt    DateTime? @map("decided_at")
+  decidedVia   String?   @map("decided_via")
+  result       Json?
+  notifiedAt   DateTime? @map("notified_at")
+  /// Leads: recommended → approved by the manager (ceiling) → confirmed by the agent (≤ manager) → actually assigned.
+  requestedCount       Int?      @map("requested_count")
+  managerApprovedCount Int?      @map("manager_approved_count")
+  agentApprovedCount   Int?      @map("agent_approved_count")
+  agentAskedAt         DateTime? @map("agent_asked_at")
+  agentRespondedAt     DateTime? @map("agent_responded_at")
+  agentReply           String?   @map("agent_reply")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, dedupeKey])
+  @@index([businessId, status, createdAt])
+  @@map("ops_recommendations")
+}
+
+/// Temporary weighted lead distribution on top of the regular policy: `sharePct` of the next `leadLimit` new leads
+/// (optionally only of `source`) go to `agentId`, until `expiresAt`. Ends by itself → the regular policy is back.
+model AssignmentOverride {
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  recommendationId String?   @unique @map("recommendation_id")
+  agentId          String    @map("agent_id")
+  /// share = sharePct of the next leadLimit leads · extra = leadLimit leads ON TOP of the regular share (taken from
+  /// other agents' turns) · priority = the next leadLimit leads go to the agent
+  mode             String    @default("share")
+  sharePct         Int       @map("share_pct")
+  /// Assigned leads are also queued in this campaign (dial list) – the agent must have access to it.
+  listId           String?   @map("list_id")
+  leadLimit        Int       @map("lead_limit")
+  source           String?
+  /// Leads distributed while active (all agents) / of them to agentId.
+  total            Int       @default(0)
+  assigned         Int       @default(0)
+  /// active | completed | expired | cancelled
+  status           String    @default("active")
+  expiresAt        DateTime  @map("expires_at")
+  endedAt          DateTime? @map("ended_at")
+  endedReason      String?   @map("ended_reason")
+  createdById      String?   @map("created_by_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@map("assignment_overrides")
 }

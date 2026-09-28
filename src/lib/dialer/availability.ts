@@ -126,6 +126,10 @@ async function claimableFor(businessId: string, userId: string, contactId: strin
 export async function handleInboundAvailability(businessId: string, messageId: string) {
   const settings = await getBusinessSettings(businessId);
   if (!settings.whatsappAvailability) return { skipped: "disabled" };
+  // "מנהל AI" rule: a paused availability rule turns the feature off; an active one sets the priority's validity.
+  const { ruleFor } = await import("@/server/ops/rules");
+  const availRule = await ruleFor(businessId, "availability").catch(() => null);
+  if (!availRule && (await prisma.opsRule.count({ where: { businessId, kind: "availability", status: "paused" } }))) return { skipped: "rule paused" };
   const { businessCanUse } = await import("@/lib/access/engine");
   if (!(await businessCanUse(businessId, "telephony")) || !(await businessCanUse(businessId, "whatsapp"))) return { skipped: "module not in the package" };
   if (await prisma.callbackSignal.findUnique({ where: { messageId }, select: { id: true } })) return { skipped: "duplicate" };
@@ -159,8 +163,12 @@ export async function handleInboundAvailability(businessId: string, messageId: s
   }
   if (c.intent === "do_not_call") {
     await cancelActive("הלקוח/ה ביקש/ה שלא להתקשר");
-    await set({ status: "needs_review", reason: "ביקש/ה שלא להתקשר – יש לבדוק ולהוסיף לרשימת אל-תתקשר אם צריך" });
-    return { intent: c.intent };
+    // The existing removal mechanism: an immediate block of all contact (incl. the dialer's DNC), held for a manager's
+    // review (the same path as other ambiguous removal requests) – never an automatic permanent decision.
+    const { suppressContact } = await import("@/lib/suppression");
+    await suppressContact({ businessId, contactId, scope: "all", source: "whatsapp", reason: `בקשה בוואטסאפ: "${msg.body.slice(0, 60)}"`, evidence: msg.id, pendingReview: true });
+    await set({ status: "ineligible", reason: "ביקש/ה שלא להתקשר – נחסם (הסרה ממתינה לאישור מנהל)" });
+    return { intent: c.intent, suppressed: true };
   }
   if (c.confidence < AUTO_CONFIDENCE || c.intent === "unclear" || (c.intent === "later" && !c.when)) {
     await set({ status: "needs_review", reason: c.intent === "later" ? `ביקש/ה שיחה במועד לא מפורש${c.whenText ? ` ("${c.whenText}")` : ""} – יש לאשר מועד` : "לא ברור אם הלקוח/ה זמין/ה – יש לבדוק את ההודעה" });
@@ -187,7 +195,7 @@ export async function handleInboundAvailability(businessId: string, messageId: s
   }
 
   // "now": make the queue rows due, then verify the dialer can really claim it (same filter), then prioritize.
-  const ttl = settings.availableNowTtlMinutes;
+  const ttl = availRule?.config.ttlMinutes ?? settings.availableNowTtlMinutes;
   const already = await prisma.callbackSignal.findFirst({ where: { businessId, contactId, status: "active", expiresAt: { gt: new Date() }, NOT: { id: signal.id } } });
   if (already) { await set({ status: "cancelled", reason: "כבר מתועדף/ת מבקשה קודמת" }); return { intent: c.intent, alreadyActive: already.id }; }
   const moved = await prisma.$transaction(async (tx) => {

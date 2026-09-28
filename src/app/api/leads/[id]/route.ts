@@ -4,7 +4,7 @@ import { withAuth, parseBody } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { LEAD_INCLUDE, leadPatchSchema, updateLead } from "@/lib/crm/pipeline";
-import { attemptStats, followUpsFor } from "@/lib/crm/lead-ops";
+import { attemptStats, followUpsFor, leadHistory } from "@/lib/crm/lead-ops";
 import { getBusinessSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,8 @@ export const GET = withAuth(async ({ user, params }) => {
   const transferTo = lead.pendingTransferToUserId ? await prisma.user.findUnique({ where: { id: lead.pendingTransferToUserId }, select: { fullName: true } }) : null;
   const attemptLimit = (await (await import("@/lib/dialer/exhaustion")).effectiveUnansweredLimit(user.businessId, lead.ownerUserId, null)).limit || null;
   const hot = await prisma.callbackSignal.findFirst({ where: { businessId: user.businessId, contactId: lead.contactId, status: "active", expiresAt: { gt: new Date() } }, orderBy: { requestedAt: "asc" }, select: { id: true, requestedAt: true, text: true } });
-  return ok({ ...lead, availableNow: hot ? { signalId: hot.id, at: hot.requestedAt, text: hot.text } : null, attempts: a?.count ?? 0, attemptLimit, lastAttemptAt: a?.lastAt ?? null, timezone: settings.timezone,
+  const history = await leadHistory(user.businessId, [lead.id]);
+  return ok({ ...lead, history, availableNow: hot ? { signalId: hot.id, at: hot.requestedAt, text: hot.text } : null, attempts: a?.count ?? 0, attemptLimit, lastAttemptAt: a?.lastAt ?? null, timezone: settings.timezone,
     followUp: fu ? { taskId: fu.taskId, dueAt: fu.dueAt, note: fu.note, overdue: fu.dueAt.getTime() < Date.now() } : null,
     needsSchedule: lead.status === "follow_up" && !fu,
     pendingTransfer: lead.pendingTransferToUserId ? { to: transferTo?.fullName ?? null, at: lead.pendingTransferAt } : null });

@@ -684,6 +684,8 @@ model Lead {
   closedAt    DateTime?  @map("closed_at")
   /// Why the lead was closed automatically (e.g. "מוצו ניסיונות חיוג").
   closeReason String?    @map("close_reason")
+  /// A closed lead handed to another agent restarts as "new": attempts are counted from here (earlier ones stay in history).
+  reopenedAt  DateTime?  @map("reopened_at")
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 

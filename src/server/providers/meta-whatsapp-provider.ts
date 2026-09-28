@@ -254,6 +254,9 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
         const value = change.value;
         if (change.field !== "messages" || value.metadata?.phone_number_id !== this.config.phoneNumberId) continue;
         for (const message of value.messages ?? []) {
+          // The CRM is keyed by phone. A message without one (BSUID-only sender) is acknowledged but not stored,
+          // so the rest of the batch is still processed and Meta does not retry the whole webhook.
+          if (!message.from) { console.warn("whatsapp inbound without phone number (BSUID only)", { credentialId: this.credentialId, userId: message.from_user_id ?? null }); continue; }
           const contactName = value.contacts?.find((contact) => contact.wa_id === message.from)?.profile?.name;
           await this.handleInboundMessage(message, contactName);
         }

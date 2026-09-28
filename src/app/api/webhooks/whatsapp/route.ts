@@ -50,7 +50,11 @@ export async function POST(request: Request) {
   try { payload = JSON.parse(rawBody); }
   catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const parsed = metaWebhookSchema.safeParse(payload);
-  if (!parsed.success) return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 });
+  if (!parsed.success) {
+    // A payload Meta really signed but we cannot read is acknowledged – a 4xx makes Meta retry it for days.
+    if (verifyAppSignature(request.headers, rawBody)) { console.warn("whatsapp webhook: signed payload failed validation", parsed.error.issues.slice(0, 3)); return NextResponse.json({ ok: true, ignored: true }); }
+    return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 });
+  }
 
   const changes = parsed.data.entry.flatMap((entry) => entry.changes.map((change) => ({ entryId: entry.id, change })));
   const phoneIds = [...new Set(changes.map(({ change }) => change.value.metadata?.phone_number_id).filter((id): id is string => Boolean(id)))];
@@ -74,7 +78,7 @@ export async function POST(request: Request) {
     if (!appSigned && !providers.some(({ credential }) => credential.wabaId === wabaId)) continue;
     if (change.field === "message_template_status_update") { await applyTemplateStatus(wabaId, change.value as never); continue; }
     if (change.field === "phone_number_quality_update") await applyPhoneQuality(wabaId, change.value as never);
-    await applyAccountUpdate(wabaId, change.value.event ?? change.field, { field: change.field, phone: change.value.display_phone_number ?? null, decision: change.value.decision ?? null, currentLimit: change.value.current_limit ?? null });
+    await applyAccountUpdate(wabaId, change.value.event ?? change.field, { field: change.field, phone: change.value.display_phone_number ?? null, decision: change.value.decision ?? null, currentLimit: change.value.current_limit ?? null, banState: change.value.ban_info?.waba_ban_state ?? null });
   }
 
   // Inactive credentials still receive delivery receipts. Phone bindings are globally unique and never transferred automatically.
@@ -87,7 +91,7 @@ export async function POST(request: Request) {
       await prisma.providerCredential.update({ where: { id: credential.id }, data: { lastWebhookAt: new Date() } });
     }); }
     catch (error) {
-      if (error instanceof InvalidWebhookError) return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 });
+      if (error instanceof InvalidWebhookError) { if (appSigned) { console.warn("whatsapp webhook: signed payload rejected", error.message); continue; } return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 }); }
       throw error;
     }
   }

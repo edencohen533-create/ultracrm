@@ -15,7 +15,7 @@ if (!email) { console.error("usage: node scripts/create-reviewer.mjs <email> [--
 const revoke = args.includes("--revoke");
 const slug = args.includes("--business") ? args[args.indexOf("--business") + 1] : null;
 const c = new pg.Client({ connectionString: process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL }); await c.connect();
-const biz = slug ? (await c.query("SELECT id, name FROM businesses WHERE slug = $1", [slug])).rows[0] : (await c.query("SELECT b.id, b.name FROM businesses b JOIN users u ON u.business_id = b.id WHERE lower(u.email) = 'owner@demo.local' LIMIT 1")).rows[0];
+const biz = slug ? (await c.query("SELECT id, name FROM businesses WHERE slug = $1", [slug])).rows[0] : (await c.query("SELECT b.id, b.name FROM businesses b JOIN users u ON u.business_id = b.id WHERE lower(u.email) = 'owner@demo.local' AND u.role = 'owner' ORDER BY b.created_at LIMIT 1")).rows[0];
 if (!biz) { console.error("business not found"); process.exit(1); }
 const acc = (await c.query("SELECT id FROM accounts WHERE lower(email) = $1", [email])).rows[0];
 if (revoke) {

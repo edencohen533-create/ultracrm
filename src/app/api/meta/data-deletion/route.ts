@@ -1,3 +1,4 @@
+import { metaAppEnv } from "@/lib/meta/graph";
 import { handleMetaUserRemoval, parseSignedRequest, SignedRequestError } from "@/server/services/meta-deletion-service";
 import { platformIdentity } from "@/lib/platform-identity";
 
@@ -5,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** Meta Data Deletion Request callback: verify signed_request → erase → `{ url, confirmation_code }`. */
 export async function POST(req: Request) {
-  const secret = process.env.META_APP_SECRET;
+  const secret = metaAppEnv().appSecret; // trimmed – same value the webhook signature check uses
   if (!secret) return Response.json({ error: "not configured" }, { status: 503 });
   const form = await req.formData().catch(() => null);
   const sr = form?.get("signed_request");

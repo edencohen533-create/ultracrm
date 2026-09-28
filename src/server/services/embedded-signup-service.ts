@@ -339,7 +339,9 @@ export async function disconnectConnection(user: SessionUser, credentialId: stri
 
 /** Webhook `account_update` for a WABA (e.g. PARTNER_REMOVED / DISABLED_UPDATE) → mark every number of that WABA. */
 export async function applyAccountUpdate(wabaId: string, event: string, detail?: Record<string, unknown>) {
-  const revoke = ["PARTNER_REMOVED", "DISABLED_UPDATE", "ACCOUNT_DELETED", "PARTNER_APP_UNINSTALLED"].includes(event);
+  // DISABLED_UPDATE carries ban_info.waba_ban_state: only an actual DISABLE revokes (not SCHEDULE_FOR_DISABLE / REINSTATE).
+  const banState = typeof detail?.banState === "string" ? detail.banState : null;
+  const revoke = ["PARTNER_REMOVED", "ACCOUNT_DELETED", "PARTNER_APP_UNINSTALLED"].includes(event) || (event === "DISABLED_UPDATE" && (banState === null || banState === "DISABLE"));
   const rows = await db.providerCredential.findMany({ where: { wabaId, provider: "meta_whatsapp_cloud_api" }, select: { id: true, businessId: true } });
   for (const r of rows) {
     if (revoke) await db.providerCredential.update({ where: { id: r.id }, data: { status: "revoked", sendingBlocked: true, lastConnectionError: `Meta: ${event}` } });

@@ -138,6 +138,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* English UI: <html dir="ltr"> (lang cookie) – the body follows it instead of the Hebrew default above. */
+html[dir="ltr"] body {
+  direction: ltr;
+}
+
 /* Phone numbers are always LTR, even inside RTL text. */
 .ltr,
 .phone {

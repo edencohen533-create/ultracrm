@@ -9,7 +9,8 @@ import { toast } from "sonner";
 import { Bot, PhoneCall, BarChart3, FileText, Megaphone, MessageCircle, Settings, ShoppingCart, Star, Users, Zap } from "lucide-react";
 import { useDialer } from "@/components/telephony/DialerProvider";
 import { Badge, cx } from "@/components/ui";
-import { PRESENCE_LABEL } from "@/lib/client/format";
+// Rendered on the server too: bi() maps are Hebrew there, so the sidebar uses t() pairs to avoid a hydration mismatch.
+const PRESENCE_PAIR: Record<string, [string, string]> = { offline: ["מנותק", "Offline"], available: ["זמין", "Available"], in_call: ["בשיחה", "In call"], wrap_up: ["בתיעוד", "Wrap-up"], paused: ["מושהה", "Paused"] };
 import { api } from "@/lib/client/api";
 import type { ModuleKey } from "@/lib/modules";
 import type { EffectiveModule } from "@/lib/access/engine";
@@ -112,7 +113,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
             <p className="text-sm font-medium truncate">{user.fullName}</p>
             <p className="text-[11px] text-muted">{role === "owner" ? t("בעלים", "Owner") : role === "manager" ? t("מנהל", "Manager") : t("נציג", "Agent")}</p>
           </div>
-          {access.telephony?.state === "active" && <Badge tone={presenceTone} dot>{PRESENCE_LABEL[presence]}</Badge>}
+          {access.telephony?.state === "active" && <Badge tone={presenceTone} dot>{t(...(PRESENCE_PAIR[presence] ?? [presence, presence]))}</Badge>}
         </div>
         {access.telephony?.state === "active" && (
           <div className="flex items-center justify-between text-[11px] px-1">

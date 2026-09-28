@@ -11,6 +11,15 @@ Still open (not code):
 - [ ] No reviewer account in production yet (step 4).
 - [ ] No real WhatsApp test yet (step 5).
 
+## Meta requirements check (web research, 2026-09-28)
+- **Access Verification** is no longer required for Tech Providers (Meta changelog, since 2025-10-03). Steps: Business Verification → App Review (two permissions) → webhooks + Embedded Signup.
+- **Embedded Signup v4:** create the Facebook Login for Business configuration with the WhatsApp product selected (that makes it v4). The code sends `extras: { setup: {} }` only; v2/v3 end in October 2026.
+- **Graph API:** v25.0 (`META_GRAPH_VERSION` in production).
+- **Business Verification:** the legal name must match on the documents, Business Manager, the website footer and the privacy policy (`PLATFORM_LEGAL_NAME`). Use an owned domain (a `*.vercel.app` subdomain cannot be DNS-verified) and a contact email on that domain.
+- **Screencasts:** English UI, 1080p, browser width ≤ 1440, one video per permission, show the message arriving in WhatsApp. Record in Chrome (other browsers may block the Facebook popup).
+- **BSUID (usernames, 2026):** an inbound message may arrive without a phone number. Such messages are acknowledged (200) and skipped, since the CRM is phone-based; everything else in the batch is processed.
+- **Limits after approval:** 10 new customers per 7 days until verified + reviewed, then 200.
+
 ## 0. Before you start (outside the code)
 1. **Business Verification** (Business Settings → Security Center). Required before Advanced Access.
 2. **Two-factor authentication** on the Facebook account that admins the app.
@@ -24,7 +33,7 @@ Still open (not code):
    node scripts/create-reviewer.mjs reviewer@<your-domain>
    ```
    After approval: `node scripts/create-reviewer.mjs reviewer@<your-domain> --revoke`.
-5. **Real WhatsApp check:** connect your own WhatsApp Business number once through **Settings → WhatsApp → Connect WhatsApp**, and send a test message. Until now the WhatsApp flows were only verified against the simulator.
+5. **Real WhatsApp check:** connect your own WhatsApp Business number once through **Settings → Connections → Manage WhatsApp connection → Connect WhatsApp** (direct link: `/settings/whatsapp`), and send a test message. Until now the WhatsApp flows were only verified against the simulator.
 
 ## 1. App Dashboard settings
 | Field | Value |
@@ -53,7 +62,7 @@ Requesting permissions you don't use is a common rejection reason.
 Before recording, click **English** (login page, bottom of the side menu). Record the business-facing screens, not the customer's side, except where you show the message arriving on WhatsApp.
 
 **Video A – `whatsapp_business_management`** (about 2 minutes)
-1. Log in as the reviewer. Go to **Settings → WhatsApp**, click **Connect WhatsApp**, complete Embedded Signup (select business, WABA, phone number) and show the connected card with quality rating and messaging limit.
+1. Log in as the reviewer. Go to **Settings → Connections → Manage WhatsApp connection**, click **Connect WhatsApp**, complete Embedded Signup (select business, WABA, phone number) and show the connected card with quality rating and messaging limit.
 2. Side menu → **WhatsApp templates** → **Create template**. Fill in the name, category, language, body with a variable, and a button. Show the preview, then submit.
 3. Show the template in the list as "Pending approval", and after approval (the webhook updates it automatically) as "Active – approved".
 
@@ -63,11 +72,11 @@ Before recording, click **English** (login page, bottom of the side menu). Recor
 3. Outside the 24-hour window, or from the lead card, send an approved template. Show it arriving on the phone and the delivered/read status in UltraCRM.
 
 ## 4. Reviewer instructions (paste into the submission)
-> Login: https://<domain>/login – email/password below. The interface language can be switched with the "English" button on the login page and at the bottom of the side menu. WhatsApp settings: Settings → WhatsApp. Templates: side menu → WhatsApp templates. Inbox: side menu → WhatsApp. Data deletion: Settings → Account and https://<domain>/data-deletion. Support: https://<domain>/support.
+> Login: https://<domain>/login – email/password below. The interface language can be switched with the "English" button on the login page and at the bottom of the side menu. WhatsApp settings: Settings → Connections → Manage WhatsApp connection (https://<domain>/settings/whatsapp). Templates: side menu → WhatsApp templates. Inbox: side menu → WhatsApp. Data deletion: Settings → Account and https://<domain>/data-deletion. Support: https://<domain>/support.
 
 ## 5. What reviewers will find (built)
 - **Public pages:** landing `/`, privacy `/privacy`, terms `/terms`, data deletion `/data-deletion` (with confirmation-code status), support `/support` (contact form stored for the platform team: `/platform` → Support & deletions).
-- **Meta callbacks:** signed data-deletion and deauthorize callbacks. They disconnect and erase the connection's tokens and Meta IDs, and return `{url, confirmation_code}`.
+- **Meta callbacks:** signed data-deletion and deauthorize callbacks. Both disconnect and erase the connection's tokens; data deletion also erases its Meta IDs and returns `{url, confirmation_code}` (a Meta retry gets the same code).
 - **In-app deletion:** "Delete my user" (any user) and "Delete business and all data" (owner). Tokens are erased immediately; everything is purged after 14 days by the daily job and can be cancelled until then.
 - **Embedded Signup:** code exchange → token checks → WABA/phone read → webhook subscription → number registration.
 - **Webhooks:** signature verified. Handles messages, statuses, template status (real time), quality/messaging tier, and account updates.

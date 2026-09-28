@@ -1,10 +1,11 @@
+import { metaAppEnv } from "@/lib/meta/graph";
 import { handleMetaUserRemoval, parseSignedRequest, SignedRequestError } from "@/server/services/meta-deletion-service";
 
 export const dynamic = "force-dynamic";
 
 /** Meta Deauthorize callback: the person removed the app → disconnect their WhatsApp connections. */
 export async function POST(req: Request) {
-  const secret = process.env.META_APP_SECRET;
+  const secret = metaAppEnv().appSecret; // trimmed – same value the webhook signature check uses
   if (!secret) return Response.json({ error: "not configured" }, { status: 503 });
   const form = await req.formData().catch(() => null);
   try {

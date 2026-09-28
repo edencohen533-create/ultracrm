@@ -102,6 +102,26 @@ async function api<T>(t: Translate, url: string, body?: unknown): Promise<T> {
   return (json?.data ?? json) as T;
 }
 
+/** Server signup errors are Hebrew; English by error code. */
+const ES_ERR_EN: Record<string, string> = {
+  signup_not_configured: "Embedded Signup is not configured on the server", signup_in_progress: "Another user in this business already has a connection flow open – wait for it to finish",
+  signup_state_mismatch: "This connection flow does not belong to the current user/business", signup_expired: "The connection flow expired – start again",
+  code_reused: "The authorization code was already used", signup_already_claimed: "The connection is already being processed (double click?) – wait for it to finish",
+  token_exchange_failed: "Exchanging the authorization code with Meta failed (the code is valid for 30 seconds only) – try again", token_invalid: "The token received is not valid",
+  token_app_mismatch: "The token belongs to another app", scopes_missing: "These permissions were not granted", waba_not_granted: "The permission granted does not include the selected WhatsApp account",
+  phone_not_in_waba: "The selected number does not belong to the approved WhatsApp account", phone_bound_elsewhere: "This number is already connected to another business in the system. Disconnect it there first",
+  waba_conflict: "Another WhatsApp account is already connected to this business. Disconnect it before connecting a new one", not_found: "Connection not found",
+  test_recipient_not_allowed: "Test sends are allowed only to test numbers explicitly set on the connection",
+};
+/** Readiness blockers arrive from the server in Hebrew (embedded-signup-service connectionReadiness). */
+const blockerEn = (b: string) => ({
+  "החיבור מנותק": "The connection is disconnected", "ההרשאה בוטלה בצד Meta – נדרש חיבור מחדש": "Permission was revoked at Meta – reconnect required", "תקלה בחיבור": "Connection error",
+  "ההרשאה טרם אומתה מול Meta": "Permission not yet verified with Meta", "האפליקציה אינה רשומה לאירועי ה-WABA (subscribed_apps)": "The app is not subscribed to the WABA's events (subscribed_apps)",
+  "המספר אינו רשום ל-Cloud API (register)": "The number is not registered for the Cloud API (register)",
+  "Meta: בקשת מחיקת נתונים": "Meta: data deletion request", "Meta: האפליקציה הוסרה על ידי המשתמש": "Meta: the app was removed by the user", "Meta דחתה שליחה לאחרונה (token/הרשאות) – יש לבדוק חיבור": "Meta recently rejected a send (token/permissions) – test the connection",
+} as Record<string, string>)[b] ?? b.replace(/^חסרה הרשאה /, "Missing permission ").replace(/^אימות המספר אצל Meta: /, "Number verification at Meta: ");
+const esError = (t: Translate, e: unknown) => { const err = e as Error & { code?: string }; return t(err.message, (err.code && ES_ERR_EN[err.code]) || err.message); };
+
 const fmtDate = (v: string | null, locale: string) => (v ? new Date(v).toLocaleString(locale) : "—");
 
 export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initial: Overview; webhookUrl: string; canManage: boolean }) {
@@ -123,6 +143,12 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
   const refresh = useCallback(async () => {
     try { setOverview(await api<Overview>(t, "/api/whatsapp/connection")); router.refresh(); } catch (e) { toast.error((e as Error).message); }
   }, [router, t]);
+
+  // Preload the SDK so the click reaches FB.login quickly – a long await after the click lets browsers block the popup.
+  const sdk = overview.embeddedSignup;
+  useEffect(() => {
+    if (canManage && sdk.ready && sdk.appId) loadFbSdk(sdk.appId, sdk.version, t).catch(() => undefined);
+  }, [canManage, sdk.ready, sdk.appId, sdk.version, t]);
 
   // Assets (waba/phone ids) arrive via postMessage; the code arrives via the FB.login callback. Both are needed.
   useEffect(() => {
@@ -156,7 +182,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
       const opened = await new Promise<FbLoginResponse>((resolve) => {
         window.FB!.login((r) => resolve(r), {
           config_id: start.configId, response_type: "code", override_default_response_type: true,
-          extras: { setup: {}, sessionInfoVersion: "3", featureType: "" },
+          extras: { setup: {} }, // Embedded Signup v4 – the version comes from the Login for Business configuration
         });
       });
       const code = opened.authResponse?.code;
@@ -186,7 +212,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
       await refresh();
     } catch (e) {
       const err = e as Error & { code?: string; details?: { missing?: string[] } };
-      setFlow({ kind: "error", message: err.code === "scopes_missing" ? t(`${err.message}. חבר מחדש ואשר את כל ההרשאות המבוקשות.`, `${err.message}. Reconnect and approve all requested permissions.`) : err.message });
+      setFlow({ kind: "error", message: err.code === "scopes_missing" ? t(`${err.message}. חבר מחדש ואשר את כל ההרשאות המבוקשות.`, `${ES_ERR_EN.scopes_missing}: ${err.details?.missing?.join(", ") ?? ""}. Reconnect and approve all requested permissions.`) : esError(t, err) });
       await cancel(err.message);
     } finally { inFlight.current = false; }
   }
@@ -196,13 +222,13 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
     setBusy(`${c.id}:${action}`);
     try {
       const r = await api<{ status?: WaStatus; blockers?: string[]; error?: string | null; warning?: string | null; providerMessageId?: string | null }>(t, `/api/whatsapp/connection/${c.id}`, { action, ...extra });
-      if (action === "check") { if (r.status === "connected") toast.success(t("החיבור תקין ומוכן", "Connection OK and ready")); else { const s = STATUS[r.status ?? "error"]; toast.warning(r.error ?? r.blockers?.join(" · ") ?? t(s.label, s.en)); } }
+      if (action === "check") { if (r.status === "connected") toast.success(t("החיבור תקין ומוכן", "Connection OK and ready")); else { const s = STATUS[r.status ?? "error"]; toast.warning(r.error ?? r.blockers?.map((b) => t(b, blockerEn(b))).join(" · ") ?? t(s.label, s.en)); } }
       if (action === "retry_setup") { if (r.status === "connected") toast.success(t("ההגדרה הושלמה", "Setup completed")); else toast.warning(r.error ?? t("עדיין נדרשת פעולה", "Action still required")); }
       if (action === "disconnect") toast.success(r.warning ?? t("החיבור נותק. ההיסטוריה נשמרה.", "Disconnected. History was kept."));
       if (action === "test_send") toast.success(t(`הודעת בדיקה נשלחה${r.providerMessageId ? ` (${r.providerMessageId})` : ""}`, `Test message sent${r.providerMessageId ? ` (${r.providerMessageId})` : ""}`));
       if ((action as string) === "settings") toast.success(t("הגדרות הבדיקה והעלות נשמרו", "Test and cost settings saved"));
       await refresh();
-    } catch (e) { toast.error((e as Error).message); }
+    } catch (e) { toast.error(esError(t, e)); }
     finally { setBusy(null); }
   }
 
@@ -264,9 +290,9 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("קבלה:", "Receiving:")}</dt><dd>{c.receiveReady ? <span className="text-emerald-700">{t("רשום לאירועים", "Subscribed to webhooks")}</span> : <span className="text-amber-700">{t("לא רשום", "Not subscribed")}</span>}{c.lastWebhookAt ? t(` · אירוע אחרון: ${fmt(c.lastWebhookAt)}`, ` · Last event: ${fmt(c.lastWebhookAt)}`) : t(" · טרם התקבל אירוע מ-Meta", " · No event received from Meta yet")}</dd></div>
             </dl>
             {c.blockers.length > 0 && (
-              <ul className="mt-3 list-disc pe-5 text-sm text-amber-800" data-testid="wa-blockers">{c.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
+              <ul className="mt-3 list-disc pe-5 text-sm text-amber-800" data-testid="wa-blockers">{c.blockers.map((b) => <li key={b}>{t(b, blockerEn(b))}</li>)}</ul>
             )}
-            {c.lastError && <p className="mt-2 text-sm text-destructive" data-testid="wa-last-error">{c.lastError}</p>}
+            {c.lastError && <p className="mt-2 text-sm text-destructive" data-testid="wa-last-error">{t(c.lastError, blockerEn(c.lastError))}</p>}
 
             {canManage && (
               <div className="mt-4 flex flex-wrap items-end gap-2">

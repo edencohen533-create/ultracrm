@@ -31,10 +31,13 @@ export function parseSignedRequest(signedRequest: string, secret: string): { use
 /** Disconnect + erase every connection linked to the Meta user. Idempotent. */
 export async function handleMetaUserRemoval(kind: "data_deletion" | "deauthorize", metaUserId: string) {
   return withoutBusiness(async () => {
+    // Meta retries the same request: answer with the code already issued instead of a new "no data" one.
+    const recent = await db.metaDeletionRequest.findFirst({ where: { kind, metaUserId, createdAt: { gt: new Date(Date.now() - 24 * 3600_000) } }, orderBy: { createdAt: "desc" } });
+    if (recent) return recent;
     const creds = await db.providerCredential.findMany({ where: { provider: "meta_whatsapp_cloud_api", metaUserIds: { has: metaUserId } }, select: { id: true, businessId: true, displayPhoneNumber: true } });
     for (const c of creds) {
-      await db.providerCredential.update({ where: { id: c.id }, data: { isActive: false, isDefault: false, status: "revoked", sendingBlocked: true, lastConnectionError: kind === "deauthorize" ? "Meta: האפליקציה הוסרה על ידי המשתמש" : "Meta: בקשת מחיקת נתונים", ...(kind === "data_deletion" ? { config: {}, metaUserIds: [], wabaName: null, verifiedName: null, grantedScopes: [] } : {}) } });
-      await audit(c.businessId, null, "whatsapp", c.id, kind === "deauthorize" ? "whatsapp.meta_deauthorized" : "whatsapp.meta_data_deleted", { phone: c.displayPhoneNumber ? `…${c.displayPhoneNumber.slice(-4)}` : null }, db);
+      await db.providerCredential.update({ where: { id: c.id }, data: { isActive: false, isDefault: false, status: "revoked", sendingBlocked: true, lastConnectionError: kind === "deauthorize" ? "Meta: האפליקציה הוסרה על ידי המשתמש" : "Meta: בקשת מחיקת נתונים", config: {}, ...(kind === "data_deletion" ? { metaUserIds: [], wabaId: null, phoneNumberId: null, metaBusinessId: null, displayPhoneNumber: null, wabaName: null, verifiedName: null, grantedScopes: [] } : {}) } });
+      await audit(c.businessId, null, "whatsapp", c.id, kind === "deauthorize" ? "whatsapp.meta_deauthorized" : "whatsapp.meta_data_deleted", { phone: c.displayPhoneNumber ? `…${c.displayPhoneNumber.slice(-4)}` : null, tokensErased: true }, db);
     }
     const code = crypto.randomBytes(9).toString("base64url").toUpperCase();
     const row = await db.metaDeletionRequest.create({ data: { kind, confirmationCode: code, metaUserId, status: creds.length ? "completed" : "no_data", businessIds: [...new Set(creds.map((c) => c.businessId))], details: { connections: creds.length }, completedAt: new Date() } });

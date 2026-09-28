@@ -23,6 +23,8 @@ interface Summary {
   hasAppSecret?: boolean;
 }
 
+/** Disconnect reasons stored in Hebrew by the Meta callbacks (meta-deletion-service). */
+const META_REASON_EN: Record<string, string> = { "Meta: בקשת מחיקת נתונים": "Meta: data deletion request", "Meta: האפליקציה הוסרה על ידי המשתמש": "Meta: the app was removed by the user" };
 interface NumberSummary { id: string; label: string | null; displayPhoneNumber: string | null; phoneNumberId: string | null; teamId: string | null; isActive: boolean; isDefault: boolean; sendingBlocked: boolean; lastCheckedAt: string | null; lastWebhookAt: string | null; lastConnectionError: string | null }
 export function WhatsAppProviderForm({ initialSummary, webhookUrl, numbers = [], teams = [] }: { initialSummary: Summary; webhookUrl: string; numbers?: NumberSummary[]; teams?: { id: string; name: string }[] }) {
   const t = useT();
@@ -122,7 +124,7 @@ export function WhatsAppProviderForm({ initialSummary, webhookUrl, numbers = [],
           <p><Ltr>{number.displayPhoneNumber || number.phoneNumberId}</Ltr> · {teams.find((team) => team.id === number.teamId)?.name || t("כל הצוותים", "All teams")}</p>
           <p className="text-sm">{!number.isActive ? t("מנותק — ההיסטוריה נשמרה", "Disconnected — history kept") : number.sendingBlocked ? t("השליחה חסומה; יש לתקן הרשאות ולחבר מחדש", "Sending blocked; fix permissions and reconnect") : t("מוגדר לשליחה", "Ready to send")}</p>
           <p className="text-xs">{t("בדיקת גישה:", "Access check:")} {number.lastCheckedAt ? new Date(number.lastCheckedAt).toLocaleString(locale) : t("טרם נבדק", "not checked yet")} · {t("Webhook חתום אחרון:", "Last signed webhook:")} {number.lastWebhookAt ? new Date(number.lastWebhookAt).toLocaleString(locale) : t("טרם התקבל", "none received yet")}</p>
-          {number.lastConnectionError && <p role="alert">{number.lastConnectionError}</p>}
+          {number.lastConnectionError && <p role="alert">{t(number.lastConnectionError, META_REASON_EN[number.lastConnectionError] ?? number.lastConnectionError)}</p>}
           <div className="flex flex-wrap gap-2">
             {number.isActive && <Button variant="outline" disabled={checking} onClick={async () => { setChecking(true); try { const res = await fetch("/api/settings/whatsapp/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ credentialId: number.id }) }); const data = await res.json(); if (res.ok) toast.success(t("הגישה למספר אומתה; תקינות קבלת הודעות דורשת Webhook חתום", "Number access verified; receiving messages requires a signed webhook")); else toast.error(data.error); router.refresh(); } catch { toast.error(t("בדיקת החיבור נכשלה", "Connection check failed")); } finally { setChecking(false); } }}>{t("בדוק מספר", "Test number")}</Button>}
             {number.isActive ? <><Button variant="outline" disabled={isSubmitting || number.isDefault || number.sendingBlocked} onClick={() => numberAction(number.id, "default")}>{t("קבע כברירת מחדל", "Set as default")}</Button><Button variant="outline" disabled={isSubmitting} onClick={() => numberAction(number.id, "disconnect")}>{t("נתק מספר", "Disconnect number")}</Button></> : <Button disabled={isSubmitting} onClick={() => numberAction(number.id, "reconnect")}>{t("אמת וחבר מחדש", "Verify and reconnect")}</Button>}

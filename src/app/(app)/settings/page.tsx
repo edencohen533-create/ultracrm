@@ -27,7 +27,8 @@ export default function SettingsPage() {
   useEffect(() => { api.get<{ user: { role: string }; modules: Record<string, boolean> }>("/api/auth/me").then(setMe).catch(() => undefined); }, []);
   useEffect(() => { const t = new URLSearchParams(window.location.search).get("tab"); if (t) setTab(t as Tab); }, []);
   const isAdmin = me?.user.role === "owner";
-  const modules = me?.modules ?? { crm: true, messaging: true, telephony: true };
+  // Server modules are crm/telephony/whatsapp/sms/email; `messaging` here means the WhatsApp module.
+  const modules: Record<string, boolean> = me ? { ...me.modules, messaging: me.modules.whatsapp ?? me.modules.messaging ?? false } : { crm: true, messaging: true, telephony: true };
   const groups: Array<{ title: string; tabs: Array<[Tab, string]>; show: boolean }> = [
     { title: t("עסק", "Business"), tabs: [["business", t("פרטי העסק", "Business details")], ["users", t("משתמשים וצוותים", "Users & Teams")], ["access", t("מודולים והרשאות", "Modules & permissions")], ["permissions", t("הרשאות נתונים", "Data permissions")], ["connections", t("חיבורים", "Connections")], ["plan", t("חבילה ומכסות", "Plan & quotas")], ["automations", t("אוטומציות", "Automations")], ["marketing", t("דיוור", "Marketing")], ["assistant", t("העוזר האישי בוואטסאפ", "WhatsApp personal assistant")], ["account", t("חשבון ומחיקה", "Account & deletion")], ["suppressions", t("הסרות מדיוור", "Unsubscribes")], ["history", t("היסטוריית שינויים", "Change history")]], show: true },
     { title: t("טלפוניה", "Telephony"), tabs: [["general", t("חייגן", "Dialer")], ["priority", t("תעדוף לידים", "Lead prioritization")], ["safety", t("בטיחות ושיחות נכנסות", "Safety & inbound calls")], ["numbers", t("מספרים יוצאים", "Outbound numbers")], ["scripts", t("תסריטים", "Scripts")], ["dnc", t("לא ליצור קשר", "Do not contact")], ["coach", t("מאמן AI", "AI coach")]], show: modules.telephony },
@@ -37,7 +38,7 @@ export default function SettingsPage() {
       <h1 className="text-lg font-semibold">{t("הגדרות", "Settings")}</h1>
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-line">
         {groups.filter((g) => g.show).map((g) => (
-          <div key={g.title} className="flex items-end gap-1">
+          <div key={g.title} className="flex flex-wrap items-end gap-1">
             <span className="text-[10px] text-muted/70 pb-3 pe-1">{g.title}</span>
             {g.tabs.map(([k, v]) => <button key={k} onClick={() => setTab(k)} className={cx("h-10 px-3 text-sm border-b-2 -mb-px whitespace-nowrap", tab === k ? "border-accent text-text" : "border-transparent text-muted hover:text-text")}>{v}</button>)}
           </div>
@@ -378,8 +379,8 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
             {!modules.messaging ? <Badge tone="neutral">{t("המודול כבוי בחבילה", "Module disabled in plan")}</Badge> : waDenied ? <Badge tone="neutral">{t("פרטי החיבור זמינים לבעלים בלבד", "Connection details are available to the owner only")}</Badge> : wa ? (wa.provider === "mock" ? <Badge tone="warn">{t("מצב הדגמה – אין שליחה אמיתית", "Demo mode – no real sending")}</Badge> : wa.sendingBlocked ? <Badge tone="bad">{t("חסום – בדוק Token", "Blocked – check Token")}</Badge> : <Badge tone="good">{t("מחובר", "Connected")}</Badge>) : <Spinner className="w-4 h-4" />}
             {modules.messaging && <a href="/settings/whatsapp" className="text-accent underline hover:underline ms-auto text-xs">{t("ניהול חיבור וואטסאפ →", "Manage WhatsApp connection →")}</a>}
           </li>
-          <li className="flex flex-wrap items-center gap-2"><b>SMS</b>{modules.messaging ? <ChannelStatus channel="sms" /> : <Badge tone="neutral">{t("המודול כבוי בחבילה", "Module disabled in plan")}</Badge>}{modules.messaging && <a href="/settings/sms" className="text-accent underline hover:underline ms-auto text-xs">{t("ניהול חיבור SMS →", "Manage SMS connection →")}</a>}</li>
-          <li className="flex flex-wrap items-center gap-2"><b>{t("אימייל", "Email")}</b>{modules.messaging ? <ChannelStatus channel="email" /> : <Badge tone="neutral">{t("המודול כבוי בחבילה", "Module disabled in plan")}</Badge>}{modules.messaging && <a href="/settings/email" className="text-accent underline hover:underline ms-auto text-xs">{t("ניהול חיבור אימייל →", "Manage email connection →")}</a>}</li>
+          <li className="flex flex-wrap items-center gap-2"><b>SMS</b>{(modules.sms ?? modules.messaging) ? <ChannelStatus channel="sms" /> : <Badge tone="neutral">{t("המודול כבוי בחבילה", "Module disabled in plan")}</Badge>}{modules.messaging && <a href="/settings/sms" className="text-accent underline hover:underline ms-auto text-xs">{t("ניהול חיבור SMS →", "Manage SMS connection →")}</a>}</li>
+          <li className="flex flex-wrap items-center gap-2"><b>{t("אימייל", "Email")}</b>{(modules.email ?? modules.messaging) ? <ChannelStatus channel="email" /> : <Badge tone="neutral">{t("המודול כבוי בחבילה", "Module disabled in plan")}</Badge>}{modules.messaging && <a href="/settings/email" className="text-accent underline hover:underline ms-auto text-xs">{t("ניהול חיבור אימייל →", "Manage email connection →")}</a>}</li>
         </ul>
       </Panel>
       {modules.telephony && <TelephonyTab />}

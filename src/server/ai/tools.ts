@@ -27,7 +27,7 @@ const TOOL_NEEDS: Record<string, string[]> = {
   business_snapshot: ["crm.view", "telephony.use"], sales_summary: ["crm.view"], leads_summary: ["crm.view"], agents_performance: ["crm.view", "telephony.team_settings"],
   calls_summary: ["telephony.use"], untreated_leads: ["crm.view"], overdue_tasks: ["crm.view", "telephony.use"], compare_periods: ["crm.view"],
   find_contact: ["crm.view", "telephony.use", "whatsapp.view"], contact_summary: ["crm.view", "telephony.use", "whatsapp.view"], focus_today: ["crm.view", "telephony.use"],
-  my_queue_today: ["crm.view", "telephony.use"], find_lead: ["crm.view", "telephony.use"], create_task: ["crm.edit", "telephony.use"], set_follow_up: ["crm.edit"],
+  my_queue_today: ["crm.view", "telephony.use"], agents_online: ["telephony.use", "crm.view"], find_lead: ["crm.view", "telephony.use"], create_task: ["crm.edit", "telephony.use"], set_follow_up: ["crm.edit"],
   change_lead_status: ["crm.edit"], transfer_lead: ["crm.transfer"],
   list_automations: ["whatsapp.automations", "sms.send", "email.send"], create_automation: ["whatsapp.automations", "sms.send", "email.send"], update_automation: ["whatsapp.automations", "sms.send", "email.send"],
   pause_automation: ["whatsapp.automations", "sms.send", "email.send"], resume_automation: ["whatsapp.automations", "sms.send", "email.send"], apply_automation_to_existing: ["whatsapp.automations", "sms.send", "email.send"],

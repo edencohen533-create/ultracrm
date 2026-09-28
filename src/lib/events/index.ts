@@ -37,7 +37,10 @@ export type DomainEventType =
   | "sequence.step_sent"
   | "task.created"
   | "cart.abandoned"
-  | "dialer.queue_empty";
+  | "dialer.queue_empty"
+  /** An agent connected to the dialer (session started) / disconnected (ended or tab gone). */
+  | "agent.online"
+  | "agent.offline";
 
 export type EventSource = "user" | "system" | "automation" | "webhook" | "import";
 

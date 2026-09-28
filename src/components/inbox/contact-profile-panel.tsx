@@ -1,3 +1,6 @@
+"use client";
+
+import { useT } from "@/components/i18n/LangProvider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -12,13 +15,15 @@ interface ContactProfileData {
   customFields: { key: string; value: string }[];
 }
 
-const CONSENT_LABELS: Record<string, string> = {
-  OPTED_IN: "הסכים לדיוור שיווקי",
-  OPTED_OUT: "הוסר מדיוור שיווקי",
-  UNKNOWN: "לא ידוע",
+const CONSENT_LABELS: Record<string, [string, string]> = {
+  OPTED_IN: ["הסכים לדיוור שיווקי", "Opted in to marketing"],
+  OPTED_OUT: ["הוסר מדיוור שיווקי", "Opted out of marketing"],
+  UNKNOWN: ["לא ידוע", "Unknown"],
 };
 
 export function ContactProfilePanel({ contact }: { contact: ContactProfileData }) {
+  const t = useT();
+  const consent = CONSENT_LABELS[contact.consentStatus];
   const initials = contact.name
     .split(" ")
     .map((p) => p[0])
@@ -47,9 +52,9 @@ export function ContactProfilePanel({ contact }: { contact: ContactProfileData }
       <Separator />
 
       <div>
-        <p className="mb-1.5 text-xs font-medium text-muted-foreground">תגיות</p>
+        <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t("תגיות", "Tags")}</p>
         <div className="flex flex-wrap gap-1">
-          {contact.tags.length === 0 && <span className="text-xs text-muted-foreground">אין תגיות</span>}
+          {contact.tags.length === 0 && <span className="text-xs text-muted-foreground">{t("אין תגיות", "No tags")}</span>}
           {contact.tags.map(({ tag }) => (
             <Badge key={tag.id} variant="outline">
               {tag.name}
@@ -59,13 +64,13 @@ export function ContactProfilePanel({ contact }: { contact: ContactProfileData }
       </div>
 
       <div>
-        <p className="mb-1.5 text-xs font-medium text-muted-foreground">סטטוס הסכמה</p>
-        <Badge variant="secondary">{CONSENT_LABELS[contact.consentStatus] ?? contact.consentStatus}</Badge>
+        <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t("סטטוס הסכמה", "Consent status")}</p>
+        <Badge variant="secondary">{consent ? t(consent[0], consent[1]) : contact.consentStatus}</Badge>
       </div>
 
       {contact.customFields.length > 0 && (
         <div>
-          <p className="mb-1.5 text-xs font-medium text-muted-foreground">שדות מותאמים</p>
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t("שדות מותאמים", "Custom fields")}</p>
           <div className="space-y-1 text-sm">
             {contact.customFields.map((field) => (
               <div key={field.key} className="flex justify-between">

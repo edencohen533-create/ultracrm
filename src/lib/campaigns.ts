@@ -1,3 +1,4 @@
+import { bi, uiLang } from "@/lib/i18n-labels";
 import { audienceSchema } from "./audiences";
 import { z } from "zod";
 import { renderMergeTags } from "./merge-tags";
@@ -9,7 +10,9 @@ export const distributionListSchema = z.object({
 }).refine((input) => input.segment ? input.contactIds.length === 0 : input.contactIds.length > 0, "יש לבחור אנשי קשר או תנאי קהל, ולא את שניהם");
 export const throttleSchema = z.object({ batchSize: z.number().int().min(1).max(100000), intervalMinutes: z.number().int().min(5).max(1440) });
 export type Throttle = z.infer<typeof throttleSchema>;
-export const throttleLabel = (t: Throttle | null | undefined) => !t ? "כל הנמענים ברצף (בכפוף לחלון ולקצב העסק)" : `${t.batchSize.toLocaleString("he-IL")} נמענים כל ${t.intervalMinutes === 60 ? "שעה" : t.intervalMinutes === 30 ? "חצי שעה" : t.intervalMinutes % 60 === 0 ? `${t.intervalMinutes / 60} שעות` : `${t.intervalMinutes} דקות`}`;
+export const throttleLabel = (t: Throttle | null | undefined) => uiLang() === "en"
+  ? (!t ? "All recipients in sequence (within the business window and rate)" : `${t.batchSize.toLocaleString("en-GB")} recipients every ${t.intervalMinutes === 60 ? "hour" : t.intervalMinutes === 30 ? "half hour" : t.intervalMinutes % 60 === 0 ? `${t.intervalMinutes / 60} hours` : `${t.intervalMinutes} minutes`}`)
+  : !t ? "כל הנמענים ברצף (בכפוף לחלון ולקצב העסק)" : `${t.batchSize.toLocaleString("he-IL")} נמענים כל ${t.intervalMinutes === 60 ? "שעה" : t.intervalMinutes === 30 ? "חצי שעה" : t.intervalMinutes % 60 === 0 ? `${t.intervalMinutes / 60} שעות` : `${t.intervalMinutes} דקות`}`;
 export const campaignSchema = z.object({
   channel: z.enum(["whatsapp", "sms", "email"]).default("whatsapp"),
   excludedListIds: z.array(z.string().min(1)).max(20).transform((ids) => [...new Set(ids)]).optional(),
@@ -41,7 +44,7 @@ export const campaignActionSchema = z.object({
   /** start: sending pace chosen at the review step (null = no pace). */
   throttle: throttleSchema.nullable().optional(),
 });
-export const CHANNEL_LABELS: Record<string, string> = { whatsapp: "WhatsApp", sms: "SMS", email: "אימייל" };
+export const CHANNEL_LABELS: Record<string, string> = bi({ whatsapp: "WhatsApp", sms: "SMS", email: "אימייל" }, { whatsapp: "WhatsApp", sms: "SMS", email: "Email" });
 
 export function templateParameterKeys(body: string): string[] {
   return [...new Set([...body.matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1]))]
@@ -82,19 +85,19 @@ export function personalizeVariablesForContact(variables: Record<string, string>
 export function renderTemplate(body: string, variables: Record<string, string>) {
   return body.replace(/\{\{(\d+)\}\}/g, (_, key: string) => variables[key] ?? `{{${key}}}`);
 }
-export const campaignStatusLabels: Record<string, string> = {
+export const campaignStatusLabels: Record<string, string> = bi({
   DRAFT: "טיוטה", SCHEDULED: "מתוזמן", RUNNING: "בשליחה", PAUSED: "מושהה", COMPLETED: "הסתיים", CANCELLED: "בוטל",
-};
-export const recipientStatusLabels: Record<string, string> = {
+}, { DRAFT: "Draft", SCHEDULED: "Scheduled", RUNNING: "Sending", PAUSED: "Paused", COMPLETED: "Completed", CANCELLED: "Cancelled" });
+export const recipientStatusLabels: Record<string, string> = bi({
   QUEUED: "בתור", PROCESSING: "בשליחה", SENT: "נשלח", FAILED: "נכשל", SKIPPED: "דולג", UNKNOWN: "דורש בדיקה",
-};
-export const deliveryStatusLabels: Record<string, string> = {
+}, { QUEUED: "Queued", PROCESSING: "Sending", SENT: "Sent", FAILED: "Failed", SKIPPED: "Skipped", UNKNOWN: "Needs review" });
+export const deliveryStatusLabels: Record<string, string> = bi({
   QUEUED: "בתור", UNKNOWN: "תוצאה לא ודאית", ACCEPTED: "הועבר לספק", SENT: "נשלח", DELIVERED: "נמסר", READ: "נקרא", FAILED: "נכשל", BOUNCED: "הוקפץ (bounce)", CANCELLED: "בוטל",
-};
+}, { QUEUED: "Queued", UNKNOWN: "Uncertain result", ACCEPTED: "Handed to provider", SENT: "Sent", DELIVERED: "Delivered", READ: "Read", FAILED: "Failed", BOUNCED: "Bounced", CANCELLED: "Cancelled" });
 
 /** Campaign list filter buckets ("סינון לפי סטטוס"). "failed" = a campaign the system stopped (statusReason) or whose sends all failed. */
 export type CampaignBucket = "all" | "draft" | "scheduled" | "running" | "sent" | "failed";
-export const CAMPAIGN_BUCKET_LABELS: Record<CampaignBucket, string> = { all: "הכול", draft: "טיוטה", scheduled: "מתוזמן", running: "בתהליך", sent: "נשלח", failed: "נכשל" };
+export const CAMPAIGN_BUCKET_LABELS: Record<CampaignBucket, string> = bi({ all: "הכול", draft: "טיוטה", scheduled: "מתוזמן", running: "בתהליך", sent: "נשלח", failed: "נכשל" }, { all: "All", draft: "Draft", scheduled: "Scheduled", running: "In progress", sent: "Sent", failed: "Failed" });
 export function campaignBucket(c: { status: string; statusReason?: string | null; counts?: Record<string, number>; scheduledAt?: string | Date | null }): Exclude<CampaignBucket, "all"> | "cancelled" {
   if (c.status === "DRAFT") return "draft";
   // "Send now" is stored as SCHEDULED at the current time until the worker claims it – that is already in progress.

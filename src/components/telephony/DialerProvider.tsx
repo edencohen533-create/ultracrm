@@ -15,6 +15,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { toast } from "sonner";
 import { api, ApiClientError } from "@/lib/client/api";
 import type { CallDto, DialerStateDto, DialMode, LeadDto, MonitorDto, OutcomeKey } from "@/lib/client/types";
+import { useT } from "@/components/i18n/LangProvider";
 
 type PhoneStatus = "idle" | "connecting" | "ready" | "error" | "simulation" | "disconnected";
 type MicPermission = "unknown" | "granted" | "denied";
@@ -150,6 +151,7 @@ function getBrowserSessionId() {
 
 /** `enabled=false` (telephony module off): no WebRTC registration and no state polling; the context still renders. */
 export function DialerProvider({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
+  const t = useT();
   const [state, setState] = useState<DialerStateDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -195,12 +197,12 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     stateRef.current = state;
   }, [state]);
 
-  const handleErr = useCallback((err: unknown, fallback = "שגיאה") => {
+  const handleErr = useCallback((err: unknown, fallback = t("שגיאה", "Error")) => {
     const e = err instanceof ApiClientError ? { code: err.code, message: err.message } : { code: "error", message: fallback };
     setLastError(e);
     toast.error(e.message);
     return e;
-  }, []);
+  }, [t]);
 
   // ── State polling ────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
@@ -223,11 +225,11 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) return;
-      setError("אין חיבור לשרת");
+      setError(t("אין חיבור לשרת", "No server connection"));
     } finally {
       setLoading(false);
     }
-  }, [browserSessionId]);
+  }, [browserSessionId, t]);
 
   useEffect(() => {
     if (!enabled) { setLoading(false); return; }
@@ -295,15 +297,15 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
   const requestMic = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
+      stream.getTracks().forEach((tr) => tr.stop());
       setMicPermission("granted");
       await loadDevices();
     } catch (err) {
       const name = (err as DOMException)?.name;
       setMicPermission("denied");
-      setPhoneError(name === "NotFoundError" ? "לא נמצא מיקרופון במחשב" : "הדפדפן חסם גישה למיקרופון – אפשר הרשאה בסרגל הכתובת ורענן");
+      setPhoneError(name === "NotFoundError" ? t("לא נמצא מיקרופון במחשב", "No microphone found on this computer") : t("הדפדפן חסם גישה למיקרופון – אפשר הרשאה בסרגל הכתובת ורענן", "The browser blocked microphone access – allow it in the address bar and refresh"));
     }
-  }, [loadDevices]);
+  }, [loadDevices, t]);
 
   const connectPhone = useCallback(async () => {
     if (typeof window === "undefined") return;
@@ -317,7 +319,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       tok = await api.post("/api/telephony/token");
     } catch (err) {
       setPhoneStatus("error");
-      setPhoneError(err instanceof ApiClientError ? err.message : "לא ניתן לקבל אסימון טלפוניה");
+      setPhoneError(err instanceof ApiClientError ? err.message : t("לא ניתן לקבל אסימון טלפוניה", "Could not get a telephony token"));
       return;
     }
     if (generation !== connectionGeneration.current) return;
@@ -348,7 +350,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
         setPhoneError(null);
       });
       client.on("telnyx.error", (e: unknown) => {
-        const msg = (e as { message?: string })?.message ?? "שגיאת טלפוניה";
+        const msg = (e as { message?: string })?.message ?? t("שגיאת טלפוניה", "Telephony error");
         setPhoneError(msg);
         setPhoneStatus("error");
       });
@@ -363,7 +365,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
         const note = n as { type: string; call?: SdkCall; error?: { message?: string } };
         if (note.type === "userMediaError") {
           setMicPermission("denied");
-          setPhoneError("אין גישה למיקרופון");
+          setPhoneError(t("אין גישה למיקרופון", "No microphone access"));
           return;
         }
         if (note.type !== "callUpdate" || !note.call) return;
@@ -378,12 +380,12 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
           const m = monitorRef.current;
           if (m && !m.endedAt && m.status === "connecting") {
             setSupMedia("ringing");
-            call.answer().then(() => { try { call.muteAudio(); } catch { /* ignore */ } }).catch(() => setPhoneError("לא ניתן לענות ל-leg ההאזנה"));
+            call.answer().then(() => { try { call.muteAudio(); } catch { /* ignore */ } }).catch(() => setPhoneError(t("לא ניתן לענות ל-leg ההאזנה", "Could not answer the monitoring leg")));
             return;
           }
           // Customer-initiated (inbound) calls are NOT auto-answered – the agent accepts or rejects in the UI.
           const isCustomerInbound = s?.activeCall?.direction === "inbound";
-          if (ownsCall && !isCustomerInbound) call.answer().catch(() => setPhoneError("לא ניתן לענות לשיחה בדפדפן"));
+          if (ownsCall && !isCustomerInbound) call.answer().catch(() => setPhoneError(t("לא ניתן לענות לשיחה בדפדפן", "Could not answer the call in the browser")));
         }
         if (monitorRef.current && !monitorRef.current.endedAt) {
           if (call.state === "active") setSupMedia("active");
@@ -401,9 +403,9 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       tokenRefreshTimer.current = setTimeout(() => clientRef.current === client && connectPhoneRef.current(), 20 * 3600 * 1000);
     } catch (err) {
       setPhoneStatus("error");
-      setPhoneError((err as Error)?.message ?? "שגיאה בחיבור הטלפוניה");
+      setPhoneError((err as Error)?.message ?? t("שגיאה בחיבור הטלפוניה", "Telephony connection error"));
     }
-  }, [requestMic]);
+  }, [requestMic, t]);
 
   useEffect(() => {
     connectPhoneRef.current = connectPhone;
@@ -503,14 +505,14 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
         await refresh();
         return call;
       } catch (err) {
-        const e = handleErr(err, "שגיאה בחיוג");
+        const e = handleErr(err, t("שגיאה בחיוג", "Dial error"));
         if (e.code === "call_active") await refresh();
         return null;
       } finally {
         setBusy(null);
       }
     },
-    [browserSessionId, cancelCountdown, handleErr, refresh],
+    [browserSessionId, cancelCountdown, handleErr, refresh, t],
   );
 
   const nextLead = useCallback(async (): Promise<LeadDto | null> => {
@@ -524,14 +526,14 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       else setEmptyState(await api.get<EmptyState>("/api/dialer/empty-state").catch(() => null));
       return lead;
     } catch (err) {
-      const e = handleErr(err, "שגיאה במשיכת ליד");
+      const e = handleErr(err, t("שגיאה במשיכת ליד", "Error pulling a lead"));
       if (e.code === "session_taken") setSessionTakenOver(true);
       await refresh();
       return null;
     } finally {
       setBusy(null);
     }
-  }, [browserSessionId, handleErr, refresh]);
+  }, [browserSessionId, handleErr, refresh, t]);
 
   const refreshEmptyState = useCallback(async () => {
     const r = await api.get<EmptyState>("/api/dialer/empty-state").catch(() => null);
@@ -545,8 +547,8 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       setEmptyState(null);
       await refresh();
       router.push(`/dialer?listId=${encodeURIComponent(listId)}`);
-    } catch (err) { handleErr(err, "לא ניתן לעבור לקמפיין"); } finally { setBusy(null); }
-  }, [browserSessionId, handleErr, refresh, router]);
+    } catch (err) { handleErr(err, t("לא ניתן לעבור לקמפיין", "Could not switch campaign")); } finally { setBusy(null); }
+  }, [browserSessionId, handleErr, refresh, router, t]);
 
   /** Power loop step: pull the next lead and dial it. */
   const advancePower = useCallback(async () => {
@@ -620,12 +622,12 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
           await nextLead();
         }
       } catch (err) {
-        handleErr(err, "שגיאה בהתחלת סשן");
+        handleErr(err, t("שגיאה בהתחלת סשן", "Error starting session"));
       } finally {
         setBusy(null);
       }
     },
-    [advancePower, browserSessionId, handleErr, nextLead, refresh, startCountdown],
+    [advancePower, browserSessionId, handleErr, nextLead, refresh, startCountdown, t],
   );
 
   const pauseSession = useCallback(async () => {
@@ -682,11 +684,11 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       await api.post(`/api/dialer/call/${c.id}/accept`);
       await refresh();
     } catch (err) {
-      handleErr(err, "שגיאה בקבלת השיחה");
+      handleErr(err, t("שגיאה בקבלת השיחה", "Error accepting the call"));
     } finally {
       setBusy(null);
     }
-  }, [handleErr, refresh]);
+  }, [handleErr, refresh, t]);
 
   const rejectInbound = useCallback(async () => {
     const c = stateRef.current?.activeCall;
@@ -701,11 +703,11 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       await api.post(`/api/dialer/call/${c.id}/reject`);
       await refresh();
     } catch (err) {
-      handleErr(err, "שגיאה בדחיית השיחה");
+      handleErr(err, t("שגיאה בדחיית השיחה", "Error rejecting the call"));
     } finally {
       setBusy(null);
     }
-  }, [handleErr, refresh]);
+  }, [handleErr, refresh, t]);
 
   const skipLead = useCallback(
     async (reason: string) => {
@@ -718,11 +720,11 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
         if (s.session?.mode === "preview") await nextLead();
         else if (s.session?.mode === "power" && s.session.status === "active") startCountdown(s.session.countdownSeconds, null, () => advancePower());
       } catch (err) {
-        handleErr(err, "שגיאה בדילוג");
+        handleErr(err, t("שגיאה בדילוג", "Error skipping"));
         await refresh();
       }
     },
-    [advancePower, cancelCountdown, handleErr, nextLead, refresh, startCountdown],
+    [advancePower, cancelCountdown, handleErr, nextLead, refresh, startCountdown, t],
   );
 
   const hangup = useCallback(async () => {
@@ -739,11 +741,11 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       await api.post(`/api/dialer/call/${call.id}/hangup`);
       await refresh();
     } catch (err) {
-      handleErr(err, "שגיאה בניתוק");
+      handleErr(err, t("שגיאה בניתוק", "Error hanging up"));
     } finally {
       setBusy(null);
     }
-  }, [handleErr, refresh]);
+  }, [handleErr, refresh, t]);
 
   const sendDtmf = useCallback(
     async (digit: string) => {
@@ -753,10 +755,10 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       try {
         await api.post(`/api/dialer/call/${s.activeCall.id}/dtmf`, { digits: digit });
       } catch (err) {
-        handleErr(err, "שליחת מקש לשיחה נכשלה");
+        handleErr(err, t("שליחת מקש לשיחה נכשלה", "Sending a key to the call failed"));
       }
     },
-    [handleErr],
+    [handleErr, t],
   );
 
   const saveOutcome = useCallback<Ctx["saveOutcome"]>(
@@ -772,13 +774,13 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
           await nextLead();
         }
       } catch (err) {
-        handleErr(err, "שגיאה בשמירת תוצאה");
+        handleErr(err, t("שגיאה בשמירת תוצאה", "Error saving outcome"));
         throw err;
       } finally {
         setBusy(null);
       }
     },
-    [advancePower, handleErr, nextLead, refresh, startCountdown],
+    [advancePower, handleErr, nextLead, refresh, startCountdown, t],
   );
 
   const continueToNext = useCallback<Ctx["continueToNext"]>(
@@ -786,19 +788,19 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       setBusy("outcome");
       try {
         await api.post(`/api/dialer/call/${callId}/outcome`, { outcome, note: opts?.note });
-      } catch (err) { handleErr(err, "שגיאה בשמירת תוצאה"); setBusy(null); throw err; }
+      } catch (err) { handleErr(err, t("שגיאה בשמירת תוצאה", "Error saving outcome")); setBusy(null); throw err; }
       setBusy(null);
       await refresh();
       cancelCountdown();
       const s = stateRef.current;
       if (!s?.session || s.session.status !== "active" || s.session.mode === "manual" || s.activeCall) return;
       const lead = s.lead && s.lead.status === "locked" ? s.lead : await nextLead();
-      if (!lead) { toast.info("אין כרגע לידים זמינים לחיוג בתור"); return; }
+      if (!lead) { toast.info(t("אין כרגע לידים זמינים לחיוג בתור", "No leads available to dial in the queue right now")); return; }
       const latest = stateRef.current;
       if (!latest?.session || latest.session.status !== "active" || latest.activeCall || latest.wrapUpCall) return;
       await dial({ mode: latest.session.mode, leadId: lead.id, lockToken: lead.lockToken ?? undefined });
     },
-    [cancelCountdown, dial, handleErr, nextLead, refresh],
+    [cancelCountdown, dial, handleErr, nextLead, refresh, t],
   );
 
   // Stop any pending auto-advance if the tab lost the session, the session ended, or a call (e.g. inbound) is live.
@@ -825,7 +827,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
   const supStart = useCallback(async (callId: string) => {
     if (monitorRef.current && !monitorRef.current.endedAt) {
       if (monitorRef.current.callId === callId) return monitorRef.current;
-      throw new ApiClientError("אתה כבר מחובר לשיחה אחרת – צא ממנה קודם", 409, "monitor_active");
+      throw new ApiClientError(t("אתה כבר מחובר לשיחה אחרת – צא ממנה קודם", "You are already connected to another call – leave it first"), 409, "monitor_active");
     }
     setSupMedia("none");
     const m = await api.post<MonitorDto>("/api/manager/monitor", { callId });
@@ -833,7 +835,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     setMonitor(m);
     if (phoneStatus === "simulation") setSupMedia("active"); // no real media in simulation – marked as such in the UI
     return m;
-  }, [phoneStatus]);
+  }, [phoneStatus, t]);
   const supStop = useCallback(async () => {
     const m = monitorRef.current;
     if (!m) return;

@@ -342,6 +342,11 @@ model Business {
   accessUntil          DateTime?       @map("access_until")
   /// Payment state as KNOWN to the platform: manual (no billing integration – never shown as verified).
   billingStatus        String          @default("manual") @map("billing_status")
+  /// Owner asked to delete the business and all its data: WhatsApp is disconnected at once; the rest is erased by
+  /// the retention job at `deletionScheduledFor` (cancellable until then).
+  deletionRequestedAt   DateTime?      @map("deletion_requested_at")
+  deletionScheduledFor  DateTime?      @map("deletion_scheduled_for")
+  deletionRequestedById String?        @map("deletion_requested_by_id")
   /// Per-business module overrides on top of the plan: { crm?, messaging?, telephony? }
   modules              Json            @default("{}")
   /// Dialer / CRM / automation settings (see src/lib/settings.ts)
@@ -1286,6 +1291,12 @@ model ProviderCredential {
   verifiedName           String?            @map("verified_name")
   nameStatus             String?            @map("name_status")
   qualityRating          String?            @map("quality_rating")
+  /// Meta messaging limit tier (TIER_250 / TIER_1K / TIER_10K / TIER_100K / TIER_UNLIMITED), from the phone number or
+  /// phone_number_quality_update webhooks.
+  messagingLimitTier     String?            @map("messaging_limit_tier")
+  /// Meta user ids linked to this connection (token owner from debug_token + the person who ran Embedded Signup) –
+  /// how a Meta data-deletion / deauthorize callback finds it.
+  metaUserIds            String[]           @default([]) @map("meta_user_ids")
   codeVerificationStatus String?            @map("code_verification_status")
   platformType           String?            @map("platform_type")
   /// manual | embedded_signup
@@ -2732,4 +2743,38 @@ model AssignmentOverride {
 
   @@index([businessId, status])
   @@map("assignment_overrides")
+}
+
+/// Meta "Data Deletion Request" / "Deauthorize" callbacks (signed by the app secret). Platform-level (no business):
+/// the request is matched to connections by Meta user id; `confirmationCode` is what Meta shows the person.
+model MetaDeletionRequest {
+  id               String    @id @default(cuid())
+  kind             String
+  confirmationCode String    @unique @map("confirmation_code")
+  metaUserId       String    @map("meta_user_id")
+  /// received | completed | no_data
+  status           String    @default("received")
+  businessIds      String[]  @default([]) @map("business_ids")
+  details          Json?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  completedAt      DateTime? @map("completed_at")
+
+  @@map("meta_deletion_requests")
+}
+
+/// Public support / contact form (the support page Meta reviewers and customers use).
+model SupportRequest {
+  id           String   @id @default(cuid())
+  name         String
+  email        String
+  businessName String?  @map("business_name")
+  topic        String
+  message      String
+  lang         String   @default("he")
+  ipHash       String?  @map("ip_hash")
+  status       String   @default("open")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("support_requests")
 }

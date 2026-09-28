@@ -19,8 +19,10 @@ import { Kbd, cx } from "@/components/ui";
 import type { CallDto, OutcomeKey } from "@/lib/client/types";
 import { DealCloseModal } from "@/components/leads/DealCloseModal";
 import { PostCallWhatsApp } from "./PostCallWhatsApp";
+import { useT } from "@/components/i18n/LangProvider";
 
-const SKIP_REASONS = ["לא זמן מתאים", "פרטים חסרים", "כבר דיברתי איתו", "ליד לא רלוונטי", "אחר"];
+/** [value sent to the server (Hebrew, unchanged), English display label] */
+const SKIP_REASONS: Array<[string, string]> = [["לא זמן מתאים", "Bad timing"], ["פרטים חסרים", "Missing details"], ["כבר דיברתי איתו", "Already spoke with them"], ["ליד לא רלוונטי", "Irrelevant lead"], ["אחר", "Other"]];
 
 /**
  * `minimal` (the /dialer screen): only the lead's details – a one-line session strip, a slim call strip (status,
@@ -28,6 +30,7 @@ const SKIP_REASONS = ["לא זמן מתאים", "פרטים חסרים", "כבר
  * no connection panel, no recent calls.
  */
 export function DialerWorkspace({ embedded = false, compact = false, minimal = false }: { embedded?: boolean; compact?: boolean; minimal?: boolean } = {}) {
+  const t = useT();
   const d = useDialer();
   const { state, loading, error, refresh, dial, hangup, skipLead, saveOutcome, busy, sessionTakenOver, countdown, cancelCountdown, sessionSummary, dismissSummary } = d;
   const [note, setNote] = useState("");
@@ -66,11 +69,11 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
 
   const dialManual = useCallback(
     async (phone: string) => {
-      if (call) return toast.error("יש שיחה פעילה");
-      if (wrapUp) return toast.error("תעד את השיחה הקודמת קודם");
+      if (call) return toast.error(t("יש שיחה פעילה", "A call is in progress"));
+      if (wrapUp) return toast.error(t("תעד את השיחה הקודמת קודם", "Log the previous call first"));
       await dial({ mode: "manual", phone });
     },
-    [call, wrapUp, dial],
+    [call, wrapUp, dial, t],
   );
 
   useEffect(() => { setFullWrapUp(false); }, [wrapUp?.id]);
@@ -98,13 +101,13 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
             /* ignore */
           }
         }
-        toast.success("התוצאה נשמרה");
+        toast.success(t("התוצאה נשמרה", "Outcome saved"));
         if (outcome === "sale" && wrapUp.contactId) setSale({ contactId: wrapUp.contactId, name: formatPhone(wrapUp.toE164), then: "none" });
       } catch {
         /* toast shown by provider */
       }
     },
-    [wrapUp, saveOutcome, note],
+    [wrapUp, saveOutcome, note, t],
   );
 
   const hotkeys = useMemo(
@@ -126,17 +129,17 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
     <div className={embedded ? "flex flex-col h-full min-h-0" : "flex flex-col h-screen min-h-0"}>
       <header className="px-4 py-3 border-b border-line bg-panel/60 shrink-0">
         {!minimal && <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-base font-semibold">{embedded ? "חייגן פעיל" : "מסך עבודה"}</h1>
-          {state?.telephony.simulation && <Badge tone="warn">מצב הדמיה – השיחות אינן אמיתיות</Badge>}
-          {error && <Badge tone="bad">אין חיבור לשרת – מנסה שוב</Badge>}
+          <h1 className="text-base font-semibold">{embedded ? t("חייגן פעיל", "Active dialer") : t("מסך עבודה", "Workspace")}</h1>
+          {state?.telephony.simulation && <Badge tone="warn">{t("מצב הדמיה – השיחות אינן אמיתיות", "Simulation mode – calls are not real")}</Badge>}
+          {error && <Badge tone="bad">{t("אין חיבור לשרת – מנסה שוב", "No server connection – retrying")}</Badge>}
         </div>}
         <SessionControls />
         <DueElsewhereBanner />
         {sessionTakenOver && (
           <div className="mt-2 text-xs bg-bad/10 text-bad rounded-md p-2 flex items-center justify-between">
-            <span>סשן החיוג פעיל בלשונית אחרת. לשונית זו במצב צפייה בלבד.</span>
+            <span>{t("סשן החיוג פעיל בלשונית אחרת. לשונית זו במצב צפייה בלבד.", "The dial session is active in another tab. This tab is view-only.")}</span>
             <Button size="sm" variant="danger" onClick={() => session && d.startSession(session.mode, session.listId ?? undefined, session.countdownSeconds)}>
-              העבר לכאן
+              {t("העבר לכאן", "Move here")}
             </Button>
           </div>
         )}
@@ -148,13 +151,13 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
           {session?.listId ? (
             <LeadQueue listId={session.listId} currentLeadId={lead?.id} refreshKey={refreshKey} />
           ) : (
-            <div className="p-4 text-xs text-muted">{session ? "סשן ידני – אין תור. חייג מהלוח או מכרטיס ליד." : "אין סשן פעיל. תעד את השיחה כדי לחזור לרשימת הלידים."}</div>
+            <div className="p-4 text-xs text-muted">{session ? t("סשן ידני – אין תור. חייג מהלוח או מכרטיס ליד.", "Manual session – no queue. Dial from the keypad or a lead card.") : t("אין סשן פעיל. תעד את השיחה כדי לחזור לרשימת הלידים.", "No active session. Log the call to return to the lead list.")}</div>
           )}
         </aside>
 
         {/* Active lead */}
         <section className={minimal ? "flex-1 min-h-0 flex flex-col" : compact ? "min-h-[330px] flex flex-col order-2 shrink-0" : "min-h-0 flex flex-col"}>
-          {minimal && <CallStrip onContinueAuto={wrapUp && !wrapUp.answeredAt && !fullWrapUp && session?.status === "active" && session.mode !== "manual" ? () => continueNext(wrapUp.telephonyResult === "busy" ? "busy" : "no_answer") : undefined} canDialLead={canDialLead} onDialLead={dialLead} onDialNext={dialNext} canDialNext={Boolean(session && session.status === "active" && session.mode !== "manual" && !call && !wrapUp && !sessionTakenOver)} blockedReason={!session ? "אין סשן חיוג פעיל – התחל חייגן מהתור או חייג מכרטיס ליד" : session.status !== "active" ? "הסשן מושהה – לחץ המשך" : sessionTakenOver ? "הסשן פעיל בלשונית אחרת" : wrapUp ? (wrapUp.answeredAt ? "השיחה הסתיימה – בחר תוצאה למטה והמשך" : "השיחה הסתיימה")  : session.mode === "manual" ? "סשן ידני – חייג מכרטיס ליד או מהלוח" : null} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />}
+          {minimal && <CallStrip onContinueAuto={wrapUp && !wrapUp.answeredAt && !fullWrapUp && session?.status === "active" && session.mode !== "manual" ? () => continueNext(wrapUp.telephonyResult === "busy" ? "busy" : "no_answer") : undefined} canDialLead={canDialLead} onDialLead={dialLead} onDialNext={dialNext} canDialNext={Boolean(session && session.status === "active" && session.mode !== "manual" && !call && !wrapUp && !sessionTakenOver)} blockedReason={!session ? t("אין סשן חיוג פעיל – התחל חייגן מהתור או חייג מכרטיס ליד", "No active dial session – start the dialer from the queue or dial from a lead card") : session.status !== "active" ? t("הסשן מושהה – לחץ המשך", "Session paused – click Resume") : sessionTakenOver ? t("הסשן פעיל בלשונית אחרת", "Session is active in another tab") : wrapUp ? (wrapUp.answeredAt ? t("השיחה הסתיימה – בחר תוצאה למטה והמשך", "Call ended – choose an outcome below and continue") : t("השיחה הסתיימה", "Call ended"))  : session.mode === "manual" ? t("סשן ידני – חייג מכרטיס ליד או מהלוח", "Manual session – dial from a lead card or the keypad") : null} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />}
           {call && (
             <div className="p-3 border-b border-line shrink-0">
               <CoachCard callId={call.id} answered={call.status === "answered"} simulation={Boolean(state?.telephony.simulation)} />
@@ -185,32 +188,32 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
         </aside>
       </div>
 
-      <Modal open={Boolean(sessionSummary)} onClose={dismissSummary} title={sessionSummary?.reason === "list_empty" ? "הרשימה נגמרה – סיכום סשן" : "סיכום סשן"} footer={<Button onClick={dismissSummary}>סגור</Button>}>
+      <Modal open={Boolean(sessionSummary)} onClose={dismissSummary} title={sessionSummary?.reason === "list_empty" ? t("הרשימה נגמרה – סיכום סשן", "List finished – session summary") : t("סיכום סשן", "Session summary")} footer={<Button onClick={dismissSummary}>{t("סגור", "Close")}</Button>}>
         {sessionSummary && (
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-3 gap-2">
-              <div className="bg-panel-2 rounded-lg p-3 text-center"><p className="text-2xl font-semibold tabular">{sessionSummary.dials}</p><p className="text-xs text-muted">חיוגים</p></div>
-              <div className="bg-panel-2 rounded-lg p-3 text-center"><p className="text-2xl font-semibold tabular text-good">{sessionSummary.connected}</p><p className="text-xs text-muted">נענו</p></div>
-              <div className="bg-panel-2 rounded-lg p-3 text-center"><p className="text-2xl font-semibold tabular">{Math.round(sessionSummary.talkSeconds / 60)}</p><p className="text-xs text-muted">דקות שיחה</p></div>
+              <div className="bg-panel-2 rounded-lg p-3 text-center"><p className="text-2xl font-semibold tabular">{sessionSummary.dials}</p><p className="text-xs text-muted">{t("חיוגים", "Dials")}</p></div>
+              <div className="bg-panel-2 rounded-lg p-3 text-center"><p className="text-2xl font-semibold tabular text-good">{sessionSummary.connected}</p><p className="text-xs text-muted">{t("נענו", "Answered")}</p></div>
+              <div className="bg-panel-2 rounded-lg p-3 text-center"><p className="text-2xl font-semibold tabular">{Math.round(sessionSummary.talkSeconds / 60)}</p><p className="text-xs text-muted">{t("דקות שיחה", "Talk minutes")}</p></div>
             </div>
             {sessionSummary.outcomes.length > 0 && (
               <ul className="divide-y divide-line">{sessionSummary.outcomes.map((o) => <li key={o.key} className="flex justify-between py-1"><span>{o.label}</span><span className="tabular">{o.count}</span></li>)}</ul>
             )}
-            <p className="text-xs text-muted">זמן תיעוד ממוצע: {sessionSummary.avgWrapUpSeconds} שנ׳</p>
+            <p className="text-xs text-muted">{t(`זמן תיעוד ממוצע: ${sessionSummary.avgWrapUpSeconds} שנ׳`, `Average wrap-up time: ${sessionSummary.avgWrapUpSeconds}s`)}</p>
             {sessionSummary.queue && (
               <p className="text-xs text-muted">
-                נשארו ברשימה: {sessionSummary.queue.total} · ממתינים לחלון/ניסיון חוזר: {sessionSummary.queue.unavailable.notDueYet as number} · הושלמו: {sessionSummary.queue.unavailable.completed as number} · מוצו: {sessionSummary.queue.unavailable.exhausted as number}
+                {t("נשארו ברשימה:", "Left in list:")} {sessionSummary.queue.total} · {t("ממתינים לחלון/ניסיון חוזר:", "Waiting for window/retry:")} {sessionSummary.queue.unavailable.notDueYet as number} · {t("הושלמו:", "Completed:")} {sessionSummary.queue.unavailable.completed as number} · {t("מוצו:", "Exhausted:")} {sessionSummary.queue.unavailable.exhausted as number}
               </p>
             )}
           </div>
         )}
       </Modal>
 
-      <Modal open={skipOpen} onClose={() => setSkipOpen(false)} title="דילוג על ליד – בחר סיבה">
+      <Modal open={skipOpen} onClose={() => setSkipOpen(false)} title={t("דילוג על ליד – בחר סיבה", "Skip lead – choose a reason")}>
         <div className="grid grid-cols-1 gap-2">
-          {SKIP_REASONS.map((r) => (
+          {SKIP_REASONS.map(([r, en]) => (
             <Button key={r} variant="secondary" onClick={async () => { setSkipOpen(false); await skipLead(r); }}>
-              {r}
+              {t(r, en)}
             </Button>
           ))}
         </div>
@@ -221,6 +224,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
 
 /** Slim call controls for the minimal screen: what is happening + hang up / dial / skip. Everything else lives in the lead card. */
 function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedReason, onSkip, onContinueAuto }: { canDialLead: boolean; onDialLead: () => void; onDialNext: () => void; canDialNext: boolean; blockedReason: string | null; onSkip?: () => void; onContinueAuto?: () => void }) {
+  const t = useT();
   const { state, phone, hangup, busy, countdown, acceptInbound, rejectInbound } = useDialer();
   const call = state?.activeCall ?? null;
   useTicker(Boolean(call));
@@ -234,21 +238,21 @@ function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedRe
         {call ? (
           <><span className={cx("dot", answered ? "on" : "wait")} /><span>{CALL_STATUS_LABEL[call.status] ?? call.status}</span><span className="tabular" dir="ltr">{formatPhone(call.toE164)}</span>{(answered || call.endedAt) && <b className="tabular">{formatDuration(call.endedAt ? (call.talkSeconds ?? 0) : callElapsed(call))}</b>}</>
         ) : countdown ? (
-          <span>חיוג אוטומטי בעוד <b className="tabular text-warn">{countdown.secondsLeft}</b></span>
+          <span>{t("חיוג אוטומטי בעוד", "Auto-dial in")} <b className="tabular text-warn">{countdown.secondsLeft}</b></span>
         ) : (
-          <span className="text-muted">{blockedReason ?? "אין שיחה פעילה"}</span>
+          <span className="text-muted">{blockedReason ?? t("אין שיחה פעילה", "No active call")}</span>
         )}
-        {phone.status === "simulation" && <span className="text-muted text-xs">· הדמיה</span>}
+        {phone.status === "simulation" && <span className="text-muted text-xs">· {t("הדמיה", "Simulation")}</span>}
       </div>
       <div className="call-strip-actions">
         {inboundRinging ? (
-          <><Button variant="good" onClick={acceptInbound} loading={busy === "accept"}>קבל</Button><Button variant="danger" onClick={rejectInbound} loading={busy === "reject"}>דחה</Button></>
+          <><Button variant="good" onClick={acceptInbound} loading={busy === "accept"}>{t("קבל", "Accept")}</Button><Button variant="danger" onClick={rejectInbound} loading={busy === "reject"}>{t("דחה", "Reject")}</Button></>
         ) : inProgress ? (
-          <><Button variant={phone.muted ? "warn" : "secondary"} onClick={phone.toggleMute} disabled={!answered || phone.status === "simulation"}>{phone.muted ? "בטל השתקה" : "השתק"} <Kbd>M</Kbd></Button><Button variant="danger" onClick={hangup} loading={busy === "hangup"}>נתק <Kbd>H</Kbd></Button></>
+          <><Button variant={phone.muted ? "warn" : "secondary"} onClick={phone.toggleMute} disabled={!answered || phone.status === "simulation"}>{phone.muted ? t("בטל השתקה", "Unmute") : t("השתק", "Mute")} <Kbd>M</Kbd></Button><Button variant="danger" onClick={hangup} loading={busy === "hangup"}>{t("נתק", "Hang up")} <Kbd>H</Kbd></Button></>
         ) : onContinueAuto ? (
-          <Button variant="good" onClick={onContinueAuto} loading={busy === "outcome" || busy === "next" || busy === "dial"} data-testid="strip-continue">המשך לליד הבא ›</Button>
+          <Button variant="good" onClick={onContinueAuto} loading={busy === "outcome" || busy === "next" || busy === "dial"} data-testid="strip-continue">{t("המשך לליד הבא ›", "Next lead ›")}</Button>
         ) : (
-          <>{onSkip && <Button variant="secondary" onClick={onSkip} disabled={!canDialLead}>דלג <Kbd>S</Kbd></Button>}<Button variant="good" onClick={canDialLead ? onDialLead : onDialNext} disabled={(!canDialLead && !canDialNext) || !connOk || busy === "dial" || busy === "next"} loading={busy === "dial" || busy === "next"} title={blockedReason ?? undefined} data-testid="strip-dial-lead">חייג לליד <Kbd>D</Kbd></Button></>
+          <>{onSkip && <Button variant="secondary" onClick={onSkip} disabled={!canDialLead}>{t("דלג", "Skip")} <Kbd>S</Kbd></Button>}<Button variant="good" onClick={canDialLead ? onDialLead : onDialNext} disabled={(!canDialLead && !canDialNext) || !connOk || busy === "dial" || busy === "next"} loading={busy === "dial" || busy === "next"} title={blockedReason ?? undefined} data-testid="strip-dial-lead">{t("חייג לליד", "Dial lead")} <Kbd>D</Kbd></Button></>
         )}
       </div>
     </div>
@@ -261,21 +265,22 @@ function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedRe
  * agent taps the result first. The full documentation form (callback time, contact edits…) stays one click away.
  */
 function NextBar({ call, canContinue, busy, onContinue, onFull }: { call: CallDto; canContinue: boolean; busy: boolean; onContinue: (o: OutcomeKey) => void; onFull: () => void }) {
+  const t = useT();
   const answered = Boolean(call.answeredAt);
   const auto: OutcomeKey = call.telephonyResult === "busy" ? "busy" : "no_answer";
   const [pick, setPick] = useState<OutcomeKey | null>(answered ? null : auto);
-  const quick: Array<[OutcomeKey, string]> = [["answered_interested", "מעוניין"], ["answered_not_interested", "לא מעוניין"], ["sale", "בוצעה מכירה"]];
+  const quick: Array<[OutcomeKey, string]> = [["answered_interested", t("מעוניין", "Interested")], ["answered_not_interested", t("לא מעוניין", "Not interested")], ["sale", t("בוצעה מכירה", "Sale made")]];
   return (
     <div className="next-bar" data-testid="next-bar">
       <div className="next-bar-info">
-        <b>השיחה הסתיימה</b>
-        {answered ? <span>בחר תוצאה:</span> : <span>נרשם אוטומטית: <b>{auto === "busy" ? "תפוס" : "אין מענה"}</b></span>}
+        <b>{t("השיחה הסתיימה", "Call ended")}</b>
+        {answered ? <span>{t("בחר תוצאה:", "Choose outcome:")}</span> : <span>{t("נרשם אוטומטית:", "Logged automatically:")} <b>{auto === "busy" ? t("תפוס", "Busy") : t("אין מענה", "No answer")}</b></span>}
         {answered && <div className="next-bar-chips">{quick.map(([k, label]) => <button key={k} type="button" aria-pressed={pick === k} onClick={() => setPick(k)} data-testid={`next-quick-${k}`}>{label}</button>)}</div>}
       </div>
       <PostCallWhatsApp callId={call.id} />
       <div className="next-bar-actions">
-        <button type="button" className="next-bar-full" onClick={onFull} data-testid="next-full">תיעוד מלא / לחזור בהמשך</button>
-        <Button variant="good" size="lg" disabled={!pick || busy} loading={busy} onClick={() => pick && onContinue(pick)} data-testid="next-continue">{canContinue ? "המשך לליד הבא ›" : "שמור"}</Button>
+        <button type="button" className="next-bar-full" onClick={onFull} data-testid="next-full">{t("תיעוד מלא / לחזור בהמשך", "Full log / call back later")}</button>
+        <Button variant="good" size="lg" disabled={!pick || busy} loading={busy} onClick={() => pick && onContinue(pick)} data-testid="next-continue">{canContinue ? t("המשך לליד הבא ›", "Next lead ›") : t("שמור", "Save")}</Button>
       </div>
     </div>
   );

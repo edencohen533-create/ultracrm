@@ -12,6 +12,7 @@ import { ConversationActions } from "@/components/inbox/conversation-actions";
 import type { MessageItem } from "@/types/domain";
 import { getAiSettings } from "@/server/ai/settings";
 import { AiHandlingBar } from "@/components/inbox/ai-handling-bar";
+import { serverT } from "@/lib/i18n-server";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -21,6 +22,7 @@ export default organizationRequest(async function ConversationPage({
   params: Promise<{ conversationId: string }>;
 }) {
   const { conversationId } = await params;
+  const t = await serverT();
   const session = await auth();
   if (!session?.user) {
     notFound();
@@ -50,8 +52,8 @@ export default organizationRequest(async function ConversationPage({
     !conversation.lastInboundAt || now - conversation.lastInboundAt.getTime() > TWENTY_FOUR_HOURS_MS;
 
   const senderUnavailable = conversation.providerCredential
-    ? (!conversation.providerCredential.isActive || conversation.providerCredential.sendingBlocked ? "המספר השולח מנותק או חסום. יש לפנות למנהל לחיבור מחדש" : null)
-    : await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api" }, select: { id: true } }) ? "שיחת הדגמה: יש לפתוח שיחה חדשה באמצעות מספר WhatsApp מחובר" : null;
+    ? (!conversation.providerCredential.isActive || conversation.providerCredential.sendingBlocked ? t("המספר השולח מנותק או חסום. יש לפנות למנהל לחיבור מחדש", "The sending number is disconnected or blocked. Ask an admin to reconnect it.") : null)
+    : await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api" }, select: { id: true } }) ? t("שיחת הדגמה: יש לפתוח שיחה חדשה באמצעות מספר WhatsApp מחובר", "Demo conversation: start a new conversation from a connected WhatsApp number") : null;
   const agents = await prisma.user.findMany({
     where: { isActive: true, ...(session.user.role === "agent" ? { id: session.user.id } : {}), ...(conversation.providerCredential?.teamId ? { OR: [{ teamId: conversation.providerCredential.teamId }, { role: { in: ["owner", "manager"] } }] } : {}) },
     select: { id: true, fullName: true },
@@ -59,7 +61,7 @@ export default organizationRequest(async function ConversationPage({
 
   return (
     <div className="flex h-full flex-col">
-      <Link href="/inbox" className="border-b p-2 text-sm underline md:hidden">חזרה לרשימת השיחות</Link>
+      <Link href="/inbox" className="border-b p-2 text-sm underline md:hidden">{t("חזרה לרשימת השיחות", "Back to conversations")}</Link>
       <ConversationActions
         conversationId={conversation.id}
         status={conversation.status}
@@ -68,8 +70,8 @@ export default organizationRequest(async function ConversationPage({
         isSpam={conversation.isSpam}
       />
       {(aiEnabledHere || conversation.aiMode) && <AiHandlingBar conversationId={conversation.id} aiMode={conversation.aiMode} enabledHere={aiEnabledHere} reason={conversation.aiHandoffReason} summary={conversation.aiHandoffSummary} />}
-      <div className="flex items-center justify-between border-b px-3 py-2 text-sm"><span>{conversation.contact.fullName}</span><Link className="underline" href={`/contacts/${conversation.contactId}`}>כרטיס לקוח והסרה מדיוור</Link></div>
-      <div className="border-b px-3 py-1 text-xs text-muted-foreground">מספר השיחה: {conversation.providerCredential ? `${conversation.providerCredential.label || "WhatsApp"} · ${conversation.providerCredential.displayPhoneNumber || "מספר עסקי"}` : "הדגמה בלבד"}</div>
+      <div className="flex items-center justify-between border-b px-3 py-2 text-sm"><span>{conversation.contact.fullName}</span><Link className="underline" href={`/contacts/${conversation.contactId}`}>{t("כרטיס לקוח והסרה מדיוור", "Contact profile & unsubscribe")}</Link></div>
+      <div className="border-b px-3 py-1 text-xs text-muted-foreground">{t("מספר השיחה:", "Conversation number:")} {conversation.providerCredential ? `${conversation.providerCredential.label || "WhatsApp"} · ${conversation.providerCredential.displayPhoneNumber || t("מספר עסקי", "Business number")}` : t("הדגמה בלבד", "Demo only")}</div>
       <Tasks key={`tasks:${conversation.id}`} contactId={conversation.contactId} conversationId={conversation.id} userId={session.user.id} />
       <InternalNotes key={conversation.id} conversationId={conversation.id} notes={conversation.notes.map((note) => ({ id: note.id, body: note.body, createdAt: note.createdAt.toISOString(), author: { name: note.author.fullName } }))} />
       <div className="flex min-h-0 flex-1">
@@ -79,7 +81,7 @@ export default organizationRequest(async function ConversationPage({
         initialMessages={messages}
         senderUnavailable={senderUnavailable}
         composerDisabled={composerDisabled}
-        composerDisabledReason="עברו יותר מ-24 שעות מאז הודעת הלקוח האחרונה — יש לשלוח תבנית מאושרת."
+        composerDisabledReason={t("עברו יותר מ-24 שעות מאז הודעת הלקוח האחרונה — יש לשלוח תבנית מאושרת.", "More than 24 hours have passed since the customer's last message — send an approved template.")}
       />
       <ContactProfilePanel
         contact={{

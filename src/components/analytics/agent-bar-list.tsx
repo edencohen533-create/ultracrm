@@ -1,10 +1,13 @@
+import { serverT } from "@/lib/i18n-server";
+
 interface AgentStat {
   name: string;
   total: number;
   resolved: number;
 }
 
-export function AgentBarList({ data }: { data: AgentStat[] }) {
+export async function AgentBarList({ data }: { data: AgentStat[] }) {
+  const t = await serverT();
   const max = Math.max(1, ...data.map((d) => d.total));
 
   return (
@@ -14,7 +17,7 @@ export function AgentBarList({ data }: { data: AgentStat[] }) {
           <div className="mb-1 flex items-center justify-between text-sm">
             <span className="font-medium">{agent.name}</span>
             <span className="text-muted-foreground">
-              {agent.resolved} טופלו מתוך {agent.total}
+              {t(`${agent.resolved} טופלו מתוך ${agent.total}`, `${agent.resolved} handled of ${agent.total}`)}
             </span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-muted">

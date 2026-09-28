@@ -1,8 +1,12 @@
+"use client";
+
 import { format, isToday, isYesterday } from "date-fns";
-import { he } from "date-fns/locale";
+import { enGB, he } from "date-fns/locale";
+import { useT } from "@/components/i18n/LangProvider";
 
 export function DateSeparator({ date }: { date: Date }) {
-  const label = isToday(date) ? "היום" : isYesterday(date) ? "אתמול" : format(date, "d בMMMM yyyy", { locale: he });
+  const t = useT();
+  const label = isToday(date) ? t("היום", "Today") : isYesterday(date) ? t("אתמול", "Yesterday") : t.lang === "en" ? format(date, "d MMMM yyyy", { locale: enGB }) : format(date, "d בMMMM yyyy", { locale: he });
 
   return (
     <div className="my-3 flex items-center justify-center">

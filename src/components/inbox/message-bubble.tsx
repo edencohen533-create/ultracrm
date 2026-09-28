@@ -1,22 +1,26 @@
+"use client";
+
 import { format } from "date-fns";
 import { Check, CheckCheck, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Ltr } from "@/components/shared/ltr";
 import type { MessageItem } from "@/types/domain";
+import { useT } from "@/components/i18n/LangProvider";
 
-const STATUS_ICON: Record<MessageItem["status"], React.ReactNode> = {
-  ACCEPTED: <span title="התקבל אצל הספק; ממתין לאירוע שליחה">נקלט</span>,
-  UNKNOWN: <span title="תוצאה לא ודאית — יש לבדוק לפני ניסיון נוסף">?</span>,
+const statusIcons = (t: (he: string, en: string) => string): Record<MessageItem["status"], React.ReactNode> => ({
+  ACCEPTED: <span title={t("התקבל אצל הספק; ממתין לאירוע שליחה", "Accepted by the provider; waiting for a send event")}>{t("נקלט", "Accepted")}</span>,
+  UNKNOWN: <span title={t("תוצאה לא ודאית — יש לבדוק לפני ניסיון נוסף", "Uncertain result — check before retrying")}>?</span>,
   QUEUED: <Clock className="h-3 w-3" />,
   SENT: <Check className="h-3 w-3" />,
   DELIVERED: <CheckCheck className="h-3 w-3" />,
   READ: <CheckCheck className="h-3 w-3 text-blue-500" />,
   FAILED: <span className="text-destructive">!</span>,
-  BOUNCED: <span className="text-destructive" title="האימייל הוקפץ (bounce)">↩</span>,
-  CANCELLED: <span className="text-muted-foreground" title="בוטל לפני העברה לספק">✕</span>,
-};
+  BOUNCED: <span className="text-destructive" title={t("האימייל הוקפץ (bounce)", "Email bounced")}>↩</span>,
+  CANCELLED: <span className="text-muted-foreground" title={t("בוטל לפני העברה לספק", "Cancelled before reaching the provider")}>✕</span>,
+});
 
 export function MessageBubble({ message }: { message: MessageItem }) {
+  const t = useT();
   const isOutbound = message.direction === "OUTBOUND";
 
   return (
@@ -27,7 +31,7 @@ export function MessageBubble({ message }: { message: MessageItem }) {
           isOutbound ? "bg-primary text-primary-foreground" : "bg-muted"
         )}
       >
-        {message.aiBot && <div className="mb-0.5 text-[10px] font-semibold opacity-80" data-testid="ai-bot-label">🤖 נשלח ע״י נציג AI</div>}
+        {message.aiBot && <div className="mb-0.5 text-[10px] font-semibold opacity-80" data-testid="ai-bot-label">{t("🤖 נשלח ע״י נציג AI", "🤖 Sent by AI agent")}</div>}
         <p className="whitespace-pre-wrap break-words">{message.body}</p>
         {message.attachments?.map((attachment) => {
           const safeUrl = attachment.url.startsWith("/api/attachments/") || attachment.url.startsWith("https://") ? attachment.url : null;
@@ -36,15 +40,15 @@ export function MessageBubble({ message }: { message: MessageItem }) {
             {attachment.mimeType.startsWith("image/") ?
               // Authenticated media requires the browser's session cookie, so use a direct image element.
               // eslint-disable-next-line @next/next/no-img-element
-              <a href={safeUrl} target="_blank" rel="noreferrer"><img src={safeUrl} alt={attachment.fileName ?? "תמונה מצורפת"} className="max-h-72 rounded object-contain" loading="lazy" /></a>
-              : attachment.mimeType.startsWith("audio/") ? <audio src={safeUrl} controls preload="none" aria-label={attachment.fileName ?? "הודעה קולית"} />
-              : attachment.mimeType.startsWith("video/") ? <video src={safeUrl} controls preload="metadata" className="max-h-72 rounded" aria-label={attachment.fileName ?? "סרטון מצורף"} />
-              : <a href={safeUrl} target="_blank" rel="noreferrer" className="underline">הורדת {attachment.fileName ?? "קובץ מצורף"}</a>}
+              <a href={safeUrl} target="_blank" rel="noreferrer"><img src={safeUrl} alt={attachment.fileName ?? t("תמונה מצורפת", "Attached image")} className="max-h-72 rounded object-contain" loading="lazy" /></a>
+              : attachment.mimeType.startsWith("audio/") ? <audio src={safeUrl} controls preload="none" aria-label={attachment.fileName ?? t("הודעה קולית", "Voice message")} />
+              : attachment.mimeType.startsWith("video/") ? <video src={safeUrl} controls preload="metadata" className="max-h-72 rounded" aria-label={attachment.fileName ?? t("סרטון מצורף", "Attached video")} />
+              : <a href={safeUrl} target="_blank" rel="noreferrer" className="underline">{t("הורדת", "Download")} {attachment.fileName ?? t("קובץ מצורף", "attachment")}</a>}
           </div>;
         })}
         <div className={cn("mt-1 flex items-center gap-1 text-[10px] opacity-70", isOutbound ? "justify-start" : "justify-end")}>
           <Ltr>{format(new Date(message.createdAt), "HH:mm")}</Ltr>
-          {isOutbound && STATUS_ICON[message.status]}
+          {isOutbound && statusIcons(t)[message.status]}
         </div>
       </div>
     </div>
@@ -52,10 +56,11 @@ export function MessageBubble({ message }: { message: MessageItem }) {
 }
 
 export function InternalNoteBubble({ body, authorName, createdAt }: { body: string; authorName: string; createdAt: string }) {
+  const t = useT();
   return (
     <div className="flex justify-center">
       <div className="max-w-[80%] rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-        <div className="mb-0.5 font-medium">הערה פנימית · {authorName}</div>
+        <div className="mb-0.5 font-medium">{t("הערה פנימית", "Internal note")} · {authorName}</div>
         <p className="whitespace-pre-wrap break-words">{body}</p>
         <Ltr className="mt-1 block opacity-70">{format(new Date(createdAt), "HH:mm")}</Ltr>
       </div>

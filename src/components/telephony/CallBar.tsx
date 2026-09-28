@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useDialer } from "./DialerProvider";
 import { Badge, Button, Phone, cx } from "@/components/ui";
 import { CALL_STATUS_LABEL, formatDuration, formatPhone } from "@/lib/client/format";
+import { useT } from "@/components/i18n/LangProvider";
 
 export function useTicker(active: boolean) {
   const [, setT] = useState(0);
@@ -24,6 +25,7 @@ export function callElapsed(call: { answeredAt: string | null; createdAt: string
 }
 
 export function CallBar() {
+  const t = useT();
   const { state, hangup, phone, busy, acceptInbound, rejectInbound } = useDialer();
   const pathname = usePathname();
   const call = state?.activeCall;
@@ -38,27 +40,27 @@ export function CallBar() {
     return (
       <div className={cx("sticky top-0 z-40 flex flex-wrap items-center gap-2 px-3 py-2 min-h-12 border-b border-line", answered ? "bg-[#ecf9ef]" : "bg-panel-2")}>
         <span className={cx("w-2.5 h-2.5 rounded-full", answered ? "bg-good pulse-good" : "bg-warn animate-pulse")} />
-        <span className="font-semibold truncate">{call.contact?.fullName ?? "שיחה"}</span>
+        <span className="font-semibold truncate">{call.contact?.fullName ?? t("שיחה", "Call")}</span>
         <Phone value={formatPhone(call.toE164)} className="text-muted whitespace-nowrap" />
         <Badge tone={answered ? "good" : "warn"}>{CALL_STATUS_LABEL[call.status]}</Badge>
         {answered && <span className="tabular font-mono text-sm">{formatDuration(callElapsed(call))}</span>}
-        {state?.telephony.simulation && <Badge tone="warn">הדמיה</Badge>}
-        {call.direction === "inbound" && !call.answeredAt && <Badge tone="info">שיחה נכנסת</Badge>}
+        {state?.telephony.simulation && <Badge tone="warn">{t("הדמיה", "Simulation")}</Badge>}
+        {call.direction === "inbound" && !call.answeredAt && <Badge tone="info">{t("שיחה נכנסת", "Incoming call")}</Badge>}
         <div className="ms-auto flex flex-wrap items-center gap-2">
           {call.direction === "inbound" && !call.answeredAt && (
             <>
-              <Button size="sm" variant="good" onClick={acceptInbound} loading={busy === "accept"}>קבל</Button>
-              <Button size="sm" variant="danger" onClick={rejectInbound} loading={busy === "reject"}>דחה</Button>
+              <Button size="sm" variant="good" onClick={acceptInbound} loading={busy === "accept"}>{t("קבל", "Accept")}</Button>
+              <Button size="sm" variant="danger" onClick={rejectInbound} loading={busy === "reject"}>{t("דחה", "Reject")}</Button>
             </>
           )}
           <Button size="sm" variant={phone.muted ? "warn" : "secondary"} onClick={phone.toggleMute} disabled={!answered}>
-            {phone.muted ? "בטל השתקה" : "השתק"}
+            {phone.muted ? t("בטל השתקה", "Unmute") : t("השתק", "Mute")}
           </Button>
           <Button size="sm" variant="danger" onClick={hangup} loading={busy === "hangup"}>
-            נתק
+            {t("נתק", "Hang up")}
           </Button>
           <Link href="/leads" className="text-xs text-accent underline hover:underline">
-            למסך החיוג
+            {t("למסך החיוג", "To dialer screen")}
           </Link>
         </div>
       </div>
@@ -67,10 +69,10 @@ export function CallBar() {
   return (
     <div className="sticky top-0 z-40 flex flex-wrap items-center gap-2 px-3 py-2 min-h-12 border-b border-line bg-[#fff5df]">
       <span className="w-2.5 h-2.5 rounded-full bg-warn" />
-      <span className="font-medium">שיחה עם {wrap!.contact?.fullName ?? formatPhone(wrap!.toE164)} ממתינה לתיעוד</span>
+      <span className="font-medium">{t(`שיחה עם ${wrap!.contact?.fullName ?? formatPhone(wrap!.toE164)} ממתינה לתיעוד`, `Call with ${wrap!.contact?.fullName ?? formatPhone(wrap!.toE164)} is waiting to be logged`)}</span>
       <Link href="/leads" className="ms-auto">
         <Button size="sm" variant="warn">
-          תעד עכשיו
+          {t("תעד עכשיו", "Log now")}
         </Button>
       </Link>
     </div>

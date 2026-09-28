@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Badge, Button, EmptyState, Panel, Phone, Spinner } from "@/components/ui";
 import { formatDateTime, formatPhone } from "@/lib/client/format";
+import { useT } from "@/components/i18n/LangProvider";
 
 interface Group { reason: string; key: string; contacts: Array<{ id: string; fullName: string; phoneE164: string; email: string | null; createdAt: string }> }
 
@@ -13,26 +14,28 @@ export default function DuplicatesPage() {
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [primary, setPrimary] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const t = useT();
   const load = () => api.get<{ groups: Group[] }>("/api/contacts/duplicates").then((r) => setGroups(r.groups)).catch((e) => toast.error(e.message));
   useEffect(() => { load(); }, []);
   async function merge(g: Group) {
     const keep = primary[g.key] ?? g.contacts[0].id;
     const others = g.contacts.filter((c) => c.id !== keep);
-    if (!confirm(`למזג ${others.length} אנשי קשר לתוך "${g.contacts.find((c) => c.id === keep)?.fullName}"? כל השיחות, הלידים, העסקאות, המשימות, הקמפיינים וההסרות יועברו; הסכמה מחמירה נשמרת. הפעולה אינה הפיכה.`)) return;
+    const keepName = g.contacts.find((c) => c.id === keep)?.fullName;
+    if (!confirm(t(`למזג ${others.length} אנשי קשר לתוך "${keepName}"? כל השיחות, הלידים, העסקאות, המשימות, הקמפיינים וההסרות יועברו; הסכמה מחמירה נשמרת. הפעולה אינה הפיכה.`, `Merge ${others.length} contacts into "${keepName}"? All calls, leads, deals, tasks, campaigns and unsubscribes will be moved; the stricter consent is kept. This can't be undone.`))) return;
     setBusy(true);
-    try { for (const o of others) await api.post(`/api/contacts/${keep}/merge`, { duplicateId: o.id }); toast.success("המיזוג הושלם – ההיסטוריה נשמרה על הכרטיס הראשי"); await load(); }
+    try { for (const o of others) await api.post(`/api/contacts/${keep}/merge`, { duplicateId: o.id }); toast.success(t("המיזוג הושלם – ההיסטוריה נשמרה על הכרטיס הראשי", "Merge complete – history was kept on the primary record")); await load(); }
     catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
   }
   return (
     <div className="p-5 space-y-4 max-w-5xl">
-      <div className="flex items-center gap-3"><h1 className="text-lg font-semibold">כפילויות אפשריות</h1><Link href="/contacts" className="text-xs text-muted hover:text-text ms-auto">חזרה לאנשי קשר</Link></div>
-      <p className="text-xs text-muted">מספר טלפון מנורמל הוא ייחודי לכל עסק, ולכן כפילויות לפי טלפון נחסמות ביצירה. כאן מוצגים אנשי קשר עם אותו אימייל או אותו שם. שום דבר לא ממוזג אוטומטית – שם זהה אינו הוכחה שמדובר באותו אדם.</p>
-      {!groups ? <div className="flex justify-center p-10"><Spinner /></div> : groups.length === 0 ? <EmptyState title="לא נמצאו כפילויות" /> : groups.map((g) => (
+      <div className="flex items-center gap-3"><h1 className="text-lg font-semibold">{t("כפילויות אפשריות", "Possible duplicates")}</h1><Link href="/contacts" className="text-xs text-muted hover:text-text ms-auto">{t("חזרה לאנשי קשר", "Back to contacts")}</Link></div>
+      <p className="text-xs text-muted">{t("מספר טלפון מנורמל הוא ייחודי לכל עסק, ולכן כפילויות לפי טלפון נחסמות ביצירה. כאן מוצגים אנשי קשר עם אותו אימייל או אותו שם. שום דבר לא ממוזג אוטומטית – שם זהה אינו הוכחה שמדובר באותו אדם.", "A normalized phone number is unique per business, so phone duplicates are blocked on creation. Shown here are contacts with the same email or the same name. Nothing is merged automatically – an identical name doesn't prove it's the same person.")}</p>
+      {!groups ? <div className="flex justify-center p-10"><Spinner /></div> : groups.length === 0 ? <EmptyState title={t("לא נמצאו כפילויות", "No duplicates found")} /> : groups.map((g) => (
         <Panel key={g.reason + g.key} title={<span>{g.reason} · <span className="ltr inline-block">{g.key}</span></span>} bodyClassName="p-0">
           <ul className="divide-y divide-line text-sm">
-            {g.contacts.map((c) => <li key={c.id} className="px-4 py-2 flex items-center gap-3"><label className="flex items-center gap-1 text-xs text-muted"><input type="radio" name={`primary-${g.key}`} checked={(primary[g.key] ?? g.contacts[0].id) === c.id} onChange={() => setPrimary({ ...primary, [g.key]: c.id })} />ראשי</label><Link href={`/contacts/${c.id}`} className="font-medium hover:underline">{c.fullName}</Link><Phone value={formatPhone(c.phoneE164)} className="text-muted" /><span className="text-muted ltr">{c.email ?? ""}</span><Badge tone="neutral" className="ms-auto">{formatDateTime(c.createdAt)}</Badge></li>)}
+            {g.contacts.map((c) => <li key={c.id} className="px-4 py-2 flex items-center gap-3"><label className="flex items-center gap-1 text-xs text-muted"><input type="radio" name={`primary-${g.key}`} checked={(primary[g.key] ?? g.contacts[0].id) === c.id} onChange={() => setPrimary({ ...primary, [g.key]: c.id })} />{t("ראשי", "Primary")}</label><Link href={`/contacts/${c.id}`} className="font-medium hover:underline">{c.fullName}</Link><Phone value={formatPhone(c.phoneE164)} className="text-muted" /><span className="text-muted ltr">{c.email ?? ""}</span><Badge tone="neutral" className="ms-auto">{formatDateTime(c.createdAt)}</Badge></li>)}
           </ul>
-          <div className="px-4 py-2 border-t border-line flex items-center gap-2 text-xs text-muted"><span>בחר את הכרטיס שיישאר; השאר ימוזגו לתוכו.</span><Button size="sm" variant="secondary" className="ms-auto" disabled={busy} onClick={() => merge(g)} data-testid="merge-group">מזג לכרטיס הראשי</Button></div>
+          <div className="px-4 py-2 border-t border-line flex items-center gap-2 text-xs text-muted"><span>{t("בחר את הכרטיס שיישאר; השאר ימוזגו לתוכו.", "Choose the record to keep; the others will be merged into it.")}</span><Button size="sm" variant="secondary" className="ms-auto" disabled={busy} onClick={() => merge(g)} data-testid="merge-group">{t("מזג לכרטיס הראשי", "Merge into primary")}</Button></div>
         </Panel>
       ))}
     </div>

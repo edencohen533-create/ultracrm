@@ -65,5 +65,8 @@ export async function GET(req: NextRequest) {
     const stale = await prisma.dialerSession.updateMany({ where: { businessId: b.id, status: { in: ["active", "paused"] }, lastHeartbeatAt: { lt: new Date(Date.now() - 6 * 3600_000) } }, data: { status: "ended", endedAt: new Date() } });
     report[b.id] = { recordingsDeleted, staleSessionsEnded: stale.count, messagesPurged, auditPurged };
   }
-  return NextResponse.json({ ok: true, report });
+  // Businesses whose owner asked to delete everything and whose 14-day grace ended.
+  const { purgeDueBusinesses } = await import("@/server/services/account-deletion-service");
+  const businessesDeleted = await purgeDueBusinesses().catch((e: Error) => { console.error("business purge failed", e.message); return 0; });
+  return NextResponse.json({ ok: true, report, businessesDeleted });
 }

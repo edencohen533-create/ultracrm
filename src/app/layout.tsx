@@ -3,22 +3,27 @@ import { Heebo } from "next/font/google";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
+import { getLang } from "@/lib/i18n-server";
+import { dirOf } from "@/lib/i18n";
+import { LangProvider } from "@/components/i18n/LangProvider";
 
 const heebo = Heebo({ subsets: ["hebrew", "latin"], variable: "--font-heebo", weight: ["400", "500", "600", "700"] });
 
 export const metadata: Metadata = {
   title: "UltraCRM",
-  description: "CRM, דיוור וטלפוניה במערכת אחת",
+  description: "CRM, WhatsApp Business messaging, dialer, SMS and email in one platform",
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#0b0e14" };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const lang = await getLang();
+  const dir = dirOf(lang);
   return (
-    <html lang="he" dir="rtl" className={`${heebo.variable} dark`}>
+    <html lang={lang} dir={dir} className={`${heebo.variable} dark`}>
       <body>
-        <TooltipProvider>{children}</TooltipProvider>
-        <Toaster position="bottom-left" richColors closeButton dir="rtl" theme="dark" toastOptions={{ style: { fontFamily: "var(--font-heebo)" } }} />
+        <LangProvider lang={lang}><TooltipProvider>{children}</TooltipProvider></LangProvider>
+        <Toaster position={dir === "rtl" ? "bottom-left" : "bottom-right"} richColors closeButton dir={dir} theme="dark" toastOptions={{ style: { fontFamily: "var(--font-heebo)" } }} />
       </body>
     </html>
   );

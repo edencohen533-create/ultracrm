@@ -6,6 +6,7 @@ import { Badge, Button, Select, cx } from "@/components/ui";
 import { api } from "@/lib/client/api";
 import { MODE_LABEL } from "@/lib/client/format";
 import type { DialMode } from "@/lib/client/types";
+import { useT } from "@/components/i18n/LangProvider";
 
 interface ListLite {
   id: string;
@@ -16,6 +17,7 @@ interface ListLite {
 
 /** Active-session bar (status, queue counters, countdown, pause/resume/end). The start form lives in StartSessionForm. */
 export function SessionControls() {
+  const t = useT();
   const { state, pauseSession, resumeSession, endSession, busy, countdown, cancelCountdown, sessionTakenOver } = useDialer();
   const session = state?.session;
 
@@ -28,33 +30,33 @@ export function SessionControls() {
           {session.list ? ` · ${session.list.name}` : ""}
         </Badge>
         {q && (
-          <span className="text-xs text-muted" title={`לא זמינים: ממתינים לניסיון חוזר ${q.unavailable.notDueYet} · בטיפול ${q.unavailable.inProgress} · מוצו ${q.unavailable.exhausted} · DNC ${q.unavailable.dnc}`}>
-            בתור עכשיו <b className="text-text tabular">{q.dueNow}</b> · סה״כ <span className="tabular">{q.total}</span> · הושלמו <span className="tabular">{q.byStatus.completed ?? 0}</span>
-            {q.unavailable.outsideDialWindow && <Badge tone="warn" className="ms-2">מחוץ לחלון החיוג</Badge>}
-            {q.unavailable.listPaused && <Badge tone="bad" className="ms-2">הרשימה מושהית</Badge>}
+          <span className="text-xs text-muted" title={t(`לא זמינים: ממתינים לניסיון חוזר ${q.unavailable.notDueYet} · בטיפול ${q.unavailable.inProgress} · מוצו ${q.unavailable.exhausted} · DNC ${q.unavailable.dnc}`, `Unavailable: waiting for retry ${q.unavailable.notDueYet} · in progress ${q.unavailable.inProgress} · exhausted ${q.unavailable.exhausted} · DNC ${q.unavailable.dnc}`)}>
+            {t("בתור עכשיו", "In queue now")} <b className="text-text tabular">{q.dueNow}</b> · {t("סה״כ", "Total")} <span className="tabular">{q.total}</span> · {t("הושלמו", "Completed")} <span className="tabular">{q.byStatus.completed ?? 0}</span>
+            {q.unavailable.outsideDialWindow && <Badge tone="warn" className="ms-2">{t("מחוץ לחלון החיוג", "Outside dial window")}</Badge>}
+            {q.unavailable.listPaused && <Badge tone="bad" className="ms-2">{t("הרשימה מושהית", "List paused")}</Badge>}
           </span>
         )}
         <span className="text-xs text-muted">
-          חיוגים בסשן: <span className="tabular text-text">{session.dialsCount}</span>
+          {t("חיוגים בסשן:", "Session dials:")} <span className="tabular text-text">{session.dialsCount}</span>
         </span>
         {countdown && (
           <button onClick={cancelCountdown} className="flex items-center gap-2 h-8 px-3 rounded-md bg-warn/15 text-warn text-xs">
-            הליד הבא בעוד <b className="tabular text-base">{countdown.secondsLeft}</b> · לחץ לביטול
+            {t("הליד הבא בעוד", "Next lead in")} <b className="tabular text-base">{countdown.secondsLeft}</b> · {t("לחץ לביטול", "click to cancel")}
           </button>
         )}
-        {sessionTakenOver && <Badge tone="bad">הסשן עבר ללשונית אחרת</Badge>}
+        {sessionTakenOver && <Badge tone="bad">{t("הסשן עבר ללשונית אחרת", "Session moved to another tab")}</Badge>}
         <div className="ms-auto flex items-center gap-2">
           {session.status === "active" ? (
             <Button size="sm" variant="secondary" onClick={pauseSession} disabled={sessionTakenOver}>
-              השהה
+              {t("השהה", "Pause")}
             </Button>
           ) : (
             <Button size="sm" variant="good" onClick={resumeSession} disabled={sessionTakenOver}>
-              המשך
+              {t("המשך", "Resume")}
             </Button>
           )}
-          <Button size="sm" variant="danger" onClick={endSession} loading={busy === "session"} disabled={Boolean(state?.activeCall)} title={state?.activeCall ? "נתק את השיחה קודם" : undefined}>
-            סיים סשן
+          <Button size="sm" variant="danger" onClick={endSession} loading={busy === "session"} disabled={Boolean(state?.activeCall)} title={state?.activeCall ? t("נתק את השיחה קודם", "Hang up the call first") : undefined}>
+            {t("סיים סשן", "End session")}
           </Button>
         </div>
       </div>
@@ -62,7 +64,7 @@ export function SessionControls() {
   }
 
   // A manual call (or its wrap-up) without a session: no start form in the workspace header – finish the call first.
-  if (state?.activeCall || state?.wrapUpCall) return <p className="text-xs text-muted">שיחה ידנית – תעד את התוצאה בסיום ותחזור לרשימת הלידים. הפעלת החייגן האוטומטי זמינה מראש מסך הלידים.</p>;
+  if (state?.activeCall || state?.wrapUpCall) return <p className="text-xs text-muted">{t("שיחה ידנית – תעד את התוצאה בסיום ותחזור לרשימת הלידים. הפעלת החייגן האוטומטי זמינה מראש מסך הלידים.", "Manual call – log the outcome when done to return to the lead list. The auto-dialer can be started from the top of the leads screen.")}</p>;
   return <StartSessionForm />;
 }
 
@@ -71,6 +73,7 @@ export function SessionControls() {
  * the mode and the pause between calls. Rendered inside the "הפעל חייגן" dialog on the leads screen.
  */
 export function StartSessionForm({ onStarted, compact, initialListId }: { onStarted?: () => void; compact?: boolean; initialListId?: string } = {}) {
+  const t = useT();
   const { state, startSession, busy } = useDialer();
   const [lists, setLists] = useState<ListLite[] | null>(null);
   const [mode, setMode] = useState<DialMode>("power");
@@ -108,22 +111,22 @@ export function StartSessionForm({ onStarted, compact, initialListId }: { onStar
     <div className={compact ? "space-y-3" : "flex flex-wrap items-end gap-3"}>
       {compact && (
         <div className="rounded-lg border border-line bg-panel-2 p-3 text-sm space-y-1">
-          <div className="flex rounded-lg border border-line overflow-hidden w-fit mb-1" role="radiogroup" aria-label="מקור התור">
-            <button role="radio" aria-checked={source === "mine"} onClick={() => { setSource("mine"); if (!mine) void loadMine(); }} className={cx("h-8 px-3 text-xs", source === "mine" ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid="source-mine">הלידים שלי</button>
-            <button role="radio" aria-checked={source === "list"} onClick={() => setSource("list")} disabled={!lists?.length} className={cx("h-8 px-3 text-xs disabled:opacity-40", source === "list" ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid="source-list">רשימת חיוג</button>
+          <div className="flex rounded-lg border border-line overflow-hidden w-fit mb-1" role="radiogroup" aria-label={t("מקור התור", "Queue source")}>
+            <button role="radio" aria-checked={source === "mine"} onClick={() => { setSource("mine"); if (!mine) void loadMine(); }} className={cx("h-8 px-3 text-xs", source === "mine" ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid="source-mine">{t("הלידים שלי", "My leads")}</button>
+            <button role="radio" aria-checked={source === "list"} onClick={() => setSource("list")} disabled={!lists?.length} className={cx("h-8 px-3 text-xs disabled:opacity-40", source === "list" ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid="source-list">{t("רשימת חיוג", "Dial list")}</button>
           </div>
-          {source === "mine" && mineBusy && !mine ? <p className="text-muted">בונה את התור מהלידים הפתוחים שלך…</p> : source === "mine" && !mine ? (
-            <p className="text-muted">לא נמצאו לידים פתוחים ששייכים לך. ליד שמשויך אליך בסטטוס חדש/נוצר קשר/מתאים ייכנס לתור אוטומטית.</p>
-          ) : source === "list" && lists === null ? <p className="text-muted">טוען רשימות…</p> : source === "list" && lists?.length === 0 ? (
-            <p className="text-muted">אין רשימת חיוג פעילה שמשויכת אליך – בחר &quot;הלידים שלי&quot;.</p>
+          {source === "mine" && mineBusy && !mine ? <p className="text-muted">{t("בונה את התור מהלידים הפתוחים שלך…", "Building the queue from your open leads…")}</p> : source === "mine" && !mine ? (
+            <p className="text-muted">{t("לא נמצאו לידים פתוחים ששייכים לך. ליד שמשויך אליך בסטטוס חדש/נוצר קשר/מתאים ייכנס לתור אוטומטית.", "No open leads assigned to you were found. A lead assigned to you with status New/Contacted/Qualified will enter the queue automatically.")}</p>
+          ) : source === "list" && lists === null ? <p className="text-muted">{t("טוען רשימות…", "Loading lists…")}</p> : source === "list" && lists?.length === 0 ? (
+            <p className="text-muted">{t("אין רשימת חיוג פעילה שמשויכת אליך – בחר \"הלידים שלי\".", "No active dial list is assigned to you – choose \"My leads\".")}</p>
           ) : chosen ? (
             <>
-              <p>יחויגו לידים מהתור <b>{chosen.name}</b>.</p>
-              <p className="text-muted">זמינים לחיוג עכשיו: <b className="text-text tabular">{chosen.stats.dueNow}</b> מתוך <span className="tabular">{chosen.stats.total}</span>. לידים בטיפול אצל נציג אחר, חסומים (DNC), עם חזרה מתוזמנת עתידית או מחוץ לחלון החיוג אינם נכללים.</p>
-              {chosen.stats.dueNow === 0 && <p className="text-warn">אין כרגע לידים זמינים ברשימה זו.</p>}
+              <p>{t("יחויגו לידים מהתור", "Leads will be dialed from queue")} <b>{chosen.name}</b>.</p>
+              <p className="text-muted">{t("זמינים לחיוג עכשיו:", "Available to dial now:")} <b className="text-text tabular">{chosen.stats.dueNow}</b> {t("מתוך", "of")} <span className="tabular">{chosen.stats.total}</span>. {t("לידים בטיפול אצל נציג אחר, חסומים (DNC), עם חזרה מתוזמנת עתידית או מחוץ לחלון החיוג אינם נכללים.", "Leads handled by another agent, blocked (DNC), with a future scheduled callback, or outside the dial window are excluded.")}</p>
+              {chosen.stats.dueNow === 0 && <p className="text-warn">{t("אין כרגע לידים זמינים ברשימה זו.", "No leads are available in this list right now.")}</p>}
             </>
           ) : null}
-          {blocked && <p className="text-warn">יש שיחה פעילה או שיחה שממתינה לתיעוד – סיים אותה לפני הפעלת החייגן.</p>}
+          {blocked && <p className="text-warn">{t("יש שיחה פעילה או שיחה שממתינה לתיעוד – סיים אותה לפני הפעלת החייגן.", "There is an active call or a call waiting to be logged – finish it before starting the dialer.")}</p>}
         </div>
       )}
       <div className="flex rounded-lg border border-line overflow-hidden">
@@ -134,29 +137,29 @@ export function StartSessionForm({ onStarted, compact, initialListId }: { onStar
         ))}
       </div>
       {mode !== "manual" && source === "list" && (
-        <Select label="רשימת חיוג" value={listId} onChange={(e) => setListId(e.target.value)} className="min-w-56">
-          {(lists ?? []).length === 0 && <option value="">אין רשימות פעילות</option>}
+        <Select label={t("רשימת חיוג", "Dial list")} value={listId} onChange={(e) => setListId(e.target.value)} className="min-w-56">
+          {(lists ?? []).length === 0 && <option value="">{t("אין רשימות פעילות", "No active lists")}</option>}
           {(lists ?? []).map((l) => (
             <option key={l.id} value={l.id}>
-              {l.name} ({l.stats.dueNow} בתור)
+              {l.name} ({t(`${l.stats.dueNow} בתור`, `${l.stats.dueNow} in queue`)})
             </option>
           ))}
         </Select>
       )}
       {mode === "power" && (
         <label className="block">
-          <span className="block text-xs text-muted mb-1">השהיה בין שיחות</span>
+          <span className="block text-xs text-muted mb-1">{t("השהיה בין שיחות", "Pause between calls")}</span>
           <select value={cd} onChange={(e) => setCd(Number(e.target.value))} className="h-10 px-3 rounded-lg bg-bg border border-line">
             {[0, 3, 5, 10, 15, 30].map((s) => (
               <option key={s} value={s}>
-                {s} שנ׳
+                {t(`${s} שנ׳`, `${s}s`)}
               </option>
             ))}
           </select>
         </label>
       )}
       <Button size="md" variant="good" loading={busy === "session"} disabled={blocked || mineBusy || (mode !== "manual" && !effectiveListId)} data-testid="start-dialer" onClick={async () => { await startSession(mode, mode === "manual" ? undefined : effectiveListId, mode === "power" ? cd : undefined); onStarted?.(); }}>
-        {mode === "power" ? "▶ הפעל חיוג אוטומטי" : mode === "preview" ? "▶ התחל Preview" : "▶ התחל סשן ידני"}
+        {mode === "power" ? t("▶ הפעל חיוג אוטומטי", "▶ Start auto-dial") : mode === "preview" ? t("▶ התחל Preview", "▶ Start Preview") : t("▶ התחל סשן ידני", "▶ Start manual session")}
       </Button>
     </div>
   );

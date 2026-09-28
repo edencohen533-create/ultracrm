@@ -11,12 +11,13 @@ import { listCampaigns } from "@/server/services/campaign-service";
 import { getActiveProviderSummary } from "@/server/services/provider-credential-service";
 import { getBusinessSettings } from "@/lib/settings";
 import { requireBusinessId } from "@/lib/tenant";
+import { serverT } from "@/lib/i18n-server";
 
 type ChannelKey = "whatsapp" | "sms" | "email";
 
 /** Server loader shared by /audiences and /campaigns/{whatsapp,email,sms}: same data, different slice of the dashboard. */
 export const CampaignsScreen = organizationRequest(async function CampaignsScreen({ mode, fixedChannel }: { mode: "audiences" | "campaigns"; fixedChannel?: ChannelKey }) {
-  if (!await campaignActor()) return <p className="p-6">הגישה לקמפיינים מיועדת למנהלים בלבד.</p>;
+  if (!await campaignActor()) { const t = await serverT(); return <p className="p-6">{t("הגישה לקמפיינים מיועדת למנהלים בלבד.", "Campaign access is for managers only.")}</p>; }
   if (mode === "campaigns" && fixedChannel) {
     const settings = await getBusinessSettings(requireBusinessId());
     const biz = await prisma.business.findUnique({ where: { id: requireBusinessId() }, select: { timezone: true } });

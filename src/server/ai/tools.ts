@@ -4,6 +4,7 @@
  * reaches the model. Actions become AiAction rows (auto-executed only when policy allows, otherwise proposed for
  * approval). Automations are built only from the catalog below and saved through the journey engine.
  */
+import { UNSUPPORTED_REQUEST } from "./capabilities";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 import { visibleUserIds, type SessionUser } from "@/lib/auth";
@@ -25,6 +26,7 @@ export interface AiCtx { user: SessionUser; read: ToolCtx; ai: AiSettings; tz: s
  */
 const TOOL_NEEDS: Record<string, string[]> = {
   business_snapshot: ["crm.view", "telephony.use"], sales_summary: ["crm.view"], leads_summary: ["crm.view"], agents_performance: ["crm.view", "telephony.team_settings"],
+  prepare_ops_rule: ["crm.view"],
   calls_summary: ["telephony.use"], untreated_leads: ["crm.view"], overdue_tasks: ["crm.view", "telephony.use"], compare_periods: ["crm.view"],
   find_contact: ["crm.view", "telephony.use", "whatsapp.view"], contact_summary: ["crm.view", "telephony.use", "whatsapp.view"], focus_today: ["crm.view", "telephony.use"],
   my_queue_today: ["crm.view", "telephony.use"], agents_online: ["telephony.use", "crm.view"], find_lead: ["crm.view", "telephony.use"], create_task: ["crm.edit", "telephony.use"], set_follow_up: ["crm.edit"],
@@ -57,6 +59,8 @@ const ACTION_KINDS = ["create_task", "set_follow_up", "change_lead_status", "tra
 // ─── tool definitions ────────────────────────────────────────────────────────────────────────────────────────────
 const READ_DEFS: ToolDef[] = Object.entries(READ_TOOLS).map(([name, t]) => ({ name, description: t.description, input_schema: t.input as Json }));
 const CRM_DEFS: ToolDef[] = [
+  { name: "report_unsupported_request", description: "כאשר בקשת המשתמש דורשת יכולת שאינה בקטלוג הכלים או הכללים: להציג במפורש שהפעולה אינה נתמכת ודורשת פיתוח. אין פעולה עסקית. לא להשתמש כשחסרה הרשאה, הגדרה או פרט לבקשה נתמכת.", input_schema: { type: "object", properties: { missingCapability: { type: "string" } }, required: ["missingCapability"] } },
+  { name: "prepare_ops_rule", description: "פענוח חוק קבוע למנהל AI, כולל פולואפ לנציג שאינו מחובר. מחזיר פירוש לבדיקה בלבד; אינו שומר או מפעיל. להפעלה המשתמש עובר למנהל AI > כללים, בודק ומאשר שם.", input_schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } },
   { name: "my_queue_today", description: "כמה לידים ממתינים לשיחה היום אצל המשתמש (או אצל נציג/כל העסק למנהל): חדשים שטרם חויגו, פולואפים להיום, פולואפים באיחור. כל ליד נספר פעם אחת.", input_schema: { type: "object", properties: { agentName: { type: "string", description: "רק למנהל" } } } },
   { name: "find_lead", description: "חיפוש ליד לפי שם/טלפון בין הלידים שהמשתמש רשאי לראות. מחזיר עד 5 התאמות – אם יש יותר מאחת יש לשאול למי הכוונה.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
   { name: "find_user", description: "חיפוש משתמש (נציג/מנהל) פעיל לפי שם, לצורך שיוך משימה או העברת ליד. אם יש כמה התאמות יש לשאול.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
@@ -71,7 +75,7 @@ const CRM_DEFS: ToolDef[] = [
 export function toolsFor(ctx: AiCtx): ToolDef[] {
   const manager = ctx.user.role !== "agent";
   const reads = READ_DEFS.filter((t) => manager || !["agents_performance", "compare_periods"].includes(t.name));
-  const crm = CRM_DEFS;
+  const crm = CRM_DEFS.filter(t => manager || t.name !== "prepare_ops_rule");
   const autos = AUTOMATION_TOOL_DEFS.filter((t) => !t.managerOnly || canManage(ctx.user, ctx.ai));
   const diag = DIAGNOSE_TOOL_DEFS.filter((t) => !t.managerOnly || manager);
   return [...reads, ...crm, ...autos, ...diag].filter((t) => toolAllowed(ctx, t.name));
@@ -106,6 +110,12 @@ export async function runAiTool(ctx: AiCtx, name: string, args: Json): Promise<T
     const auto = AUTOMATION_TOOL_DEFS.find((t) => t.name === name); if (auto) { if (auto.managerOnly && !canManage(ctx.user, ctx.ai)) throw new ApiError("ניהול אוטומציות דורש הרשאת ניהול", 403, "forbidden"); const r = await runAutomationTool(ctx, name, args); return { ok: true, result: r.result, actionIds: r.actionIds, ms: Date.now() - t0 }; }
     const diag = DIAGNOSE_TOOL_DEFS.find((t) => t.name === name); if (diag) { const r = await runDiagnoseTool(ctx, name, args); return { ok: true, result: r.result, actionIds: r.actionIds, ms: Date.now() - t0 }; }
     switch (name) {
+      case "report_unsupported_request": return { ok: true, result: { supported: false, code: "unsupported_capability", message: UNSUPPORTED_REQUEST, missingCapability: String(args.missingCapability ?? "יכולת שאינה בקטלוג").slice(0, 300), executed: false }, ms: Date.now() - t0 };
+      case "prepare_ops_rule": {
+        if (ctx.user.role === "agent") throw new ApiError("הגדרת כללים דורשת הרשאת מנהל", 403, "forbidden");
+        const r = await (await import("@/server/ops/rules")).interpretRule(String(args.text ?? "").slice(0, 1000));
+        return { ok: true, result: { ...r, supported: Boolean(r.kind), saved: false, executed: false, nextStep: "עוזר AI → מנהל AI → כללים → בדיקת הפירוש → אשר והפעל" }, ms: Date.now() - t0 };
+      }
       case "my_queue_today": {
         const { waitingToday } = await import("@/lib/crm/lead-ops");
         let agent: string | null = ctx.user.role === "agent" ? ctx.user.id : null;

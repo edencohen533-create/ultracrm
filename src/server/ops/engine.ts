@@ -29,7 +29,7 @@ export const MODE_LABEL: Record<Mode, string> = {
   share: "חלוקה משוקללת: אחוז מהלידים החדשים הבאים",
 };
 export const STAGES = ["pending_manager", "pending_agent", "active", "completed"] as const;
-export const STATUS_LABEL: Record<string, string> = { pending_manager: "ממתין לאישור מנהל", pending_agent: "ממתין לאישור נציג", active: "הקצאה פעילה", completed: "הושלם", rejected: "נדחה", expired: "פג תוקף", cancelled: "בוטל", failed: "לא בוצע", needs_adjustment: "נדרשת התאמה", insight: "תובנה" };
+export const STATUS_LABEL: Record<string, string> = { pending_manager: "ממתין לאישור מנהל", pending_agent: "ממתין לתשובת נציג", monitoring: "במעקב זמן תגובה", needs_attention: "חריגה מיעד החיוג", waiting_connection: "ממתין להתחברות לחייגן", active: "הקצאה פעילה", completed: "הושלם", rejected: "נדחה", expired: "פג תוקף", cancelled: "בוטל", failed: "לא בוצע", needs_adjustment: "נדרשת התאמה", insight: "תובנה" };
 
 const pct = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
 const code4 = () => String(crypto.randomInt(1000, 10000));
@@ -83,7 +83,7 @@ async function interpret(evidence: unknown): Promise<string | null> {
 async function linkOf(businessId: string, userId: string) {
   return prisma.assistantLink.findFirst({ where: { businessId, userId, status: "active", verifiedAt: { not: null } } });
 }
-async function send(businessId: string, userId: string, text: string, title: string) {
+export async function send(businessId: string, userId: string, text: string, title: string) {
   const s = await getBusinessSettings(businessId);
   if (!s.aiOps.notifyWhatsApp || !s.assistant.enabled) return { status: "skipped" as const, detail: "התראות וואטסאפ כבויות" };
   const link = await linkOf(businessId, userId);
@@ -104,7 +104,7 @@ async function managersToNotify(businessId: string, agentId: string | null) {
   return out;
 }
 /** Manager alert with anti-flood: per business per day, and per agent+kind per cooldown. */
-async function notifyManagers(rec: OpsRecommendation, text: string) {
+export async function notifyManagers(rec: OpsRecommendation, text: string) {
   const s = await getBusinessSettings(rec.businessId);
   const today = new Date(Date.now() - 24 * 3600_000);
   const sentToday = await prisma.opsRecommendation.count({ where: { businessId: rec.businessId, notifiedAt: { gte: today } } });
@@ -187,6 +187,7 @@ export async function managerDecision(user: SessionUser | null, id: string, inpu
     await audit(rec.businessId, user?.id ?? null, "ai_ops", rec.id, "ai_ops.rejected", { by: "manager", via: input.via });
     return { status: "rejected" as const };
   }
+  if (rec.kind === "followup_checkin") return (await import("./followup-checkin")).approveFollowupTransfer(user, rec, input.via);
   if (rec.kind === "availability_unattended") return approveAvailabilityTransfer(user, rec, input.via);
   // Edits (explicit mode / count / campaign) – validated here.
   const p = { ...(rec.proposal as unknown as Proposal), ...(input.edits ?? {}) } as Proposal;
@@ -345,12 +346,12 @@ export async function cancelRecommendation(user: SessionUser, id: string) {
   const rec = await prisma.opsRecommendation.findFirst({ where: { id, businessId: user.businessId } });
   if (!rec) throw new ApiError("לא נמצא", 404, "not_found");
   await assertManagerOf(user, rec.agentId);
-  if (!["pending_manager", "pending_agent", "active", "needs_adjustment"].includes(rec.status)) throw new ApiError("אין מה לבטל", 409, "not_active");
+  if (!["pending_manager", "pending_agent", "waiting_connection", "active", "needs_adjustment"].includes(rec.status)) throw new ApiError("אין מה לבטל", 409, "not_active");
   const r = await prisma.opsRecommendation.updateMany({ where: { id, status: rec.status }, data: { status: "cancelled", decidedById: rec.decidedById ?? user.id } });
   if (!r.count) throw new ApiError("כבר טופל", 409, "not_active");
   const ov = await prisma.assignmentOverride.updateMany({ where: { businessId: user.businessId, recommendationId: id, status: "active" }, data: { status: "cancelled", endedAt: new Date(), endedReason: `בוטל ע״י ${user.fullName}` } });
   await audit(user.businessId, user.id, "ai_ops", id, "ai_ops.cancelled", { from: rec.status, overrideCancelled: ov.count > 0 });
-  if (rec.status === "pending_agent" && rec.agentId) await send(user.businessId, rec.agentId, `ℹ️ הבקשה ${rec.code} בוטלה ע״י המנהל – לא יוקצו לידים.`, "עדכון מנהל AI");
+  if (rec.kind !== "followup_checkin" && rec.status === "pending_agent" && rec.agentId) await send(user.businessId, rec.agentId, `ℹ️ הבקשה ${rec.code} בוטלה ע״י המנהל – לא יוקצו לידים.`, "עדכון מנהל AI");
 }
 
 // ─── assignment hook (inside pickOwner's lock) ──────────────────────────────────────────────────────────────────
@@ -438,9 +439,10 @@ export async function runOpsTick(businessId: string, now = new Date()) {
   const s = await getBusinessSettings(businessId);
   if (!s.aiOps.enabled) return { processed: 0 };
   await ensureDefaultRules(businessId);
-  let processed = 0;
+  let processed = await (await import("./followup-checkin")).runFollowupCheckins(businessId, now);
+  processed += await (await import("./lead-response-sla")).runLeadResponseSla(businessId, now);
   // Expired requests (no reply is never an approval).
-  for (const rec of await prisma.opsRecommendation.findMany({ where: { businessId, status: { in: ["pending_manager", "pending_agent", "needs_adjustment"] }, expiresAt: { lte: now } } })) { await expireRec(rec, rec.status === "pending_agent" ? "לא התקבלה תשובה מהנציג בזמן" : "לא התקבלה החלטה בזמן"); processed++; }
+  for (const rec of await prisma.opsRecommendation.findMany({ where: { businessId, kind: { not: "followup_checkin" }, status: { in: ["pending_manager", "pending_agent", "needs_adjustment"] }, expiresAt: { lte: now } } })) { await expireRec(rec, rec.status === "pending_agent" ? "לא התקבלה תשובה מהנציג בזמן" : "לא התקבלה החלטה בזמן"); processed++; }
   // Allocations that ended (expired / completed / cancelled) → the recommendation is completed; regular policy is back.
   await prisma.assignmentOverride.updateMany({ where: { businessId, status: "active", expiresAt: { lte: now } }, data: { status: "expired", endedAt: now, endedReason: "פג תוקף – חזרה לחלוקה הרגילה" } });
   for (const ov of await prisma.assignmentOverride.findMany({ where: { businessId, status: { in: ["completed", "expired"] }, recommendationId: { not: null }, updatedAt: { gte: new Date(now.getTime() - 24 * 3600_000) } } })) {
@@ -490,9 +492,14 @@ export async function opsWhatsAppReply(user: SessionUser, text: string): Promise
   // Agent side: requests addressed to this user.
   const mine = await prisma.opsRecommendation.findMany({ where: { businessId: user.businessId, agentId: user.id, status: "pending_agent", expiresAt: { gt: new Date() } }, orderBy: { createdAt: "asc" } });
   if (mine.length) {
-    const target = codeOnly ? mine.find((r) => r.code === codeOnly) : mine.length === 1 ? mine[0] : null;
-    if (!target) return codeOnly ? null : `יש כמה בקשות פתוחות: ${mine.map((r) => r.code).join(", ")}. השב עם מספר הבקשה, למשל: "כן ${mine[0].code}" או "3 ${mine[0].code}".`;
+    const matches = codeOnly ? mine.filter((r) => r.code === codeOnly) : mine;
+    const target = matches.length === 1 ? matches[0] : null;
+    if (!target) return codeOnly && matches.length === 0 ? null : `יש כמה בקשות פתוחות: ${mine.map((r) => r.code).join(", ")}. השב עם מספר הבקשה, למשל: "כן ${mine[0].code}" או "3 ${mine[0].code}".`;
     const cleaned = codeOnly ? t.replace(codeOnly, " ") : t;
+    if (target.kind === "followup_checkin") {
+      try { return (await (await import("./followup-checkin")).answerFollowup(user, target.id, cleaned, "whatsapp")).message; }
+      catch (e) { return e instanceof ApiError ? e.message : "לא בוצעה פעולה; אפשר לבדוק את הבקשה במערכת."; }
+    }
     const ans = parseAgentAnswer(cleaned);
     try {
       const r = await agentDecision(user, target.id, ans, "whatsapp", t);
@@ -508,7 +515,8 @@ export async function opsWhatsAppReply(user: SessionUser, text: string): Promise
   const ids = await visibleUserIds(user);
   const visible = open.filter((r) => !ids || !r.agentId || ids.includes(r.agentId));
   if (!visible.length) return m[2] ? "לא נמצאה המלצה פתוחה עם המספר הזה." : null;
-  const target = m[2] ? visible.find((r) => r.code === m[2]) : visible.length === 1 ? visible[0] : null;
+  const matches = m[2] ? visible.filter((r) => r.code === m[2]) : visible;
+  const target = matches.length === 1 ? matches[0] : null;
   if (!target) return m[2] ? "לא נמצאה המלצה פתוחה עם המספר הזה." : `יש ${visible.length} המלצות פתוחות – לא מבצע בלי מספר:\n${visible.map((r) => `• ${r.code}: ${r.title}`).join("\n")}\nהשב למשל: "אשר ${visible[0].code}" או "דחה ${visible[0].code}".`;
   // Without a code, a pending AI-assistant action in the same chat makes "אשר" ambiguous → ask.
   if (!m[2]) {

@@ -8,10 +8,10 @@ import { Badge, Button, EmptyState, ErrorState, Panel, Spinner, Textarea, cx } f
 type Rate = { handled: number; answered: number; wins: number; rate: number | null };
 interface Cap { known: boolean; reason: string | null; shift: { start: string; end: string } | null; shiftEnd: string | null; remainingMinutes: number; pacePerHour: number | null; paceBasis: string | null; untouched: number; followUpsBeforeEnd: number; load: number; capacityLeads: number; spare: number }
 interface Agent { id: string; name: string; today: Rate; baseline: Rate & { days: number }; peers: Rate; sources: string[]; avgLeadAgeDays: number | null; untouched: number; online: boolean; inCall: boolean; inPool: boolean; assessment: { state: string; reasons: string[]; lowerBound: number | null; lift: number | null } | null; capacity: Cap; shift: { start: string; end: string; days: number[] } | null }
-interface Proposal { mode: "extra" | "priority" | "share"; count: number; sharePct: number; source: string | null; listId: string | null; listName?: string | null; fromUnassigned: boolean; until: string | null; toAgentName?: string | null }
-interface Rec { id: string; kind: string; status: string; statusLabel: string; code: string; title: string; explanation: string; agentId: string | null; agentName: string | null; evidence: { agent?: Agent; capacity?: Cap; interpretation?: string | null; lowerBound?: number | null; thresholds?: Record<string, unknown> }; proposal: Proposal; requestedCount: number | null; managerApprovedCount: number | null; agentApprovedCount: number | null; agentReply: string | null; expiresAt: string; createdAt: string; result: { reason?: string; agentRequest?: { delivery: string; detail: string | null }; approved?: number; assignedNow?: number } | null; override: { assigned: number; total: number; leadLimit: number; status: string; expiresAt: string; mode: string } | null; allocated: number }
+interface Proposal { leadId?: string; mode: "extra" | "priority" | "share"; count: number; sharePct: number; source: string | null; listId: string | null; listName?: string | null; fromUnassigned: boolean; until: string | null; toAgentName?: string | null }
+interface Rec { id: string; kind: string; status: string; statusLabel: string; code: string; title: string; explanation: string; agentId: string | null; agentName: string | null; evidence: { agent?: Agent; capacity?: Cap; interpretation?: string | null; lowerBound?: number | null; thresholds?: Record<string, unknown> }; proposal: Proposal; requestedCount: number | null; managerApprovedCount: number | null; agentApprovedCount: number | null; agentReply: string | null; expiresAt: string; createdAt: string; result: { responseSeconds?: number; reason?: string; agentRequest?: { delivery: string; detail: string | null }; approved?: number; assignedNow?: number } | null; override: { assigned: number; total: number; leadLimit: number; status: string; expiresAt: string; mode: string } | null; allocated: number }
 interface Rule { id: string; kind: string; kindLabel: string; name: string; sourceText: string | null; config: Record<string, unknown>; autonomy: string; autonomyLabel: string; allowedAutonomy: string[]; status: string; priority: number; expired: boolean; summary: Record<string, string> | null }
-interface Interp { kind: string | null; name: string; config: Record<string, unknown>; autonomy: string; questions: Array<{ field: string; question: string; proposed: number | string | boolean }>; summary: Record<string, string> | null; analyzer: string; note: string | null }
+interface Interp { allowedAutonomy?: string[]; kind: string | null; name: string; config: Record<string, unknown>; autonomy: string; questions: Array<{ field: string; question: string; proposed: number | string | boolean }>; summary: Record<string, string> | null; analyzer: string; note: string | null }
 interface Data { settings: { enabled: boolean; notifyWhatsApp: boolean; maxAlertsPerDay: number; cooldownMinutes: number }; timezone: string; aiConnected: boolean; rules: Rule[]; recommendations: Rec[]; team: Agent[]; impact: Array<{ id: string; agentName: string | null; at: string; approved: number | null; allocated: number; dialed: number; won: number; baselineRate: number | null; smallSample: boolean }>; log: Array<{ id: string; action: string; createdAt: string; payload: Record<string, unknown> | null; actor: { fullName: string } | null }>; lists: Array<{ id: string; name: string }>; sources: string[]; whatsappLinked: string[] }
 
 const pct = (x: number | null | undefined) => (x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`);
@@ -24,7 +24,7 @@ const MODES: Array<[Proposal["mode"], string, string]> = [
 const STAGES = [["pending_manager", "אישור מנהל"], ["pending_agent", "אישור נציג"], ["active", "הקצאה פעילה"], ["completed", "הושלם"]] as const;
 const TERMINAL: Record<string, "bad" | "warn" | "neutral"> = { rejected: "bad", expired: "warn", cancelled: "neutral", failed: "bad", needs_adjustment: "warn" };
 const STATE: Record<string, [string, "good" | "warn" | "bad" | "neutral" | "info"]> = { momentum: ["במומנטום", "good"], insufficient_data: ["אין מספיק נתונים", "neutral"], normal: ["רגיל", "neutral"], overloaded: ["עמוס", "warn"], not_available: ["לא בחלוקה", "neutral"] };
-const ACTION: Record<string, string> = { "ai_ops.detected": "זוהה", "ai_ops.manager_approved": "מנהל אישר", "ai_ops.rejected": "נדחה", "ai_ops.agent_approved": "נציג אישר", "ai_ops.agent_declined": "נציג סירב", "ai_ops.allocation_started": "הקצאה הופעלה", "ai_ops.allocation_ended": "הקצאה הסתיימה – חזרה לחלוקה הרגילה", "ai_ops.lead_allocated": "ליד הוקצה במסגרת אישור", "ai_ops.expired": "פג תוקף", "ai_ops.cancelled": "בוטל", "ai_ops.failed": "לא בוצע", "ai_ops.needs_adjustment": "נדרשת התאמה", "ai_ops.transfer_executed": "ליד הועבר לנציג זמין", "ai_ops.settings_updated": "הגדרות עודכנו", "ops_rule.created": "כלל נוצר", "ops_rule.updated": "כלל עודכן", "ops_rule.deleted": "כלל נמחק" };
+const ACTION: Record<string, string> = { "ai_ops.sla_needs_attention": "חריגה מיעד חיוג ראשון", "ai_ops.sla_completed": "נמדד חיוג ראשון", "ai_ops.sla_cancelled": "מעקב זמן תגובה בוטל", "ai_ops.sla_delivery": "מצב משלוח התראת זמן תגובה", "ai_ops.followup_asked": "נשלחה בקשת פולואפ לנציג", "ai_ops.followup_answer": "התקבלה תשובת נציג", "ai_ops.followup_completed": "הנציג התחבר", "ai_ops.followup_expired": "בקשת פולואפ פגה", "ai_ops.followup_cancelled": "בקשת פולואפ בוטלה", "ai_ops.detected": "זוהה", "ai_ops.manager_approved": "מנהל אישר", "ai_ops.rejected": "נדחה", "ai_ops.agent_approved": "נציג אישר", "ai_ops.agent_declined": "נציג סירב", "ai_ops.allocation_started": "הקצאה הופעלה", "ai_ops.allocation_ended": "הקצאה הסתיימה – חזרה לחלוקה הרגילה", "ai_ops.lead_allocated": "ליד הוקצה במסגרת אישור", "ai_ops.expired": "פג תוקף", "ai_ops.cancelled": "בוטל", "ai_ops.failed": "לא בוצע", "ai_ops.needs_adjustment": "נדרשת התאמה", "ai_ops.transfer_executed": "ליד הועבר לנציג זמין", "ai_ops.settings_updated": "הגדרות עודכנו", "ops_rule.created": "כלל נוצר", "ops_rule.updated": "כלל עודכן", "ops_rule.deleted": "כלל נמחק" };
 const DAYS = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
 
 function Stepper({ status }: { status: string }) {
@@ -77,6 +77,7 @@ function RecCard({ r, data, onDone }: { r: Rec; data: Data; onDone: () => void }
       <div className="flex flex-wrap items-center justify-between gap-2"><b className="text-sm">{r.title}</b><span className="text-[11px] text-muted">#{r.code} · {time(r.createdAt)}</span></div>
       {r.kind === "momentum" && <Stepper status={r.status} />}
       <p className="text-sm">{r.explanation}</p>
+      {r.kind === "lead_response_sla" && r.proposal.leadId && <a className="text-xs underline" href={`/leads?leadId=${encodeURIComponent(r.proposal.leadId)}`}>פתח ליד לטיפול</a>}
       {r.kind === "momentum" && <Evidence r={r} />}
       {r.kind === "momentum" && r.status !== "insight" && (
         <div className="text-xs rounded-md bg-muted-bg p-2 space-y-1" data-testid="ops-change">
@@ -101,7 +102,9 @@ function RecCard({ r, data, onDone }: { r: Rec; data: Data; onDone: () => void }
         </div>
       )}
       {r.status === "pending_manager" && r.kind !== "momentum" && <div className="flex gap-2"><Button size="sm" loading={busy} onClick={() => act("approve")} data-testid="ops-approve">אישור</Button><Button size="sm" variant="secondary" loading={busy} onClick={() => act("reject")}>דחייה</Button></div>}
-      {r.status === "pending_agent" && <div className="flex flex-wrap items-center gap-2 text-xs"><span>ממתין לתשובת {r.agentName} עד {time(r.expiresAt)} · {r.result?.agentRequest?.delivery === "sent" ? "נשלח בוואטסאפ" : r.result?.agentRequest?.delivery === "template" ? "נשלחה התראה בוואטסאפ (תבנית)" : `במערכת בלבד${r.result?.agentRequest?.detail ? ` (${r.result.agentRequest.detail})` : ""}`}. בזמן ההמתנה החלוקה הרגילה ממשיכה.</span><Button size="sm" variant="ghost" loading={busy} onClick={() => act("cancel")}>ביטול</Button></div>}
+      {r.status === "pending_agent" && <div className="flex flex-wrap items-center gap-2 text-xs"><span>ממתין לתשובת {r.agentName} עד {time(r.expiresAt)} · {r.result?.agentRequest?.delivery === "sent" ? "נשלח בוואטסאפ" : r.result?.agentRequest?.delivery === "template" ? "נשלחה התראה בוואטסאפ (תבנית)" : `במערכת בלבד${r.result?.agentRequest?.detail ? ` (${r.result.agentRequest.detail})` : ""}`}. {r.kind === "followup_checkin" ? "הליד נשאר אצל הנציג עד להחלטה." : "בזמן ההמתנה החלוקה הרגילה ממשיכה."}</span><Button size="sm" variant="ghost" loading={busy} onClick={() => act("cancel")}>ביטול</Button></div>}
+      {["followup_checkin", "lead_response_sla"].includes(r.kind) && r.result?.reason && <p className="text-xs text-muted">{r.result.reason}</p>}
+      {r.status === "waiting_connection" && <p className="text-xs">הנציג אמר שיתחבר. נבדוק התחברות בפועל עד {time(r.expiresAt)}; אם לא יתחבר, תתקבל התראה ללא העברה אוטומטית.</p>}
       {r.status === "active" && <div className="flex flex-wrap items-center gap-2 text-xs"><span>הקצאה פעילה עד {time(r.override?.expiresAt)} · {r.override?.assigned ?? 0}/{r.override?.leadLimit ?? 0}</span><Button size="sm" variant="ghost" loading={busy} onClick={() => act("cancel")} data-testid="ops-cancel">עצור הקצאה</Button><span className="text-muted">(לידים שכבר הוקצו נשארים אצל הנציג)</span></div>}
     </div>
   );
@@ -114,7 +117,7 @@ function RuleForm({ rule, onSaved }: { rule: Rule; onSaved: () => void }) {
   return (
     <div className="flex flex-wrap items-end gap-2 text-xs border-t border-line pt-2">
       {Object.entries(cfg).map(([k, v]) => (
-        <label key={k} className="flex flex-col">{k}
+        <label key={k} className="flex flex-col">{({ minutes: "דקות לחיוג ראשון", requestMinutes: "דקות להמתנה לתשובה", connectMinutes: "דקות להתחברות לחייגן" } as Record<string, string>)[k] ?? k}
           {typeof v === "boolean" ? <input type="checkbox" checked={v} onChange={(e) => setCfg({ ...cfg, [k]: e.target.checked })} />
             : enumOf[k] ? <select value={String(v)} onChange={(e) => setCfg({ ...cfg, [k]: k === "confidence" ? Number(e.target.value) : e.target.value })} className="h-8 rounded border border-line bg-bg px-1">{enumOf[k].map((o) => <option key={o}>{o}</option>)}</select>
             : Array.isArray(v) ? <span>{(["assignment", "ownership"]).map((o) => <label key={o} className="me-2"><input type="checkbox" checked={(v as string[]).includes(o)} onChange={(e) => setCfg({ ...cfg, [k]: e.target.checked ? [...(v as string[]), o] : (v as string[]).filter((x) => x !== o) })} /> {o === "assignment" ? "חלוקה" : "בעלות"}</label>)}</span>
@@ -138,18 +141,20 @@ function RuleBuilder({ onSaved }: { onSaved: () => void }) {
   };
   return (
     <div className="space-y-2" data-testid="ops-rule-builder">
-      <Textarea label="כתוב כלל במילים שלך" rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="למשל: אם לנציג יש יותר מ-15 לידים שטרם טופלו, עצור הקצאת לידים חדשים אליו עד שהעומס יורד." data-testid="ops-rule-text" />
+      <Textarea label="כתוב כלל במילים שלך" rows={2} value={text} onChange={(e) => { setText(e.target.value); setIt(null); }} placeholder="למשל: כשמגיע פולואפ והנציג לא מחובר לחייגן, שאל אותו בוואטסאפ אם הוא מתחבר או רוצה להעביר לנציג אחר." data-testid="ops-rule-text" />
+      <p className="text-xs text-muted">אפשר לכתוב כאן הוראות קבועות. רק חוק נתמך שתאשר יופעל; בקשה שאינה נתמכת תוצג במפורש ככזו שדורשת פיתוח. הכללים אינם משנים את סדר תור העבודה שהגדרת.</p>
       <Button size="sm" loading={busy} disabled={text.trim().length < 5} onClick={interpret} data-testid="ops-rule-interpret">הבן את הכלל</Button>
       {it && (
         <div className="rounded-md border border-line p-3 text-sm space-y-2" data-testid="ops-rule-preview">
+          {!it.kind && <p className="text-warn" data-testid="ops-rule-unsupported">{it.note ?? "הכלל לא נשמר ולא הופעל. נדרש בירור או פיתוח יכולת חדשה."}</p>}
           {it.kind && it.summary ? <>
             <div className="flex items-center gap-2"><b>{it.name}</b><Badge tone="info">{it.analyzer === "ai" ? "פוענח ע״י המודל" : "פוענח לפי תבניות"}</Badge></div>
-            <p className="text-xs text-muted">כך המערכת הבינה – ייכנס לתוקף רק אחרי שתאשר:</p>
+            <p className="text-xs text-muted">הפירוש הראשוני מוצג כאן. הערכים ואופן האישור שתבחר למטה הם שיישמרו:</p>
             <dl className="grid grid-cols-[110px_1fr] gap-x-2 gap-y-1 text-xs">{Object.entries({ trigger: "טריגר", conditions: "תנאים", action: "פעולה", scope: "היקף", validity: "תוקף", limits: "מגבלות", approval: "אופן אישור" }).map(([k, l]) => <Fragment key={k}><dt className="text-muted">{l}</dt><dd>{it.summary![k]}</dd></Fragment>)}</dl>
             {it.note && <p className="text-xs text-warn">{it.note}</p>}
           </> : null}
           {it.questions.length > 0 && <div className="space-y-1" data-testid="ops-rule-questions">{it.questions.map((q) => <label key={q.field} className="block text-xs"><span className="text-warn">❓ {q.question}</span>{q.field !== "kind" && q.field !== "config" && <input className="ms-2 h-7 w-24 rounded border border-line bg-bg px-1" value={String(answers[q.field] ?? "")} onChange={(e) => setAnswers({ ...answers, [q.field]: typeof q.proposed === "number" ? Number(e.target.value) : e.target.value })} />}</label>)}</div>}
-          {it.kind && <div className="flex items-center gap-2"><select className="h-8 rounded border border-line bg-bg px-2 text-xs" value={it.autonomy} onChange={(e) => setIt({ ...it, autonomy: e.target.value })}><option value="insight">תובנה בלבד</option><option value="recommend">המלצה באישור</option><option value="auto">ביצוע אוטומטי בגבולות</option></select><Button size="sm" onClick={save} data-testid="ops-rule-save">אשר והפעל</Button><Button size="sm" variant="ghost" onClick={() => setIt(null)}>ביטול</Button></div>}
+          {it.kind && <div className="flex items-center gap-2"><select className="h-8 rounded border border-line bg-bg px-2 text-xs" value={it.autonomy} onChange={(e) => setIt({ ...it, autonomy: e.target.value })}>{(it.allowedAutonomy ?? [it.autonomy]).map(x => <option key={x} value={x}>{({ insight: "תובנה בלבד", recommend: "המלצה באישור", auto: "ביצוע אוטומטי בגבולות" } as Record<string,string>)[x]}</option>)}</select><Button size="sm" onClick={save} data-testid="ops-rule-save">אשר והפעל</Button><Button size="sm" variant="ghost" onClick={() => setIt(null)}>ביטול</Button></div>}
         </div>
       )}
     </div>
@@ -177,7 +182,7 @@ export function OpsTab() {
   useEffect(() => { void load(); const t = setInterval(() => void load(), 20_000); return () => clearInterval(t); }, [load]);
   if (err) return <ErrorState message={err} retry={load} />;
   if (!d) return <div className="py-16 flex justify-center"><Spinner /></div>;
-  const open = d.recommendations.filter((r) => ["pending_manager", "pending_agent", "active", "needs_adjustment"].includes(r.status));
+  const open = d.recommendations.filter((r) => ["pending_manager", "pending_agent", "waiting_connection", "needs_attention", "active", "needs_adjustment"].includes(r.status));
   const insights = d.recommendations.filter((r) => r.status === "insight").slice(0, 8);
   const history = d.recommendations.filter((r) => ["completed", "rejected", "expired", "cancelled", "failed"].includes(r.status)).slice(0, 15);
   const setting = async (patch: Record<string, unknown>) => { try { await api.patch("/api/ops/settings", patch); await load(); } catch (e) { toast.error((e as Error).message); } };
@@ -193,7 +198,7 @@ export function OpsTab() {
       </div>
 
       <Panel title={`המלצות ובקשות פתוחות (${open.length})`}>
-        {open.length ? <div className="space-y-3">{open.map((r) => <RecCard key={r.id} r={r} data={d} onDone={load} />)}</div> : <EmptyState title="אין המלצות פתוחות" hint="המערכת בודקת כל 2 דקות. המלצה נוצרת רק כשיש מספיק נתונים, ביטחון סטטיסטי וקיבולת פנויה." />}
+        {open.length ? <div className="space-y-3">{open.map((r) => <RecCard key={r.id} r={r} data={d} onDone={load} />)}</div> : <EmptyState title="אין המלצות פתוחות" hint="המערכת בודקת את הכללים הפעילים כל 2 דקות. בקשות והתראות יופיעו כאן כשיתקיימו תנאי הכלל." />}
       </Panel>
 
       <Panel title="הצוות היום – הנתונים שמאחורי ההמלצות">
@@ -231,7 +236,7 @@ export function OpsTab() {
       </Panel>
 
       <Panel title="היסטוריה ויומן">
-        {history.length > 0 && <ul className="text-xs space-y-1 mb-3">{history.map((r) => <li key={r.id}><Badge tone={TERMINAL[r.status] ?? "good"}>{r.statusLabel}</Badge> {r.title} {r.result?.reason ? `– ${r.result.reason}` : ""}</li>)}</ul>}
+        {history.length > 0 && <ul className="text-xs space-y-1 mb-3">{history.map((r) => <li key={r.id}><Badge tone={TERMINAL[r.status] ?? "good"}>{r.statusLabel}</Badge> {r.title} {r.result?.reason ? `– ${r.result.reason}` : ""}{typeof r.result?.responseSeconds === "number" ? ` (${Math.floor(r.result.responseSeconds / 60)} דק׳ ו-${r.result.responseSeconds % 60} שנ׳)` : ""}</li>)}</ul>}
         <ul className="text-xs space-y-0.5 max-h-72 overflow-auto" data-testid="ops-log">{d.log.map((l) => <li key={l.id}><span className="text-muted">{new Date(l.createdAt).toLocaleString("he-IL")}</span> · {ACTION[l.action] ?? l.action}{l.actor ? ` · ${l.actor.fullName}` : " · מערכת"}{l.payload && "via" in l.payload ? ` · דרך ${l.payload.via === "whatsapp" ? "וואטסאפ" : l.payload.via === "app" ? "המערכת" : String(l.payload.via)}` : ""}</li>)}</ul>
       </Panel>
     </div>

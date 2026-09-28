@@ -75,7 +75,7 @@ Every transition is an atomic status change, so a second approval or reply does 
 - **Impact:** a descriptive comparison of allocated leads (dialed / closed) against the personal average. It's explicitly labeled as no proof of causation, with no control group, and small samples are marked.
 
 ## If the model is unavailable
-Everything works. Numbers, texts and rule parsing are done in code, and distribution continues as usual.
+Supported operational rules, metrics and distribution run deterministically. Free-text parsing falls back to the supported pattern catalog; arbitrary wording and chat actions are not guaranteed without a model.
 
 ## Tests
 - `tests/integration/ai-ops.test.ts` covers:
@@ -90,3 +90,32 @@ Everything works. Numbers, texts and rule parsing are done in code, and distribu
   - WhatsApp "כן" with two open recommendations doesn't act.
   - Free-text rules, the load rule, and isolation between businesses.
 - Migrations: `20260928220000_ai_ops_manager`, `20260928223000_ops_dual_approval`.
+
+## Scheduled follow-up check-in (opt-in)
+
+Create a rule in **עוזר AI → מנהל AI → כללים**. Example: “כשמגיע פולואפ והנציג לא מחובר לחייגן, שאל אותו בוואטסאפ אם מתחבר או להעביר לנציג אחר”. Review the interpretation, reply timeout and connection grace, then activate.
+
+- `followup_checkin` considers open callbacks due within the last 24 hours, on an open lead owned by the task assignee. An active dialer heartbeat within three minutes counts as connected. Blocked, opted-out and DNC contacts are excluded.
+- A durable request is created once per task/due time/version. Pagination prevents older requests from hiding later callbacks. WhatsApp uses the existing verified link and transport; failed/missing delivery remains visible in the app and is reported to managers.
+- `מתחבר` / the app button starts a grace period. A real heartbeat completes the request, **not the callback**. `תעבירו` requests a transfer. Ambiguous, negated or conflicting answers do nothing. Multiple pending requests need a unique matching code.
+- Automatic transfer additionally requires `auto` on the rule and an ownership policy that does not require manager approval. Otherwise a scoped manager approves. No response, an unfulfilled connection promise, or no eligible target produces a manager alert without transferring.
+- Before transfer, the lead/task/rule, suppression, live calls and both dialer states are checked again. The request claim and transfer are atomic under the existing per-lead lock. Task due time is preserved. A paused/changed rule or changed/completed task invalidates the request.
+- Requires an active automation cron and WhatsApp setup for actual WhatsApp delivery. Automated tests mock the transport; they do not prove a real provider delivery.
+
+## First-dial response target (initial SLA phase, opt-in)
+
+Example rule: “תתריע על ליד ללא חיוג ראשון אחרי 5 דקות”. `lead_response_sla` supports **measurement and alerts only**; automatic redistribution and business-hours calendars remain future work. This does not reorder the queue.
+
+- Applies to open CRM leads received after creating/updating/resuming the rule. Default: five **clock minutes**, including outside working hours. Existing backlog is excluded. Polling runs every two minutes, so alerts can arrive after the target timestamp.
+- State: `monitoring` → `needs_attention` → `completed`; a changed/paused rule or an ineligible lead cancels monitoring. New candidates use keyset pagination and the existing unique deduplication index.
+- A real outbound lead-leg dial resolves the target; editing status, inbound calls, or an attempt that never dialed the customer do not. Attribution uses the existing CRM lead-at-the-time policy, including multiple leads for one contact. It measures an attempt, not an answered call or a sale.
+- Overdue alerts appear for the owning agent and scoped managers in the app; optional WhatsApp uses existing delivery settings and notification limits. Unassigned leads alert managers. A transfer updates the in-app owner on the next tick.
+- Results retain actual first-dial time, elapsed seconds and whether the target was met; closed leads with no recorded dial do not count as success. The manager history displays the elapsed time. This is not yet an aggregate SLA reporting dashboard.
+
+## Unsupported AI requests
+
+The internal assistant exposes `prepare_ops_rule` (manager interpretation only, no save/activation) and `report_unsupported_request` (explicit missing capability, no business mutation). Known unsupported payment/Meta Ads/live joining requests are also recognized without a model. If a model tool batch declares a missing capability, the entire batch is refused before any action in it runs. Prior-step actions, if any, retain their real statuses and are not described as undone.
+
+The rule builder cannot save an unsupported rule and shows the explanation. It only offers autonomy levels supported by that rule. A disconnected provider, insufficient permissions, ambiguous wording and a missing product capability are distinct states. Arbitrary natural language is not a guarantee of arbitrary execution; supported rules still require the user's review and activation inside the app.
+
+Tests: `followup-checkin.test.ts` and `lead-response-sla.test.ts`. These changes reuse existing tables and need no new migration.

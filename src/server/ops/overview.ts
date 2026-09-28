@@ -19,7 +19,7 @@ export async function opsOverview(user: SessionUser) {
     return { ...r, kindLabel: KIND_LABEL[kind] ?? r.kind, autonomyLabel: AUTONOMY_LABEL[r.autonomy as Autonomy] ?? r.autonomy, allowedAutonomy: ALLOWED_AUTONOMY[kind] ?? [], summary, expired: Boolean(r.expiresAt && r.expiresAt <= new Date()) };
   });
 
-  const recs = (await prisma.opsRecommendation.findMany({ where: { businessId }, orderBy: { createdAt: "desc" }, take: 80 })).filter((r) => inScope(r.agentId));
+  const recs = (await prisma.opsRecommendation.findMany({ where: { businessId, status: { not: "monitoring" } }, orderBy: { createdAt: "desc" }, take: 80 })).filter((r) => inScope(r.agentId));
   const agentNames = new Map((await prisma.user.findMany({ where: { businessId }, select: { id: true, fullName: true } })).map((u) => [u.id, u.fullName]));
   const overrides = await prisma.assignmentOverride.findMany({ where: { businessId }, orderBy: { createdAt: "desc" }, take: 40 });
   const allocatedLogs = await prisma.auditLog.findMany({ where: { businessId, action: "ai_ops.lead_allocated", createdAt: { gte: new Date(Date.now() - 30 * 86400_000) } }, select: { entityId: true, payload: true, createdAt: true } });
@@ -68,6 +68,6 @@ export async function opsOverview(user: SessionUser) {
 
 /** For an agent: requests waiting for their answer (in-app alternative to WhatsApp). */
 export async function myRequests(user: SessionUser) {
-  const rows = await prisma.opsRecommendation.findMany({ where: { businessId: user.businessId, agentId: user.id, status: "pending_agent", expiresAt: { gt: new Date() } }, orderBy: { createdAt: "asc" } });
-  return rows.map((r) => ({ id: r.id, code: r.code, proposal: r.proposal, managerApprovedCount: r.managerApprovedCount, expiresAt: r.expiresAt, text: ((r.result ?? {}) as { agentRequest?: { text?: string } }).agentRequest?.text ?? r.explanation }));
+  const rows = await prisma.opsRecommendation.findMany({ where: { businessId: user.businessId, agentId: user.id, OR: [{ status: "pending_agent", expiresAt: { gt: new Date() } }, { kind: "lead_response_sla", status: "needs_attention" }] }, orderBy: { createdAt: "asc" } });
+  return rows.map((r) => ({ id: r.id, kind: r.kind, code: r.code, proposal: r.proposal, managerApprovedCount: r.managerApprovedCount, expiresAt: r.expiresAt, text: r.kind === "lead_response_sla" ? r.title + "\n" + r.explanation : ((r.result ?? {}) as { agentRequest?: { text?: string } }).agentRequest?.text ?? r.explanation }));
 }

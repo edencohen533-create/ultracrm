@@ -32,16 +32,16 @@ export function AiAssistant() {
   if (!o) return <div className="py-16 flex justify-center"><Spinner /></div>;
   const tabs = TABS.filter((t) => !("manage" in t) || o.canManage);
   return (
-    <div className="p-4 md:p-6 space-y-4 max-w-6xl mx-auto" data-testid="ai-page">
+    <div className="p-4 md:p-6 space-y-4 min-w-0 max-w-6xl mx-auto" data-testid="ai-page">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold">עוזר AI</h1>
         {o.connected ? <Badge tone="good" dot>מחובר למודל</Badge> : <Badge tone="warn" dot data-testid="ai-needs-connection">נדרש חיבור</Badge>}
         {o.pendingApprovals > 0 && <Badge tone="info">{o.pendingApprovals} ממתינות לאישור</Badge>}
         <Badge tone={o.service.enabled ? "accent" : "neutral"}>נציג שירות ב-WhatsApp: {o.service.enabled ? "פעיל" : "כבוי"}</Badge>
       </div>
-      {!o.connected && <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm" data-testid="ai-connection-banner">נדרש חיבור: לא הוגדר מפתח למודל AI בשרת (ANTHROPIC_API_KEY). במצב הזה אפשר לשאול שאלות על נתונים (מצב בסיסי), לנהל ידע ואוטומציות קיימות – אך העוזר לא יבצע פעולות מהצ׳אט ונציג השירות לא יענה ללקוחות.</div>}
-      <div className="flex gap-1 border-b border-line" role="tablist">
-        {tabs.map((t) => <button key={t.key} role="tab" aria-selected={tab === t.key} data-testid={`ai-tab-${t.key}`} onClick={() => router.replace(`/ai?tab=${t.key}`)} className={cx("px-4 h-10 text-sm -mb-px border-b-2", tab === t.key ? "border-accent text-accent font-semibold" : "border-transparent text-muted hover:text-text")}>{t.label}</button>)}
+      {!o.connected && <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm" data-testid="ai-connection-banner">המודל אינו מחובר. שאלות על נתונים זמינות במצב בסיסי, וכללים נתמכים במנהל AI פועלים לפי ההגדרות שאישרת. פענוח חופשי של בקשות ופעולות מהצ׳אט דורש חיבור למודל; נציג השירות לא יענה ללקוחות עד לחיבור.</div>}
+      <div className="flex gap-1 overflow-x-auto border-b border-line" role="tablist">
+        {tabs.map((t) => <button key={t.key} role="tab" aria-selected={tab === t.key} data-testid={`ai-tab-${t.key}`} onClick={() => router.replace(`/ai?tab=${t.key}`)} className={cx("px-4 h-10 shrink-0 whitespace-nowrap text-sm -mb-px border-b-2", tab === t.key ? "border-accent text-accent font-semibold" : "border-transparent text-muted hover:text-text")}>{t.label}</button>)}
       </div>
       {tab === "chat" && (o.canChat ? <ChatTab overview={o} /> : <ErrorState message="העוזר זמין כרגע למנהלים בלבד" />)}
       {tab === "ops" && o.canManage && <OpsTab />}

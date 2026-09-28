@@ -49,7 +49,8 @@ async function reply(convId: string, contactId: string, body: string, at = new D
 }
 const signalOf = (messageId: string) => db.callbackSignal.findUnique({ where: { messageId } });
 const mkList = async (name: string, agentIds: string[]) => db.dialList.create({ data: { businessId: a.business.id, name, agents: { create: agentIds.map((userId) => ({ userId })) } } });
-const release = (listId: string) => db.listLead.updateMany({ where: { listId, status: "locked" }, data: { status: "pending", lockedByUserId: null, lockToken: null, lockExpiresAt: null } });
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const release = (_listId?: string) => db.listLead.updateMany({ where: { businessId: a.business.id, status: "locked" }, data: { status: "pending", lockedByUserId: null, lockToken: null, lockExpiresAt: null } });
 
 describe("WhatsApp availability → head of the dial queue", { timeout: 1_800_000 }, () => {
   beforeAll(async () => {
@@ -83,6 +84,8 @@ describe("WhatsApp availability → head of the dial queue", { timeout: 1_800_00
     // The state poll the dialer UI reads (every few seconds) already carries it.
     const st = await (await stateGET(await req(dana, `/api/dialer/state?browserSessionId=${browserSessionId}`), { params: Promise.resolve({}) })).json();
     expect(st.data.hot.map((h: { id: string; status: string }) => [h.id, h.status])).toContainEqual([s!.id, "active"]);
+    // The live call ends (no answer → retry later) and releases its lock, as saving the outcome does.
+    await db.listLead.update({ where: { id: live!.id }, data: { status: "pending", lockedByUserId: null, lockToken: null, lockExpiresAt: null, attempts: 1, nextAttemptAt: new Date(Date.now() + 3600_000) } });
     // Next claim after the live call = her, ahead of the new leads (her own row was waiting 3h for a retry).
     const next = await run(dana, () => claimNextLead(a.business.id, dana.id, list.id));
     expect(next?.id).toBe(hot.row.id);

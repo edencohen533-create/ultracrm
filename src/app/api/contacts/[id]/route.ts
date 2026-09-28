@@ -37,9 +37,9 @@ export const GET = withAuth(async ({ user, params }) => {
     prisma.note.findMany({ where: { contactId: c.id, ...noteScope(user, ids) }, orderBy: { createdAt: "desc" }, take: 20, include: { author: { select: { id: true, fullName: true } } } }),
   ]);
   return ok({ ...c, tags: c.tags.map((t) => t.tag), tasks, calls, conversations, noteItems: notes, isDnc: Boolean(dnc), dncReason: dnc?.reason ?? null, suppression });
-});
+}, { perm: ["crm.view", "telephony.use", "whatsapp.view", "sms.view", "email.view"] });
 
 export const PATCH = withAuth(async ({ req, user, params }) => {
   const b = await parseBody(req, contactPatchSchema);
   return ok(await updateContact(user, params.id, b));
-});
+}, { perm: ["crm.edit", "telephony.use", "whatsapp.reply"] });

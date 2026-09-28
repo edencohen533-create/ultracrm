@@ -10,4 +10,4 @@ export const maxDuration = 60;
 export const POST = withAuth(async ({ req, user, params }) => {
   const b = await parseBody(req, z.object({ duplicateId: z.string().min(1) }));
   return ok(await mergeContacts(user, params.id, b.duplicateId));
-}, { minRole: "manager", module: "crm" });
+}, { minRole: "manager", perm: "crm.edit" });

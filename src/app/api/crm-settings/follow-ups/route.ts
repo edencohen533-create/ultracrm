@@ -17,7 +17,7 @@ export const GET = withAuth(async ({ user, req }) => {
   const { where, peers } = await scope(user);
   const rows = await prisma.listLead.findMany({ where, include: { contact: { select: { fullName: true } } }, orderBy: { nextAttemptAt: "asc" }, take: 100 });
   return ok(rows.map(r => ({ id: r.id, name: r.contact.fullName, owner: peers.find(p => p.id === r.preferredUserId)?.fullName ?? "", due: r.nextAttemptAt })));
-}, { module: "telephony" });
+}, { perm: "telephony.use" });
 export const POST = withAuth(async ({ req, user }) => {
   const { id } = await parseBody(req, z.object({ id: z.string().min(1) }));
   const { where } = await scope(user);
@@ -28,4 +28,4 @@ export const POST = withAuth(async ({ req, user }) => {
     await audit(user.businessId, user.id, "lead", id, "follow_up.taken", {}, tx);
   });
   return ok({ id });
-}, { module: "telephony" });
+}, { perm: "telephony.use" });

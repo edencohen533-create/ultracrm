@@ -12,4 +12,4 @@ export const POST = organizationRequest(async function(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: "יש למלא פרטי חוק ושיחת בדיקה תקינים" }, { status: 400 });
   try { return NextResponse.json(await previewAutomation(parsed.data.rule, parsed.data.conversationId)); }
   catch (error) { if (error instanceof AutomationPreviewError) return NextResponse.json({ error: error.message }, { status: 400 }); throw error; }
-});
+}, "whatsapp.automations");

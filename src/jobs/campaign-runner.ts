@@ -26,6 +26,12 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
     data: { status: "UNKNOWN", error: "העיבוד נקטע; יש לבדוק אצל הספק לפני שליחה נוספת", completedAt: new Date() },
   });
   await prisma.campaign.updateMany({ where: { status: "SCHEDULED", scheduledAt: { lte: new Date() } }, data: { status: "RUNNING" } });
+  // A channel no longer in the business's package: its running campaigns are PAUSED (never cancelled, nothing deleted).
+  // Recipients already handed to the provider are not touched, so stopping here never causes a double send.
+  const { businessCanUse } = await import("@/lib/access/engine");
+  for (const ch of ["whatsapp", "sms", "email"] as const) {
+    if (!(await businessCanUse(requireBusinessId(), ch))) await prisma.campaign.updateMany({ where: { businessId: requireBusinessId(), channel: ch, status: "RUNNING" }, data: { status: "PAUSED", statusReason: "הערוץ אינו כלול כעת בחבילה של העסק" } });
+  }
   const settings = await getBusinessSettings(requireBusinessId());
   const insideWindow = isWithinDialWindow({ ...settings.marketing.window, timezone: settings.marketing.window.timezone ?? settings.timezone });
   const budget = settings.marketing.maxPerMinute > 0 ? settings.marketing.maxPerMinute : Number.MAX_SAFE_INTEGER;
@@ -85,7 +91,12 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
         await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: campaign.status === "CANCELLED" ? { status: "SKIPPED", error: "הקמפיין בוטל", completedAt: new Date() } : { status: "QUEUED", claimedAt: null } });
         continue;
       }
-      if (!campaign.createdBy.isActive || !["owner", "manager"].includes(campaign.createdBy.role)) {
+      // A campaign is sent on behalf of its creator: they must still be active and allowed to send on this channel.
+      const { effectiveAccess, can } = await import("@/lib/access/engine");
+      const { channelPerm } = await import("@/lib/access/campaigns");
+      const creatorAccess = campaign.createdBy.isActive ? await effectiveAccess(campaign.businessId, campaign.createdBy.id).catch(() => null) : null;
+      const creatorMaySend = Boolean(creatorAccess && channelPerm(campaign.channel as "whatsapp" | "sms" | "email", "send").some((p) => can(creatorAccess, p)));
+      if (!campaign.createdBy.isActive || !["owner", "manager"].includes(campaign.createdBy.role) || !creatorMaySend) {
         await prisma.campaign.updateMany({ where: { id: campaign.id, status: "RUNNING" }, data: { status: "PAUSED", statusReason: "יוצר הקמפיין אינו פעיל או איבד הרשאה" } });
         await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "QUEUED", claimedAt: null } });
         continue;

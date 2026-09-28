@@ -7,54 +7,32 @@
 import { db, type Db } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 
-export type ModuleKey = "crm" | "messaging" | "telephony";
-export const MODULE_KEYS: ModuleKey[] = ["crm", "messaging", "telephony"];
-export const MODULE_LABEL: Record<ModuleKey, string> = { crm: "CRM", messaging: "דיוור והודעות", telephony: "טלפוניה וחייגן" };
-
-export type QuotaMetric = "users" | "contacts" | "messages_sent" | "calls_started" | "campaigns_started";
-export const QUOTA_LABEL: Record<QuotaMetric, string> = {
-  users: "משתמשים",
-  contacts: "אנשי קשר",
-  messages_sent: "הודעות יוצאות בחודש",
-  calls_started: "שיחות יוצאות בחודש",
-  campaigns_started: "קמפיינים בחודש",
-};
+export type { ModuleKey, QuotaMetric } from "@/lib/access/catalog";
+import { MODULES, MODULE_LABEL as LABELS, QUOTA_LABEL as QLABELS, type ModuleKey, type QuotaMetric } from "@/lib/access/catalog";
+import { businessEntitlement, invalidateEntitlement } from "@/lib/access/engine";
+export const MODULE_KEYS: ModuleKey[] = MODULES;
+export const MODULE_LABEL = LABELS;
+export const QUOTA_LABEL = QLABELS;
 /** Quotas measured against a monthly counter (others are absolute counts). */
 const MONTHLY: QuotaMetric[] = ["messages_sent", "calls_started", "campaigns_started"];
 
 export interface Entitlements {
   planKey: string | null;
   planName: string | null;
+  /** Module usable by the business right now (in the package / add-on / trial, and the business is not suspended). */
   modules: Record<ModuleKey, boolean>;
   /** `null` = unlimited */
   quotas: Record<QuotaMetric, number | null>;
 }
 
-const DEFAULT_MODULES: Record<ModuleKey, boolean> = { crm: true, messaging: true, telephony: true };
-
-function asRecord(v: unknown): Record<string, unknown> {
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-}
-
-const cache = new Map<string, { at: number; value: Entitlements }>();
-const CACHE_MS = 15_000;
-
+/** Business-level view of src/lib/access/engine.ts (kept for existing callers). */
 export async function getEntitlements(businessId: string): Promise<Entitlements> {
-  const hit = cache.get(businessId);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
-  const b = await db.business.findUnique({ where: { id: businessId }, select: { modules: true, plan: { select: { key: true, name: true, modules: true, quotas: true } } } });
-  const planModules = asRecord(b?.plan?.modules);
-  const overrides = asRecord(b?.modules);
-  const modules = Object.fromEntries(MODULE_KEYS.map((k) => [k, typeof overrides[k] === "boolean" ? overrides[k] : typeof planModules[k] === "boolean" ? planModules[k] : DEFAULT_MODULES[k]])) as Record<ModuleKey, boolean>;
-  const q = asRecord(b?.plan?.quotas);
-  const quotas = Object.fromEntries((Object.keys(QUOTA_LABEL) as QuotaMetric[]).map((k) => [k, typeof q[k] === "number" ? (q[k] as number) : null])) as Record<QuotaMetric, number | null>;
-  const value: Entitlements = { planKey: b?.plan?.key ?? null, planName: b?.plan?.name ?? null, modules, quotas };
-  cache.set(businessId, { at: Date.now(), value });
-  return value;
+  const e = await businessEntitlement(businessId);
+  return { planKey: e.planKey, planName: e.planName, modules: Object.fromEntries(MODULES.map((m) => [m, e.modules[m].included && !e.suspended])) as Record<ModuleKey, boolean>, quotas: e.quotas };
 }
 
 export function invalidateEntitlements(businessId: string) {
-  cache.delete(businessId);
+  invalidateEntitlement(businessId);
 }
 
 export async function isModuleEnabled(businessId: string, module: ModuleKey) {
@@ -63,7 +41,7 @@ export async function isModuleEnabled(businessId: string, module: ModuleKey) {
 
 export async function assertModuleEnabled(businessId: string, module: ModuleKey) {
   if (!(await isModuleEnabled(businessId, module))) {
-    throw new ApiError(`המודול "${MODULE_LABEL[module]}" אינו פעיל בחבילה של העסק`, 403, "module_disabled", { module });
+    throw new ApiError(`המודול "${MODULE_LABEL[module]}" אינו פעיל בחבילה של העסק`, 403, "module_not_purchased", { module });
   }
 }
 
@@ -108,7 +86,7 @@ export async function consumeQuota(businessId: string, metric: QuotaMetric, amou
 
 export async function usageSummary(businessId: string) {
   const ent = await getEntitlements(businessId);
-  const metrics = Object.keys(QUOTA_LABEL) as QuotaMetric[];
+  const metrics = Object.keys(QLABELS) as QuotaMetric[];
   const usage = await Promise.all(metrics.map((m) => currentUsage(businessId, m)));
   return { ...ent, usage: Object.fromEntries(metrics.map((m, i) => [m, { used: usage[i], limit: ent.quotas[m], label: QUOTA_LABEL[m] }])) };
 }

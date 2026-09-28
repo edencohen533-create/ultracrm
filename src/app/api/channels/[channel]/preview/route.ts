@@ -25,4 +25,4 @@ export const POST = withAuth(async ({ req, params }) => {
     return ok({ subject: renderMergeTags(b.subject, SAMPLE).text, html: html.text, text: text.text, problems, missing: [...new Set([...html.missing, ...text.missing])] });
   }
   throw new ApiError("ערוץ לא תקין", 400, "bad_channel");
-}, { module: "messaging" });
+}, { perm: (p) => (p.channel === "email" ? "email.draft" : "sms.draft") });

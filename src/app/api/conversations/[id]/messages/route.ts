@@ -30,7 +30,7 @@ export const POST = organizationRequest(async function(request: Request, { param
     console.error("Message send failed", error instanceof Error ? error.name : "Unknown");
     return Response.json({ error: "לא ניתן לאמת את השליחה. יש לבדוק את השיחה לפני ניסיון נוסף" }, { status: 502 });
   }
-});
+}, "whatsapp.reply");
 
 export const GET = organizationRequest(async function(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -56,4 +56,4 @@ export const GET = organizationRequest(async function(request: Request, { params
     : conversation.providerCredentialId === null && await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api" }, select: { id: true } })
       ? "זו שיחת הדגמה. יש לפתוח שיחה דרך מספר WhatsApp מחובר" : null;
   return Response.json({ senderUnavailable, messages: conversation.messages.slice(0, 100).reverse().map(({ requestKey, ...m }) => ({ ...m, aiBot: Boolean(requestKey?.startsWith("ai:svc:")) })), hasMore: conversation.messages.length > 100, lastInboundAt: conversation.lastInboundAt }, { headers: { "Cache-Control": "private, no-store" } });
-});
+}, "whatsapp.view");

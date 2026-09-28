@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withAuth(async ({ user }) => ok(await prisma.script.findMany({ where: { businessId: user.businessId }, orderBy: [{ isDefault: "desc" }, { title: "asc" }] })), { module: "telephony" });
+export const GET = withAuth(async ({ user }) => ok(await prisma.script.findMany({ where: { businessId: user.businessId }, orderBy: [{ isDefault: "desc" }, { title: "asc" }] })), { perm: "telephony.use" });
 const schema = z.object({ title: z.string().min(1).max(120), body: z.string().max(20000), isDefault: z.boolean().optional() });
 
 export const POST = withAuth(async ({ req, user }) => {
@@ -15,4 +15,4 @@ export const POST = withAuth(async ({ req, user }) => {
     return tx.script.create({ data: { businessId: user.businessId, title: b.title.trim(), body: b.body, isDefault: Boolean(b.isDefault) } });
   });
   return ok(s, 201);
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", perm: "telephony.team_settings" });

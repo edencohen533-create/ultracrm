@@ -20,6 +20,14 @@ export async function processDueAutomationRuns(deadline = Date.now() + 45_000): 
     ] },
     data: { status: AutomationRunStatus.FAILED, completedAt: new Date(), error: "העיבוד נקטע; יש לבדוק את תוצאת הפעולה לפני הרצה נוספת" },
   });
+  // Inbox automations are a WhatsApp feature of the business: when WhatsApp left the package, due runs are closed
+  // with a reason (not executed, nothing deleted) – checked right before execution.
+  const { businessCanUse } = await import("@/lib/access/engine");
+  const { requireBusinessId } = await import("@/lib/tenant");
+  if (!(await businessCanUse(requireBusinessId(), "whatsapp"))) {
+    await prisma.automationRun.updateMany({ where: { status: AutomationRunStatus.PENDING, scheduledFor: { lte: new Date() } }, data: { status: AutomationRunStatus.FAILED, completedAt: new Date(), error: "וואטסאפ אינו כלול כעת בחבילה של העסק – האוטומציה לא בוצעה" } });
+    return { processed: 0 };
+  }
   const due = await prisma.automationRun.findMany({
     where: { status: AutomationRunStatus.PENDING, scheduledFor: { lte: new Date() } },
     take: 25,

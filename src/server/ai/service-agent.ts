@@ -106,6 +106,8 @@ export async function handleServiceInbound(businessId: string, payload: { messag
   if (payload.channel && payload.channel !== "whatsapp") return { status: "skipped", reason: "not whatsapp" };
   const { ai, timezone, businessName } = await getAiSettings(businessId);
   if (!ai.service.enabled) return { status: "skipped", reason: "service off" };
+  const { businessCanUse } = await import("@/lib/access/engine");
+  if (!(await businessCanUse(businessId, "whatsapp"))) return { status: "skipped", reason: "whatsapp not in the package" };
   const msg = payload.messageId ? await prisma.message.findUnique({ where: { id: payload.messageId }, select: { id: true, body: true, createdAt: true, conversationId: true } }) : null;
   if (!msg) return { status: "skipped", reason: "no message" };
   const conv = await prisma.conversation.findUnique({ where: { id: msg.conversationId }, include: { contact: { select: { id: true, phoneE164: true, fullName: true, isBlocked: true } } } });

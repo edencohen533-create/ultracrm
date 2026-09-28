@@ -50,6 +50,9 @@ export async function processAssistantSchedules(businessId: string, now = new Da
   const settings = await getBusinessSettings(businessId);
   const s = settings.assistant;
   if (!s.enabled || s.paused) return { processed: 0 };
+  // Reports go out over the business's WhatsApp connection.
+  const { businessCanUse } = await import("@/lib/access/engine");
+  if (!(await businessCanUse(businessId, "whatsapp"))) return { processed: 0 };
   const tz = settings.timezone;
   const p = localParts(tz, now);
   const date = `${p.y}-${pad(p.m)}-${pad(p.d)}`;

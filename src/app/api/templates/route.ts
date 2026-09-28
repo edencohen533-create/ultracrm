@@ -4,7 +4,7 @@ import { listSendableTemplates } from "@/server/services/template-service";
 export const GET = organizationRequest(async function() {
   if (!(await auth())?.user) return Response.json({ error: "Unauthorized" }, { status: 401 });
   return Response.json({ templates: await listSendableTemplates() });
-});
+}, ["whatsapp.reply", "whatsapp.campaign_draft", "whatsapp.automations"]);
 
 export const POST = organizationRequest(async function(request: Request) {
   const { campaignActor } = await import("@/lib/campaign-auth");
@@ -15,6 +15,6 @@ export const POST = organizationRequest(async function(request: Request) {
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "תבנית לא תקינה" }, { status: 400 });
   try { return Response.json({ template: await submitMetaTemplate(parsed.data) }, { status: 201 }); }
   catch (error) { return Response.json({ error: error instanceof TemplateSubmissionError ? error.message : "הגשת התבנית נכשלה" }, { status: 502 }); }
-});
+}, ["whatsapp.campaign_draft", "whatsapp.automations"]);
 
 export const maxDuration = 60;

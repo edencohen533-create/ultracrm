@@ -280,10 +280,10 @@ export const transferSchema = z.object({ leadIds: z.array(z.string()).min(1).max
  * A lead in a live call / started dial attempt is marked pending and moved right after that call is documented.
  */
 /** Managers/owner always; an agent only when settings → הרשאות allow it (all agents or selected ones). */
+/** One source of truth: the "העברת לידים" CRM permission (users not migrated yet derive it from הרשאות, as before). */
 export async function canTransferLeads(user: SessionUser) {
-  if (user.role !== "agent") return true;
-  const { permissions } = await getBusinessSettings(user.businessId);
-  return permissions.agentTransfer === "all" || (permissions.agentTransfer === "selected" && permissions.agentTransferUserIds.includes(user.id));
+  const { effectiveAccess, can } = await import("@/lib/access/engine");
+  return can(await effectiveAccess(user.businessId, user.id), "crm.transfer");
 }
 
 export async function transferLeads(user: SessionUser, input: z.infer<typeof transferSchema>) {

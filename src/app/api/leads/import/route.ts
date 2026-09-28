@@ -12,4 +12,4 @@ export const POST = withAuth(async ({ req, user }) => {
   const r = await importLeads(user, b);
   await audit(user.businessId, user.id, "lead", "import", "lead.imported", { rows: b.rows.length, owner: b.owner, created: r.created, exists: r.exists, invalid: r.invalid });
   return ok(r);
-}, { module: "crm", minRole: "manager" });
+}, { minRole: "manager", perm: "crm.create" });

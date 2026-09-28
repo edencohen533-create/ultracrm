@@ -8,4 +8,4 @@ export const POST = organizationRequest(async function() {
   catch (error) {
     return Response.json({ error: error instanceof TemplateSyncError ? error.message : "סנכרון התבניות נכשל; לא בוצע סנכרון חלקי" }, { status: 502 });
   }
-});
+}, ["whatsapp.campaign_draft", "whatsapp.automations"]);

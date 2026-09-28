@@ -7,4 +7,4 @@ import { IntegrationsScreen } from "@/components/automations/IntegrationsScreen"
 export default organizationRequest(async function IntegrationsPage() {
   if (!hasRole(await auth(), ROLES_ADMIN_MANAGER)) return <AccessDenied />;
   return <div className="p-3 sm:p-6 max-w-5xl"><AutomationsTabs /><h1 className="text-lg font-semibold mb-3">Webhooks ו-API</h1><IntegrationsScreen /></div>;
-});
+}, ["crm", "telephony", "whatsapp", "sms", "email"]);

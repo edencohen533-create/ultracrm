@@ -27,11 +27,11 @@ export const GET = withAuth(async ({ user }) => {
     prisma.task.count({ where: { businessId, status: "open", type: { not: "callback" }, dueAt: { lt: dayEnd }, ...(userScope ? { userId: userScope } : {}) } }),
     prisma.task.count({ where: { businessId, status: "open", dueAt: { lt: dayStart }, ...(userScope ? { userId: userScope } : {}) } }),
   ]);
-  const conversationsWaiting = ent.modules.messaging
+  const conversationsWaiting = ent.modules.whatsapp
     ? await prisma.conversation.count({ where: { businessId, status: { in: ["OPEN", "PENDING"] }, unreadCount: { gt: 0 }, isSpam: false, ...(mine ? { OR: [{ assignedAgentId: user.id }, { assignedAgentId: null }] } : ids ? { OR: [{ assignedAgentId: { in: ids } }, { assignedAgentId: null }] } : {}) } })
     : null;
   const missedCalls = ent.modules.telephony
     ? await prisma.call.count({ where: { businessId, direction: "inbound", answeredAt: null, createdAt: { gte: dayStart }, ...(mine ? { userId: user.id } : ids ? { userId: { in: ids } } : {}) } })
     : null;
   return ok({ leadsNew, leadsOpen, conversationsWaiting, missedCalls, callbacksDue, tasksDue, tasksOverdue, modules: ent.modules, scope: mine ? "mine" : "team" });
-}, { module: "crm" });
+}, { perm: "crm.view" });

@@ -23,7 +23,7 @@ export const GET = withAuth(async ({ user }) => {
   const visible = lists.filter((l) => { const owner = (l.filterJson as { leadOwnerUserId?: string } | null)?.leadOwnerUserId; return user.role !== "agent" || !owner || owner === user.id; });
   const stats = await Promise.all(visible.map((l) => listQueueStats(l.id)));
   return ok(visible.map((l, i) => ({ ...l, stats: stats[i] })));
-}, { module: "telephony" });
+}, { perm: "telephony.use" });
 
 const createSchema = z.object({
   name: z.string().min(1).max(120),
@@ -67,4 +67,4 @@ export const POST = withAuth(async ({ req, user }) => {
     added = await addLeadsToList(user.businessId, list.id, b.filter, b.contactIds);
   }
   return ok({ ...list, added }, 201);
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", perm: "telephony.team_settings" });

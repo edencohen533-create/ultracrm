@@ -4,4 +4,4 @@ import { createNote, noteInputSchema } from "@/lib/crm/pipeline";
 
 export const dynamic = "force-dynamic";
 
-export const POST = withAuth(async ({ req, user }) => ok(await createNote(user, await parseBody(req, noteInputSchema)), 201));
+export const POST = withAuth(async ({ req, user }) => ok(await createNote(user, await parseBody(req, noteInputSchema)), 201), { perm: ["crm.edit", "telephony.use", "whatsapp.reply"] });

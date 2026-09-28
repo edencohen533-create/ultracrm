@@ -35,4 +35,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
     if (e instanceof ConversationStartError || e instanceof MessagePolicyError || e instanceof MessageOutcomeUnknownError) throw new ApiError(e.message, 409, "not_sent");
     throw e;
   }
-}, { module: "messaging" });
+}, { module: "telephony", perm: "whatsapp.reply" });

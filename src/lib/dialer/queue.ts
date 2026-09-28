@@ -163,6 +163,9 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
         JOIN ${QT("contacts")} c ON c.id = l.contact_id
         WHERE ${queueFilter(q, { timeAware: true })}
         ORDER BY
+          -- A customer who replied on WhatsApp "available now" is dialed first (oldest request first).
+          (SELECT min(cs.requested_at) FROM ${QT("callback_signals")} cs WHERE cs.business_id = l.business_id AND cs.contact_id = l.contact_id
+            AND cs.user_id = ${userId} AND cs.status = 'active' AND cs.expires_at > timezone('UTC', now())) ASC NULLS LAST,
           ${order}, l.id ASC
         LIMIT 1
         FOR UPDATE OF l SKIP LOCKED

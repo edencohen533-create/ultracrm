@@ -11,6 +11,8 @@ import type { ContactLite, LeadDto } from "@/lib/client/types";
 import { ContactTimeline } from "@/components/contacts/ContactTimeline";
 import { ContactChat } from "@/components/contacts/ContactChat";
 import { useMe } from "@/lib/client/use-me";
+import { useDialer } from "@/components/telephony/DialerProvider";
+import { AvailableNowTag } from "@/components/telephony/AvailableNowTag";
 
 interface ContactFull extends ContactLite {
   owner: { id: string; fullName: string } | null;
@@ -45,6 +47,7 @@ export function LeadCard({
   refreshKey: number;
 }) {
   const [contact, setContact] = useState<ContactFull | null>(null);
+  const hotNow = useDialer().state?.hot?.find((h) => h.status === "active" && h.contactId === contactId) ?? null;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ fullName: "", email: "", company: "", city: "" });
   const [scriptOpen, setScriptOpen] = useState(false);
@@ -132,6 +135,7 @@ export function LeadCard({
             <div className="flex items-center gap-3 mt-1 text-sm">
               <Phone value={formatPhone(contact.phoneE164)} className="text-accent underline text-base font-medium" />
               {contact.isDnc && <Badge tone="bad">לא ליצור קשר</Badge>}
+              {hotNow && <AvailableNowTag at={hotNow.requestedAt} text={hotNow.text} />}
               {lead && (
                 <span className="text-xs text-muted">
                   ניסיון <span className="tabular text-text">{lead.attempts + (lead.status === "in_call" ? 0 : 1)}</span>

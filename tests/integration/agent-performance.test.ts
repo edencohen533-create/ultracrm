@@ -10,6 +10,8 @@ beforeAll(async()=>{
   a=await createBusiness('agent-performance');
   async function user(role:'agent'|'manager'){const account=await db.account.create({data:{email:`${role}-${a.business.id}@test.local`,fullName:role,passwordHash:'test'}});accounts.push(account.id);return db.user.create({data:{businessId:a.business.id,accountId:account.id,email:account.email,fullName:role,role}});}
   agent=await user('agent');manager=await user('manager');
+  // Team-scoped managers (settings → הרשאות); since round 10 the default scope is the whole business.
+  await db.business.update({where:{id:a.business.id},data:{settings:{permissions:{managerScope:'team'}}}});
   const c=await db.contact.create({data:{businessId:a.business.id,fullName:'Report QA',phoneE164:'+972501236001',phoneRaw:'0501236001'}});
   const start=new Date('2026-09-25T10:00:00Z');
   await db.call.create({data:{businessId:a.business.id,userId:agent.id,contactId:c.id,mode:'manual',provider:'mock',idempotencyKey:`perf-${a.business.id}`,agentLegId:'mock-leg',toE164:c.phoneE164,fromE164:'+97239000000',status:'ended',createdAt:start,answeredAt:new Date(start.getTime()+5000),endedAt:new Date(start.getTime()+65000),talkSeconds:60,outcome:'sale',outcomeSavedAt:new Date(start.getTime()+70000)}});

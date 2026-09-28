@@ -3,16 +3,23 @@ import { z, type ZodTypeAny } from "zod";
 import { requireUser, requireRole, type SessionUser } from "@/lib/auth";
 import { ApiError, handleError } from "@/lib/response";
 import { withBusiness } from "@/lib/tenant";
-import { assertModuleEnabled, type ModuleKey } from "@/lib/modules";
+import type { ModuleKey, Permission } from "@/lib/access/catalog";
+import { assertAccess } from "@/lib/access/engine";
 import type { UserRole } from "@/generated/prisma/enums";
 
 type Params = Record<string, string>;
 type Handler = (ctx: { req: NextRequest; user: SessionUser; params: Params }) => Promise<Response>;
 
+type Need = ModuleKey | Permission | Array<ModuleKey | Permission>;
 export interface WithAuthOptions {
   minRole?: UserRole;
-  /** The module this route belongs to; rejected with 403 when the business's plan does not enable it. */
-  module?: ModuleKey;
+  /**
+   * The module(s) this route belongs to (an array = any of them). Rejected with 403 unless the business is entitled
+   * to the module AND the business manager assigned it to this user (src/lib/access/engine.ts).
+   */
+  module?: Need;
+  /** A specific action (e.g. "crm.export"); may depend on a route param (e.g. the channel). Default = deny. */
+  perm?: Need | ((params: Params) => Need);
 }
 
 /**
@@ -24,8 +31,9 @@ export function withAuth(handler: Handler, opts: WithAuthOptions = {}) {
     try {
       const user = await requireUser(req);
       if (opts.minRole) requireRole(user, opts.minRole);
-      if (opts.module) await assertModuleEnabled(user.businessId, opts.module);
       const params = ctx?.params ? await ctx.params : {};
+      if (opts.module) await assertAccess(user, opts.module);
+      if (opts.perm) await assertAccess(user, typeof opts.perm === "function" ? opts.perm(params) : opts.perm);
       return await withBusiness(user.businessId, () => handler({ req, user, params }), user);
     } catch (err) {
       return handleError(err);

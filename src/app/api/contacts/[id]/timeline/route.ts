@@ -10,4 +10,4 @@ export const GET = withAuth(async ({ user, params }) => {
   const c = await prisma.contact.findFirst({ where: { id: params.id, businessId: user.businessId }, select: { id: true, ownerUserId: true } });
   if (!c || !(await canAccessContact(user, c))) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
   return ok({ items: await contactTimeline(user, c.id) });
-});
+}, { perm: ["crm.view", "telephony.use", "whatsapp.view", "sms.view", "email.view"] });

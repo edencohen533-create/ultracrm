@@ -33,4 +33,4 @@ export const PATCH = organizationRequest(async function(request: Request, { para
   const conversation = await assignConversation(id, agentId, session.user.id, buildConversationScope(session));
   if (!conversation) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ conversation });
-});
+}, "whatsapp.assign");

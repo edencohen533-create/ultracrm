@@ -5,4 +5,4 @@ import { connectionOverview } from "@/server/services/embedded-signup-service";
 export const dynamic = "force-dynamic";
 
 /** Connection card data (no secrets). */
-export const GET = withAuth(async () => ok(await connectionOverview()), { minRole: "manager", module: "messaging" });
+export const GET = withAuth(async () => ok(await connectionOverview()), { minRole: "manager", module: "whatsapp" });

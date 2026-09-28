@@ -13,7 +13,7 @@ export const POST = withAuth(async ({ req, user, params }) => {
   if (!c) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
   await suppressContact({ businessId: user.businessId, contactId: c.id, scope: b.scope, source: "manual", reason: b.reason ?? "בקשת הסרה דרך נציג", actorId: user.id });
   return ok(await suppressionSummary(user.businessId, c.id));
-});
+}, { minRole: "manager", perm: ["crm.edit", "whatsapp.reply", "sms.draft", "email.draft"] });
 
 /** Re-consent: revokes the active suppressions. Requires documented evidence. Managers only. */
 export const DELETE = withAuth(async ({ req, user, params }) => {
@@ -22,4 +22,4 @@ export const DELETE = withAuth(async ({ req, user, params }) => {
   if (!c) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
   await revokeSuppressions(user.businessId, c.id, user.id, b.evidence);
   return ok(await suppressionSummary(user.businessId, c.id));
-}, { minRole: "manager" });
+}, { minRole: "manager", perm: ["crm.edit", "whatsapp.reply", "sms.draft", "email.draft"] });

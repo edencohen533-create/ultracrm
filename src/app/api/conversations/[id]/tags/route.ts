@@ -43,7 +43,7 @@ export const POST = organizationRequest(async function(request: Request, { param
   await evaluateTrigger(AutomationTrigger.TAG_ADDED, { conversationId, tagId });
 
   return NextResponse.json({ ok: true });
-});
+}, "whatsapp.reply");
 
 export const DELETE = organizationRequest(async function(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -62,4 +62,4 @@ export const DELETE = organizationRequest(async function(request: Request, { par
   }
   await prisma.conversationTag.deleteMany({ where: { conversationId, tagId: parsed.data.tagId } });
   return NextResponse.json({ ok: true });
-});
+}, "whatsapp.reply");

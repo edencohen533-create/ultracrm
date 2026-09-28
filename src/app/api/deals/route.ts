@@ -4,6 +4,6 @@ import { createDeal, dealFilterSchema, dealInputSchema, listDeals } from "@/lib/
 
 export const dynamic = "force-dynamic";
 
-export const GET = withAuth(async ({ req, user }) => ok(await listDeals(user, parseQuery(req, dealFilterSchema))), { module: "crm" });
+export const GET = withAuth(async ({ req, user }) => ok(await listDeals(user, parseQuery(req, dealFilterSchema))), { perm: "crm.view" });
 
-export const POST = withAuth(async ({ req, user }) => ok(await createDeal(user, await parseBody(req, dealInputSchema)), 201), { module: "crm" });
+export const POST = withAuth(async ({ req, user }) => ok(await createDeal(user, await parseBody(req, dealInputSchema)), 201), { perm: "crm.create" });

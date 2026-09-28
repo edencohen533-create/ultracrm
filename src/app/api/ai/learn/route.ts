@@ -13,7 +13,7 @@ export const GET = withAuth(async ({ req, user }) => {
   await conversationForLearning(user, conversationId).catch((e) => { if (e instanceof ApiError && e.code === "empty") return null; throw e; });
   const items = await prisma.knowledgeSource.findMany({ where: { businessId: user.businessId, sourceConversationId: conversationId }, orderBy: { createdAt: "desc" }, select: { id: true, title: true, status: true, createdAt: true } });
   return ok({ items });
-}, { module: "messaging" });
+}, { perm: "whatsapp.view" });
 
 /** Save a (possibly edited) draft; publish=true only for knowledge managers. */
-export const POST = withAuth(async ({ req, user }) => ok(await saveLearned(user, await parseBody(req, saveSchema)), 201), { module: "messaging" });
+export const POST = withAuth(async ({ req, user }) => ok(await saveLearned(user, await parseBody(req, saveSchema)), 201), { perm: "whatsapp.view" });

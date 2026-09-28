@@ -16,4 +16,4 @@ export const POST = organizationRequest(async function() {
     return { stoppedRules: rules.count, cancelledPendingRuns: runs.count };
   });
   return Response.json(result);
-});
+}, "whatsapp.automations");

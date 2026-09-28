@@ -25,7 +25,7 @@ export const GET = organizationRequest(async function(request: Request) {
 
   const conversations = await listConversations(session, filter);
   return NextResponse.json({ conversations });
-});
+}, "whatsapp.view");
 
 export const POST = organizationRequest(async function(request: Request) {
   const session = await auth();
@@ -38,4 +38,4 @@ export const POST = organizationRequest(async function(request: Request) {
     if (error instanceof ConversationStartError) return NextResponse.json({ error: error.message }, { status: 409 });
     throw error;
   }
-});
+}, "whatsapp.reply");

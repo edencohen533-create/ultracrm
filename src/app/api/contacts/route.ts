@@ -54,9 +54,9 @@ export const GET = withAuth(async ({ req, user }) => {
     page: f.page,
     limit: f.limit,
   });
-});
+}, { perm: ["crm.view", "telephony.use", "whatsapp.view", "sms.view", "email.view"] });
 
 export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, contactInputSchema);
   return ok(await createContact(user, b), 201);
-});
+}, { perm: ["crm.create", "telephony.use", "whatsapp.reply", "sms.draft", "email.draft"] });

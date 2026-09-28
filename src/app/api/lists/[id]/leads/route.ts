@@ -18,6 +18,14 @@ const q = z.object({
 });
 
 export const GET = withAuth(async ({ req, user, params }) => {
+  // Agents only see the queue of campaigns open to them (and never another agent's personal list).
+  if (user.role === "agent") {
+    const { assertListAccess } = await import("@/lib/dialer/queue");
+    await assertListAccess(user.businessId, user.id, user.role, params.id);
+    const own = await prisma.dialList.findFirst({ where: { id: params.id, businessId: user.businessId }, select: { filterJson: true } });
+    const owner = (own?.filterJson as { leadOwnerUserId?: string } | null)?.leadOwnerUserId;
+    if (owner && owner !== user.id) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
+  }
   const f = parseQuery(req, q);
   const list = await prisma.dialList.findFirst({ where: { id: params.id, businessId: user.businessId }, select: { id: true, agents: { select: { userId: true } } } });
   if (!list) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
@@ -46,8 +54,16 @@ export const GET = withAuth(async ({ req, user, params }) => {
       include: { contact: { select: { id: true, fullName: true, phoneE164: true, source: true, company: true, city: true } }, lockedBy: { select: { id: true, fullName: true } } },
     }),
   ]);
-  return ok({ items, total, page: f.page, limit: f.limit });
-}, { module: "telephony" });
+  // "זמינה עכשיו" (WhatsApp reply) rows lead the queue view, oldest request first – exactly like the claim order.
+  const hot = await prisma.callbackSignal.findMany({ where: { businessId: user.businessId, status: "active", expiresAt: { gt: new Date() } }, orderBy: { requestedAt: "asc" }, select: { contactId: true, requestedAt: true, text: true } });
+  let rows = items.map((r) => ({ ...r, availableNow: hot.find((h) => h.contactId === r.contactId) ?? null }));
+  if (f.sort === "queue" && f.page === 1 && hot.length) {
+    const pinned = await prisma.listLead.findMany({ where: { ...where, contactId: { in: hot.map((h) => h.contactId) } }, include: { contact: { select: { id: true, fullName: true, phoneE164: true, source: true, company: true, city: true } }, lockedBy: { select: { id: true, fullName: true } } } });
+    const first = pinned.map((r) => ({ ...r, availableNow: hot.find((h) => h.contactId === r.contactId) ?? null })).sort((x, y) => x.availableNow!.requestedAt.getTime() - y.availableNow!.requestedAt.getTime());
+    rows = [...first, ...rows.filter((r) => !first.some((p) => p.id === r.id))];
+  }
+  return ok({ items: rows, total, page: f.page, limit: f.limit });
+}, { perm: "telephony.use" });
 
 const addSchema = z.object({ filter: contactFilterSchema.optional(), contactIds: z.array(z.string()).max(10000).optional() });
 
@@ -57,7 +73,7 @@ export const POST = withAuth(async ({ req, user, params }) => {
   if (!list) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
   const added = await addLeadsToList(user.businessId, list.id, b.filter, b.contactIds);
   return ok({ added });
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", perm: "telephony.team_settings" });
 
 const patchSchema = z.object({ leadIds: z.array(z.string()).min(1).max(1000), action: z.enum(["remove", "requeue", "priority"]), priority: z.number().int().min(0).max(100).optional() });
 
@@ -70,4 +86,4 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   else if (b.action === "requeue") await prisma.listLead.updateMany({ where: { ...where, status: { notIn: ["in_call", "dnc"] } }, data: { status: "pending", nextAttemptAt: null, attempts: 0, lockedByUserId: null, lockToken: null, lockExpiresAt: null } });
   else await prisma.listLead.updateMany({ where, data: { priority: b.priority ?? 0 } });
   return ok({ updated: true });
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", perm: "telephony.team_settings" });

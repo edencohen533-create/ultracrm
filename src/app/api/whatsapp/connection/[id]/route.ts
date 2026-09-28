@@ -36,4 +36,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
       return ok(await sendTestMessage(user, params.id, e164));
     }
   }
-}, { minRole: "manager", module: "messaging" });
+}, { minRole: "manager", module: "whatsapp" });

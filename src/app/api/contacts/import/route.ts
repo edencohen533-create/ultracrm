@@ -11,4 +11,4 @@ const schema = z.object({ rows: z.array(contactInputSchema).min(1).max(5000), so
 export const POST = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, schema);
   return ok(await importContacts(user, b.rows, b.source));
-}, { minRole: "manager", module: "crm" });
+}, { minRole: "manager", perm: "crm.create" });

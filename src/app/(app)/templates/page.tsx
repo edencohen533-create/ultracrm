@@ -58,4 +58,4 @@ export default organizationRequest(async function TemplatesPage({ searchParams }
       )}
     </div>
   );
-});
+}, ["whatsapp.campaign_draft", "whatsapp.automations"]);

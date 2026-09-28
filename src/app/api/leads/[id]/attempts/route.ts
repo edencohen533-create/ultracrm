@@ -5,4 +5,4 @@ import { attemptHistory } from "@/lib/crm/lead-ops";
 export const dynamic = "force-dynamic";
 
 /** Dial attempts of a lead: date/time, agent, result. Same visibility as the lead itself. */
-export const GET = withAuth(async ({ user, params }) => ok({ items: await attemptHistory(user, params.id) }), { module: "crm" });
+export const GET = withAuth(async ({ user, params }) => ok({ items: await attemptHistory(user, params.id) }), { perm: "crm.view" });

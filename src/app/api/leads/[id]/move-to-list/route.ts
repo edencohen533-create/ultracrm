@@ -24,4 +24,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
   if (lead.ownerUserId) { const own = await prisma.$transaction((tx) => personalListId(tx, user.businessId, lead.ownerUserId!)); if (own && own !== list.id) await prisma.listLead.updateMany({ where: { listId: own, contactId: lead.contactId, status: { in: ["pending", "callback"] } }, data: { status: "completed", nextAttemptAt: null } }); }
   await audit(user.businessId, user.id, "lead", lead.id, "lead.moved_to_list", { listId: list.id, listName: list.name });
   return ok({ listId: list.id, listName: list.name });
-}, { module: "crm" });
+}, { perm: "crm.edit" });

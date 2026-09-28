@@ -27,4 +27,4 @@ export const POST = organizationRequest(async function(request: Request) {
     return created;
   });
   return NextResponse.json({ rule }, { status: 201 });
-});
+}, "whatsapp.automations");

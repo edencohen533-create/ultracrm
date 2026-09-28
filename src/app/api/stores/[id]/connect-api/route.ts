@@ -24,4 +24,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
     : (s.platform !== "woocommerce" ? (() => { throw new ApiError("החנות אינה WooCommerce", 400, "platform_mismatch"); })() : await connectWooCommerce(s, b));
   await audit(user.businessId, user.id, "store", s.id, "store.api_connected", { platform: s.platform, registered: r.registered, failed: r.failed });
   return ok({ store: storeView(r.store), registered: r.registered, failed: r.failed, shopName: r.shopName });
-}, { minRole: "manager", module: "messaging" });
+}, { minRole: "manager", perm: ["whatsapp.automations", "sms.send", "email.send"] });

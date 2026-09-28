@@ -62,4 +62,4 @@ export default organizationRequest(async function AutomationHistoryPage() {
       </div>
     </div>
   );
-});
+}, ["whatsapp.automations", "sms.send", "email.send"]);

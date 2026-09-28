@@ -36,7 +36,7 @@ export const PATCH = organizationRequest(async function(request: Request, { para
     return updated;
   });
   return NextResponse.json({ rule });
-});
+}, "whatsapp.automations");
 
 /** Delete a rule (managers). Pending scheduled runs of the rule are cancelled; history (audit + completed runs) is kept. */
 export const DELETE = organizationRequest(async function(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -50,5 +50,5 @@ export const DELETE = organizationRequest(async function(_request: Request, { pa
     await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: session!.user.id, action: "automation.deleted", entityType: "AutomationRule", entityId: id, payload: { name: existing.name, trigger: existing.trigger, actionType: existing.actionType } } });
   });
   return NextResponse.json({ ok: true });
-});
+}, "whatsapp.automations");
 

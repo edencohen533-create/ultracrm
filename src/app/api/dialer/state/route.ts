@@ -33,6 +33,8 @@ export const GET = withAuth(async ({ req, user }) => {
   const script = lead?.list.scriptId
     ? await prisma.script.findFirst({ where: { id: lead.list.scriptId, businessId: user.businessId }, select: { id: true, title: true, body: true } })
     : await prisma.script.findFirst({ where: { businessId: user.businessId, isDefault: true }, select: { id: true, title: true, body: true } });
+  const { hotSignalsFor } = await import("@/lib/dialer/availability");
+  const hot = await hotSignalsFor(user).catch(() => []);
   const draft = lead ? await prisma.noteDraft.findUnique({ where: { userId_contactId: { userId: user.id, contactId: lead.contactId } }, select: { body: true } }) : null;
 
   return ok({
@@ -49,6 +51,8 @@ export const GET = withAuth(async ({ req, user }) => {
     queue,
     script,
     draft: draft?.body ?? null,
+    /** WhatsApp availability replies for this agent's leads (priority / review / expired / blocked). */
+    hot,
     settings: { wrapUpSeconds: settings.wrapUpSeconds, autoDialCountdownSeconds: settings.autoDialCountdownSeconds, lockTtlSeconds: settings.lockTtlSeconds, dialWindow: settings.dialWindow },
     telephony: telephonyStatus(),
   });

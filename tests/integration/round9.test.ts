@@ -10,6 +10,12 @@ import { withBusiness } from "@/lib/tenant";
 import type { SessionUser } from "@/lib/auth";
 import { createBusiness, destroyBusiness } from "./helpers";
 
+// Service integration tests stub transport; DNS resolution, IP pinning and TLS identity are verified separately.
+vi.mock("@/lib/safe-url", async (original) => {
+  const actual = await original<typeof import("@/lib/safe-url")>();
+  return { ...actual, safeFetch: (url: string, init?: RequestInit) => { actual.assertPublicHttpsUrl(url); return fetch(url, { ...init, redirect: "manual" }); } };
+});
+
 process.env.ENCRYPTION_KEY ||= crypto.randomBytes(32).toString("hex");
 const { connectShopify, connectWooCommerce } = await import("@/server/services/store-api");
 const { newPublicKey, sealStoreConfig } = await import("@/server/services/cart-service");

@@ -32,7 +32,7 @@ const card = () => page.goto(`${base}/contacts/${contactId}`);
 try {
   await step('Login through the form', async () => {
     await page.goto(base + '/login'); await page.locator('input[type=email]').fill('owner@demo.local');
-    await page.locator('input[type=password]').fill('Demo1234!'); await page.locator('button[type=submit]').click();
+    await page.locator('input[type=password]').fill(process.env.QA_PASSWORD ?? 'Demo1234!'); await page.locator('button[type=submit]').click();
     await page.waitForURL(u => u.pathname === '/leads');
   });
   await step('End any leftover mock call before independent UI tests', async () => {

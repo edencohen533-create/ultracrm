@@ -14,12 +14,11 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const quickLogin = process.env.NEXT_PUBLIC_QUICK_LOGIN === "1"; // temporary: see QUICK_LOGIN_EMAIL in the login route
-  async function submit(e: React.FormEvent | null, quick = false) {
-    e?.preventDefault();
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
     setLoading(true);
     try {
-      const u = await api.post<{ role: string }>("/api/auth/login", quick ? { quick: true } : { email, password });
+      await api.post<{ role: string }>("/api/auth/login", { email, password });
       router.push(safeReturnPath(params.get("next")));
       router.refresh();
     } catch (err) {
@@ -40,11 +39,6 @@ function LoginForm() {
       <Button type="submit" className="w-full" loading={loading} size="lg">
         כניסה
       </Button>
-      {quickLogin && (
-        <Button type="button" variant="secondary" className="w-full" disabled={loading} onClick={() => submit(null, true)} data-testid="quick-login">
-          כניסה מהירה (ללא שם משתמש וסיסמה)
-        </Button>
-      )}
     </form>
   );
 }

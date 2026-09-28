@@ -17,7 +17,7 @@ const page = await ctx.newPage(); page.setDefaultTimeout(20000);
 page.on("dialog", (d) => d.accept());
 const shot = (n) => page.screenshot({ path: `.qa-local/functional/cmp-${n}.png` }).catch(() => undefined);
 const api = async (path, method = "GET", body) => { const r = await page.request.fetch(`${BASE}${path}`, { method, data: body, headers: { "Content-Type": "application/json" }, timeout: 20000 }); return { status: r.status(), json: await r.json().catch(() => null) }; };
-const login = async (email) => { await ctx.clearCookies(); await page.goto(`${BASE}/login`); await page.fill('input[type="email"]', email); await page.fill('input[type="password"]', "Demo1234!"); await page.click('button[type="submit"]'); await page.waitForURL((u) => !u.pathname.startsWith("/login")); };
+const login = async (email) => { await ctx.clearCookies(); await page.goto(`${BASE}/login`); await page.fill('input[type="email"]', email); await page.fill('input[type="password"]', process.env.QA_PASSWORD ?? "Demo1234!"); await page.click('button[type="submit"]'); await page.waitForURL((u) => !u.pathname.startsWith("/login")); };
 const saved = () => page.waitForFunction(() => document.querySelector('[data-testid="wz-save-state"]')?.textContent === "נשמר", null, { timeout: 20000 });
 let draftId; const name = `QA מייל ${Date.now()}`;
 

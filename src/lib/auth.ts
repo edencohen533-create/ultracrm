@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 import type { UserRole } from "@/generated/prisma/enums";
+import { assertSameOriginMutation } from "@/lib/request-origin";
 
 const COOKIE_NAME = "ultracrm_session";
 const MAX_AGE_SECONDS = 60 * 60 * 12; // 12h shifts
@@ -41,7 +42,7 @@ export async function signSession(user: SessionUser) {
 
 async function verify(token: string): Promise<SessionUser | null> {
   try {
-    const { payload } = await jwtVerify(token, secret());
+    const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
     if (!payload.sub || !payload.businessId || !payload.accountId) return null;
     return {
       id: payload.sub,
@@ -79,6 +80,7 @@ export async function getSessionFromCookies(): Promise<SessionUser | null> {
  * a deactivated user / business or a changed role takes effect immediately.
  */
 export async function requireUser(req: NextRequest): Promise<SessionUser> {
+  assertSameOriginMutation(req);
   const session = await getSessionFromRequest(req);
   if (!session) throw new ApiError("לא מחובר", 401, "unauthorized");
   return revalidateSession(session);

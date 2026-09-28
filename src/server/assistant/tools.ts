@@ -158,6 +158,31 @@ export const TOOLS = {
       return { name: c.fullName, phoneLast4: c.phoneE164.slice(-4), email: c.email, city: c.city, source: c.source, owner: c.owner?.fullName ?? null, consent: c.consentStatus, since: c.createdAt, leads: c.leads, deals: c.deals.map((d) => ({ ...d, amount: num(d.amount) })), lastCalls: c.calls.map((x) => ({ at: x.createdAt, answered: Boolean(x.answeredAt), outcome: x.outcome, talkSeconds: x.talkSeconds })), openTasks: c.tasks, notesAsData: c.notes ? c.notes.slice(0, 300) : null };
     },
   },
+  agents_online: {
+    description: "זמני קו של נציגים (מחוברים לחייגן) בתקופה: מתי התחברו, כמה זמן היו בקו, הפסקות, זמן פעיל, זמן דיבור, שיחות ונענו – ומי מחובר עכשיו. לשאלות כמו 'מי בקו', 'כמה זמן כל נציג היה בקו', 'מתי דנה התחברה'.",
+    input: { type: "object", properties: { period: { type: "string", enum: [...PERIODS] }, agentName: { type: "string" } } },
+    async run(ctx: ToolCtx, a: { period?: string; agentName?: string }) {
+      const { agentsOnline } = await import("./subscriptions");
+      const agent = await resolveAgent(ctx, a.agentName);
+      return agentsOnline(ctx, range(ctx, a.period), agent?.id ?? null);
+    },
+  },
+  manage_my_alerts: {
+    description: "ניהול ההתראות והסיכומים הקבועים של המשתמש עצמו בוואטסאפ (לא משנה נתונים עסקיים). action: subscribe (התראה כשנציגים מתחברים/מתנתקים; kinds: agent_online/agent_offline; agentNames אופציונלי; mode first_of_day|every), schedule (סיכום קבוע: time HH:MM, days 0-6 כש-0 הוא ראשון, question = השאלה שתיענה בכל פעם), unsubscribe (what: online|report|all), list.",
+    input: { type: "object", properties: { action: { type: "string", enum: ["subscribe", "schedule", "unsubscribe", "list"] }, kinds: { type: "array", items: { type: "string", enum: ["agent_online", "agent_offline"] } }, agentNames: { type: "array", items: { type: "string" } }, mode: { type: "string", enum: ["first_of_day", "every"] }, time: { type: "string" }, days: { type: "array", items: { type: "number" } }, question: { type: "string" }, what: { type: "string", enum: ["online", "report", "all"] } }, required: ["action"] },
+    async run(ctx: ToolCtx, a: { action: string; kinds?: string[]; agentNames?: string[]; mode?: string; time?: string; days?: number[]; question?: string; what?: string }) {
+      const { applySubscription } = await import("./subscriptions");
+      const u = await prisma.user.findFirst({ where: { id: ctx.userId, businessId: ctx.businessId, isActive: true }, select: { id: true, accountId: true, email: true, fullName: true, role: true, teamId: true } });
+      if (!u) throw new ToolError("המשתמש לא נמצא", "not_found");
+      const users = await prisma.user.findMany({ where: { businessId: ctx.businessId, isActive: true }, select: { id: true, fullName: true } });
+      const names: string[] = [];
+      for (const n of a.agentNames ?? []) { const ag = await resolveAgent(ctx, n); if (ag) names.push(ag.fullName); }
+      const req = a.action === "subscribe" ? { action: "subscribe" as const, kinds: (a.kinds?.length ? a.kinds : ["agent_online"]) as Array<"agent_online" | "agent_offline">, agentNames: names, mode: (a.mode === "every" ? "every" : "first_of_day") as "every" | "first_of_day" }
+        : a.action === "schedule" ? (/^\d{2}:\d{2}$/.test(a.time ?? "") ? { action: "schedule" as const, time: a.time!, days: a.days?.length ? a.days.filter((d) => d >= 0 && d <= 6) : [0, 1, 2, 3, 4, 5, 6], question: (a.question ?? "סיכום").slice(0, 200) } : { action: "clarify" as const, message: "באיזו שעה (HH:MM)?" })
+        : a.action === "unsubscribe" ? { action: "unsubscribe" as const, what: (["online", "report"].includes(a.what ?? "") ? a.what : "all") as "online" | "report" | "all" } : { action: "list" as const };
+      return { reply: await applySubscription({ ...u, businessId: ctx.businessId }, req, users, `${a.action} ${a.question ?? ""}`.trim()) };
+    },
+  },
   focus_today: {
     description: "נתונים להמלצות 'על מה להתמקד היום': לידים ללא טיפול, משימות באיחור, חזרות להיום, עסקאות במו\"מ, נציגים בלי שיחות היום. ההמלצה היא פרשנות – יש לסמן אותה כך.",
     input: { type: "object", properties: {} },

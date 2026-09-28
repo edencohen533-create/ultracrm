@@ -4,7 +4,7 @@
  */
 import type { PeriodKey } from "./periods";
 
-export type Intent = "snapshot" | "sales" | "leads" | "agents" | "top_agent" | "calls" | "untreated" | "overdue" | "compare" | "contact" | "focus" | "help";
+export type Intent = "online" | "snapshot" | "sales" | "leads" | "agents" | "top_agent" | "calls" | "untreated" | "overdue" | "compare" | "contact" | "focus" | "help";
 export interface Parsed { intent: Intent | null; period: PeriodKey | null; agentName: string | null; contactQuery: string | null; followUp: boolean; olderThanMinutes: number | null }
 
 export function detectPeriod(t: string): PeriodKey | null {
@@ -35,6 +35,8 @@ export function parse(text: string, agentNames: string[]): Parsed {
   if (/^(עזרה|help|מה אתה יודע|מה אפשר לשאול|תפריט)$/.test(t)) intent = "help";
   else if (/(תשווה|השווה|לעומת|השוואה)/.test(t)) intent = "compare";
   else if (/(להתמקד|המלצה|ממליץ|כדאי לי|מה לעשות היום|סדר עדיפויות)/.test(t)) intent = "focus";
+  // Whole words only ("לקו" must not match "הלקוח").
+  else if (/(^|\s)(בקו|לקו|מהקו|מחובר|מחוברים|מחוברת|מחוברות|אונליין|online|זמני קו|זמן קו|שעות עבודה|התחבר|התחברה|התחברו|בהפסקה|הפסקות)(\s|$)|כמה זמן .*(עבד|עבדה|עבדו|היה בקו|היו בקו|הייתי בקו)|מי עובד|מי בחייגן|זמן בקו/.test(t)) intent = "online";
   else if (/(לא קיבלו טיפול|ללא טיפול|לא טופלו|לא טיפלו|בלי טיפול|לא טופל|ממתינים)/.test(t)) intent = "untreated";
   else if (/(באיחור|משימות|משימה|מעקב)/.test(t)) intent = "overdue";
   else if (contactQuery) intent = "contact";

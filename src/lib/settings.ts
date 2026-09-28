@@ -72,8 +72,20 @@ export interface AssistantSettings {
   recipients: string[];
   /** Approved WhatsApp template (one variable) used to reach a recipient outside the 24h service window. */
   templateId: string | null;
+  /** Personal subscriptions a user asked for in free text (src/server/assistant/subscriptions.ts). */
+  subscriptions: AssistantSubscription[];
 }
-export const DEFAULT_ASSISTANT: AssistantSettings = { enabled: false, paused: false, daily: { enabled: true, time: "19:00", days: [0, 1, 2, 3, 4] }, weekly: { enabled: false, day: 0, time: "09:00" }, untreatedAlert: { enabled: false, minutes: 60 }, salesGoal: { enabled: false, period: "day", amount: 0 }, recipients: [], templateId: null };
+/**
+ * agent_online / agent_offline: WhatsApp when an agent connects to / leaves the dialer (agentIds null = everyone the
+ * user may see; first_of_day = only the first connection of the day). report: a recurring summary at a time.
+ */
+export interface AssistantSubscription {
+  id: string; userId: string; kind: "agent_online" | "agent_offline" | "report";
+  agentIds: string[] | null; mode?: "first_of_day" | "every";
+  time?: string; days?: number[]; topic?: string; period?: string;
+  text: string; createdAt: string;
+}
+export const DEFAULT_ASSISTANT: AssistantSettings = { enabled: false, paused: false, daily: { enabled: true, time: "19:00", days: [0, 1, 2, 3, 4] }, weekly: { enabled: false, day: 0, time: "09:00" }, untreatedAlert: { enabled: false, minutes: 60 }, salesGoal: { enabled: false, period: "day", amount: 0 }, recipients: [], templateId: null, subscriptions: [] };
 
 /** Data visibility and lead rights per role ("הגדרות → הרשאות"). The owner always sees everything. */
 export interface PermissionSettings {
@@ -224,7 +236,7 @@ export function mergeSettings(raw: unknown): BusinessSettings {
     coach: { ...DEFAULT_SETTINGS.coach, ...(r.coach ?? {}) },
     leadStatuses: mergeLeadStatuses(r.leadStatuses),
     permissions: { ...DEFAULT_PERMISSIONS, ...(r.permissions ?? {}), agentTransferUserIds: Array.isArray(r.permissions?.agentTransferUserIds) ? r.permissions!.agentTransferUserIds : [] },
-    assistant: { ...DEFAULT_ASSISTANT, ...(r.assistant ?? {}), daily: { ...DEFAULT_ASSISTANT.daily, ...(r.assistant?.daily ?? {}) }, weekly: { ...DEFAULT_ASSISTANT.weekly, ...(r.assistant?.weekly ?? {}) }, untreatedAlert: { ...DEFAULT_ASSISTANT.untreatedAlert, ...(r.assistant?.untreatedAlert ?? {}) }, salesGoal: { ...DEFAULT_ASSISTANT.salesGoal, ...(r.assistant?.salesGoal ?? {}) }, recipients: Array.isArray(r.assistant?.recipients) ? r.assistant!.recipients : [] },
+    assistant: { ...DEFAULT_ASSISTANT, ...(r.assistant ?? {}), daily: { ...DEFAULT_ASSISTANT.daily, ...(r.assistant?.daily ?? {}) }, weekly: { ...DEFAULT_ASSISTANT.weekly, ...(r.assistant?.weekly ?? {}) }, untreatedAlert: { ...DEFAULT_ASSISTANT.untreatedAlert, ...(r.assistant?.untreatedAlert ?? {}) }, salesGoal: { ...DEFAULT_ASSISTANT.salesGoal, ...(r.assistant?.salesGoal ?? {}) }, recipients: Array.isArray(r.assistant?.recipients) ? r.assistant!.recipients : [], subscriptions: Array.isArray(r.assistant?.subscriptions) ? r.assistant!.subscriptions : [] },
     leadAssignment: { ...DEFAULT_SETTINGS.leadAssignment, ...(r.leadAssignment ?? {}), agentIds: Array.isArray(r.leadAssignment?.agentIds) ? r.leadAssignment!.agentIds : [], perAgentMax: r.leadAssignment?.perAgentMax && typeof r.leadAssignment.perAgentMax === "object" ? r.leadAssignment.perAgentMax : {}, notifyWhatsApp: { enabled: false, templateId: null, ...(r.leadAssignment?.notifyWhatsApp ?? {}) } },
     prioritization: { ...DEFAULT_PRIORITIZATION, ...(r.prioritization ?? {}), sourceWeights: { ...(r.prioritization?.sourceWeights ?? {}) } },
     inbound: { ...DEFAULT_SETTINGS.inbound, ...(r.inbound ?? {}) },

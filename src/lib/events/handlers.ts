@@ -319,4 +319,16 @@ const webhooks: EventHandler = {
   run: async (event) => { const { enqueueWebhookDeliveries } = await import("@/server/services/integrations"); return enqueueWebhookDeliveries(event); },
 };
 
-export const HANDLERS: EventHandler[] = [coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, whatsappAvailability, dialerQueueEmpty, suppressed, taskCreated, sequences, webhooks];
+/** "עלה לקו" / "ירד מהקו" → WhatsApp to users who asked for it (src/server/assistant/subscriptions.ts). */
+const agentPresence: EventHandler = {
+  name: "assistant.agent-presence",
+  types: ["agent.online", "agent.offline"],
+  async run(event) {
+    const p = payload<{ userId: string; sessionId: string; listId?: string | null; mode?: string; reason?: string }>(event);
+    if (!p.userId || !p.sessionId) return { skipped: "no session" };
+    const { deliverPresence } = await import("@/server/assistant/subscriptions");
+    return deliverPresence(event.businessId, event.type === "agent.online" ? "agent_online" : "agent_offline", p, event.occurredAt);
+  },
+};
+
+export const HANDLERS: EventHandler[] = [agentPresence, coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, whatsappAvailability, dialerQueueEmpty, suppressed, taskCreated, sequences, webhooks];

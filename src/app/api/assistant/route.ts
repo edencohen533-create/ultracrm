@@ -48,7 +48,7 @@ export const PATCH = withAuth(async ({ req, user }) => {
   const raw = (biz.settings && typeof biz.settings === "object" ? biz.settings : {}) as Record<string, unknown>;
   const cur = { ...DEFAULT_ASSISTANT, ...((raw.assistant as object) ?? {}) } as typeof DEFAULT_ASSISTANT;
   const next = { ...cur, ...b, daily: { ...cur.daily, ...(b.daily ?? {}) }, weekly: { ...cur.weekly, ...(b.weekly ?? {}) }, untreatedAlert: { ...cur.untreatedAlert, ...(b.untreatedAlert ?? {}) }, salesGoal: { ...cur.salesGoal, ...(b.salesGoal ?? {}) } };
-  await prisma.business.update({ where: { id: user.businessId }, data: { settings: { ...raw, assistant: next } as Prisma.InputJsonValue } });
+  await prisma.business.update({ where: { id: user.businessId }, data: { settings: { ...raw, assistant: next } as unknown as Prisma.InputJsonValue } });
   await audit(user.businessId, user.id, "settings", user.businessId, "assistant.settings_updated", { changed: Object.keys(b) });
   return ok({ settings: (await getBusinessSettings(user.businessId)).assistant });
 }, { minRole: "owner" });

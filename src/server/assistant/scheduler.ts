@@ -106,5 +106,8 @@ export async function processAssistantSchedules(businessId: string, now = new Da
       }
     }
   }
+  // Recurring summaries users asked for in free text.
+  const { deliverScheduledReports } = await import("./subscriptions");
+  processed += await deliverScheduledReports(businessId, now).catch((e: Error) => { console.error("custom reports failed", { businessId, error: e.message }); return 0; });
   return { processed };
 }

@@ -11,6 +11,7 @@ import type { SessionUser } from "@/lib/auth";
 import { getBusinessSettings } from "@/lib/settings";
 import { assertListAccess, currentLockedLead, releaseLead } from "@/lib/dialer/queue";
 import { audit } from "@/lib/audit";
+import { emitEvent } from "@/lib/events";
 
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 const STALE_AFTER_MS = 75_000;
@@ -43,6 +44,7 @@ export async function startSession(user: SessionUser, input: { mode: DialMode; l
     const held = await currentLockedLead(user.id, tx);
     if (held && held.status === "locked") await releaseLead(user.id, held.id, "session_superseded", tx);
     // A new session (possibly from another tab) supersedes any previous one.
+    const wasOnline = await tx.dialerSession.findFirst({ where: { userId: user.id, status: { in: ["active", "paused"] } }, select: { id: true } });
     await tx.dialerSession.updateMany({ where: { userId: user.id, status: { in: ["active", "paused"] } }, data: { status: "ended", endedAt: new Date() } });
     const s = await tx.dialerSession.create({
       data: {
@@ -57,6 +59,8 @@ export async function startSession(user: SessionUser, input: { mode: DialMode; l
     });
     await tx.user.update({ where: { id: user.id }, data: { presence: "available", presenceAt: new Date(), lastSeenAt: new Date() } });
     await audit(user.businessId, user.id, "session", s.id, "session.started", { mode: input.mode, listId: input.listId }, tx);
+    // "עלה לקו" – only when the agent was not already connected (a new tab / campaign switch is not a new connection).
+    if (!wasOnline) await emitEvent(tx, { businessId: user.businessId, type: "agent.online", actorUserId: user.id, source: "user", dedupeKey: `agent.online:${s.id}`, payload: { userId: user.id, sessionId: s.id, listId: s.listId, mode: input.mode } });
     return s;
   });
 }
@@ -74,6 +78,7 @@ export async function pauseSession(user: SessionUser, sessionId: string, browser
     await lockAgent(tx, user.id);
     await ownedSession(user, sessionId, browserSessionId, tx);
     await tx.dialerSession.update({ where: { id: sessionId }, data: { status: "paused" } });
+    await audit(user.businessId, user.id, "session", sessionId, "session.paused", undefined, tx);
     await tx.user.updateMany({ where: { id: user.id, presence: { in: ["available"] } }, data: { presence: "paused", presenceAt: new Date() } });
   });
 }
@@ -83,6 +88,7 @@ export async function resumeSession(user: SessionUser, sessionId: string, browse
     await lockAgent(tx, user.id);
     await ownedSession(user, sessionId, browserSessionId, tx);
     await tx.dialerSession.update({ where: { id: sessionId }, data: { status: "active" } });
+    await audit(user.businessId, user.id, "session", sessionId, "session.resumed", undefined, tx);
     await tx.user.updateMany({ where: { id: user.id, presence: "paused" }, data: { presence: "available", presenceAt: new Date() } });
   });
 }
@@ -98,6 +104,7 @@ export async function endSession(user: SessionUser, sessionId: string, browserSe
     await tx.dialerSession.update({ where: { id: s.id }, data: { status: "ended", endedAt: new Date() } });
     await tx.user.update({ where: { id: user.id }, data: { presence: "offline", presenceAt: new Date() } });
     await audit(user.businessId, user.id, "session", s.id, "session.ended", undefined, tx);
+    await emitEvent(tx, { businessId: user.businessId, type: "agent.offline", actorUserId: user.id, source: "user", dedupeKey: `agent.offline:${s.id}`, payload: { userId: user.id, sessionId: s.id, reason: "ended" } });
   });
 }
 
@@ -128,13 +135,14 @@ export async function reapStaleSessions(businessId: string) {
   const cutoff = new Date(Date.now() - STALE_AFTER_MS);
   const stale = await prisma.dialerSession.findMany({
     where: { businessId, status: { in: ["active", "paused"] }, lastHeartbeatAt: { lt: cutoff } },
-    select: { id: true, userId: true },
+    select: { id: true, userId: true, lastHeartbeatAt: true },
   });
   for (const s of stale) {
     const live = await prisma.call.findUnique({ where: { activeForUser: s.userId }, select: { id: true } });
     if (live) continue; // keep the session until the call is reconciled
-    await prisma.dialerSession.update({ where: { id: s.id }, data: { status: "ended", endedAt: new Date() } });
+    const ended = await prisma.dialerSession.updateMany({ where: { id: s.id, status: { in: ["active", "paused"] } }, data: { status: "ended", endedAt: new Date() } });
     await prisma.user.update({ where: { id: s.userId }, data: { presence: "offline", presenceAt: new Date() } });
+    if (ended.count) await emitEvent(prisma, { businessId, type: "agent.offline", actorUserId: s.userId, source: "system", occurredAt: s.lastHeartbeatAt, dedupeKey: `agent.offline:${s.id}`, payload: { userId: s.userId, sessionId: s.id, reason: "disconnected" } });
     const lead = await currentLockedLead(s.userId);
     if (lead && lead.status === "locked" && lead.lockExpiresAt && lead.lockExpiresAt < new Date()) {
       await releaseLead(s.userId, lead.id, "session_stale");

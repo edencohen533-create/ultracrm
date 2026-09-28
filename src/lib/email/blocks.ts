@@ -1,3 +1,4 @@
+import { bi } from "@/lib/i18n-labels";
 /**
  * Email block editor document + renderer (HTML and plain text).
  * Table-based, inline-styled, RTL by default, 600px max width, mobile friendly.
@@ -23,7 +24,7 @@ export const blockSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("social"), links: z.array(z.object({ network: z.enum(["facebook", "instagram", "whatsapp", "linkedin", "youtube", "tiktok", "x", "website"]), href: url })).min(1).max(8), align: z.enum(["start", "center", "end"]).default("center") }),
   z.object({ type: z.literal("footer"), text: text.default(""), unsubscribeText: z.string().trim().min(1).max(120).default("להסרה מרשימת התפוצה לחצו כאן") }),
 ]);
-export const BLOCK_LABELS: Record<EmailBlock["type"], string> = { heading: "כותרת", text: "טקסט", image: "תמונה", button: "כפתור", link: "קישור", divider: "מפריד", spacer: "רווח", columns: "עמודות", social: "רשתות חברתיות", footer: "קישור הסרה" };
+export const BLOCK_LABELS: Record<EmailBlock["type"], string> = bi({ heading: "כותרת", text: "טקסט", image: "תמונה", button: "כפתור", link: "קישור", divider: "מפריד", spacer: "רווח", columns: "עמודות", social: "רשתות חברתיות", footer: "קישור הסרה" }, { heading: "Heading", text: "Text", image: "Image", button: "Button", link: "Link", divider: "Divider", spacer: "Spacer", columns: "Columns", social: "Social links", footer: "Unsubscribe link" });
 /** A sensible new block of each type (editor "add block"). */
 export function newEmailBlock(type: EmailBlock["type"]): EmailBlock {
   switch (type) {

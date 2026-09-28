@@ -10,6 +10,7 @@ import { MessageComposer } from "./message-composer";
 import { useRealtimeChannel } from "@/lib/realtime/use-realtime-channel";
 import { conversationChannel } from "@/lib/realtime/channels";
 import type { MessageItem } from "@/types/domain";
+import { useT } from "@/components/i18n/LangProvider";
 
 export function ChatPanel({
   conversationId,
@@ -24,6 +25,7 @@ export function ChatPanel({
   composerDisabledReason?: string;
   senderUnavailable?: string | null;
 }) {
+  const t = useT();
   // Keyed by conversationId in the parent, so switching conversations
   // remounts this component with fresh initial state instead of needing an
   // effect to re-sync `messages` from the `initialMessages` prop.
@@ -51,7 +53,7 @@ export function ChatPanel({
         return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
       });
       setHasMore(data.hasMore);
-    } catch { toast.error("טעינת ההיסטוריה נכשלה. ניתן לנסות שוב"); }
+    } catch { toast.error(t("טעינת ההיסטוריה נכשלה. ניתן לנסות שוב", "Failed to load history. Please try again")); }
     finally { setLoadingOlder(false); }
   }
   useLayoutEffect(() => {
@@ -103,12 +105,12 @@ export function ChatPanel({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [lastMessageId]);
 
-  if (accessRevoked) return <p className="p-4">אין הרשאה להציג שיחה זו. ייתכן שהיא הועברה לנציג אחר.</p>;
+  if (accessRevoked) return <p className="p-4">{t("אין הרשאה להציג שיחה זו. ייתכן שהיא הועברה לנציג אחר.", "You don't have permission to view this conversation. It may have been reassigned to another agent.")}</p>;
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
-        {hasMore && <Button variant="outline" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? "טוען היסטוריה…" : "טען הודעות קודמות"}</Button>}
+        {hasMore && <Button variant="outline" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? t("טוען היסטוריה…", "Loading history…") : t("טען הודעות קודמות", "Load earlier messages")}</Button>}
         {messages.map((message, index) => {
           const prev = messages[index - 1];
           const showSeparator = !prev || !isSameDay(new Date(prev.createdAt), new Date(message.createdAt));

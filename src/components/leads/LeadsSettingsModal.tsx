@@ -7,6 +7,7 @@ import { Button, Input, Modal, Select, cx } from "@/components/ui";
 import { CrmSettings } from "@/components/crm-settings/CrmSettings";
 import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 import type { LeadAssignmentSettings, LeadStatusConfig } from "@/lib/lead-statuses";
+import { useT } from "@/components/i18n/LangProvider";
 
 type Tab = "dialer" | "statuses" | "assignment";
 
@@ -16,12 +17,13 @@ type Tab = "dialer" | "statuses" | "assignment";
  */
 export function LeadsSettingsModal({ open, onClose, manager, initialTab = "dialer" }: { open: boolean; onClose: () => void; manager: boolean; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab);
+  const t = useT();
   useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
   const [dirty, setDirty] = useState(false);
-  const close = () => { if (dirty && !window.confirm("יש שינויים בהגדרות החייגן שלא נשמרו. לסגור בלי לשמור?")) return; onClose(); };
-  const tabs: Array<[Tab, string]> = [["dialer", "חייגן"], ...(manager ? [["statuses", "סטטוסים"] as [Tab, string], ["assignment", "חלוקת לידים"] as [Tab, string]] : [])];
+  const close = () => { if (dirty && !window.confirm(t("יש שינויים בהגדרות החייגן שלא נשמרו. לסגור בלי לשמור?", "You have unsaved dialer settings changes. Close without saving?"))) return; onClose(); };
+  const tabs: Array<[Tab, string]> = [["dialer", t("חייגן", "Dialer")], ...(manager ? [["statuses", t("סטטוסים", "Statuses")] as [Tab, string], ["assignment", t("חלוקת לידים", "Lead distribution")] as [Tab, string]] : [])];
   return (
-    <Modal open={open} onClose={close} title={tab === "statuses" ? "עריכת סטטוסים" : tab === "assignment" ? "חלוקת לידים" : "הגדרות חייגן"} width="max-w-4xl">
+    <Modal open={open} onClose={close} title={tab === "statuses" ? t("עריכת סטטוסים", "Edit statuses") : tab === "assignment" ? t("חלוקת לידים", "Lead distribution") : t("הגדרות חייגן", "Dialer settings")} width="max-w-4xl">
       <div className="flex gap-1 border-b border-line mb-3" role="tablist">{tabs.map(([k, label]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cx("h-9 px-3 text-sm border-b-2 -mb-px", tab === k ? "border-accent font-medium" : "border-transparent text-muted")} data-testid={`leads-settings-tab-${k}`}>{label}</button>)}</div>
       {tab === "dialer" && <CrmSettings embedded onDirtyChange={setDirty} />}
       {tab === "statuses" && manager && <StatusesEditor />}
@@ -32,36 +34,38 @@ export function LeadsSettingsModal({ open, onClose, manager, initialTab = "diale
 
 function StatusesEditor() {
   const statuses = useLeadStatuses();
+  const t = useT();
   const [rows, setRows] = useState<LeadStatusConfig[]>(statuses.items);
   const [saving, setSaving] = useState(false);
   useEffect(() => { setRows(statuses.items); }, [statuses.items]);
   const move = (i: number, d: -1 | 1) => setRows((r) => { const n = [...r]; const j = i + d; if (j < 0 || j >= n.length) return r; [n[i], n[j]] = [n[j], n[i]]; return n; });
   async function save() {
     setSaving(true);
-    try { const r = await api.patch<{ items: LeadStatusConfig[] }>("/api/lead-statuses", { leadStatuses: rows }); statuses.refresh(r.items); toast.success("הסטטוסים נשמרו"); }
+    try { const r = await api.patch<{ items: LeadStatusConfig[] }>("/api/lead-statuses", { leadStatuses: rows }); statuses.refresh(r.items); toast.success(t("הסטטוסים נשמרו", "Statuses saved")); }
     catch (e) { toast.error((e as Error).message); } finally { setSaving(false); }
   }
   return (
     <div className="space-y-2" data-testid="statuses-editor">
-      <p className="text-xs text-muted">שנה שם, סדר או הסתר סטטוס. המפתח הפנימי נשאר (דוחות ואוטומציות ממשיכים לעבוד); סטטוס מוסתר לא יוצג לבחירה אבל לידים קיימים בו נשארים.</p>
+      <p className="text-xs text-muted">{t("שנה שם, סדר או הסתר סטטוס. המפתח הפנימי נשאר (דוחות ואוטומציות ממשיכים לעבוד); סטטוס מוסתר לא יוצג לבחירה אבל לידים קיימים בו נשארים.", "Rename, reorder or hide a status. The internal key stays (reports and automations keep working); a hidden status isn't offered for selection, but existing leads in it remain.")}</p>
       <ul className="divide-y divide-line">
         {rows.map((s, i) => (
           <li key={s.key} className="flex items-center gap-2 py-1.5">
             <span className="text-[11px] text-muted w-20 ltr">{s.key}</span>
-            <Input value={s.label} onChange={(e) => setRows((r) => r.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} aria-label={`שם הסטטוס ${s.key}`} className="flex-1" data-testid={`status-label-${s.key}`} />
-            <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={s.hidden} onChange={(e) => setRows((r) => r.map((x, j) => j === i ? { ...x, hidden: e.target.checked } : x))} /> מוסתר</label>
-            <Button size="sm" variant="ghost" onClick={() => move(i, -1)} disabled={i === 0} aria-label="הזז למעלה">↑</Button>
-            <Button size="sm" variant="ghost" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label="הזז למטה">↓</Button>
+            <Input value={s.label} onChange={(e) => setRows((r) => r.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} aria-label={t(`שם הסטטוס ${s.key}`, `Status name ${s.key}`)} className="flex-1" data-testid={`status-label-${s.key}`} />
+            <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={s.hidden} onChange={(e) => setRows((r) => r.map((x, j) => j === i ? { ...x, hidden: e.target.checked } : x))} /> {t("מוסתר", "Hidden")}</label>
+            <Button size="sm" variant="ghost" onClick={() => move(i, -1)} disabled={i === 0} aria-label={t("הזז למעלה", "Move up")}>↑</Button>
+            <Button size="sm" variant="ghost" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label={t("הזז למטה", "Move down")}>↓</Button>
           </li>
         ))}
       </ul>
-      <div className="flex justify-end"><Button onClick={save} loading={saving} data-testid="statuses-save">שמור סטטוסים</Button></div>
+      <div className="flex justify-end"><Button onClick={save} loading={saving} data-testid="statuses-save">{t("שמור סטטוסים", "Save statuses")}</Button></div>
     </div>
   );
 }
 
 function AssignmentEditor() {
   const [s, setS] = useState<LeadAssignmentSettings | null>(null);
+  const t = useT();
   const [users, setUsers] = useState<Array<{ id: string; fullName: string; role: string; isActive: boolean; personalPhone?: string | null }>>([]);
   const [templates, setTemplates] = useState<Array<{ id: string; name: string; status: string; body: string }>>([]);
   const [phones, setPhones] = useState<Record<string, string>>({});
@@ -72,36 +76,36 @@ function AssignmentEditor() {
   }, []);
   async function save() {
     if (!s) return; setSaving(true);
-    try { await api.patch("/api/lead-statuses", { leadAssignment: { mode: s.mode, maxOpenLeadsPerAgent: s.maxOpenLeadsPerAgent, agentIds: s.agentIds, perAgentMax: s.perAgentMax ?? {}, notifyWhatsApp: s.notifyWhatsApp ?? { enabled: false, templateId: null } } }); toast.success("חלוקת הלידים נשמרה"); }
+    try { await api.patch("/api/lead-statuses", { leadAssignment: { mode: s.mode, maxOpenLeadsPerAgent: s.maxOpenLeadsPerAgent, agentIds: s.agentIds, perAgentMax: s.perAgentMax ?? {}, notifyWhatsApp: s.notifyWhatsApp ?? { enabled: false, templateId: null } } }); toast.success(t("חלוקת הלידים נשמרה", "Lead distribution saved")); }
     catch (e) { toast.error((e as Error).message); } finally { setSaving(false); }
   }
   if (!s) return null;
   return (
     <div className="space-y-3" data-testid="assignment-editor">
-      <p className="text-xs text-muted">חל על לידים חדשים שנוצרים ללא נציג (טופס, ייבוא, WhatsApp, שיחה נכנסת). ליד שנוצר עם נציג, או איש קשר שכבר שייך לנציג, נשארים אצלו; איש קשר שייבא מנהל מחולק לפי המדיניות.</p>
-      <Select label="שיטת חלוקה" value={s.mode} onChange={(e) => setS({ ...s, mode: e.target.value as LeadAssignmentSettings["mode"] })} data-testid="assignment-mode">
-        <option value="least_loaded">לנציג עם הכי פחות לידים פתוחים</option>
-        <option value="round_robin">Round robin – לפי הסדר, נציג אחרי נציג</option>
+      <p className="text-xs text-muted">{t("חל על לידים חדשים שנוצרים ללא נציג (טופס, ייבוא, WhatsApp, שיחה נכנסת). ליד שנוצר עם נציג, או איש קשר שכבר שייך לנציג, נשארים אצלו; איש קשר שייבא מנהל מחולק לפי המדיניות.", "Applies to new leads created without an agent (form, import, WhatsApp, inbound call). A lead created with an agent, or a contact already owned by an agent, stays with them; a contact imported by a manager is distributed per the policy.")}</p>
+      <Select label={t("שיטת חלוקה", "Distribution method")} value={s.mode} onChange={(e) => setS({ ...s, mode: e.target.value as LeadAssignmentSettings["mode"] })} data-testid="assignment-mode">
+        <option value="least_loaded">{t("לנציג עם הכי פחות לידים פתוחים", "To the agent with the fewest open leads")}</option>
+        <option value="round_robin">{t("Round robin – לפי הסדר, נציג אחרי נציג", "Round robin – in order, agent after agent")}</option>
       </Select>
-      <Input label="ברירת מחדל: מקסימום לידים פתוחים לנציג (0 = ללא הגבלה)" type="number" min={0} value={String(s.maxOpenLeadsPerAgent)} onChange={(e) => setS({ ...s, maxOpenLeadsPerAgent: Math.max(0, Number(e.target.value) || 0) })} ltr data-testid="assignment-cap" />
+      <Input label={t("ברירת מחדל: מקסימום לידים פתוחים לנציג (0 = ללא הגבלה)", "Default: max open leads per agent (0 = unlimited)")} type="number" min={0} value={String(s.maxOpenLeadsPerAgent)} onChange={(e) => setS({ ...s, maxOpenLeadsPerAgent: Math.max(0, Number(e.target.value) || 0) })} ltr data-testid="assignment-cap" />
       <div>
-        <p className="text-sm font-medium mb-1">כמה לידים כל נציג יקבל</p>
-        <p className="text-xs text-muted mb-2">סמן מי משתתף בחלוקה וקבע לכל נציג מקסימום לידים פתוחים. ריק = ברירת המחדל שלמעלה. אם לא מסומן אף נציג – כולם משתתפים.</p>
-        <table className="w-full text-sm" data-testid="assignment-agents"><thead><tr className="text-xs text-muted"><th className="text-start p-1">בחלוקה</th><th className="text-start p-1">נציג</th><th className="text-start p-1">מקסימום לידים פתוחים</th></tr></thead><tbody>{users.map((u) => { const on = !s.agentIds.length || s.agentIds.includes(u.id); const per = s.perAgentMax ?? {}; return (
-          <tr key={u.id} className="border-t border-line"><td className="p-1"><input type="checkbox" checked={s.agentIds.includes(u.id)} onChange={(e) => setS({ ...s, agentIds: e.target.checked ? [...s.agentIds, u.id] : s.agentIds.filter((x) => x !== u.id) })} aria-label={`${u.fullName} בחלוקה`} /></td><td className={cx("p-1", !on && "text-muted")}>{u.fullName}</td>
-          <td className="p-1"><input type="number" min={0} className="h-8 w-28 rounded-md border border-line px-2 ltr" placeholder={s.maxOpenLeadsPerAgent ? String(s.maxOpenLeadsPerAgent) : "ללא הגבלה"} value={per[u.id] ?? ""} onChange={(e) => { const v = e.target.value; const next = { ...per }; if (v === "") delete next[u.id]; else next[u.id] = Math.max(0, Number(v) || 0); setS({ ...s, perAgentMax: next }); }} data-testid={`assignment-agent-cap-${u.id}`} /></td></tr>); })}</tbody></table>
+        <p className="text-sm font-medium mb-1">{t("כמה לידים כל נציג יקבל", "How many leads each agent gets")}</p>
+        <p className="text-xs text-muted mb-2">{t("סמן מי משתתף בחלוקה וקבע לכל נציג מקסימום לידים פתוחים. ריק = ברירת המחדל שלמעלה. אם לא מסומן אף נציג – כולם משתתפים.", "Check who takes part in distribution and set each agent's max open leads. Empty = the default above. If no agent is checked – everyone takes part.")}</p>
+        <table className="w-full text-sm" data-testid="assignment-agents"><thead><tr className="text-xs text-muted"><th className="text-start p-1">{t("בחלוקה", "In distribution")}</th><th className="text-start p-1">{t("נציג", "Agent")}</th><th className="text-start p-1">{t("מקסימום לידים פתוחים", "Max open leads")}</th></tr></thead><tbody>{users.map((u) => { const on = !s.agentIds.length || s.agentIds.includes(u.id); const per = s.perAgentMax ?? {}; return (
+          <tr key={u.id} className="border-t border-line"><td className="p-1"><input type="checkbox" checked={s.agentIds.includes(u.id)} onChange={(e) => setS({ ...s, agentIds: e.target.checked ? [...s.agentIds, u.id] : s.agentIds.filter((x) => x !== u.id) })} aria-label={t(`${u.fullName} בחלוקה`, `${u.fullName} in distribution`)} /></td><td className={cx("p-1", !on && "text-muted")}>{u.fullName}</td>
+          <td className="p-1"><input type="number" min={0} className="h-8 w-28 rounded-md border border-line px-2 ltr" placeholder={s.maxOpenLeadsPerAgent ? String(s.maxOpenLeadsPerAgent) : t("ללא הגבלה", "Unlimited")} value={per[u.id] ?? ""} onChange={(e) => { const v = e.target.value; const next = { ...per }; if (v === "") delete next[u.id]; else next[u.id] = Math.max(0, Number(v) || 0); setS({ ...s, perAgentMax: next }); }} data-testid={`assignment-agent-cap-${u.id}`} /></td></tr>); })}</tbody></table>
       </div>
-      <p className="text-[11px] text-muted">נציג שהגיע לתקרה מדולג; אם כולם בתקרה הליד נשאר ללא שיוך ומופיע במסנן &quot;ללא שיוך&quot;.</p>
+      <p className="text-[11px] text-muted">{t("נציג שהגיע לתקרה מדולג; אם כולם בתקרה הליד נשאר ללא שיוך ומופיע במסנן \"ללא שיוך\".", "An agent at their cap is skipped; if everyone is at the cap the lead stays unassigned and appears under the \"Unassigned\" filter.")}</p>
       <div className="rounded-lg border border-line p-3 space-y-2" data-testid="notify-agent">
-        <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={Boolean(s.notifyWhatsApp?.enabled)} onChange={(e) => setS({ ...s, notifyWhatsApp: { templateId: s.notifyWhatsApp?.templateId ?? null, enabled: e.target.checked } })} data-testid="notify-agent-enabled" /> שלח לנציג הודעת WhatsApp לטלפון האישי כשנכנס אליו ליד חדש</label>
-        <p className="text-xs text-muted">נשלח ממספר ה-WhatsApp של העסק, גם בחלוקה אוטומטית ובהעברה מנציג אחר. וואטסאפ מחייב תבנית מאושרת (הנציג לרוב לא כתב לעסק ב-24 השעות האחרונות). משתנים בתבנית: {"{{1}}"} שם הליד, {"{{2}}"} טלפון, {"{{3}}"} מקור.</p>
-        <Select label="תבנית" value={s.notifyWhatsApp?.templateId ?? ""} onChange={(e) => setS({ ...s, notifyWhatsApp: { enabled: Boolean(s.notifyWhatsApp?.enabled), templateId: e.target.value || null } })} data-testid="notify-agent-template"><option value="">בחר תבנית</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.status === "APPROVED" ? "מאושרת" : t.status === "PENDING" ? "ממתינה לאישור" : t.status === "REJECTED" ? "נדחתה" : t.status}</option>)}</Select>
-        {s.notifyWhatsApp?.enabled && s.notifyWhatsApp.templateId && templates.find((t) => t.id === s.notifyWhatsApp?.templateId)?.status !== "APPROVED" && <p className="text-xs text-warn">⚠️ התבנית עדיין לא מאושרת – הודעות לא יישלחו עד לאישורה.</p>}
-        <div className="text-sm font-medium pt-1">טלפון אישי של כל נציג</div>
-        <div className="grid sm:grid-cols-2 gap-2">{users.map((u) => <div key={u.id} className="flex items-center gap-2 text-sm"><span className="w-28 truncate">{u.fullName}</span><input dir="ltr" className="h-8 flex-1 rounded-md border border-line px-2" placeholder="050-0000000" value={phones[u.id] ?? ""} onChange={(e) => setPhones({ ...phones, [u.id]: e.target.value })} onBlur={async () => { if ((phones[u.id] ?? "") === (u.personalPhone ?? "")) return; try { const r = await api.patch<{ personalPhone: string | null }>(`/api/users/${u.id}`, { personalPhone: phones[u.id] || null }); setUsers((list) => list.map((x) => x.id === u.id ? { ...x, personalPhone: r.personalPhone } : x)); setPhones((p) => ({ ...p, [u.id]: r.personalPhone ?? "" })); toast.success(`הטלפון של ${u.fullName} נשמר`); } catch (err) { toast.error((err as Error).message); } }} data-testid={`agent-phone-${u.id}`} /></div>)}</div>
-        <p className="text-[11px] text-muted">שמירת טלפון זמינה לבעל העסק. נציג בלי טלפון לא יקבל הודעה (מסומן ביומן).</p>
+        <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={Boolean(s.notifyWhatsApp?.enabled)} onChange={(e) => setS({ ...s, notifyWhatsApp: { templateId: s.notifyWhatsApp?.templateId ?? null, enabled: e.target.checked } })} data-testid="notify-agent-enabled" /> {t("שלח לנציג הודעת WhatsApp לטלפון האישי כשנכנס אליו ליד חדש", "Send the agent a WhatsApp message to their personal phone when a new lead is assigned to them")}</label>
+        <p className="text-xs text-muted">{t("נשלח ממספר ה-WhatsApp של העסק, גם בחלוקה אוטומטית ובהעברה מנציג אחר. וואטסאפ מחייב תבנית מאושרת (הנציג לרוב לא כתב לעסק ב-24 השעות האחרונות). משתנים בתבנית:", "Sent from the business's WhatsApp number, also on automatic distribution and on transfer from another agent. WhatsApp requires an approved template (the agent usually hasn't messaged the business in the last 24 hours). Template variables:")} {"{{1}}"} {t("שם הליד", "lead name")}, {"{{2}}"} {t("טלפון", "phone")}, {"{{3}}"} {t("מקור.", "source.")}</p>
+        <Select label={t("תבנית", "Template")} value={s.notifyWhatsApp?.templateId ?? ""} onChange={(e) => setS({ ...s, notifyWhatsApp: { enabled: Boolean(s.notifyWhatsApp?.enabled), templateId: e.target.value || null } })} data-testid="notify-agent-template"><option value="">{t("בחר תבנית", "Choose a template")}</option>{templates.map((tpl) => <option key={tpl.id} value={tpl.id}>{tpl.name} · {tpl.status === "APPROVED" ? t("מאושרת", "Approved") : tpl.status === "PENDING" ? t("ממתינה לאישור", "Pending approval") : tpl.status === "REJECTED" ? t("נדחתה", "Rejected") : tpl.status}</option>)}</Select>
+        {s.notifyWhatsApp?.enabled && s.notifyWhatsApp.templateId && templates.find((tpl) => tpl.id === s.notifyWhatsApp?.templateId)?.status !== "APPROVED" && <p className="text-xs text-warn">{t("⚠️ התבנית עדיין לא מאושרת – הודעות לא יישלחו עד לאישורה.", "⚠️ The template isn't approved yet – messages won't be sent until it is.")}</p>}
+        <div className="text-sm font-medium pt-1">{t("טלפון אישי של כל נציג", "Each agent's personal phone")}</div>
+        <div className="grid sm:grid-cols-2 gap-2">{users.map((u) => <div key={u.id} className="flex items-center gap-2 text-sm"><span className="w-28 truncate">{u.fullName}</span><input dir="ltr" className="h-8 flex-1 rounded-md border border-line px-2" placeholder="050-0000000" value={phones[u.id] ?? ""} onChange={(e) => setPhones({ ...phones, [u.id]: e.target.value })} onBlur={async () => { if ((phones[u.id] ?? "") === (u.personalPhone ?? "")) return; try { const r = await api.patch<{ personalPhone: string | null }>(`/api/users/${u.id}`, { personalPhone: phones[u.id] || null }); setUsers((list) => list.map((x) => x.id === u.id ? { ...x, personalPhone: r.personalPhone } : x)); setPhones((p) => ({ ...p, [u.id]: r.personalPhone ?? "" })); toast.success(t(`הטלפון של ${u.fullName} נשמר`, `${u.fullName}'s phone saved`)); } catch (err) { toast.error((err as Error).message); } }} data-testid={`agent-phone-${u.id}`} /></div>)}</div>
+        <p className="text-[11px] text-muted">{t("שמירת טלפון זמינה לבעל העסק. נציג בלי טלפון לא יקבל הודעה (מסומן ביומן).", "Saving phones is available to the business owner. An agent without a phone won't get a message (noted in the log).")}</p>
       </div>
-      <div className="flex justify-end"><Button onClick={save} loading={saving} data-testid="assignment-save">שמור</Button></div>
+      <div className="flex justify-end"><Button onClick={save} loading={saving} data-testid="assignment-save">{t("שמור", "Save")}</Button></div>
     </div>
   );
 }

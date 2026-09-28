@@ -5,7 +5,7 @@ import { db as systemDatabase } from "@/lib/db";
 import { withBusiness } from "@/lib/tenant";
 import { MetaWhatsAppProvider } from "@/server/providers/meta-whatsapp-provider";
 import { metaAppEnv, metaConfigOf } from "@/lib/meta/graph";
-import { applyAccountUpdate } from "@/server/services/embedded-signup-service";
+import { applyAccountUpdate, applyPhoneQuality, applyTemplateStatus } from "@/server/services/embedded-signup-service";
 
 export const maxDuration = 60;
 
@@ -72,6 +72,8 @@ export async function POST(request: Request) {
     const wabaId = change.value.waba_info?.waba_id ?? entryId;
     if (!wabaId) continue;
     if (!appSigned && !providers.some(({ credential }) => credential.wabaId === wabaId)) continue;
+    if (change.field === "message_template_status_update") { await applyTemplateStatus(wabaId, change.value as never); continue; }
+    if (change.field === "phone_number_quality_update") await applyPhoneQuality(wabaId, change.value as never);
     await applyAccountUpdate(wabaId, change.value.event ?? change.field, { field: change.field, phone: change.value.display_phone_number ?? null, decision: change.value.decision ?? null, currentLimit: change.value.current_limit ?? null });
   }
 

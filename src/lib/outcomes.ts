@@ -1,4 +1,5 @@
 import type { OutcomeKey } from "@/generated/prisma/enums";
+import { withLabel } from "@/lib/i18n-labels";
 
 export interface OutcomeDef {
   key: OutcomeKey;
@@ -15,7 +16,8 @@ export interface OutcomeDef {
   tone: "good" | "neutral" | "bad" | "danger";
 }
 
-export const OUTCOMES: OutcomeDef[] = [
+const OUTCOME_EN: Record<string, string> = {"answered_interested": "Answered – interested", "answered_not_interested": "Answered – not interested", "callback": "Call back later", "no_answer": "No answer", "busy": "Busy", "wrong_number": "Wrong number", "sale": "Sale made", "dnc": "Do not contact"};
+export const OUTCOMES: OutcomeDef[] = ([
   { key: "answered_interested", label: "ענה – מעוניין", closesLead: true, retry: false, requiresCallbackTime: false, isSale: false, addsToDnc: false, hotkey: "1", tone: "good" },
   { key: "answered_not_interested", label: "ענה – לא מעוניין", closesLead: true, retry: false, requiresCallbackTime: false, isSale: false, addsToDnc: false, hotkey: "2", tone: "neutral" },
   { key: "callback", label: "לחזור בהמשך", closesLead: false, retry: false, requiresCallbackTime: true, isSale: false, addsToDnc: false, hotkey: "3", tone: "neutral" },
@@ -24,7 +26,7 @@ export const OUTCOMES: OutcomeDef[] = [
   { key: "wrong_number", label: "מספר שגוי", closesLead: true, retry: false, requiresCallbackTime: false, isSale: false, addsToDnc: false, hotkey: "6", tone: "bad" },
   { key: "sale", label: "בוצעה מכירה", closesLead: true, retry: false, requiresCallbackTime: false, isSale: true, addsToDnc: false, hotkey: "7", tone: "good" },
   { key: "dnc", label: "לא ליצור קשר", closesLead: true, retry: false, requiresCallbackTime: false, isSale: false, addsToDnc: true, hotkey: "8", tone: "danger" },
-];
+] as OutcomeDef[]).map((o) => withLabel(o, OUTCOME_EN[o.key] ?? o.label));
 
 export const OUTCOME_BY_KEY: Record<OutcomeKey, OutcomeDef> = Object.fromEntries(
   OUTCOMES.map((o) => [o.key, o]),

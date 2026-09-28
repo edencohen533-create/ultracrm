@@ -9,11 +9,13 @@ import { toast } from "sonner";
 import { MAX_UPLOAD_BYTES, MEDIA_TYPES } from "@/lib/media";
 import { renderTemplate, templateParameterKeys } from "@/lib/campaigns";
 import type { MessageItem } from "@/types/domain";
+import { useT } from "@/components/i18n/LangProvider";
 
 type Template = { id: string; name: string; body: string; language?: string };
 export function MessageComposer({ conversationId, disabled, disabledReason, senderUnavailable, onSent }: {
   conversationId: string; disabled?: boolean; disabledReason?: string; senderUnavailable?: string | null; onSent?: (message: MessageItem) => void;
 }) {
+  const t = useT();
   const draftWrites = useRef<Promise<void>>(Promise.resolve());
   const draftEdited = useRef(false);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -26,12 +28,12 @@ export function MessageComposer({ conversationId, disabled, disabledReason, send
   const [canned, setCanned] = useState<Array<{ id: string; title: string; body: string; shortcut: string | null }> | null>(null);
   async function loadCanned() {
     if (canned) return;
-    try { const r = await fetch("/api/canned-replies"); if (!r.ok) throw new Error(); setCanned((await r.json()).data.items); } catch { toast.error("טעינת התשובות השמורות נכשלה"); }
+    try { const r = await fetch("/api/canned-replies"); if (!r.ok) throw new Error(); setCanned((await r.json()).data.items); } catch { toast.error(t("טעינת התשובות השמורות נכשלה", "Failed to load saved replies")); }
   }
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateId, setTemplateId] = useState("");
   const [variables, setVariables] = useState<Record<string, string>>({});
-  const template = templates?.find((t) => t.id === templateId);
+  const template = templates?.find((tpl) => tpl.id === templateId);
   const canSend = !senderUnavailable && (showTemplates ? !!template && templateParameterKeys(template.body).every((key) => variables[key]?.trim()) : !disabled && (!!value.trim() || !!file));
 
   // Serialize saves and clears: a slow clear after sending must never overwrite
@@ -50,9 +52,9 @@ export function MessageComposer({ conversationId, disabled, disabledReason, send
   }, [conversationId]);
   useEffect(() => {
     if (!draftEdited.current) return;
-    draftTimer.current = setTimeout(() => { void saveDraft(value).catch(() => toast.error("שמירת הטיוטה נכשלה. אין לצאת לפני העתקת הטקסט")); }, 600);
+    draftTimer.current = setTimeout(() => { void saveDraft(value).catch(() => toast.error(t("שמירת הטיוטה נכשלה. אין לצאת לפני העתקת הטקסט", "Failed to save the draft. Copy your text before leaving"))); }, 600);
     return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
-  }, [value, saveDraft]);
+  }, [value, saveDraft, t]);
   async function loadTemplates() {
     requestId.current = null;
     setShowTemplates(!showTemplates);
@@ -61,7 +63,7 @@ export function MessageComposer({ conversationId, disabled, disabledReason, send
       const response = await fetch("/api/templates");
       if (!response.ok) throw new Error();
       setTemplates((await response.json()).templates);
-    } catch { toast.error("טעינת התבניות נכשלה"); setShowTemplates(false); }
+    } catch { toast.error(t("טעינת התבניות נכשלה", "Failed to load templates")); setShowTemplates(false); }
   }
   async function handleSend() {
     if (!canSend || isSending) return;
@@ -79,7 +81,7 @@ export function MessageComposer({ conversationId, disabled, disabledReason, send
         }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(typeof data.error === "string" ? data.error : "שליחת ההודעה נכשלה"); return; }
+      if (!res.ok) { toast.error(typeof data.error === "string" ? data.error : t("שליחת ההודעה נכשלה", "Failed to send the message")); return; }
       if (data.message) onSent?.({ ...data.message, sentByUser: null });
       if (fileInput.current) fileInput.current.value = "";
       if (draftTimer.current) clearTimeout(draftTimer.current);
@@ -87,31 +89,31 @@ export function MessageComposer({ conversationId, disabled, disabledReason, send
       requestId.current = null;
       void saveDraft("").catch(() => {});
       setValue(""); setFile(null); setTemplateId(""); setVariables({});
-    } catch { toast.error("שגיאת תקשורת. יש לבדוק אם ההודעה נשלחה לפני ניסיון נוסף"); }
+    } catch { toast.error(t("שגיאת תקשורת. יש לבדוק אם ההודעה נשלחה לפני ניסיון נוסף", "Network error. Check whether the message was sent before retrying")); }
     finally { setIsSending(false); }
   }
   return <div className="space-y-2 border-t p-3">
     {senderUnavailable && <p role="alert" className="text-sm text-destructive">{senderUnavailable}</p>}
-    {disabled && <p className="text-sm text-muted-foreground">{disabledReason ?? "חלון המענה הסתיים — יש להשתמש בתבנית מאושרת."}</p>}
+    {disabled && <p className="text-sm text-muted-foreground">{disabledReason ?? t("חלון המענה הסתיים — יש להשתמש בתבנית מאושרת.", "The reply window has closed — use an approved template.")}</p>}
     <div className="flex flex-wrap items-center gap-2">
-      <Button size="sm" variant="outline" onClick={loadTemplates}>{showTemplates ? "סגור תבניות" : "שליחת תבנית מאושרת"}</Button>
-      {!showTemplates && !disabled && <select aria-label="תשובה שמורה" className="rounded-md border bg-background p-1.5 text-xs" onFocus={loadCanned} onChange={(e) => { const c = canned?.find((x) => x.id === e.target.value); if (c) { draftEdited.current = true; setValue((v) => (v ? `${v}\n${c.body}` : c.body)); } e.target.value = ""; }} defaultValue=""><option value="">תשובה שמורה…</option>{(canned ?? []).map((c) => <option key={c.id} value={c.id}>{c.shortcut ? `/${c.shortcut} · ` : ""}{c.title}</option>)}</select>}
+      <Button size="sm" variant="outline" onClick={loadTemplates}>{showTemplates ? t("סגור תבניות", "Close templates") : t("שליחת תבנית מאושרת", "Send approved template")}</Button>
+      {!showTemplates && !disabled && <select aria-label={t("תשובה שמורה", "Saved reply")} className="rounded-md border bg-background p-1.5 text-xs" onFocus={loadCanned} onChange={(e) => { const c = canned?.find((x) => x.id === e.target.value); if (c) { draftEdited.current = true; setValue((v) => (v ? `${v}\n${c.body}` : c.body)); } e.target.value = ""; }} defaultValue=""><option value="">{t("תשובה שמורה…", "Saved reply…")}</option>{(canned ?? []).map((c) => <option key={c.id} value={c.id}>{c.shortcut ? `/${c.shortcut} · ` : ""}{c.title}</option>)}</select>}
     </div>
     {showTemplates ? <div className="space-y-2">
-      <select aria-label="תבנית הודעה" className="w-full rounded-md border bg-background p-2" value={templateId} onChange={(e) => { setTemplateId(e.target.value); setVariables({}); requestId.current = null; }}><option value="">בחר תבנית</option>{templates?.map((t) => <option key={t.id} value={t.id}>{t.name}{t.language ? ` (${t.language})` : ""}</option>)}</select>
-      {templates?.length === 0 && <p className="text-sm text-muted-foreground">אין תבניות מאושרות לשליחה.</p>}
-      {template && <><div className="whitespace-pre-wrap rounded bg-muted p-3 text-sm">{renderTemplate(template.body, variables)}</div>{templateParameterKeys(template.body).map((key) => <Input key={key} aria-label={`משתנה ${key}`} placeholder={`ערך עבור משתנה ${key}`} value={variables[key] ?? ""} onChange={(e) => { setVariables({ ...variables, [key]: e.target.value }); requestId.current = null; }} maxLength={1024} />)}</>}
+      <select aria-label={t("תבנית הודעה", "Message template")} className="w-full rounded-md border bg-background p-2" value={templateId} onChange={(e) => { setTemplateId(e.target.value); setVariables({}); requestId.current = null; }}><option value="">{t("בחר תבנית", "Select a template")}</option>{templates?.map((tpl) => <option key={tpl.id} value={tpl.id}>{tpl.name}{tpl.language ? ` (${tpl.language})` : ""}</option>)}</select>
+      {templates?.length === 0 && <p className="text-sm text-muted-foreground">{t("אין תבניות מאושרות לשליחה.", "No approved templates available to send.")}</p>}
+      {template && <><div className="whitespace-pre-wrap rounded bg-muted p-3 text-sm">{renderTemplate(template.body, variables)}</div>{templateParameterKeys(template.body).map((key) => <Input key={key} aria-label={t(`משתנה ${key}`, `Variable ${key}`)} placeholder={t(`ערך עבור משתנה ${key}`, `Value for variable ${key}`)} value={variables[key] ?? ""} onChange={(e) => { setVariables({ ...variables, [key]: e.target.value }); requestId.current = null; }} maxLength={1024} />)}</>}
     </div> : !disabled && <Textarea disabled={isSending} value={value} onChange={(e) => { draftEdited.current = true; setValue(e.target.value); requestId.current = null; }} maxLength={file ? 1024 : 4096} onKeyDown={(e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void handleSend(); }
-    }} placeholder="הקלד הודעה..." rows={2} className="resize-none" />}
+    }} placeholder={t("הקלד הודעה...", "Type a message...")} rows={2} className="resize-none" />}
     {!disabled && !showTemplates && <div className="flex items-center gap-2">
-      <label className="text-xs text-muted-foreground">צרף קובץ עד 4MB<Input aria-label="צירוף קובץ" type="file" ref={fileInput} disabled={isSending} accept={Object.keys(MEDIA_TYPES).join(",")} onChange={(e) => {
+      <label className="text-xs text-muted-foreground">{t("צרף קובץ עד 4MB", "Attach a file up to 4MB")}<Input aria-label={t("צירוף קובץ", "Attach file")} type="file" ref={fileInput} disabled={isSending} accept={Object.keys(MEDIA_TYPES).join(",")} onChange={(e) => {
         const selected = e.target.files?.[0];
-        if (selected && selected.size > MAX_UPLOAD_BYTES) { toast.error("מותר להעלות קובץ עד 4MB"); e.target.value = ""; return; }
+        if (selected && selected.size > MAX_UPLOAD_BYTES) { toast.error(t("מותר להעלות קובץ עד 4MB", "Files up to 4MB only")); e.target.value = ""; return; }
         requestId.current = null; setFile(selected ?? null);
       }} /></label>
-      {file && <Button variant="ghost" size="sm" onClick={() => { setFile(null); if (fileInput.current) fileInput.current.value = ""; }}>הסר קובץ: {file.name}</Button>}
+      {file && <Button variant="ghost" size="sm" onClick={() => { setFile(null); if (fileInput.current) fileInput.current.value = ""; }}>{t("הסר קובץ:", "Remove file:")} {file.name}</Button>}
     </div>}
-    {(showTemplates || !disabled) && <Button onClick={handleSend} disabled={isSending || !canSend}><Send className="h-4 w-4" />{isSending ? "שולח..." : "שלח"}</Button>}
+    {(showTemplates || !disabled) && <Button onClick={handleSend} disabled={isSending || !canSend}><Send className="h-4 w-4" />{isSending ? t("שולח...", "Sending...") : t("שלח", "Send")}</Button>}
   </div>;
 }

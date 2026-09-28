@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Ltr } from "@/components/shared/ltr";
+import { useT } from "@/components/i18n/LangProvider";
 
 interface ContactOption {
   id: string;
@@ -21,14 +22,15 @@ interface ContactOption {
 }
 
 export function DemoSimulatorForm({ contacts }: { contacts: ContactOption[] }) {
+  const t = useT();
   const router = useRouter();
   const [contactId, setContactId] = useState<string>("");
-  const [body, setBody] = useState("שלום, רציתי לשאול לגבי הזמנה שביצעתי");
+  const [body, setBody] = useState(() => t("שלום, רציתי לשאול לגבי הזמנה שביצעתי", "Hi, I wanted to ask about an order I placed"));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit() {
     if (!contactId || !body.trim()) {
-      toast.error("יש לבחור איש קשר ולהזין תוכן הודעה");
+      toast.error(t("יש לבחור איש קשר ולהזין תוכן הודעה", "Select a contact and enter a message"));
       return;
     }
 
@@ -42,12 +44,12 @@ export function DemoSimulatorForm({ contacts }: { contacts: ContactOption[] }) {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        toast.error(data?.error ? "שגיאה בשליחת הודעה" : "שגיאה בשליחת הודעה");
+        toast.error(data?.error ? t("שגיאה בשליחת הודעה", "Failed to send message") : t("שגיאה בשליחת הודעה", "Failed to send message"));
         return;
       }
 
       const data = await res.json();
-      toast.success("הודעה נכנסת הודמתה בהצלחה");
+      toast.success(t("הודעה נכנסת הודמתה בהצלחה", "Inbound message simulated successfully"));
       router.push(`/inbox/${data.conversationId}`);
     } finally {
       setIsSubmitting(false);
@@ -57,10 +59,10 @@ export function DemoSimulatorForm({ contacts }: { contacts: ContactOption[] }) {
   return (
     <div className="max-w-lg space-y-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium">איש קשר</label>
+        <label className="text-sm font-medium">{t("איש קשר", "Contact")}</label>
         <Select value={contactId} onValueChange={(value) => setContactId(value ?? "")}>
           <SelectTrigger className="w-full">
-            <SelectValue placeholder="בחר איש קשר..." />
+            <SelectValue placeholder={t("בחר איש קשר...", "Select a contact...")} />
           </SelectTrigger>
           <SelectContent>
             {contacts.map((contact) => (
@@ -73,12 +75,12 @@ export function DemoSimulatorForm({ contacts }: { contacts: ContactOption[] }) {
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">תוכן ההודעה הנכנסת</label>
+        <label className="text-sm font-medium">{t("תוכן ההודעה הנכנסת", "Inbound message content")}</label>
         <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} />
       </div>
 
       <Button onClick={handleSubmit} disabled={isSubmitting}>
-        {isSubmitting ? "שולח..." : "שלח הודעה נכנסת מדומה"}
+        {isSubmitting ? t("שולח...", "Sending...") : t("שלח הודעה נכנסת מדומה", "Send simulated inbound message")}
       </Button>
     </div>
   );

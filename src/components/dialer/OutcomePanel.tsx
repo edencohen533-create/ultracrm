@@ -7,6 +7,7 @@ import { TELEPHONY_RESULT_LABEL, formatDuration, toLocalInputValue } from "@/lib
 import type { CallDto, OutcomeKey } from "@/lib/client/types";
 import { api } from "@/lib/client/api";
 import { useHotkeys } from "./useHotkeys";
+import { useT } from "@/components/i18n/LangProvider";
 
 const toneCls: Record<string, string> = {
   good: "border-good/40 hover:bg-good/15 data-[sel=true]:bg-good data-[sel=true]:text-white",
@@ -16,6 +17,7 @@ const toneCls: Record<string, string> = {
 };
 
 export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; note: string; onSave: (outcome: OutcomeKey, callbackAt?: Date, callbackUserId?: string) => Promise<void>; saving: boolean }) {
+  const t = useT();
   const [selected, setSelected] = useState<OutcomeKey | null>(null);
   const [callbackAt, setCallbackAt] = useState("");
   const [callbackUserId, setCallbackUserId] = useState("");
@@ -57,11 +59,11 @@ export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; no
     <div className="p-4 border-t border-line bg-panel-2/60">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <h3 className="font-semibold">תוצאת שיחה</h3>
-          <Badge tone={answered ? "good" : "neutral"}>ספק: {call.telephonyResult ? TELEPHONY_RESULT_LABEL[call.telephonyResult] : "—"}</Badge>
-          {answered && <span className="text-xs text-muted tabular">משך {formatDuration(call.talkSeconds)}</span>}
+          <h3 className="font-semibold">{t("תוצאת שיחה", "Call outcome")}</h3>
+          <Badge tone={answered ? "good" : "neutral"}>{t("ספק:", "Provider:")} {call.telephonyResult ? TELEPHONY_RESULT_LABEL[call.telephonyResult] : "—"}</Badge>
+          {answered && <span className="text-xs text-muted tabular">{t("משך", "Duration")} {formatDuration(call.talkSeconds)}</span>}
         </div>
-        <span className="text-[11px] text-muted">מקשים 1–8 לבחירה · Enter לשמירה</span>
+        <span className="text-[11px] text-muted">{t("מקשים 1–8 לבחירה · Enter לשמירה", "Keys 1–8 to select · Enter to save")}</span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {OUTCOMES.map((o) => (
@@ -78,21 +80,21 @@ export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; no
       </div>
       {def?.requiresCallbackTime && (
         <div className="mt-3 flex flex-wrap items-end gap-2">
-          {peers.length > 0 && <label>נציג לחזרה<select aria-label="נציג לחזרה" value={callbackUserId} onChange={e => setCallbackUserId(e.target.value)} className="border border-line rounded-lg p-2"><option value="">אני</option>{peers.map(p => <option key={p.id} value={p.id}>{p.fullName}</option>)}</select></label>}
-          <Input label="מועד חזרה" type="datetime-local" value={callbackAt} onChange={(e) => setCallbackAt(e.target.value)} min={minLocal} className="h-9" ltr />
+          {peers.length > 0 && <label>{t("נציג לחזרה", "Callback agent")}<select aria-label={t("נציג לחזרה", "Callback agent")} value={callbackUserId} onChange={e => setCallbackUserId(e.target.value)} className="border border-line rounded-lg p-2"><option value="">{t("אני", "Me")}</option>{peers.map(p => <option key={p.id} value={p.id}>{p.fullName}</option>)}</select></label>}
+          <Input label={t("מועד חזרה", "Callback time")} type="datetime-local" value={callbackAt} onChange={(e) => setCallbackAt(e.target.value)} min={minLocal} className="h-9" ltr />
           {[1, 3, 24, 72].map((h) => (
             <Button key={h} size="sm" variant="secondary" onClick={() => quickCallback(h)}>
-              {h < 24 ? `בעוד ${h} שע׳` : `בעוד ${h / 24} ימים`}
+              {h < 24 ? t(`בעוד ${h} שע׳`, `In ${h}h`) : t(`בעוד ${h / 24} ימים`, `In ${h / 24} days`)}
             </Button>
           ))}
         </div>
       )}
-      {def?.addsToDnc && <p className="mt-2 text-xs text-bad">המספר ייחסם לכל הרשימות של העסק ולא יחויג שוב.</p>}
-      {!note.trim() && def && (def.key === "answered_interested" || def.key === "sale") && <p className="mt-2 text-xs text-warn">מומלץ להוסיף הערה לפני השמירה.</p>}
+      {def?.addsToDnc && <p className="mt-2 text-xs text-bad">{t("המספר ייחסם לכל הרשימות של העסק ולא יחויג שוב.", "The number will be blocked across all of the business's lists and won't be dialed again.")}</p>}
+      {!note.trim() && def && (def.key === "answered_interested" || def.key === "sale") && <p className="mt-2 text-xs text-warn">{t("מומלץ להוסיף הערה לפני השמירה.", "Adding a note before saving is recommended.")}</p>}
       <div className="mt-3 flex items-center justify-between">
-        <span className="text-xs text-muted">ההערות מהכרטיס יישמרו יחד עם התוצאה</span>
+        <span className="text-xs text-muted">{t("ההערות מהכרטיס יישמרו יחד עם התוצאה", "Notes from the card will be saved with the outcome")}</span>
         <Button size="lg" disabled={!canSave} loading={saving} onClick={() => def && onSave(def.key, callbackAt ? new Date(callbackAt) : undefined, callbackUserId || undefined)}>
-          שמור תוצאה והמשך
+          {t("שמור תוצאה והמשך", "Save outcome and continue")}
         </Button>
       </div>
     </div>

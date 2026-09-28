@@ -71,7 +71,7 @@ async function claimSession(user: SessionUser, state: string, code: string, asse
 
 // ─── Meta calls ──────────────────────────────────────────────────────────────
 
-interface DebugToken { data: { app_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number; scopes?: string[]; granular_scopes?: Array<{ scope: string; target_ids?: string[] }>; type?: string } }
+interface DebugToken { data: { app_id?: string; user_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number; scopes?: string[]; granular_scopes?: Array<{ scope: string; target_ids?: string[] }>; type?: string } }
 interface PhoneInfo { id: string; display_phone_number?: string; verified_name?: string; name_status?: string; code_verification_status?: string; quality_rating?: string; status?: string; platform_type?: string }
 interface WabaInfo { id: string; name?: string; account_review_status?: string; business_verification_status?: string; ownership_type?: string }
 
@@ -97,12 +97,12 @@ export async function verifyToken(accessToken: string, wabaId: string) {
   // Empty target list = access to all of the business's WABAs; otherwise the WABA must be listed.
   const hasAccess = granular.length === 0 || wabaTargets.size === 0 || wabaTargets.has(wabaId);
   if (!hasAccess) throw new SignupError("ההרשאה שניתנה אינה כוללת את חשבון ה-WhatsApp שנבחר", 422, "waba_not_granted", { wabaId });
-  return { scopes, granularScopes: granular, expiresAt: d.expires_at ? new Date(d.expires_at * 1000) : null, tokenType: d.type ?? null };
+  return { scopes, granularScopes: granular, expiresAt: d.expires_at ? new Date(d.expires_at * 1000) : null, tokenType: d.type ?? null, userId: d.user_id ?? null };
 }
 
 export async function readAssets(accessToken: string, wabaId: string, phoneNumberId: string) {
   const waba = await graph<WabaInfo>(wabaId, { token: accessToken, query: { fields: "id,name,account_review_status,business_verification_status,ownership_type" } });
-  const phone = await graph<PhoneInfo>(phoneNumberId, { token: accessToken, query: { fields: "id,display_phone_number,verified_name,name_status,code_verification_status,quality_rating,status,platform_type" } });
+  const phone = await graph<PhoneInfo>(phoneNumberId, { token: accessToken, query: { fields: "id,display_phone_number,verified_name,name_status,code_verification_status,quality_rating,messaging_limit_tier,status,platform_type" } });
   // The phone must belong to the granted WABA (never trust ids posted from the window alone).
   let belongs = false;
   let after: string | undefined;
@@ -179,7 +179,7 @@ export function deriveReadiness(c: { status: WaConnectionStatus; isActive: boole
 
 // ─── Complete / retry ────────────────────────────────────────────────────────
 
-export interface CompleteInput { state: string; code: string; wabaId: string; phoneNumberId: string; metaBusinessId?: string; label?: string; teamId?: string | null }
+export interface CompleteInput { state: string; code: string; wabaId: string; phoneNumberId: string; metaBusinessId?: string; fbUserId?: string; label?: string; teamId?: string | null }
 
 export async function completeSignup(user: SessionUser, input: CompleteInput) {
   const readiness = embeddedSignupReadiness();
@@ -222,6 +222,9 @@ export async function completeSignup(user: SessionUser, input: CompleteInput) {
     qualityRating: assets.phone.quality_rating ?? null, codeVerificationStatus: assets.phone.code_verification_status ?? null, platformType: assets.phone.platform_type ?? null,
     connectionMethod: "embedded_signup", status: "in_progress" as WaConnectionStatus, grantedScopes: verified.scopes as Prisma.InputJsonValue, tokenCheckedAt: new Date(),
     config: config as Prisma.InputJsonValue, isActive: true, sendingBlocked: false, lastConnectionError: null, lastCheckedAt: new Date(),
+    // Who at Meta this connection belongs to – matched by Meta's data-deletion / deauthorize callbacks.
+    metaUserIds: [...new Set([...(existing?.metaUserIds ?? []), verified.userId, input.fbUserId].filter((x): x is string => Boolean(x)))],
+    messagingLimitTier: (assets.phone as { messaging_limit_tier?: string }).messaging_limit_tier ?? null,
     ...(input.label !== undefined ? { label: input.label } : {}), ...(input.teamId !== undefined ? { teamId: input.teamId } : {}),
   };
   const credential = await prisma.$transaction(async (tx) => {
@@ -292,7 +295,7 @@ export async function checkConnection(user: { id: string | null; businessId: str
       data.tokenCheckedAt = new Date();
     }
     const assets = await readAssets(cfg.accessToken, c.wabaId, c.phoneNumberId);
-    Object.assign(data, { wabaName: assets.waba.name ?? null, displayPhoneNumber: assets.phone.display_phone_number ?? null, verifiedName: assets.phone.verified_name ?? null, nameStatus: assets.phone.name_status ?? null, qualityRating: assets.phone.quality_rating ?? null, codeVerificationStatus: assets.phone.code_verification_status ?? null, platformType: assets.phone.platform_type ?? null });
+    Object.assign(data, { wabaName: assets.waba.name ?? null, displayPhoneNumber: assets.phone.display_phone_number ?? null, verifiedName: assets.phone.verified_name ?? null, nameStatus: assets.phone.name_status ?? null, qualityRating: assets.phone.quality_rating ?? null, codeVerificationStatus: assets.phone.code_verification_status ?? null, platformType: assets.phone.platform_type ?? null, messagingLimitTier: (assets.phone as { messaging_limit_tier?: string }).messaging_limit_tier ?? null });
     data.subscribedAt = (await isAppSubscribed(cfg.accessToken, c.wabaId)) ? (c.subscribedAt ?? new Date()) : null;
     data.sendingBlocked = false;
     status = c.status === "revoked" ? "connected_not_ready" : c.status;
@@ -345,6 +348,36 @@ export async function applyAccountUpdate(wabaId: string, event: string, detail?:
   return rows.length;
 }
 
+/**
+ * Real-time template review result (webhook field message_template_status_update) – no manual sync needed.
+ * Matched by Meta template id within the WABA, so a WABA can only update its own templates.
+ */
+export async function applyTemplateStatus(wabaId: string, v: { event?: string; message_template_id?: string | number; message_template_name?: string; message_template_language?: string; reason?: string | null }) {
+  const map: Record<string, "APPROVED" | "REJECTED" | "PENDING_APPROVAL" | "PAUSED" | "DISABLED"> = { APPROVED: "APPROVED", REJECTED: "REJECTED", PENDING: "PENDING_APPROVAL", IN_APPEAL: "PENDING_APPROVAL", PENDING_DELETION: "DISABLED", DELETED: "DISABLED", DISABLED: "DISABLED", PAUSED: "PAUSED", REINSTATED: "APPROVED", FLAGGED: "APPROVED" };
+  const status = map[String(v.event ?? "").toUpperCase()];
+  if (!status || !v.message_template_id) return 0;
+  const rows = await db.template.findMany({ where: { channel: "whatsapp", providerTemplateId: String(v.message_template_id), OR: [{ providerAccountId: wabaId }, { providerAccountId: null }] }, select: { id: true, businessId: true, status: true } });
+  const reason = v.reason && v.reason !== "NONE" ? String(v.reason).slice(0, 300) : null;
+  for (const t of rows) {
+    await db.template.update({ where: { id: t.id }, data: { status, syncError: status === "REJECTED" || status === "PAUSED" || status === "DISABLED" ? `Meta: ${v.event}${reason ? ` – ${reason}` : ""}` : null } });
+    await audit(t.businessId, null, "template", t.id, "template.status_webhook", { from: t.status, to: status, event: v.event, reason }, db);
+  }
+  return rows.length;
+}
+
+/** Messaging limit tier / quality changes (webhook field phone_number_quality_update). */
+export async function applyPhoneQuality(wabaId: string, v: { display_phone_number?: string; event?: string; current_limit?: string }) {
+  const digits = (v.display_phone_number ?? "").replace(/\D/g, "");
+  const rows = await db.providerCredential.findMany({ where: { wabaId, provider: "meta_whatsapp_cloud_api" }, select: { id: true, businessId: true, displayPhoneNumber: true } });
+  let n = 0;
+  for (const r of rows.filter((x) => !digits || (x.displayPhoneNumber ?? "").replace(/\D/g, "").endsWith(digits.slice(-9)))) {
+    await db.providerCredential.update({ where: { id: r.id }, data: { ...(v.current_limit ? { messagingLimitTier: v.current_limit } : {}), ...(v.event === "FLAGGED" ? { qualityRating: "RED" } : v.event === "UNFLAGGED" ? { qualityRating: "GREEN" } : {}) } });
+    await audit(r.businessId, null, "whatsapp", r.id, "whatsapp.quality_update", { event: v.event, currentLimit: v.current_limit ?? null }, db);
+    n++;
+  }
+  return n;
+}
+
 /** Send the built-in `hello_world` template to an explicitly provided test number (never customers). */
 export async function sendTestMessage(user: SessionUser, credentialId: string, toE164: string) {
   const c = await prisma.providerCredential.findFirst({ where: { id: credentialId, provider: "meta_whatsapp_cloud_api", isActive: true } });
@@ -378,7 +411,7 @@ export async function connectionOverview() {
       return {
         id: c.id, label: c.label, method: c.connectionMethod, status: r.status, sendReady: r.sendReady, receiveReady: r.receiveReady, blockers: r.blockers,
         wabaId: c.wabaId, wabaName: c.wabaName, phoneNumberId: c.phoneNumberId, displayPhoneNumber: c.displayPhoneNumber, verifiedName: c.verifiedName, nameStatus: c.nameStatus,
-        qualityRating: c.qualityRating, codeVerificationStatus: c.codeVerificationStatus, platformType: c.platformType, grantedScopes: c.grantedScopes, isDefault: c.isDefault, isActive: c.isActive,
+        qualityRating: c.qualityRating, messagingLimitTier: c.messagingLimitTier, codeVerificationStatus: c.codeVerificationStatus, platformType: c.platformType, grantedScopes: c.grantedScopes, isDefault: c.isDefault, isActive: c.isActive,
         team: c.team, subscribedAt: c.subscribedAt, registeredAt: c.registeredAt, tokenCheckedAt: c.tokenCheckedAt, lastCheckedAt: c.lastCheckedAt, lastWebhookAt: c.lastWebhookAt,
         lastOutboundTestAt: c.lastOutboundTestAt, lastError: c.lastConnectionError, sendingBlocked: c.sendingBlocked, createdAt: c.createdAt,
         testRecipients: (c.testRecipients as string[] | null) ?? [], unitPrice: c.unitPrice ? Number(c.unitPrice) : null, unitPriceCurrency: c.unitPriceCurrency,

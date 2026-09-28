@@ -7,6 +7,7 @@ import { Badge, Button, Input, Kbd, Phone, cx } from "@/components/ui";
 import { api } from "@/lib/client/api";
 import { CALL_STATUS_LABEL, TELEPHONY_RESULT_LABEL, formatDuration, formatPhone, relativeTime } from "@/lib/client/format";
 import type { CallDto } from "@/lib/client/types";
+import { useT } from "@/components/i18n/LangProvider";
 
 interface Recent {
   id: string;
@@ -17,6 +18,7 @@ interface Recent {
 }
 
 export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { onDialManual: (phone: string) => void; canDialLead: boolean; onDialLead: () => void; onSkip?: () => void }) {
+  const t = useT();
   const { state, phone, hangup, sendDtmf, busy, countdown, acceptInbound, rejectInbound } = useDialer();
   const call = state?.activeCall ?? null;
   const [manual, setManual] = useState("");
@@ -42,42 +44,42 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
       {/* Connection */}
       <div className="p-3 border-b border-line space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-muted">חיבור טלפוניה</span>
+          <span className="text-xs text-muted">{t("חיבור טלפוניה", "Telephony connection")}</span>
           <div className="flex items-center gap-2">
-            {phone.status === "simulation" && <Badge tone="warn">מצב הדמיה – אין שיחות אמיתיות</Badge>}
-            {phone.status === "ready" && <Badge tone="good" dot>מחובר</Badge>}
-            {phone.status === "connecting" && <Badge tone="info">מתחבר…</Badge>}
-            {(phone.status === "error" || phone.status === "disconnected") && <Badge tone="bad">{phone.status === "error" ? "שגיאה" : "מנותק"}</Badge>}
+            {phone.status === "simulation" && <Badge tone="warn">{t("מצב הדמיה – אין שיחות אמיתיות", "Simulation mode – no real calls")}</Badge>}
+            {phone.status === "ready" && <Badge tone="good" dot>{t("מחובר", "Connected")}</Badge>}
+            {phone.status === "connecting" && <Badge tone="info">{t("מתחבר…", "Connecting…")}</Badge>}
+            {(phone.status === "error" || phone.status === "disconnected") && <Badge tone="bad">{phone.status === "error" ? t("שגיאה", "Error") : t("מנותק", "Disconnected")}</Badge>}
           </div>
         </div>
         {phone.error && (
           <div className="text-xs text-bad bg-bad/10 rounded-md p-2 flex items-center justify-between gap-2">
             <span>{phone.error}</span>
-            <button onClick={phone.reconnect} className="underline shrink-0">התחבר מחדש</button>
+            <button onClick={phone.reconnect} className="underline shrink-0">{t("התחבר מחדש", "Reconnect")}</button>
           </div>
         )}
         {phone.micPermission === "denied" && !phone.error && (
-          <div className="text-xs text-bad bg-bad/10 rounded-md p-2">אין הרשאת מיקרופון. אפשר גישה בדפדפן ולחץ <button onClick={phone.requestMic} className="underline">בקש שוב</button>.</div>
+          <div className="text-xs text-bad bg-bad/10 rounded-md p-2">{t("אין הרשאת מיקרופון. אפשר גישה בדפדפן ולחץ", "No microphone permission. Allow access in the browser and click")} <button onClick={phone.requestMic} className="underline">{t("בקש שוב", "Request again")}</button>.</div>
         )}
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted">מספר יוצא</span>
-          {defaultNumber ? <Phone value={formatPhone(defaultNumber.e164)} className="text-text" /> : <span className="text-bad">לא הוגדר מספר מורשה</span>}
+          <span className="text-muted">{t("מספר יוצא", "Outgoing number")}</span>
+          {defaultNumber ? <Phone value={formatPhone(defaultNumber.e164)} className="text-text" /> : <span className="text-bad">{t("לא הוגדר מספר מורשה", "No authorized number set")}</span>}
         </div>
-        <button onClick={() => setDevices((d) => !d)} className="text-[11px] text-muted hover:text-text">{devices ? "הסתר התקני שמע ▴" : "התקני שמע ▾"}</button>
+        <button onClick={() => setDevices((d) => !d)} className="text-[11px] text-muted hover:text-text">{devices ? t("הסתר התקני שמע ▴", "Hide audio devices ▴") : t("התקני שמע ▾", "Audio devices ▾")}</button>
         {devices && (
           <div className="space-y-2 text-xs">
             <label className="block">
-              <span className="text-muted">מיקרופון</span>
+              <span className="text-muted">{t("מיקרופון", "Microphone")}</span>
               <select value={phone.micId} onChange={(e) => phone.setMic(e.target.value)} className="w-full h-8 mt-1 px-2 rounded-md bg-bg border border-line">
-                <option value="">ברירת מחדל</option>
-                {phone.inputs.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || "מיקרופון"}</option>)}
+                <option value="">{t("ברירת מחדל", "Default")}</option>
+                {phone.inputs.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || t("מיקרופון", "Microphone")}</option>)}
               </select>
             </label>
             <label className="block">
-              <span className="text-muted">רמקול {phone.canSelectSpeaker ? "" : "(הדפדפן לא תומך בבחירה)"}</span>
+              <span className="text-muted">{t("רמקול", "Speaker")} {phone.canSelectSpeaker ? "" : t("(הדפדפן לא תומך בבחירה)", "(browser doesn't support selection)")}</span>
               <select disabled={!phone.canSelectSpeaker} value={phone.speakerId} onChange={(e) => phone.setSpeaker(e.target.value)} className="w-full h-8 mt-1 px-2 rounded-md bg-bg border border-line disabled:opacity-50">
-                <option value="">ברירת מחדל</option>
-                {phone.outputs.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || "רמקול"}</option>)}
+                <option value="">{t("ברירת מחדל", "Default")}</option>
+                {phone.outputs.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || t("רמקול", "Speaker")}</option>)}
               </select>
             </label>
           </div>
@@ -90,20 +92,20 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
           <CallStatusBlock call={call} />
         ) : countdown ? (
           <div className="text-center py-3">
-            <p className="text-xs text-muted">חיוג אוטומטי בעוד</p>
+            <p className="text-xs text-muted">{t("חיוג אוטומטי בעוד", "Auto-dial in")}</p>
             <p className="text-4xl font-semibold tabular text-warn">{countdown.secondsLeft}</p>
           </div>
         ) : (
-          <div className="text-center py-3 text-muted text-xs">אין שיחה פעילה</div>
+          <div className="text-center py-3 text-muted text-xs">{t("אין שיחה פעילה", "No active call")}</div>
         )}
 
         {inboundRinging && (
           <div className="mt-3 rounded-lg border border-info/40 bg-info/10 p-3 text-center">
-            <p className="text-sm font-semibold text-info">📞 שיחה נכנסת</p>
-            <p className="text-xs text-muted mt-0.5">{call?.routingNote === "routed_to_owner" ? "הלקוח משויך אליך" : "נותבה אליך כנציג זמין"}</p>
+            <p className="text-sm font-semibold text-info">📞 {t("שיחה נכנסת", "Incoming call")}</p>
+            <p className="text-xs text-muted mt-0.5">{call?.routingNote === "routed_to_owner" ? t("הלקוח משויך אליך", "This customer is assigned to you") : t("נותבה אליך כנציג זמין", "Routed to you as an available agent")}</p>
             <div className="grid grid-cols-2 gap-2 mt-2">
-              <Button variant="good" onClick={acceptInbound} loading={busy === "accept"}>קבל</Button>
-              <Button variant="danger" onClick={rejectInbound} loading={busy === "reject"}>דחה</Button>
+              <Button variant="good" onClick={acceptInbound} loading={busy === "accept"}>{t("קבל", "Accept")}</Button>
+              <Button variant="danger" onClick={rejectInbound} loading={busy === "reject"}>{t("דחה", "Reject")}</Button>
             </div>
           </div>
         )}
@@ -111,23 +113,23 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
           {inboundRinging ? null : inProgress ? (
             <>
               <Button variant="danger" size="lg" className="col-span-2" onClick={hangup} loading={busy === "hangup"}>
-                נתק <Kbd>H</Kbd>
+                {t("נתק", "Hang up")} <Kbd>H</Kbd>
               </Button>
               <Button variant={phone.muted ? "warn" : "secondary"} onClick={phone.toggleMute} disabled={!answered || phone.status === "simulation"}>
-                {phone.muted ? "בטל השתקה" : "השתק"} <Kbd>M</Kbd>
+                {phone.muted ? t("בטל השתקה", "Unmute") : t("השתק", "Mute")} <Kbd>M</Kbd>
               </Button>
               <Button variant="secondary" onClick={() => setKeypad((k) => !k)} disabled={!answered}>
-                לוח מקשים
+                {t("לוח מקשים", "Keypad")}
               </Button>
             </>
           ) : (
             <>
               <Button variant="good" size="lg" className="col-span-2" onClick={onDialLead} disabled={!canDialLead || !connOk || busy === "dial"} loading={busy === "dial"}>
-                חייג לליד <Kbd>D</Kbd>
+                {t("חייג לליד", "Dial lead")} <Kbd>D</Kbd>
               </Button>
               {onSkip && (
                 <Button variant="secondary" className="col-span-2" onClick={onSkip} disabled={!canDialLead}>
-                  דלג עם סיבה <Kbd>S</Kbd>
+                  {t("דלג עם סיבה", "Skip with reason")} <Kbd>S</Kbd>
                 </Button>
               )}
             </>
@@ -147,7 +149,7 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
 
       {/* Manual dial */}
       <div className="p-3 border-b border-line">
-        <p className="text-xs text-muted mb-2">חיוג ידני</p>
+        <p className="text-xs text-muted mb-2">{t("חיוג ידני", "Manual dial")}</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -155,9 +157,9 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
           }}
           className="flex gap-2"
         >
-          <Input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="050-1234567" inputMode="tel" ltr className="h-9" onPaste={(e) => { const t = e.clipboardData.getData("text"); if (t) { e.preventDefault(); setManual(t.replace(/[^\d+]/g, "")); } }} />
+          <Input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="050-1234567" inputMode="tel" ltr className="h-9" onPaste={(e) => { const txt = e.clipboardData.getData("text"); if (txt) { e.preventDefault(); setManual(txt.replace(/[^\d+]/g, "")); } }} />
           <Button type="submit" size="sm" className="h-9" disabled={inProgress || !connOk || !manual.trim()}>
-            חייג
+            {t("חייג", "Dial")}
           </Button>
         </form>
         {!inProgress && (
@@ -173,7 +175,7 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
 
       {/* Recent */}
       <div className="p-3">
-        <p className="text-xs text-muted mb-2">שיחות אחרונות</p>
+        <p className="text-xs text-muted mb-2">{t("שיחות אחרונות", "Recent calls")}</p>
         {recent.length === 0 ? (
           <p className="text-xs text-muted">—</p>
         ) : (
@@ -181,10 +183,10 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
             {recent.slice(0, 8).map((r) => (
               <li key={r.id} className="flex items-center justify-between gap-2 text-xs">
                 <div className="min-w-0">
-                  <p className="truncate">{r.contact?.fullName ?? "לא מזוהה"}</p>
+                  <p className="truncate">{r.contact?.fullName ?? t("לא מזוהה", "Unknown")}</p>
                   <p className="text-muted"><Phone value={formatPhone(r.toE164)} /> · {relativeTime(r.createdAt)} · {r.telephonyResult ? TELEPHONY_RESULT_LABEL[r.telephonyResult] : ""}</p>
                 </div>
-                <button onClick={() => onDialManual(r.toE164)} disabled={inProgress || !connOk} className="text-accent underline hover:underline disabled:opacity-40 shrink-0">חייג שוב</button>
+                <button onClick={() => onDialManual(r.toE164)} disabled={inProgress || !connOk} className="text-accent underline hover:underline disabled:opacity-40 shrink-0">{t("חייג שוב", "Redial")}</button>
               </li>
             ))}
           </ul>
@@ -195,21 +197,22 @@ export function CallPanel({ onDialManual, canDialLead, onDialLead, onSkip }: { o
 }
 
 function CallStatusBlock({ call }: { call: CallDto }) {
+  const t = useT();
   const answered = call.status === "answered";
   const ended = Boolean(call.endedAt);
   return (
     <div className="text-center">
       <div className="flex items-center justify-center gap-2">
         <span className={cx("w-2.5 h-2.5 rounded-full", answered ? "bg-good pulse-good" : ended ? "bg-muted" : "bg-warn animate-pulse")} />
-        <span className="text-sm font-medium">{ended ? (call.telephonyResult ? TELEPHONY_RESULT_LABEL[call.telephonyResult] : "הסתיימה") : CALL_STATUS_LABEL[call.status]}</span>
-        {call.provider === "mock" && <Badge tone="warn">הדמיה</Badge>}
+        <span className="text-sm font-medium">{ended ? (call.telephonyResult ? TELEPHONY_RESULT_LABEL[call.telephonyResult] : t("הסתיימה", "Ended")) : CALL_STATUS_LABEL[call.status]}</span>
+        {call.provider === "mock" && <Badge tone="warn">{t("הדמיה", "Simulation")}</Badge>}
       </div>
       <p className="text-lg font-semibold mt-1 truncate">{call.contact?.fullName ?? "—"}</p>
       <Phone value={formatPhone(call.toE164)} className="text-muted" />
       <p className={cx("text-3xl font-semibold tabular mt-1", answered ? "text-good" : "text-text/70")}>{answered || ended ? formatDuration(ended ? call.talkSeconds : callElapsed(call)) : "--:--"}</p>
-      {call.dialPendingSince && !ended && <p className="text-[11px] text-warn mt-1">ממתין לאישור מהספק…</p>}
-      {call.direction === "inbound" && <Badge tone="info" className="mt-1">שיחה נכנסת</Badge>}
-      {call.amdResult === "machine" && <p className="text-[11px] text-warn mt-1">זוהה תא קולי (ייתכן זיהוי שגוי) – החלט בעצמך</p>}
+      {call.dialPendingSince && !ended && <p className="text-[11px] text-warn mt-1">{t("ממתין לאישור מהספק…", "Waiting for provider confirmation…")}</p>}
+      {call.direction === "inbound" && <Badge tone="info" className="mt-1">{t("שיחה נכנסת", "Incoming call")}</Badge>}
+      {call.amdResult === "machine" && <p className="text-[11px] text-warn mt-1">{t("זוהה תא קולי (ייתכן זיהוי שגוי) – החלט בעצמך", "Voicemail detected (may be wrong) – decide yourself")}</p>}
       {call.failureReason && ended && <p className="text-[11px] text-bad mt-1">{call.failureReason}</p>}
     </div>
   );

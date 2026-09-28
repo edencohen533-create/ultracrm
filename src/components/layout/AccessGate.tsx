@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import type { ModuleKey } from "@/lib/access/catalog";
 import type { EffectiveModule } from "@/lib/access/engine";
+import { useT } from "@/components/i18n/LangProvider";
 
 /** Screen → what it needs (any of). Data is protected by the APIs; this only avoids showing an empty, failing screen. */
 const SCREENS: Array<{ match: (p: string) => boolean; need: string[] }> = [
@@ -18,11 +19,12 @@ const SCREENS: Array<{ match: (p: string) => boolean; need: string[] }> = [
 
 export function AccessGate({ access, children }: { access: Record<ModuleKey, EffectiveModule>; children: ReactNode }) {
   const pathname = usePathname();
+  const t = useT();
   const screen = SCREENS.find((s) => s.match(pathname));
   if (!screen) return <>{children}</>;
   const ok = screen.need.some((n) => { const [m, a] = n.split(".") as [ModuleKey, string]; return access[m]?.state === "active" && access[m].actions.includes(a); });
   if (ok) return <>{children}</>;
   const states = screen.need.map((n) => access[n.split(".")[0] as ModuleKey]?.state);
-  const reason = states.every((s) => s === "not_in_package") ? "המודול אינו כלול בחבילה של העסק." : states.includes("suspended") ? "הגישה של העסק מושעית כרגע." : "המודול או הפעולה לא הוקצו לך – פנה למנהל העסק.";
-  return <div className="p-10 max-w-lg mx-auto text-center space-y-3" data-testid="no-access"><h1 className="text-xl font-bold">אין גישה למסך הזה</h1><p className="text-muted">{reason}</p><Link href="/" className="underline text-sm">חזרה</Link></div>;
+  const reason = states.every((s) => s === "not_in_package") ? t("המודול אינו כלול בחבילה של העסק.", "This module isn't included in the business's plan.") : states.includes("suspended") ? t("הגישה של העסק מושעית כרגע.", "The business's access is currently suspended.") : t("המודול או הפעולה לא הוקצו לך – פנה למנהל העסק.", "This module or action hasn't been assigned to you – contact the business admin.");
+  return <div className="p-10 max-w-lg mx-auto text-center space-y-3" data-testid="no-access"><h1 className="text-xl font-bold">{t("אין גישה למסך הזה", "No access to this screen")}</h1><p className="text-muted">{reason}</p><Link href="/" className="underline text-sm">{t("חזרה", "Back")}</Link></div>;
 }

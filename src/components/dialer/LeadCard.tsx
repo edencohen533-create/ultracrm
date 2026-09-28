@@ -13,6 +13,7 @@ import { ContactChat } from "@/components/contacts/ContactChat";
 import { useMe } from "@/lib/client/use-me";
 import { useDialer } from "@/components/telephony/DialerProvider";
 import { AvailableNowTag } from "@/components/telephony/AvailableNowTag";
+import { useT } from "@/components/i18n/LangProvider";
 
 interface ContactFull extends ContactLite {
   owner: { id: string; fullName: string } | null;
@@ -46,6 +47,7 @@ export function LeadCard({
   canEdit: boolean;
   refreshKey: number;
 }) {
+  const t = useT();
   const [contact, setContact] = useState<ContactFull | null>(null);
   const hotNow = useDialer().state?.hot?.find((h) => h.status === "active" && h.contactId === contactId) ?? null;
   const [editing, setEditing] = useState(false);
@@ -96,15 +98,15 @@ export function LeadCard({
     } catch {
       /* ignore */
     }
-    const t = setTimeout(() => api.put("/api/dialer/draft", { contactId, body: noteValue }).catch(() => toast.error("שמירת הטיוטה בשרת נכשלה; ההערה נשמרה בדפדפן הזה", { id: "draft-save-failed" })), 1200);
-    return () => clearTimeout(t);
-  }, [contactId, noteValue]);
+    const tm = setTimeout(() => api.put("/api/dialer/draft", { contactId, body: noteValue }).catch(() => toast.error(t("שמירת הטיוטה בשרת נכשלה; ההערה נשמרה בדפדפן הזה", "Saving the draft to the server failed; the note was saved in this browser"), { id: "draft-save-failed" })), 1200);
+    return () => clearTimeout(tm);
+  }, [contactId, noteValue, t]);
 
   async function saveEdit() {
     if (!contact) return;
     try {
       await api.patch(`/api/contacts/${contact.id}`, form);
-      toast.success("הפרטים נשמרו");
+      toast.success(t("הפרטים נשמרו", "Details saved"));
       setEditing(false);
       load();
     } catch (e) {
@@ -115,12 +117,12 @@ export function LeadCard({
   if (!contactId) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted p-8">
-        <p className="text-base font-medium text-text">אין ליד פעיל</p>
-        <p className="text-xs mt-1 max-w-xs">התחל סשן כדי למשוך ליד מהתור, או חייג ידנית מהלוח בצד.</p>
+        <p className="text-base font-medium text-text">{t("אין ליד פעיל", "No active lead")}</p>
+        <p className="text-xs mt-1 max-w-xs">{t("התחל סשן כדי למשוך ליד מהתור, או חייג ידנית מהלוח בצד.", "Start a session to pull a lead from the queue, or dial manually from the side keypad.")}</p>
       </div>
     );
   }
-  if (!contact) return <div className="p-6 text-muted text-sm">טוען כרטיס…</div>;
+  if (!contact) return <div className="p-6 text-muted text-sm">{t("טוען כרטיס…", "Loading card…")}</div>;
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto">
@@ -134,59 +136,59 @@ export function LeadCard({
             )}
             <div className="flex items-center gap-3 mt-1 text-sm">
               <Phone value={formatPhone(contact.phoneE164)} className="text-accent underline text-base font-medium" />
-              {contact.isDnc && <Badge tone="bad">לא ליצור קשר</Badge>}
+              {contact.isDnc && <Badge tone="bad">{t("לא ליצור קשר", "Do not contact")}</Badge>}
               {hotNow && <AvailableNowTag at={hotNow.requestedAt} text={hotNow.text} />}
               {lead && (
                 <span className="text-xs text-muted">
-                  ניסיון <span className="tabular text-text">{lead.attempts + (lead.status === "in_call" ? 0 : 1)}</span>
-                  {lead.lastOutcome && <> · קודם: {outcomeLabel(lead.lastOutcome)}</>}
+                  {t("ניסיון", "Attempt")} <span className="tabular text-text">{lead.attempts + (lead.status === "in_call" ? 0 : 1)}</span>
+                  {lead.lastOutcome && <> · {t("קודם:", "Previous:")} {outcomeLabel(lead.lastOutcome)}</>}
                 </span>
               )}
             </div>
             {lead?.claimReason && (
-              <p className="mt-1 text-xs text-accent underline" title={lead.claimScore != null ? `ציון תעדוף ${lead.claimScore}` : undefined}>
-                למה עכשיו: {lead.claimReason}
+              <p className="mt-1 text-xs text-accent underline" title={lead.claimScore != null ? t(`ציון תעדוף ${lead.claimScore}`, `Priority score ${lead.claimScore}`) : undefined}>
+                {t("למה עכשיו:", "Why now:")} {lead.claimReason}
               </p>
             )}
             {(contact.tags?.length ?? 0) > 0 && (
-              <div className="mt-1 flex flex-wrap gap-1">{contact.tags!.map((t) => { const name = typeof t === "string" ? t : (t as { name: string }).name; return <Badge key={name} tone="neutral">{name}</Badge>; })}</div>
+              <div className="mt-1 flex flex-wrap gap-1">{contact.tags!.map((tg) => { const name = typeof tg === "string" ? tg : (tg as { name: string }).name; return <Badge key={name} tone="neutral">{name}</Badge>; })}</div>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {canEdit && !editing && (
               <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-                עריכה
+                {t("עריכה", "Edit")}
               </Button>
             )}
             {editing && (
               <>
-                <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>ביטול</Button>
-                <Button size="sm" onClick={saveEdit}>שמור</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>{t("ביטול", "Cancel")}</Button>
+                <Button size="sm" onClick={saveEdit}>{t("שמור", "Save")}</Button>
               </>
             )}
-            <Link href={`/contacts/${contact.id}`} className="text-xs text-muted hover:text-text">כרטיס מלא ↗</Link>
+            <Link href={`/contacts/${contact.id}`} className="text-xs text-muted hover:text-text">{t("כרטיס מלא ↗", "Full card ↗")}</Link>
           </div>
         </div>
         <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 mt-3 text-xs">
-          <Field label="חברה">{editing ? <Input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} className="h-8" /> : contact.company || "—"}</Field>
-          <Field label="עיר">{editing ? <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className="h-8" /> : contact.city || "—"}</Field>
-          <Field label="אימייל">{editing ? <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="h-8" ltr /> : <span className="ltr">{contact.email || "—"}</span>}</Field>
-          <Field label="מקור">{contact.source || "—"}</Field>
-          <Field label="נציג אחראי">{contact.owner?.fullName ?? "—"}</Field>
-          <Field label="נוצר">{formatDateTime(contact.createdAt)}</Field>
-          {lead && <Field label="רשימה">{lead.list?.name ?? "—"}</Field>}
-          {(contact.queueLeads?.filter((l) => l.id !== lead?.id).length ?? 0) > 0 && <Field label="רשימות נוספות">{contact.queueLeads!.filter((l) => l.id !== lead?.id).map((l) => l.list?.name ?? "").filter(Boolean).join(", ")}</Field>}
+          <Field label={t("חברה", "Company")}>{editing ? <Input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} className="h-8" /> : contact.company || "—"}</Field>
+          <Field label={t("עיר", "City")}>{editing ? <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className="h-8" /> : contact.city || "—"}</Field>
+          <Field label={t("אימייל", "Email")}>{editing ? <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="h-8" ltr /> : <span className="ltr">{contact.email || "—"}</span>}</Field>
+          <Field label={t("מקור", "Source")}>{contact.source || "—"}</Field>
+          <Field label={t("נציג אחראי", "Owner")}>{contact.owner?.fullName ?? "—"}</Field>
+          <Field label={t("נוצר", "Created")}>{formatDateTime(contact.createdAt)}</Field>
+          {lead && <Field label={t("רשימה", "List")}>{lead.list?.name ?? "—"}</Field>}
+          {(contact.queueLeads?.filter((l) => l.id !== lead?.id).length ?? 0) > 0 && <Field label={t("רשימות נוספות", "Other lists")}>{contact.queueLeads!.filter((l) => l.id !== lead?.id).map((l) => l.list?.name ?? "").filter(Boolean).join(", ")}</Field>}
         </dl>
         {contact.notes && (
           <p className="mt-3 text-xs text-muted bg-white/5 rounded-md p-2 whitespace-pre-wrap">
-            <span className="text-text font-medium">הערות קבועות: </span>
+            <span className="text-text font-medium">{t("הערות קבועות: ", "Permanent notes: ")}</span>
             {contact.notes}
           </p>
         )}
         {contact.tasks.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
-            {contact.tasks.map((t) => (
-              <Badge key={t.id} tone="warn">חזרה מתוכננת {formatDateTime(t.dueAt)} · {t.user.fullName}</Badge>
+            {contact.tasks.map((tk) => (
+              <Badge key={tk.id} tone="warn">{t("חזרה מתוכננת", "Scheduled callback")} {formatDateTime(tk.dueAt)} · {tk.user.fullName}</Badge>
             ))}
           </div>
         )}
@@ -194,11 +196,11 @@ export function LeadCard({
 
       <div className="p-4 border-b border-line">
         <Textarea
-          label="הערות לשיחה (נשמר אוטומטית)"
+          label={t("הערות לשיחה (נשמר אוטומטית)", "Call notes (auto-saved)")}
           rows={4}
           value={noteValue}
           onChange={(e) => onNoteChange(e.target.value)}
-          placeholder="מה נאמר בשיחה, סיכומים, פרטים חשובים…"
+          placeholder={t("מה נאמר בשיחה, סיכומים, פרטים חשובים…", "What was said, summaries, key details…")}
           className="text-sm"
         />
       </div>
@@ -206,24 +208,24 @@ export function LeadCard({
       {script && (
         <div className="border-b border-line">
           <button onClick={() => setScriptOpen((o) => !o)} className="w-full flex items-center justify-between px-4 h-10 text-sm hover:bg-white/5">
-            <span className="font-medium">תסריט שיחה · {script.title}</span>
-            <span className="text-muted text-xs">{scriptOpen ? "הסתר ▴" : "הצג ▾"}</span>
+            <span className="font-medium">{t("תסריט שיחה", "Call script")} · {script.title}</span>
+            <span className="text-muted text-xs">{scriptOpen ? t("הסתר ▴", "Hide ▴") : t("הצג ▾", "Show ▾")}</span>
           </button>
           {scriptOpen && <div className="px-4 pb-4 text-sm whitespace-pre-wrap leading-relaxed text-text/90">{script.body}</div>}
         </div>
       )}
 
-      <div className="flex items-center gap-1 px-4 pt-3" role="tablist" aria-label="מידע על הלקוח">
-        {([["calls", "היסטוריית התקשרות"], ["timeline", "ציר פעילות"], ...(me?.modules.messaging ? [["chat", "וואטסאפ"]] : [])] as Array<["calls" | "timeline" | "chat", string]>).map(([k, label]) => (
+      <div className="flex items-center gap-1 px-4 pt-3" role="tablist" aria-label={t("מידע על הלקוח", "Customer information")}>
+        {([["calls", t("היסטוריית התקשרות", "Contact history")], ["timeline", t("ציר פעילות", "Activity timeline")], ...(me?.modules.messaging ? [["chat", t("וואטסאפ", "WhatsApp")]] : [])] as Array<["calls" | "timeline" | "chat", string]>).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cx("h-8 px-3 rounded-md text-xs", tab === k ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-white/5")} data-testid={`leadcard-tab-${k}`}>{label}</button>
         ))}
       </div>
       {tab === "timeline" && <div className="p-2"><ContactTimeline contactId={contact.id} refreshKey={refreshKey} limit={40} /></div>}
       {tab === "chat" && <div className="p-2"><ContactChat contactId={contact.id} compact /></div>}
       <div className={cx("p-4", tab !== "calls" && "hidden")}>
-        <h3 className="text-sm font-semibold mb-2">היסטוריית התקשרות</h3>
+        <h3 className="text-sm font-semibold mb-2">{t("היסטוריית התקשרות", "Contact history")}</h3>
         {contact.calls.length === 0 ? (
-          <p className="text-xs text-muted">אין שיחות קודמות</p>
+          <p className="text-xs text-muted">{t("אין שיחות קודמות", "No previous calls")}</p>
         ) : (
           <ul className="space-y-1.5">
             {contact.calls.slice(0, historyLimit).map((c) => (
@@ -233,14 +235,14 @@ export function LeadCard({
                 <Badge tone={c.answeredAt ? "good" : "neutral"}>{c.telephonyResult ? TELEPHONY_RESULT_LABEL[c.telephonyResult] : "—"}</Badge>
                 {c.answeredAt && <span className="tabular text-muted">{formatDuration(c.talkSeconds)}</span>}
                 <span className={cx("font-medium", c.outcome === "sale" && "text-good", c.outcome === "dnc" && "text-bad")}>{outcomeLabel(c.outcome)}</span>
-                {c.recordingStatus === "saved" && <a href={`/api/recordings/${c.id}`} target="_blank" className="text-accent underline hover:underline">הקלטה</a>}
+                {c.recordingStatus === "saved" && <a href={`/api/recordings/${c.id}`} target="_blank" className="text-accent underline hover:underline">{t("הקלטה", "Recording")}</a>}
                 {c.outcomeNote && <span className="w-full text-muted whitespace-pre-wrap">{c.outcomeNote}</span>}
               </li>
             ))}
           </ul>
         )}
         {contact.calls.length > historyLimit && (
-          <button onClick={() => setHistoryLimit((n) => n + 10)} className="mt-2 text-xs text-accent underline hover:underline">הצג עוד</button>
+          <button onClick={() => setHistoryLimit((n) => n + 10)} className="mt-2 text-xs text-accent underline hover:underline">{t("הצג עוד", "Show more")}</button>
         )}
       </div>
     </div>

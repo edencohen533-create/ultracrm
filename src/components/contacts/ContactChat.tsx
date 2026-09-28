@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ChatPanel } from "@/components/inbox/chat-panel";
 import type { MessageItem } from "@/types/domain";
 import { Spinner } from "@/components/ui";
+import { useT } from "@/components/i18n/LangProvider";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -17,6 +18,7 @@ export function ContactChat({ contactId, compact = false }: { contactId: string;
   const [conv, setConv] = useState<{ id: string; composerDisabled: boolean; providerCredential: { label: string | null; displayPhoneNumber: string | null; isActive: boolean } | null } | null>(null);
   const [messages, setMessages] = useState<MessageItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
 
   useEffect(() => {
     let alive = true;
@@ -24,7 +26,7 @@ export function ContactChat({ contactId, compact = false }: { contactId: string;
       try {
         const r = await fetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contactId }) });
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error ?? "לא ניתן לפתוח שיחה");
+        if (!r.ok) throw new Error(d.error ?? t("לא ניתן לפתוח שיחה", "Couldn't open the conversation"));
         const id: string = d.conversation.id;
         const [c, m] = await Promise.all([fetch(`/api/conversations/${id}`).then((x) => x.json()), fetch(`/api/conversations/${id}/messages`).then((x) => x.json())]);
         if (!alive) return;
@@ -38,15 +40,15 @@ export function ContactChat({ contactId, compact = false }: { contactId: string;
 
   if (error) return <p className="p-4 text-xs text-bad">{error}</p>;
   if (!conv || !messages) return <div className="p-4"><Spinner /></div>;
-  const senderUnavailable = conv.providerCredential && !conv.providerCredential.isActive ? "המספר השולח נותק – לא ניתן לשלוח משיחה זו" : null;
+  const senderUnavailable = conv.providerCredential && !conv.providerCredential.isActive ? t("המספר השולח נותק – לא ניתן לשלוח משיחה זו", "The sending number was disconnected – you can't send from this conversation") : null;
   return (
     <div className={compact ? "flex flex-col min-h-[320px] h-[50vh]" : "flex flex-col min-h-[420px] h-[60vh]"} data-testid="contact-chat">
       <div className="flex items-center justify-between px-3 py-1 text-[11px] text-muted border-b border-line">
-        <span>WhatsApp · {conv.providerCredential?.label ?? conv.providerCredential?.displayPhoneNumber ?? "הדגמה"}</span>
-        <Link href={`/inbox/${conv.id}`} className="text-accent underline">לשיחה המלאה בתיבת ההודעות</Link>
+        <span>WhatsApp · {conv.providerCredential?.label ?? conv.providerCredential?.displayPhoneNumber ?? t("הדגמה", "Demo")}</span>
+        <Link href={`/inbox/${conv.id}`} className="text-accent underline">{t("לשיחה המלאה בתיבת ההודעות", "Open full conversation in the inbox")}</Link>
       </div>
       <div className="flex min-h-0 flex-1">
-        <ChatPanel key={conv.id} conversationId={conv.id} initialMessages={messages} senderUnavailable={senderUnavailable} composerDisabled={conv.composerDisabled} composerDisabledReason="עברו יותר מ-24 שעות מאז הודעת הלקוח האחרונה — יש לשלוח תבנית מאושרת." />
+        <ChatPanel key={conv.id} conversationId={conv.id} initialMessages={messages} senderUnavailable={senderUnavailable} composerDisabled={conv.composerDisabled} composerDisabledReason={t("עברו יותר מ-24 שעות מאז הודעת הלקוח האחרונה — יש לשלוח תבנית מאושרת.", "More than 24 hours have passed since the customer's last message — send an approved template.")} />
       </div>
     </div>
   );

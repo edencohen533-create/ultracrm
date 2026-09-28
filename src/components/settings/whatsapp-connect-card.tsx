@@ -22,13 +22,16 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Ltr } from "@/components/shared/ltr";
+import { useT } from "@/components/i18n/LangProvider";
+
+type Translate = (he: string, en: string) => string;
 
 type WaStatus = "disconnected" | "in_progress" | "needs_action" | "connected_not_ready" | "connected" | "revoked" | "error";
 
 export interface ConnectionView {
   id: string; label: string | null; method: string; status: WaStatus; sendReady: boolean; receiveReady: boolean; blockers: string[];
   wabaId: string | null; wabaName: string | null; phoneNumberId: string | null; displayPhoneNumber: string | null; verifiedName: string | null; nameStatus: string | null;
-  qualityRating: string | null; codeVerificationStatus: string | null; platformType: string | null; grantedScopes: unknown; isDefault: boolean; isActive: boolean;
+  qualityRating: string | null; messagingLimitTier?: string | null; codeVerificationStatus: string | null; platformType: string | null; grantedScopes: unknown; isDefault: boolean; isActive: boolean;
   team: { id: string; name: string } | null; subscribedAt: string | null; registeredAt: string | null; tokenCheckedAt: string | null; lastCheckedAt: string | null;
   lastWebhookAt: string | null; lastOutboundTestAt: string | null; lastError: string | null; sendingBlocked: boolean; createdAt: string;
   testRecipients?: string[]; unitPrice?: number | null; unitPriceCurrency?: string | null;
@@ -39,14 +42,14 @@ export interface Overview {
   connections: ConnectionView[];
 }
 
-const STATUS: Record<WaStatus, { label: string; tone: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
-  disconnected: { label: "לא מחובר", tone: "outline" },
-  in_progress: { label: "חיבור בתהליך", tone: "secondary" },
-  needs_action: { label: "נדרשת פעולה ב-Meta", tone: "destructive", className: "bg-amber-500 text-black" },
-  connected_not_ready: { label: "מחובר – לא מוכן", tone: "secondary", className: "bg-amber-100 text-amber-900" },
-  connected: { label: "מחובר ופעיל", tone: "default", className: "bg-emerald-600 text-white" },
-  revoked: { label: "ההרשאה בוטלה – נדרש חיבור מחדש", tone: "destructive" },
-  error: { label: "תקלה", tone: "destructive" },
+const STATUS: Record<WaStatus, { label: string; en: string; tone: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
+  disconnected: { label: "לא מחובר", en: "Not connected", tone: "outline" },
+  in_progress: { label: "חיבור בתהליך", en: "Connection in progress", tone: "secondary" },
+  needs_action: { label: "נדרשת פעולה ב-Meta", en: "Action required in Meta", tone: "destructive", className: "bg-amber-500 text-black" },
+  connected_not_ready: { label: "מחובר – לא מוכן", en: "Connected – not ready", tone: "secondary", className: "bg-amber-100 text-amber-900" },
+  connected: { label: "מחובר ופעיל", en: "Connected and active", tone: "default", className: "bg-emerald-600 text-white" },
+  revoked: { label: "ההרשאה בוטלה – נדרש חיבור מחדש", en: "Permission revoked – reconnect required", tone: "destructive" },
+  error: { label: "תקלה", en: "Error", tone: "destructive" },
 };
 
 type Flow = { kind: "idle" } | { kind: "loading_sdk" } | { kind: "popup" } | { kind: "exchanging" } | { kind: "error"; message: string } | { kind: "cancelled"; step?: string };
@@ -57,7 +60,7 @@ declare global {
     fbAsyncInit?: () => void;
   }
 }
-interface FbLoginResponse { status?: string; authResponse?: { code?: string } | null }
+interface FbLoginResponse { status?: string; authResponse?: { code?: string; userID?: string } | null }
 interface SignupStart { state: string; expiresAt: string; appId: string; configId: string; version: string; reused: boolean }
 interface EsMessage { type: "WA_EMBEDDED_SIGNUP"; event: "FINISH" | "FINISH_ONLY_WABA" | "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" | "CANCEL" | "ERROR"; data: { phone_number_id?: string; waba_id?: string; business_id?: string; current_step?: string; error_message?: string; error_id?: string } }
 
@@ -78,30 +81,32 @@ function trustedOrigin(origin: string) {
 }
 
 let sdkPromise: Promise<void> | null = null;
-function loadFbSdk(appId: string, version: string) {
+function loadFbSdk(appId: string, version: string, t: Translate) {
   if (typeof window === "undefined") return Promise.reject(new Error("no window"));
   if (window.FB) return Promise.resolve();
   if (!sdkPromise) sdkPromise = new Promise<void>((resolve, reject) => {
     window.fbAsyncInit = () => { window.FB!.init({ appId, autoLogAppEvents: true, xfbml: false, version }); resolve(); };
     const s = document.createElement("script");
     s.src = "https://connect.facebook.net/en_US/sdk.js"; s.async = true; s.defer = true; s.crossOrigin = "anonymous";
-    s.onerror = () => { sdkPromise = null; reject(new Error("טעינת Facebook SDK נכשלה (חוסם פרסומות / רשת?)")); };
+    s.onerror = () => { sdkPromise = null; reject(new Error(t("טעינת Facebook SDK נכשלה (חוסם פרסומות / רשת?)", "Failed to load the Facebook SDK (ad blocker / network?)"))); };
     document.body.appendChild(s);
-    setTimeout(() => { if (!window.FB) { sdkPromise = null; reject(new Error("Facebook SDK לא נטען בזמן")); } }, 20_000);
+    setTimeout(() => { if (!window.FB) { sdkPromise = null; reject(new Error(t("Facebook SDK לא נטען בזמן", "The Facebook SDK did not load in time"))); } }, 20_000);
   });
   return sdkPromise;
 }
 
-async function api<T>(url: string, body?: unknown): Promise<T> {
+async function api<T>(t: Translate, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, { method: body === undefined ? "GET" : "POST", headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(json?.error?.message ?? json?.error ?? json?.message ?? `שגיאה ${res.status}`), { code: json?.error?.code ?? json?.code, details: json?.error?.details ?? json?.details });
+  if (!res.ok) throw Object.assign(new Error(json?.error?.message ?? json?.error ?? json?.message ?? t(`שגיאה ${res.status}`, `Error ${res.status}`)), { code: json?.error?.code ?? json?.code, details: json?.error?.details ?? json?.details });
   return (json?.data ?? json) as T;
 }
 
-const fmt = (v: string | null) => (v ? new Date(v).toLocaleString("he-IL") : "—");
+const fmtDate = (v: string | null, locale: string) => (v ? new Date(v).toLocaleString(locale) : "—");
 
 export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initial: Overview; webhookUrl: string; canManage: boolean }) {
+  const t = useT();
+  const fmt = (v: string | null) => fmtDate(v, t.lang === "en" ? "en-GB" : "he-IL");
   const router = useRouter();
   const [overview, setOverview] = useState<Overview>(initial);
   const [flow, setFlow] = useState<Flow>({ kind: "idle" });
@@ -116,8 +121,8 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
   const assetsRef = useRef<EsMessage["data"] | null>(null);
 
   const refresh = useCallback(async () => {
-    try { setOverview(await api<Overview>("/api/whatsapp/connection")); router.refresh(); } catch (e) { toast.error((e as Error).message); }
-  }, [router]);
+    try { setOverview(await api<Overview>(t, "/api/whatsapp/connection")); router.refresh(); } catch (e) { toast.error((e as Error).message); }
+  }, [router, t]);
 
   // Assets (waba/phone ids) arrive via postMessage; the code arrives via the FB.login callback. Both are needed.
   useEffect(() => {
@@ -128,15 +133,15 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
       if (!isEsMessage(data)) return;
       if (data.event === "FINISH" || data.event === "FINISH_ONLY_WABA" || data.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") assetsRef.current = data.data;
       else if (data.event === "CANCEL") { setFlow({ kind: "cancelled", step: data.data.current_step }); void cancel(`cancelled at ${data.data.current_step ?? "?"}`, data.data.current_step); }
-      else if (data.event === "ERROR") { setFlow({ kind: "error", message: data.data.error_message ?? "שגיאה בתהליך ההרשמה של Meta" }); void cancel(data.data.error_message ?? "error"); }
+      else if (data.event === "ERROR") { setFlow({ kind: "error", message: data.data.error_message ?? t("שגיאה בתהליך ההרשמה של Meta", "Error in the Meta signup flow") }); void cancel(data.data.error_message ?? "error"); }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [t]);
 
   async function cancel(reason: string, step?: string) {
     const state = stateRef.current; stateRef.current = null; inFlight.current = false;
-    if (state) await api("/api/whatsapp/signup/cancel", { state, reason, step }).catch(() => undefined);
+    if (state) await api(t, "/api/whatsapp/signup/cancel", { state, reason, step }).catch(() => undefined);
   }
 
   async function connect() {
@@ -144,9 +149,9 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
     inFlight.current = true; assetsRef.current = null;
     try {
       setFlow({ kind: "loading_sdk" });
-      const start = await api<SignupStart>("/api/whatsapp/signup/start", {});
+      const start = await api<SignupStart>(t, "/api/whatsapp/signup/start", {});
       stateRef.current = start.state;
-      await loadFbSdk(start.appId, start.version);
+      await loadFbSdk(start.appId, start.version, t);
       setFlow({ kind: "popup" });
       const opened = await new Promise<FbLoginResponse>((resolve) => {
         window.FB!.login((r) => resolve(r), {
@@ -158,7 +163,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
       if (!code) {
         // Closed without completing (cancel, or popup blocked → FB reports "unknown").
         const blocked = opened.status === "unknown" && !assetsRef.current;
-        setFlow(blocked ? { kind: "error", message: "החלון של Meta לא נפתח או נסגר. בטל חסימת חלונות קופצים לאתר ונסה שוב." } : { kind: "cancelled" });
+        setFlow(blocked ? { kind: "error", message: t("החלון של Meta לא נפתח או נסגר. בטל חסימת חלונות קופצים לאתר ונסה שוב.", "The Meta window didn't open or was closed. Allow pop-ups for this site and try again.") } : { kind: "cancelled" });
         await cancel(blocked ? "popup_blocked_or_closed" : "no_code");
         return;
       }
@@ -166,22 +171,22 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
       for (let i = 0; i < 20 && !assetsRef.current; i++) await new Promise((r) => setTimeout(r, 100));
       const assets = assetsRef.current as EsMessage["data"] | null;
       if (!assets?.waba_id || !assets.phone_number_id) {
-        setFlow({ kind: "error", message: "Meta לא החזירה מזהי חשבון/מספר. אם רק נוצר חשבון WABA ללא מספר – הוסף מספר ב-Meta ונסה שוב." });
+        setFlow({ kind: "error", message: t("Meta לא החזירה מזהי חשבון/מספר. אם רק נוצר חשבון WABA ללא מספר – הוסף מספר ב-Meta ונסה שוב.", "Meta didn't return account/number IDs. If only a WABA was created without a number, add a number in Meta and try again.") });
         await cancel("missing_assets");
         return;
       }
       setFlow({ kind: "exchanging" });
-      const result = await api<{ credentialId: string; status: WaStatus; step: string; error?: string }>("/api/whatsapp/signup/complete", {
-        state: start.state, code, wabaId: assets.waba_id, phoneNumberId: assets.phone_number_id, metaBusinessId: assets.business_id,
+      const result = await api<{ credentialId: string; status: WaStatus; step: string; error?: string }>(t, "/api/whatsapp/signup/complete", {
+        state: start.state, code, fbUserId: opened.authResponse?.userID || undefined, wabaId: assets.waba_id, phoneNumberId: assets.phone_number_id, metaBusinessId: assets.business_id,
       });
       stateRef.current = null;
       setFlow({ kind: "idle" });
-      if (result.status === "connected") toast.success("החשבון חובר. בצע בדיקת שליחה וקבלה כדי לאשר מוכנות.");
-      else toast.warning(result.error ?? `החיבור נשמר במצב: ${STATUS[result.status].label}`);
+      if (result.status === "connected") toast.success(t("החשבון חובר. בצע בדיקת שליחה וקבלה כדי לאשר מוכנות.", "Account connected. Run a send and receive test to confirm readiness."));
+      else toast.warning(result.error ?? t(`החיבור נשמר במצב: ${STATUS[result.status].label}`, `Connection saved with status: ${STATUS[result.status].en}`));
       await refresh();
     } catch (e) {
       const err = e as Error & { code?: string; details?: { missing?: string[] } };
-      setFlow({ kind: "error", message: err.code === "scopes_missing" ? `${err.message}. חבר מחדש ואשר את כל ההרשאות המבוקשות.` : err.message });
+      setFlow({ kind: "error", message: err.code === "scopes_missing" ? t(`${err.message}. חבר מחדש ואשר את כל ההרשאות המבוקשות.`, `${err.message}. Reconnect and approve all requested permissions.`) : err.message });
       await cancel(err.message);
     } finally { inFlight.current = false; }
   }
@@ -190,12 +195,12 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
     if (busy) return;
     setBusy(`${c.id}:${action}`);
     try {
-      const r = await api<{ status?: WaStatus; blockers?: string[]; error?: string | null; warning?: string | null; providerMessageId?: string | null }>(`/api/whatsapp/connection/${c.id}`, { action, ...extra });
-      if (action === "check") { if (r.status === "connected") toast.success("החיבור תקין ומוכן"); else toast.warning(r.error ?? r.blockers?.join(" · ") ?? STATUS[r.status ?? "error"].label); }
-      if (action === "retry_setup") { if (r.status === "connected") toast.success("ההגדרה הושלמה"); else toast.warning(r.error ?? "עדיין נדרשת פעולה"); }
-      if (action === "disconnect") toast.success(r.warning ?? "החיבור נותק. ההיסטוריה נשמרה.");
-      if (action === "test_send") toast.success(`הודעת בדיקה נשלחה${r.providerMessageId ? ` (${r.providerMessageId})` : ""}`);
-      if ((action as string) === "settings") toast.success("הגדרות הבדיקה והעלות נשמרו");
+      const r = await api<{ status?: WaStatus; blockers?: string[]; error?: string | null; warning?: string | null; providerMessageId?: string | null }>(t, `/api/whatsapp/connection/${c.id}`, { action, ...extra });
+      if (action === "check") { if (r.status === "connected") toast.success(t("החיבור תקין ומוכן", "Connection OK and ready")); else { const s = STATUS[r.status ?? "error"]; toast.warning(r.error ?? r.blockers?.join(" · ") ?? t(s.label, s.en)); } }
+      if (action === "retry_setup") { if (r.status === "connected") toast.success(t("ההגדרה הושלמה", "Setup completed")); else toast.warning(r.error ?? t("עדיין נדרשת פעולה", "Action still required")); }
+      if (action === "disconnect") toast.success(r.warning ?? t("החיבור נותק. ההיסטוריה נשמרה.", "Disconnected. History was kept."));
+      if (action === "test_send") toast.success(t(`הודעת בדיקה נשלחה${r.providerMessageId ? ` (${r.providerMessageId})` : ""}`, `Test message sent${r.providerMessageId ? ` (${r.providerMessageId})` : ""}`));
+      if ((action as string) === "settings") toast.success(t("הגדרות הבדיקה והעלות נשמרו", "Test and cost settings saved"));
       await refresh();
     } catch (e) { toast.error((e as Error).message); }
     finally { setBusy(null); }
@@ -211,13 +216,13 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">WhatsApp Business (Meta Cloud API)</h2>
-          <p className="mt-1 text-sm text-muted-foreground">חיבור חשבון הוואטסאפ העסקי לשליחה וקבלת הודעות בתוך UltraCRM</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t("חיבור חשבון הוואטסאפ העסקי לשליחה וקבלת הודעות בתוך UltraCRM", "Connect your WhatsApp Business account to send and receive messages in UltraCRM")}</p>
         </div>
         <div className="flex items-center gap-2">
-          {active.length === 0 && <Badge variant="outline">לא מחובר</Badge>}
+          {active.length === 0 && <Badge variant="outline">{t("לא מחובר", "Not connected")}</Badge>}
           {canManage && (
             <Button onClick={connect} disabled={!es.ready || flowBusy} data-testid="wa-connect-btn">
-              {flow.kind === "loading_sdk" ? "טוען…" : flow.kind === "popup" ? "ממתין ל-Meta…" : flow.kind === "exchanging" ? "מאמת ומגדיר…" : active.length ? "חבר חשבון נוסף" : "חבר WhatsApp"}
+              {flow.kind === "loading_sdk" ? t("טוען…", "Loading…") : flow.kind === "popup" ? t("ממתין ל-Meta…", "Waiting for Meta…") : flow.kind === "exchanging" ? t("מאמת ומגדיר…", "Verifying and setting up…") : active.length ? t("חבר חשבון נוסף", "Connect another account") : t("חבר WhatsApp", "Connect WhatsApp")}
             </Button>
           )}
         </div>
@@ -225,16 +230,16 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
 
       {!es.ready && (
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="wa-missing-config">
-          <div className="font-medium">החיבור באמצעות Meta Embedded Signup אינו זמין עדיין – חסרה הגדרה בשרת:</div>
+          <div className="font-medium">{t("החיבור באמצעות Meta Embedded Signup אינו זמין עדיין – חסרה הגדרה בשרת:", "Connecting via Meta Embedded Signup isn't available yet – server configuration is missing:")}</div>
           <ul className="mt-1 list-disc pe-5 font-mono text-xs">{es.missing.map((m) => <li key={m}><Ltr>{m}</Ltr></li>)}</ul>
-          <div className="mt-2">ראו <span className="font-mono">docs/WHATSAPP_EMBEDDED_SIGNUP.md</span> להגדרת האפליקציה ב-Meta. עד אז ניתן להשתמש בחיבור הידני למטה.</div>
+          <div className="mt-2">{t("ראו", "See")} <span className="font-mono">docs/WHATSAPP_EMBEDDED_SIGNUP.md</span> {t("להגדרת האפליקציה ב-Meta. עד אז ניתן להשתמש בחיבור הידני למטה.", "to set up the app in Meta. Until then, you can use the manual connection below.")}</div>
         </div>
       )}
-      {!canManage && <p className="mt-3 text-sm text-muted-foreground">רק בעל העסק או מנהל מורשה יכולים לחבר, לבדוק או לנתק חשבון.</p>}
+      {!canManage && <p className="mt-3 text-sm text-muted-foreground">{t("רק בעל העסק או מנהל מורשה יכולים לחבר, לבדוק או לנתק חשבון.", "Only the business owner or an authorized manager can connect, test or disconnect an account.")}</p>}
 
-      {flow.kind === "popup" && <p className="mt-3 text-sm">נפתח חלון של Meta. השלם בו את בחירת החשבון והמספר ואשר את ההרשאות. אם לא נפתח חלון – בדוק חסימת חלונות קופצים.</p>}
-      {flow.kind === "exchanging" && <p className="mt-3 text-sm">מחליף קוד הרשאה מול Meta, מאמת נכסים, נרשם לאירועים ורושם את המספר…</p>}
-      {flow.kind === "cancelled" && <p className="mt-3 text-sm text-muted-foreground" data-testid="wa-flow-cancelled">התהליך בוטל{flow.step ? ` בשלב ${flow.step}` : ""}. לא בוצע שינוי.</p>}
+      {flow.kind === "popup" && <p className="mt-3 text-sm">{t("נפתח חלון של Meta. השלם בו את בחירת החשבון והמספר ואשר את ההרשאות. אם לא נפתח חלון – בדוק חסימת חלונות קופצים.", "A Meta window has opened. Select the account and number there and approve the permissions. If no window opened, check your pop-up blocker.")}</p>}
+      {flow.kind === "exchanging" && <p className="mt-3 text-sm">{t("מחליף קוד הרשאה מול Meta, מאמת נכסים, נרשם לאירועים ורושם את המספר…", "Exchanging the authorization code with Meta, verifying assets, subscribing to webhooks and registering the number…")}</p>}
+      {flow.kind === "cancelled" && <p className="mt-3 text-sm text-muted-foreground" data-testid="wa-flow-cancelled">{t(`התהליך בוטל${flow.step ? ` בשלב ${flow.step}` : ""}. לא בוצע שינוי.`, `The process was cancelled${flow.step ? ` at step ${flow.step}` : ""}. No changes were made.`)}</p>}
       {flow.kind === "error" && <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm text-destructive" data-testid="wa-flow-error">{flow.message}</p>}
 
       {active.map((c) => {
@@ -243,19 +248,20 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
           <div key={c.id} className="mt-4 rounded-lg border p-4" data-testid={`wa-conn-${c.id}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={st.tone} className={st.className} data-testid="wa-status">{st.label}</Badge>
-                {c.isDefault && <Badge variant="outline">ברירת מחדל</Badge>}
-                <Badge variant="outline">{c.method === "embedded_signup" ? "Embedded Signup" : "חיבור ידני"}</Badge>
+                <Badge variant={st.tone} className={st.className} data-testid="wa-status">{t(st.label, st.en)}</Badge>
+                {c.isDefault && <Badge variant="outline">{t("ברירת מחדל", "Default")}</Badge>}
+                <Badge variant="outline">{c.method === "embedded_signup" ? "Embedded Signup" : t("חיבור ידני", "Manual connection")}</Badge>
               </div>
-              <div className="text-xs text-muted-foreground">נבדק לאחרונה: {fmt(c.lastCheckedAt)}</div>
+              <div className="text-xs text-muted-foreground">{t("נבדק לאחרונה:", "Last checked:")} {fmt(c.lastCheckedAt)}</div>
             </div>
             <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-              <div className="flex gap-2"><dt className="text-muted-foreground">חשבון:</dt><dd>{c.wabaName ?? "—"} <span className="font-mono text-xs text-muted-foreground"><Ltr>{c.wabaId ?? ""}</Ltr></span></dd></div>
-              <div className="flex gap-2"><dt className="text-muted-foreground">מספר:</dt><dd><Ltr>{c.displayPhoneNumber ?? c.phoneNumberId ?? "—"}</Ltr></dd></div>
-              <div className="flex gap-2"><dt className="text-muted-foreground">שם מאומת:</dt><dd>{c.verifiedName ?? "—"} {c.nameStatus && <span className="text-xs text-muted-foreground">({c.nameStatus})</span>}</dd></div>
-              <div className="flex gap-2"><dt className="text-muted-foreground">איכות:</dt><dd>{c.qualityRating ?? "—"}</dd></div>
-              <div className="flex gap-2"><dt className="text-muted-foreground">שליחה:</dt><dd>{c.sendReady ? <span className="text-emerald-700">מוכן</span> : <span className="text-amber-700">לא מוכן</span>}{c.lastOutboundTestAt ? ` · בדיקת שליחה: ${fmt(c.lastOutboundTestAt)}` : " · טרם בוצעה בדיקת שליחה"}</dd></div>
-              <div className="flex gap-2"><dt className="text-muted-foreground">קבלה:</dt><dd>{c.receiveReady ? <span className="text-emerald-700">רשום לאירועים</span> : <span className="text-amber-700">לא רשום</span>}{c.lastWebhookAt ? ` · אירוע אחרון: ${fmt(c.lastWebhookAt)}` : " · טרם התקבל אירוע מ-Meta"}</dd></div>
+              <div className="flex gap-2"><dt className="text-muted-foreground">{t("חשבון:", "Account:")}</dt><dd>{c.wabaName ?? "—"} <span className="font-mono text-xs text-muted-foreground"><Ltr>{c.wabaId ?? ""}</Ltr></span></dd></div>
+              <div className="flex gap-2"><dt className="text-muted-foreground">{t("מספר:", "Number:")}</dt><dd><Ltr>{c.displayPhoneNumber ?? c.phoneNumberId ?? "—"}</Ltr></dd></div>
+              <div className="flex gap-2"><dt className="text-muted-foreground">{t("שם מאומת:", "Verified name:")}</dt><dd>{c.verifiedName ?? "—"} {c.nameStatus && <span className="text-xs text-muted-foreground">({c.nameStatus})</span>}</dd></div>
+              <div className="flex gap-2"><dt className="text-muted-foreground">{t("איכות:", "Quality:")}</dt><dd data-testid="wa-quality">{({ GREEN: t("🟢 גבוהה", "🟢 High"), YELLOW: t("🟡 בינונית", "🟡 Medium"), RED: t("🔴 נמוכה", "🔴 Low") } as Record<string, string>)[c.qualityRating ?? ""] ?? c.qualityRating ?? "—"}</dd></div>
+              <div className="flex gap-2"><dt className="text-muted-foreground">{t("מגבלת הודעות:", "Messaging limit:")}</dt><dd data-testid="wa-tier">{({ TIER_250: t("250 לקוחות ביום", "250 customers/day"), TIER_1K: t("1,000 לקוחות ביום", "1,000 customers/day"), TIER_10K: t("10,000 לקוחות ביום", "10,000 customers/day"), TIER_100K: t("100,000 לקוחות ביום", "100,000 customers/day"), TIER_UNLIMITED: t("ללא הגבלה", "Unlimited") } as Record<string, string>)[c.messagingLimitTier ?? ""] ?? c.messagingLimitTier ?? "—"}</dd></div>
+              <div className="flex gap-2"><dt className="text-muted-foreground">{t("שליחה:", "Sending:")}</dt><dd>{c.sendReady ? <span className="text-emerald-700">{t("מוכן", "Ready")}</span> : <span className="text-amber-700">{t("לא מוכן", "Not ready")}</span>}{c.lastOutboundTestAt ? t(` · בדיקת שליחה: ${fmt(c.lastOutboundTestAt)}`, ` · Send test: ${fmt(c.lastOutboundTestAt)}`) : t(" · טרם בוצעה בדיקת שליחה", " · No send test yet")}</dd></div>
+              <div className="flex gap-2"><dt className="text-muted-foreground">{t("קבלה:", "Receiving:")}</dt><dd>{c.receiveReady ? <span className="text-emerald-700">{t("רשום לאירועים", "Subscribed to webhooks")}</span> : <span className="text-amber-700">{t("לא רשום", "Not subscribed")}</span>}{c.lastWebhookAt ? t(` · אירוע אחרון: ${fmt(c.lastWebhookAt)}`, ` · Last event: ${fmt(c.lastWebhookAt)}`) : t(" · טרם התקבל אירוע מ-Meta", " · No event received from Meta yet")}</dd></div>
             </dl>
             {c.blockers.length > 0 && (
               <ul className="mt-3 list-disc pe-5 text-sm text-amber-800" data-testid="wa-blockers">{c.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
@@ -264,33 +270,33 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
 
             {canManage && (
               <div className="mt-4 flex flex-wrap items-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => act(c, "check")} disabled={busy !== null} data-testid="wa-check">{busy === `${c.id}:check` ? "בודק…" : "בדוק חיבור"}</Button>
+                <Button variant="outline" size="sm" onClick={() => act(c, "check")} disabled={busy !== null} data-testid="wa-check">{busy === `${c.id}:check` ? t("בודק…", "Checking…") : t("בדוק חיבור", "Test connection")}</Button>
                 {(c.status === "needs_action" || c.status === "connected_not_ready" || c.status === "error") && c.method === "embedded_signup" && (
-                  <Button variant="outline" size="sm" onClick={() => act(c, "retry_setup", pin ? { pin } : {})} disabled={busy !== null} data-testid="wa-retry">השלם הגדרה</Button>
+                  <Button variant="outline" size="sm" onClick={() => act(c, "retry_setup", pin ? { pin } : {})} disabled={busy !== null} data-testid="wa-retry">{t("השלם הגדרה", "Complete setup")}</Button>
                 )}
                 {c.method === "embedded_signup" && c.status === "needs_action" && /דו-שלבי|pin/i.test(c.lastError ?? "") && (
                   <div className="flex items-end gap-2">
-                    <div><Label htmlFor={`pin-${c.id}`} className="text-xs">קוד אימות דו-שלבי (6 ספרות)</Label><Input id={`pin-${c.id}`} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" className="w-32" dir="ltr" /></div>
+                    <div><Label htmlFor={`pin-${c.id}`} className="text-xs">{t("קוד אימות דו-שלבי (6 ספרות)", "Two-step verification PIN (6 digits)")}</Label><Input id={`pin-${c.id}`} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" className="w-32" dir="ltr" /></div>
                   </div>
                 )}
                 {c.status === "revoked" || c.status === "error" || c.status === "needs_action" ? (
-                  <Button variant="outline" size="sm" onClick={connect} disabled={!es.ready || flowBusy} data-testid="wa-reconnect">חבר מחדש</Button>
+                  <Button variant="outline" size="sm" onClick={connect} disabled={!es.ready || flowBusy} data-testid="wa-reconnect">{t("חבר מחדש", "Reconnect")}</Button>
                 ) : null}
-                <Button variant="destructive" size="sm" onClick={() => setConfirmDisconnect(c)} disabled={busy !== null} data-testid="wa-disconnect">נתק</Button>
+                <Button variant="destructive" size="sm" onClick={() => setConfirmDisconnect(c)} disabled={busy !== null} data-testid="wa-disconnect">{t("נתק", "Disconnect")}</Button>
               </div>
             )}
             {canManage && (
               <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3" data-testid="wa-settings">
-                <div><Label htmlFor={`allow-${c.id}`} className="text-xs">מספרי בדיקה מורשים (מופרדים בפסיק) – שליחות בדיקה יוצאות רק אליהם</Label><Input id={`allow-${c.id}`} value={allow[c.id] ?? (c.testRecipients ?? []).join(", ")} onChange={(e) => setAllow({ ...allow, [c.id]: e.target.value })} dir="ltr" className="w-72" placeholder="+972501234567" /></div>
-                <div><Label htmlFor={`price-${c.id}`} className="text-xs">מחיר ידני לשיחה שיווקית (לאומדן; ריק = לא ידוע)</Label><Input id={`price-${c.id}`} value={price[c.id] ?? (c.unitPrice?.toString() ?? "")} onChange={(e) => setPrice({ ...price, [c.id]: e.target.value })} dir="ltr" type="number" step="0.001" min="0" className="w-36" /></div>
-                <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => act(c, "settings", { testRecipients: (allow[c.id] ?? (c.testRecipients ?? []).join(", ")).split(/[,\n]/).map((s) => s.trim()).filter(Boolean), unitPrice: (price[c.id] ?? c.unitPrice?.toString() ?? "") === "" ? null : Number(price[c.id] ?? c.unitPrice), unitPriceCurrency: "USD" })} data-testid="wa-save-settings">שמור הגדרות בדיקה ועלות</Button>
+                <div><Label htmlFor={`allow-${c.id}`} className="text-xs">{t("מספרי בדיקה מורשים (מופרדים בפסיק) – שליחות בדיקה יוצאות רק אליהם", "Allowed test numbers (comma-separated) – test sends go only to them")}</Label><Input id={`allow-${c.id}`} value={allow[c.id] ?? (c.testRecipients ?? []).join(", ")} onChange={(e) => setAllow({ ...allow, [c.id]: e.target.value })} dir="ltr" className="w-72" placeholder="+972501234567" /></div>
+                <div><Label htmlFor={`price-${c.id}`} className="text-xs">{t("מחיר ידני לשיחה שיווקית (לאומדן; ריק = לא ידוע)", "Manual price per marketing conversation (for estimates; blank = unknown)")}</Label><Input id={`price-${c.id}`} value={price[c.id] ?? (c.unitPrice?.toString() ?? "")} onChange={(e) => setPrice({ ...price, [c.id]: e.target.value })} dir="ltr" type="number" step="0.001" min="0" className="w-36" /></div>
+                <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => act(c, "settings", { testRecipients: (allow[c.id] ?? (c.testRecipients ?? []).join(", ")).split(/[,\n]/).map((s) => s.trim()).filter(Boolean), unitPrice: (price[c.id] ?? c.unitPrice?.toString() ?? "") === "" ? null : Number(price[c.id] ?? c.unitPrice), unitPriceCurrency: "USD" })} data-testid="wa-save-settings">{t("שמור הגדרות בדיקה ועלות", "Save test and cost settings")}</Button>
               </div>
             )}
             {canManage && c.sendReady && (
               <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
-                <div><Label htmlFor={`test-${c.id}`} className="text-xs">בדיקת שליחה למספר בדיקה בלבד (תבנית hello_world)</Label><Input id={`test-${c.id}`} value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="+9725…" className="w-48" dir="ltr" /></div>
-                <Button variant="secondary" size="sm" onClick={() => act(c, "test_send", { to: testTo })} disabled={busy !== null || !testTo} data-testid="wa-test-send">שלח הודעת בדיקה</Button>
-                <p className="w-full text-xs text-muted-foreground">שלח רק למספר בדיקה שבבעלותך. בדיקת קבלה: שלח הודעה מאותו מספר בדיקה אל המספר העסקי ובדוק ש&quot;אירוע אחרון&quot; מתעדכן.</p>
+                <div><Label htmlFor={`test-${c.id}`} className="text-xs">{t("בדיקת שליחה למספר בדיקה בלבד (תבנית hello_world)", "Send test to a test number only (hello_world template)")}</Label><Input id={`test-${c.id}`} value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="+9725…" className="w-48" dir="ltr" /></div>
+                <Button variant="secondary" size="sm" onClick={() => act(c, "test_send", { to: testTo })} disabled={busy !== null || !testTo} data-testid="wa-test-send">{t("שלח הודעת בדיקה", "Send test message")}</Button>
+                <p className="w-full text-xs text-muted-foreground">{t("שלח רק למספר בדיקה שבבעלותך. בדיקת קבלה: שלח הודעה מאותו מספר בדיקה אל המספר העסקי ובדוק ש\"אירוע אחרון\" מתעדכן.", "Send only to a test number you own. To test receiving: send a message from that test number to the business number and check that \"Last event\" updates.")}</p>
               </div>
             )}
           </div>
@@ -299,28 +305,28 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
 
       {history.length > 0 && (
         <details className="mt-4 text-sm">
-          <summary className="cursor-pointer text-muted-foreground">חיבורים קודמים ({history.length}) – ההיסטוריה נשמרת</summary>
-          <ul className="mt-2 space-y-1">{history.map((c) => <li key={c.id} className="flex flex-wrap gap-2"><Badge variant="outline">{STATUS[c.status].label}</Badge><Ltr>{c.displayPhoneNumber ?? c.phoneNumberId ?? c.id}</Ltr><span className="text-muted-foreground">{c.wabaName ?? c.wabaId}</span>{canManage && c.method === "embedded_signup" && <Button variant="link" size="sm" className="h-auto p-0" onClick={connect} disabled={!es.ready || flowBusy}>חבר מחדש</Button>}</li>)}</ul>
+          <summary className="cursor-pointer text-muted-foreground">{t(`חיבורים קודמים (${history.length}) – ההיסטוריה נשמרת`, `Previous connections (${history.length}) – history is kept`)}</summary>
+          <ul className="mt-2 space-y-1">{history.map((c) => <li key={c.id} className="flex flex-wrap gap-2"><Badge variant="outline">{t(STATUS[c.status].label, STATUS[c.status].en)}</Badge><Ltr>{c.displayPhoneNumber ?? c.phoneNumberId ?? c.id}</Ltr><span className="text-muted-foreground">{c.wabaName ?? c.wabaId}</span>{canManage && c.method === "embedded_signup" && <Button variant="link" size="sm" className="h-auto p-0" onClick={connect} disabled={!es.ready || flowBusy}>{t("חבר מחדש", "Reconnect")}</Button>}</li>)}</ul>
         </details>
       )}
 
       <Separator className="my-4" />
       <div className="text-xs text-muted-foreground">
-        <div>Webhook URL (מוגדר פעם אחת ברמת האפליקציה ב-Meta): <Ltr><code>{webhookUrl}</code></Ltr></div>
+        <div>{t("Webhook URL (מוגדר פעם אחת ברמת האפליקציה ב-Meta):", "Webhook URL (configured once at the app level in Meta):")} <Ltr><code>{webhookUrl}</code></Ltr></div>
         <div className="mt-1">Graph API {es.version}{es.appId ? <> · App ID <Ltr><code>{es.appId}</code></Ltr></> : null}</div>
       </div>
 
       <AlertDialog open={confirmDisconnect !== null} onOpenChange={(o) => !o && setConfirmDisconnect(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>לנתק את {confirmDisconnect?.displayPhoneNumber ?? "החשבון"}?</AlertDialogTitle>
+            <AlertDialogTitle>{t(`לנתק את ${confirmDisconnect?.displayPhoneNumber ?? "החשבון"}?`, `Disconnect ${confirmDisconnect?.displayPhoneNumber ?? "this account"}?`)}</AlertDialogTitle>
             <AlertDialogDescription>
-              שליחת הודעות מהמספר תיפסק מיד והאפליקציה תפסיק לקבל אירועים עבורו. השיחות וההיסטוריה יישמרו. חשבון ה-WhatsApp והמספר עצמם לא נמחקים ב-Meta. ניתן לחבר מחדש בכל עת.
+              {t("שליחת הודעות מהמספר תיפסק מיד והאפליקציה תפסיק לקבל אירועים עבורו. השיחות וההיסטוריה יישמרו. חשבון ה-WhatsApp והמספר עצמם לא נמחקים ב-Meta. ניתן לחבר מחדש בכל עת.", "Sending from this number stops immediately and the app stops receiving events for it. Conversations and history are kept. The WhatsApp account and number themselves are not deleted in Meta. You can reconnect at any time.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>ביטול</AlertDialogCancel>
-            <AlertDialogAction data-testid="wa-disconnect-confirm" onClick={() => { const c = confirmDisconnect; setConfirmDisconnect(null); if (c) void act(c, "disconnect", { confirm: true, reason: "user" }); }}>נתק</AlertDialogAction>
+            <AlertDialogCancel>{t("ביטול", "Cancel")}</AlertDialogCancel>
+            <AlertDialogAction data-testid="wa-disconnect-confirm" onClick={() => { const c = confirmDisconnect; setConfirmDisconnect(null); if (c) void act(c, "disconnect", { confirm: true, reason: "user" }); }}>{t("נתק", "Disconnect")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

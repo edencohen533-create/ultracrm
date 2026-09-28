@@ -42,6 +42,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const me = useMe();
   const statuses = useLeadStatuses();
   const [c, setC] = useState<Card | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[] | null>(null);
   const [edit, setEdit] = useState(false);
   const [form, setForm] = useState({ fullName: "", phone: "", email: "", company: "", city: "", source: "", notes: "", ownerUserId: "" });
@@ -68,13 +69,12 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const [showChat, setShowChat] = useState(search.get("tab") === "chat");
 
   const load = useCallback(async () => {
+    setLoadError(null);
     try {
       const [r, t] = await Promise.all([api.get<Card>(`/api/contacts/${id}`), api.get<{ items: TimelineItem[] }>(`/api/contacts/${id}/timeline`)]);
       setC(r);
       setTimeline(t.items);
       setNow(Date.now());
-      setForm({ fullName: r.fullName, phone: r.phoneE164, email: r.email ?? "", company: r.company ?? "", city: r.city ?? "", source: r.source ?? "", notes: r.notes ?? "", ownerUserId: r.owner?.id ?? "" });
-      setCustom(Object.entries(r.customFields ?? {}).map(([key, value]) => ({ key, value: value === null || value === undefined ? "" : String(value) })));
       const focus = (focusLeadId && r.leads.find((l) => l.id === focusLeadId)) || r.leads.find((l) => ["new", "contacted", "qualified", "follow_up"].includes(l.status)) || null;
       if (focus) {
         const full = await api.get<{ id: string; title: string | null; status: string; source: string | null; priority: number; notes: string | null; owner: { id: string } | null; attempts: number; attemptLimit?: number | null; closeReason?: string | null; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null }>(`/api/leads/${focus.id}`);
@@ -82,12 +82,20 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
         setLeadEdit({ id: full.id, title: full.title ?? "", status: full.status, source: full.source ?? "", priority: full.priority, ownerUserId: full.owner?.id ?? "", notes: full.notes ?? "" });
       } else setLeadEdit(null);
     } catch (e) {
-      toast.error((e as Error).message);
+      setC(null);
+      setLoadError((e as Error).message);
     }
   }, [id, focusLeadId]);
   useEffect(() => { load(); }, [load, state?.wrapUpCall?.id, state?.activeCall?.id]);
   useEffect(() => { api.get<{ items: Array<{ id: string; fullName: string }> }>("/api/users").then((r) => setUsers(r.items)).catch(() => undefined); }, []);
 
+  function beginEdit() {
+    if (!c) return;
+    // Initialize a draft only when opening the editor, not when call-state polling refreshes the card.
+    setForm({ fullName: c.fullName, phone: c.phoneE164, email: c.email ?? "", company: c.company ?? "", city: c.city ?? "", source: c.source ?? "", notes: c.notes ?? "", ownerUserId: c.owner?.id ?? "" });
+    setCustom(Object.entries(c.customFields ?? {}).map(([key, value]) => ({ key, value: value === null || value === undefined ? "" : String(value) })));
+    setEdit(true);
+  }
   async function save() {
     try {
       const keys = custom.map((f) => f.key.trim()).filter(Boolean);
@@ -141,6 +149,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
     try { await api.patch(`/api/leads/${leadEdit.id}`, { title: leadEdit.title, status: leadEdit.status, source: leadEdit.source, priority: leadEdit.priority, notes: leadEdit.notes, ownerUserId: leadEdit.ownerUserId || null }); toast.success("הליד נשמר"); load(); } catch (e) { toast.error((e as Error).message); }
   }
 
+  if (loadError) return <div className="p-5 space-y-3" role="alert"><p>{loadError}</p><Button onClick={load}>נסה שוב</Button><Link href="/contacts" className="ms-3 underline">חזרה לאנשי קשר</Link></div>;
   if (!c) return <div className="flex justify-center p-10"><Spinner /></div>;
   const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall && !state?.wrapUpCall && !c.isDnc && !c.suppression.fullyBlocked;
   const isManager = me?.user.role === "manager" || me?.user.role === "owner";
@@ -155,7 +164,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
         {c.suppression.fullyBlocked ? <Badge tone="bad">לא ליצור קשר</Badge> : c.suppression.marketingBlocked ? <Badge tone="bad">הוסר מדיוור שיווקי</Badge> : c.consentStatus === "OPTED_IN" ? <Badge tone="good">הסכמה לדיוור</Badge> : <Badge tone="neutral">ללא הסכמה לדיוור</Badge>}
         {c.isDnc && !c.suppression.fullyBlocked && <Badge tone="bad">DNC שיחות{c.dncReason ? ` · ${c.dncReason}` : ""}</Badge>}
         <div className="ms-auto flex flex-wrap gap-2">
-          {edit ? <><Button variant="ghost" size="sm" onClick={() => setEdit(false)}>ביטול</Button><Button size="sm" onClick={save}>שמור</Button></> : <Button variant="secondary" size="sm" onClick={() => setEdit(true)}>עריכה</Button>}
+          {edit ? <><Button variant="ghost" size="sm" onClick={() => setEdit(false)}>ביטול</Button><Button size="sm" onClick={save}>שמור</Button></> : <Button variant="secondary" size="sm" onClick={beginEdit}>עריכה</Button>}
           <Button variant="secondary" size="sm" onClick={() => setTaskOpen(true)}>+ משימה</Button>
           <Button variant="secondary" size="sm" onClick={() => { setLead({ title: "", source: c.source ?? "", ownerUserId: "" }); setLeadOpen(true); }}>+ ליד</Button>
           <Button variant="secondary" size="sm" onClick={() => { setDeal({ title: `עסקה – ${c.fullName}`, amount: "", stage: "new" }); setDealOpen(true); }}>+ עסקה</Button>

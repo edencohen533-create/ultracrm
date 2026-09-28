@@ -2,16 +2,17 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { addMonths, format, isValid, parseISO } from "date-fns";
 import { Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { Button, Input, Modal, Select, Textarea } from "@/components/ui";
 
 interface Item { name: string; quantity: string; unitPrice: string; startsAt: string; duration: string; endsAt: string }
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-const addMonths = (d: string, m: number) => { const [y, mo, da] = d.split("-").map(Number); const t = new Date(Date.UTC(y, mo - 1 + m, da)); return t.toISOString().slice(0, 10); };
+const renewalDate = (d: string, months: number) => { const parsed = parseISO(d); return isValid(parsed) ? format(addMonths(parsed, months), "yyyy-MM-dd") : null; };
 const DURATIONS: Array<[string, string]> = [["", "ללא תאריך סיום"], ["1", "חודש"], ["3", "3 חודשים"], ["6", "חצי שנה"], ["12", "שנה"], ["24", "שנתיים"], ["custom", "תאריך אחר…"]];
 const blank = (): Item => ({ name: "", quantity: "1", unitPrice: "", startsAt: today(), duration: "12", endsAt: "" });
-const endOf = (i: Item) => (i.duration === "custom" ? i.endsAt || null : i.duration ? addMonths(i.startsAt, Number(i.duration)) : null);
+const endOf = (i: Item) => (i.duration === "custom" ? i.endsAt || null : i.duration ? renewalDate(i.startsAt, Number(i.duration)) : null);
 
 /**
  * "עסקה נסגרה" – opened when a lead's status becomes "הומר לעסקה", from "+ עסקה חדשה", or after a sale in the dialer.
@@ -27,7 +28,9 @@ export function DealCloseModal({ contactId, leadId, name, onClose, onDone }: { c
   const sum = items.reduce((a, i) => a + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0);
   const set = (k: number, patch: Partial<Item>) => setItems((list) => list.map((x, j) => (j === k ? { ...x, ...patch } : x)));
   const filled = items.filter((i) => i.name.trim());
+  const invalidPeriod = filled.some((i) => !isValid(parseISO(i.startsAt)) || (i.duration && !endOf(i)) || (endOf(i) && endOf(i)! < i.startsAt));
   async function save() {
+    if (invalidPeriod) return;
     setBusy(true);
     try {
       const r = await api.post<{ dealId: string; amount: number; renewalAt: string | null }>("/api/deals/close", {
@@ -40,7 +43,7 @@ export function DealCloseModal({ contactId, leadId, name, onClose, onDone }: { c
   }
   return (
     <Modal open onClose={() => !busy && onClose()} title={`🎉 עסקה נסגרה – ${name}`} width="max-w-3xl"
-      footer={<><Button variant="ghost" onClick={onClose} disabled={busy}>ביטול</Button><Button onClick={save} loading={busy} disabled={!filled.length && !amount} data-testid="deal-close-save">שמור עסקה</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose} disabled={busy}>ביטול</Button><Button onClick={save} loading={busy} disabled={invalidPeriod || (!filled.length && !amount)} data-testid="deal-close-save">שמור עסקה</Button></>}>
       <div className="space-y-3" data-testid="deal-close">
         <Input label="שם העסקה (לא חובה)" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="למשל: מנוי שנתי" />
         <div>

@@ -1,7 +1,7 @@
 import { normalizePhone } from "@/lib/phone";
 
 /** RFC-style quoting, escaped quotes, UTF-8 BOM and CRLF. No formula evaluation. */
-export function parseCsv(text: string): string[][] {
+export function parseCsv(text: string, delimiter: "," | "\t" = ","): string[][] {
   const rows: string[][] = [];
   let row: string[] = [], value = "", quoted = false, closedQuote = false;
   const input = text.replace(/^\uFEFF/, "");
@@ -12,7 +12,7 @@ export function parseCsv(text: string): string[][] {
       else if (char === '"') { quoted = false; closedQuote = true; }
       else value += char;
     } else if (char === '"' && value.length === 0 && !closedQuote) quoted = true;
-    else if (char === ',') { row.push(value); value = ""; closedQuote = false; }
+    else if (char === delimiter) { row.push(value); value = ""; closedQuote = false; }
     else if (char === '\n' || char === '\r') {
       if (char === '\r' && input[i + 1] === '\n') i++;
       row.push(value); if (row.some((cell) => cell.trim())) rows.push(row);

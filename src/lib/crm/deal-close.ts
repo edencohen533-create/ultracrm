@@ -73,6 +73,7 @@ export async function closeDeal(user: SessionUser, input: z.infer<typeof closeDe
   const { timezone: tz } = await getBusinessSettings(user.businessId);
   const items = input.items.map((i) => {
     const startsAt = zonedDateTime(tz, i.startsAt, "00:00"); const endsAt = i.endsAt ? zonedDateTime(tz, i.endsAt, "09:00") : null;
+    if (i.endsAt && !endsAt) throw new ApiError("תאריך סיום לא תקין", 400, "invalid_date");
     if (!startsAt) throw new ApiError("תאריך התחלה לא תקין", 400, "invalid_date");
     if (endsAt && endsAt <= startsAt) throw new ApiError(`תאריך הסיום של "${i.name}" חייב להיות אחרי תאריך ההתחלה`, 400, "invalid_date");
     return { ...i, startsAt, endsAt };

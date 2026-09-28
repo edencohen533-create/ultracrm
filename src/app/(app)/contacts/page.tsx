@@ -9,6 +9,7 @@ import { Badge, Button, EmptyState, Input, Modal, Phone, Select, Spinner, Textar
 import { formatPhone, relativeTime } from "@/lib/client/format";
 import { OUTCOMES } from "@/lib/outcomes";
 import { useMe } from "@/lib/client/use-me";
+import { parseCsv } from "@/lib/contact-csv";
 import { SegmentsPanel } from "@/components/contacts/segments-panel";
 
 interface Row {
@@ -82,20 +83,21 @@ export default function ContactsPage() {
   }
 
   async function importCsv() {
-    const lines = csv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    if (lines.length === 0) return;
-    const header = lines[0].split(/[,\t]/).map((h) => h.trim().toLowerCase());
-    const idx = (names: string[]) => header.findIndex((h) => names.includes(h));
-    const iName = idx(["name", "fullname", "שם", "שם מלא"]);
-    const iPhone = idx(["phone", "טלפון", "mobile", "נייד"]);
-    if (iName < 0 || iPhone < 0) return toast.error("נדרשות עמודות שם וטלפון בשורה הראשונה");
-    const iEmail = idx(["email", "אימייל"]), iCompany = idx(["company", "חברה"]), iCity = idx(["city", "עיר"]), iSource = idx(["source", "מקור"]), iConsent = idx(["consent", "consentstatus", "הסכמה"]);
-    const rowsIn = lines.slice(1).map((l) => {
-      const c = l.split(/[,\t]/).map((x) => x.trim());
-      const consent = iConsent >= 0 ? c[iConsent]?.toUpperCase() : undefined;
-      return { fullName: c[iName] ?? "", phone: c[iPhone] ?? "", email: iEmail >= 0 ? c[iEmail] : undefined, company: iCompany >= 0 ? c[iCompany] : undefined, city: iCity >= 0 ? c[iCity] : undefined, source: iSource >= 0 ? c[iSource] : undefined, consentStatus: consent && ["OPTED_IN", "OPTED_OUT", "UNKNOWN"].includes(consent) ? consent : undefined };
-    }).filter((r) => r.fullName && r.phone);
     try {
+      const [columns, ...lines] = parseCsv(csv, csv.split(/\r?\n/, 1)[0].includes("\t") ? "\t" : ",");
+      if (!columns || !lines.length) return toast.error("יש להזין כותרות ולפחות איש קשר אחד");
+      const header = columns.map((h) => h.trim().toLowerCase());
+      const idx = (names: string[]) => header.findIndex((h) => names.includes(h));
+      const iName = idx(["name", "fullname", "שם", "שם מלא"]);
+      const iPhone = idx(["phone", "טלפון", "mobile", "נייד"]);
+      if (iName < 0 || iPhone < 0) return toast.error("נדרשות עמודות שם וטלפון בשורה הראשונה");
+      const iEmail = idx(["email", "אימייל"]), iCompany = idx(["company", "חברה"]), iCity = idx(["city", "עיר"]), iSource = idx(["source", "מקור"]), iConsent = idx(["consent", "consentstatus", "הסכמה"]);
+      const rowsIn = lines.map((line, index) => {
+        if (line.length !== columns.length) throw new Error(`מספר עמודות לא תקין בשורה ${index + 2}`);
+        const c = line.map((x) => x.trim());
+        const consent = iConsent >= 0 ? c[iConsent]?.toUpperCase() : undefined;
+        return { fullName: c[iName] ?? "", phone: c[iPhone] ?? "", email: iEmail >= 0 ? c[iEmail] : undefined, company: iCompany >= 0 ? c[iCompany] : undefined, city: iCity >= 0 ? c[iCity] : undefined, source: iSource >= 0 ? c[iSource] : undefined, consentStatus: consent && ["OPTED_IN", "OPTED_OUT", "UNKNOWN"].includes(consent) ? consent : undefined };
+      });
       const r = await api.post<{ created: number; updated: number; invalid: number; errors: Array<{ row: number; phone: string; reason: string }> }>("/api/contacts/import", { rows: rowsIn, source: "csv" });
       toast.success(`נוצרו ${r.created}, עודכנו ${r.updated}, לא תקינים ${r.invalid}`);
       if (r.errors?.length) {

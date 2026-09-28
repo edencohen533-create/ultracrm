@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withDisplayName } from "@/server/services/template-service";
 import { withAuth, parseBody } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
@@ -16,7 +17,7 @@ export const GET = withAuth(async ({ user }) => {
   const [cred, links, templates, users] = await Promise.all([
     prisma.providerCredential.findFirst({ where: { businessId: user.businessId, channel: "whatsapp", isActive: true }, orderBy: { createdAt: "desc" }, select: { provider: true, displayPhoneNumber: true, verifiedName: true } }),
     prisma.assistantLink.findMany({ where: { businessId: user.businessId, ...(user.role === "owner" ? {} : { userId: user.id }) }, orderBy: { createdAt: "desc" }, include: { user: { select: { fullName: true, role: true } } } }),
-    prisma.template.findMany({ where: { businessId: user.businessId, channel: "whatsapp" }, orderBy: { name: "asc" }, select: { id: true, name: true, status: true, variables: true, language: true } }),
+    prisma.template.findMany({ where: { businessId: user.businessId, channel: "whatsapp" }, orderBy: { name: "asc" }, select: { id: true, name: true, displayName: true, status: true, variables: true, language: true }  }).then((r) => r.map(withDisplayName)),
     user.role === "owner" ? prisma.user.findMany({ where: { businessId: user.businessId, isActive: true }, orderBy: { fullName: "asc" }, select: { id: true, fullName: true, role: true } }) : Promise.resolve([]),
   ]);
   return ok({

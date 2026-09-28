@@ -1534,7 +1534,10 @@ model Template {
   id                 String           @id @default(cuid())
   businessId         String           @map("business_id")
   channel            Channel          @default(whatsapp)
+  /// The provider's template name (fixed at Meta once submitted – used for sending).
   name               String
+  /// Name shown in the app; editable any time (null = the provider name).
+  displayName        String?          @map("display_name")
   language           String           @default("he")
   category           TemplateCategory @default(UTILITY)
   providerTemplateId String?          @map("provider_template_id")

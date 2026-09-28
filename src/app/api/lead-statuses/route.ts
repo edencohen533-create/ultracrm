@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withDisplayName } from "@/server/services/template-service";
 import { withAuth, parseBody } from "@/lib/api";
 
 import { ok, ApiError } from "@/lib/response";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const GET = withAuth(async ({ user }) => {
   const s = await getBusinessSettings(user.businessId);
   // Managers also get the WhatsApp templates (with approval status) for the "notify the agent" option.
-  const templates = user.role === "agent" ? [] : await prisma.template.findMany({ where: { businessId: user.businessId, channel: "whatsapp", internal: false }, orderBy: { name: "asc" }, select: { id: true, name: true, status: true, body: true } });
+  const templates = user.role === "agent" ? [] : await prisma.template.findMany({ where: { businessId: user.businessId, channel: "whatsapp", internal: false }, orderBy: { name: "asc" }, select: { id: true, name: true, displayName: true, status: true, body: true } }).then((r) => r.map(withDisplayName));
   return ok({ items: s.leadStatuses, leadAssignment: s.leadAssignment, templates });
 }, { perm: ["crm.view", "telephony.use"] });
 

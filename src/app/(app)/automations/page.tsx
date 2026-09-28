@@ -1,4 +1,5 @@
 import { organizationRequest } from "@/lib/auth-compat";
+import { withDisplayName } from "@/server/services/template-service";
 import { templateParameterKeys } from "@/lib/campaigns";
 import { auth } from "@/lib/auth-compat";
 import { hasRole, ROLES_ADMIN_MANAGER } from "@/lib/auth-compat";
@@ -22,10 +23,10 @@ export default organizationRequest(async function AutomationsPage() {
     listRules(),
     prisma.user.findMany({ where: { role: { in: ["agent", "manager"] }, isActive: true }, select: { id: true, fullName: true } }),
     prisma.cannedReply.findMany({ select: { id: true, title: true } }),
-    prisma.template.findMany({ where: { status: "APPROVED", channel: "whatsapp", internal: false }, select: { id: true, name: true, body: true } }),
+    prisma.template.findMany({ where: { status: "APPROVED", channel: "whatsapp", internal: false }, select: { id: true, name: true, displayName: true, body: true } }).then((r) => r.map(withDisplayName)),
     prisma.conversation.findMany({ orderBy: { lastMessageAt: "desc" }, take: 50, select: { id: true, contact: { select: { fullName: true, phoneE164: true } } } }),
     listSequences(),
-    prisma.template.findMany({ where: { status: "APPROVED", internal: false }, select: { id: true, name: true, channel: true }, orderBy: { name: "asc" } }),
+    prisma.template.findMany({ where: { status: "APPROVED", internal: false }, select: { id: true, name: true, displayName: true, channel: true }, orderBy: { name: "asc" } }).then((r) => r.map(withDisplayName)),
     prisma.tag.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
   ]);
 

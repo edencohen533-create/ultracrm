@@ -1,0 +1,27 @@
+import { Suspense } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import ContactPage from "@/app/(app)/contacts/[id]/page";
+import { api } from "@/lib/client/api";
+const dialer = vi.hoisted(() => ({ state: { activeCall: null as null | { id: string }, wrapUpCall: null } }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+vi.mock("@/components/telephony/DialerProvider", () => ({ useDialer: () => ({ state: dialer.state, dial: vi.fn() }) }));
+vi.mock("@/lib/client/use-me", () => ({ useMe: () => ({ user: { role: "owner" }, modules: {} }) }));
+vi.mock("@/lib/client/use-lead-statuses", () => ({ useLeadStatuses: () => ({ items: [], label: (s: string) => s }) }));
+vi.mock("@/lib/client/api", () => ({ api: { get: vi.fn(), patch: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+afterEach(() => { cleanup(); vi.clearAllMocks(); dialer.state = { activeCall: null, wrapUpCall: null }; });
+it("a call-state refresh does not erase unsaved contact edits", async () => {
+  const c = { id: "c", fullName: "Refresh QA", phoneE164: "+972501234567", owner: null, customFields: {}, tags: [], phones: [], emails: [], leads: [], deals: [], queueLeads: [], tasks: [], calls: [], conversations: [], noteItems: [], createdAt: new Date().toISOString(), suppression: { fullyBlocked: false, marketingBlocked: false, active: [], history: [] } };
+  vi.mocked(api.get).mockImplementation(async path => path === "/api/contacts/c" ? c : { items: [] });
+  const params = Promise.resolve({ id: "c" });
+  const ui = () => <Suspense fallback="Loading"><ContactPage params={params} /></Suspense>;
+  let r!: ReturnType<typeof render>;
+  await act(async () => { r = render(ui()); });
+  await screen.findByRole("heading", { name: "Refresh QA" });
+  fireEvent.click(screen.getByRole("button", { name: "עריכה" }));
+  fireEvent.change(screen.getByLabelText("חברה"), { target: { value: "Unsaved Company" } });
+  dialer.state = { activeCall: { id: "new-call" }, wrapUpCall: null }; r.rerender(ui());
+  await waitFor(() => expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === "/api/contacts/c")).toHaveLength(2));
+  expect(screen.getByLabelText("חברה")).toHaveValue("Unsaved Company");
+});

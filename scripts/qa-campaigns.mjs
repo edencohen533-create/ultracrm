@@ -4,29 +4,41 @@
  * The final "send now" is pressed only when the review screen says the connection is simulated.
  */
 import { chromium } from "playwright";
+import fs from "node:fs";
+fs.mkdirSync(".qa-local/functional", {recursive:true});
 const BASE = process.argv[2] ?? "http://localhost:3211";
+if (!["localhost", "127.0.0.1"].includes(new URL(BASE).hostname)) throw new Error("This QA script creates test data and runs locally only.");
 const results = [];
 const ONLY = (process.env.QA_ONLY ?? "").split(",").filter(Boolean);
 const step = async (name, fn) => { if (ONLY.length && !ONLY.includes(name.split(" ")[0])) return; try { await fn(); results.push(`✅ ${name}`); } catch (e) { results.push(`❌ ${name}: ${e.message.split("\n")[0]}`); } };
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ locale: "he-IL", viewport: { width: 1440, height: 900 } });
-const page = await ctx.newPage(); page.setDefaultTimeout(90000);
+const page = await ctx.newPage(); page.setDefaultTimeout(20000);
 page.on("dialog", (d) => d.accept());
-const shot = (n) => page.screenshot({ path: `docs/qa/cmp-${n}.png` }).catch(() => undefined);
-const api = async (path, method = "GET", body) => { const r = await page.request.fetch(`${BASE}${path}`, { method, data: body, headers: { "Content-Type": "application/json" }, timeout: 120000 }); return { status: r.status(), json: await r.json().catch(() => null) }; };
+const shot = (n) => page.screenshot({ path: `.qa-local/functional/cmp-${n}.png` }).catch(() => undefined);
+const api = async (path, method = "GET", body) => { const r = await page.request.fetch(`${BASE}${path}`, { method, data: body, headers: { "Content-Type": "application/json" }, timeout: 20000 }); return { status: r.status(), json: await r.json().catch(() => null) }; };
 const login = async (email) => { await ctx.clearCookies(); await page.goto(`${BASE}/login`); await page.fill('input[type="email"]', email); await page.fill('input[type="password"]', "Demo1234!"); await page.click('button[type="submit"]'); await page.waitForURL((u) => !u.pathname.startsWith("/login")); };
-const saved = () => page.waitForFunction(() => document.querySelector('[data-testid="wz-save-state"]')?.textContent === "נשמר", null, { timeout: 60000 });
+const saved = () => page.waitForFunction(() => document.querySelector('[data-testid="wz-save-state"]')?.textContent === "נשמר", null, { timeout: 20000 });
 let draftId; const name = `QA מייל ${Date.now()}`;
 
+const qaAudienceIds = [];
 await step("K0 manager login; /campaigns redirects to the WhatsApp tab of the new list", async () => {
   await login("manager@demo.local");
+  for (let i=0;i<2;i++) {
+    const now = Date.now();
+    const c = await api("/api/contacts", "POST", { fullName: `QA audience ${now}`, phone: `052${String(now+i).slice(-7)}`, email: `qa${now+i}@example.test`, consentStatus: "OPTED_IN", consentEvidence: "Local QA consent" });
+    if(c.status!==201) throw new Error(`contact fixture ${c.status}`);
+    const l = await api("/api/distribution-lists", "POST", {name: `QA recipients ${now}`, contactIds:[c.json.data.id]});
+    if(l.status!==201) throw new Error(`list fixture ${l.status}`);
+    qaAudienceIds.push(l.json.list.id);
+  }
   await page.goto(`${BASE}/campaigns`); await page.waitForURL((u) => u.pathname === "/campaigns/whatsapp");
   await page.waitForSelector('[data-testid="campaigns-list"]');
 });
 
 await step("K1 list: title+count, create/search/calendar buttons, 3 channel tabs, 6 status filters, rows with primary action; no big creation form", async () => {
   await page.goto(`${BASE}/campaigns/email`); await page.waitForSelector('[data-testid="campaigns-rows"]');
-  const h1 = await page.textContent(".cmp-head h1"); if (!/קמפיינים \(\d+\)/.test(h1)) throw new Error(`title: ${h1}`);
+  const h1 = await page.textContent(".cmp-head h1"); if (!/הודעות תפוצה \(\d+\)/.test(h1)) throw new Error(`title: ${h1}`);
   for (const t of ["campaign-create", "campaigns-search", "campaigns-view-toggle", "campaigns-tab-whatsapp", "campaigns-tab-email", "campaigns-tab-sms"]) await page.waitForSelector(`[data-testid="${t}"]`);
   for (const b of ["all", "draft", "scheduled", "running", "sent", "failed"]) await page.waitForSelector(`[data-testid="bucket-${b}"]`);
   if (await page.$("text=קמפיין חדש")) throw new Error("old creation form still on the list");
@@ -43,9 +55,9 @@ await step("K2 filters, search and calendar work (WhatsApp tab with demo campaig
   if (drafts.some((b) => b !== "טיוטה")) throw new Error(`draft filter shows ${drafts.join(",")}`);
   await page.click('[data-testid="bucket-all"]');
   await page.fill('[data-testid="campaigns-search"]', "zzz-nothing-matches");
-  await page.waitForSelector('[data-testid="campaigns-empty"]', { timeout: 30000 });
+  await page.waitForSelector('[data-testid="campaigns-empty"]', { timeout: 20000 });
   await page.fill('[data-testid="campaigns-search"]', "");
-  await page.waitForFunction((n) => document.querySelectorAll('[data-testid="campaigns-rows"] article').length === n, all, { timeout: 30000 });
+  await page.waitForFunction((n) => document.querySelectorAll('[data-testid="campaigns-rows"] article').length === n, all, { timeout: 20000 });
   await page.click('[data-testid="campaigns-view-toggle"]'); await page.waitForSelector('[data-testid="campaigns-calendar"]');
   await shot("calendar"); await page.click('[data-testid="campaigns-view-toggle"]');
 });
@@ -53,7 +65,7 @@ await step("K2 filters, search and calendar work (WhatsApp tab with demo campaig
 await step("K3 'יצירת קמפיין' (email) opens the full-screen builder with 5 steps; info step fields + sender profile + simulation notice", async () => {
   await page.goto(`${BASE}/campaigns/email`); await page.waitForSelector('[data-testid="campaign-create"]');
   await page.click('[data-testid="campaign-create"]');
-  await page.waitForURL((u) => u.pathname.startsWith("/campaigns/wizard/"), { timeout: 60000 });
+  await page.waitForURL((u) => u.pathname.startsWith("/campaigns/wizard/"), { timeout: 20000 });
   draftId = page.url().split("/").pop();
   await page.waitForSelector('[data-testid="wz-info"]');
   const steps = await page.$$eval(".wz-steps button", (b) => b.map((x) => x.textContent.replace(/\d/g, "").trim()));
@@ -71,8 +83,8 @@ await step("K4 audience: multi-select with counts, search, exclusion area, uniqu
   await page.waitForSelector('[data-testid="audience-lists"] label');
   const rows = await page.$$('[data-testid="audience-lists"] label');
   if (rows.length < 2) throw new Error("need at least 2 audiences in demo data");
-  await rows[0].click(); await rows[1].click();
-  await page.waitForFunction(() => /נמענים ייחודיים זכאים/.test(document.querySelector('[data-testid="audience-total"]')?.textContent ?? ""), null, { timeout: 60000 });
+  for (const id of qaAudienceIds) await page.getByTestId(`audience-${id}`).click();
+  await page.waitForFunction(() => /נמענים ייחודיים זכאים/.test(document.querySelector('[data-testid="audience-total"]')?.textContent ?? ""), null, { timeout: 20000 });
   const counts = await page.$$eval(".wz-list-count", (e) => e.slice(0, 2).map((x) => x.textContent));
   if (counts.some((c) => !/אנשי קשר|—/.test(c))) throw new Error(`counts ${counts}`);
   await page.click('[data-testid="audience-exclude-toggle"]'); await page.waitForSelector(".wz-lists.small");
@@ -119,26 +131,27 @@ await step("K7 save & exit → the draft is in the list; 'המשך עריכה' r
 
 await step("K8 test send: blocked for a non-allow-listed recipient, allowed for the connection's test recipient (simulated)", async () => {
   await page.fill('[data-testid="content-test-to"]', "stranger@example.test"); await page.click('[data-testid="content-test-send"]');
-  await page.waitForSelector("text=נמעני בדיקה", { timeout: 60000 });
+  await page.waitForSelector("text=נמעני בדיקה", { timeout: 20000 });
   const creds = (await api("/api/campaigns/senders?channel=email")).json.profiles; const allowed = creds[0]?.testRecipients?.[0];
   if (!allowed) { results.push("ℹ️ K8b no test recipient configured on the demo email connection – allowed-path not exercised"); return; }
   await page.fill('[data-testid="content-test-to"]', allowed); await page.click('[data-testid="content-test-send"]');
-  await page.waitForSelector("text=הודעת בדיקה נשלחה", { timeout: 60000 });
+  await page.waitForSelector("text=הודעת בדיקה נשלחה", { timeout: 20000 });
 });
 
 await step("K9 review: checks with ✓/✕ and 'עריכה' per row, eligible total, simulation banner; send → confirm dialog → simulated send", async () => {
   await page.click('[data-testid="wz-step-review"]'); await page.waitForSelector('[data-testid="wz-review"]');
-  await page.waitForSelector('[data-testid="review-checks"] li.ok', { timeout: 120000 });
+  await page.waitForSelector('[data-testid="review-checks"] li.ok', { timeout: 20000 });
   const rows = await page.$$eval('[data-testid="review-checks"] li', (l) => l.map((x) => x.querySelector("strong")?.textContent));
   for (const r of ["שולח וחיבור", "קהל יעד", "תוכן ותבנית", "משתנים אישיים וערכי גיבוי", "קישורים ומנגנון הסרה", "הגדרות מעקב", "מועד שליחה ואזור זמן"]) if (!rows.includes(r)) throw new Error(`missing check ${r}`);
   await shot("wz-review");
+  await page.waitForSelector('[data-testid="review-send-now"]:not([disabled])');
   const simulated = Boolean(await page.$(".wz-sim"));
   const canSend = await page.$eval('[data-testid="review-send-now"]', (b) => !b.disabled);
   if (!canSend) { const blockers = await page.$$eval(".wz-blockers li", (l) => l.map((x) => x.textContent)); results.push(`ℹ️ K9 send disabled by: ${blockers.join(" | ") || "no eligible recipients"}`); return; }
   if (!simulated) throw new Error("connection is not simulated – QA refuses to send");
   await page.click('[data-testid="review-send-now"]'); await page.waitForSelector(".wz-confirm");
   await page.click('[data-testid="review-confirm"]');
-  await page.waitForURL((u) => u.pathname === "/campaigns/email", { timeout: 90000 });
+  await page.waitForURL((u) => u.pathname === "/campaigns/email", { timeout: 20000 });
 });
 
 await step("K10 report: overview metrics (no invented revenue), recipients search/filter, links tab", async () => {
@@ -172,7 +185,7 @@ await step("K11 SMS builder: 4 steps (no template), editor with segment counter 
 await step("K12 agent has no access to campaigns (menu + API)", async () => {
   await login("agent1@demo.local");
   const labels = await page.$$eval('[data-testid="side-nav"] nav a', (e) => e.map((x) => x.textContent.trim()));
-  if (labels.includes("קמפיינים")) throw new Error("agent sees campaigns in the menu");
+  if (labels.includes("הודעות תפוצה")) throw new Error("agent sees campaigns in the menu");
   const r = await api("/api/campaigns/drafts", "POST", { channel: "email" }); if (r.status !== 403) throw new Error(`agent draft create ${r.status}`);
 });
 

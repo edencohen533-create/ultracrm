@@ -35,14 +35,17 @@ it.each(['leadId', 'dealId', 'conversationId'] as const)('rejects task linked to
 });
 it('does not reveal another users task through requestKey replay', async () => {
   const requestKey = 'private-task-request';
-  await run(tenant.session, () => createTask(tenant.session, { ...input(), requestKey, note: 'Private task body' }));
-  await expect(run(agent, () => createTask(agent, { ...input(), requestKey }))).rejects.toMatchObject({ status: 403 });
+  // The contact itself is visible; only the other user's task must remain private.
+  const shared = await db.contact.create({ data: { businessId: tenant.business.id, fullName: 'Visible contact', phoneE164: '+972501239902', phoneRaw: '0501239902', ownerUserId: agent.id } });
+  await run(tenant.session, () => createTask(tenant.session, { ...input(), contactId: shared.id, requestKey, note: 'Private task body' }));
+  await expect(run(agent, () => createTask(agent, { ...input(), contactId: shared.id, requestKey }))).rejects.toMatchObject({ status: 403 });
 });
 it('manager cannot create tasks assigned outside their teams', async () => {
   await expect(run(manager, () => createTask(manager, { ...input(), userId: agent.id }))).rejects.toMatchObject({ status: 403 });
 });
 it('manager cannot reassign their task outside their teams', async () => {
-  const task = await run(manager, () => createTask(manager, input()));
+  const own = await db.contact.create({ data: { businessId: tenant.business.id, fullName: 'Manager contact', phoneE164: '+972501239903', phoneRaw: '0501239903', ownerUserId: manager.id } });
+  const task = await run(manager, () => createTask(manager, { ...input(), contactId: own.id }));
   await expect(run(manager, () => updateTask(manager, task.id, { assignedToId: agent.id }))).rejects.toMatchObject({ status: 403 });
   expect((await db.task.findUniqueOrThrow({ where: { id: task.id } })).userId).toBe(manager.id);
 });

@@ -100,7 +100,8 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
 
 export async function createLead(user: SessionUser, input: z.infer<typeof leadInputSchema>, source: "user" | "import" | "webhook" = "user") {
   const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true, ownerUserId: true, source: true } });
-  if (!contact) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
+  if (!contact || !(await canAccessContact(user, contact))) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
+  if (input.ownerUserId) await assertCanSeeUser(user, input.ownerUserId);
   if (input.ownerUserId) await assertTenantReferences(user.businessId, { userIds: [input.ownerUserId] });
   const lead = await prisma.$transaction(async (tx) => {
     const l = await tx.lead.create({
@@ -230,8 +231,9 @@ export async function listDeals(user: SessionUser, f: z.infer<typeof dealFilterS
 }
 
 export async function createDeal(user: SessionUser, input: z.infer<typeof dealInputSchema>) {
-  const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true } });
-  if (!contact) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
+  const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true, ownerUserId: true } });
+  if (!contact || !(await canAccessContact(user, contact))) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
+  if (input.ownerUserId) await assertCanSeeUser(user, input.ownerUserId);
   if (input.leadId) {
     const lead = await prisma.lead.findFirst({ where: { id: input.leadId, businessId: user.businessId, contactId: contact.id } });
     if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
@@ -264,6 +266,7 @@ export async function updateDeal(user: SessionUser, id: string, input: z.infer<t
   const deal = await prisma.deal.findFirst({ where: { id, businessId: user.businessId } });
   if (!deal) throw new ApiError("עסקה לא נמצאה", 404, "not_found");
   await assertOwnerAccess(user, deal.ownerUserId);
+  if (input.ownerUserId) await assertCanSeeUser(user, input.ownerUserId);
   if (input.ownerUserId) await assertTenantReferences(user.businessId, { userIds: [input.ownerUserId] });
   const stage = input.stage;
   const updated = await prisma.$transaction(async (tx) => {
@@ -344,11 +347,13 @@ export async function taskVisibility(user: SessionUser): Promise<Prisma.TaskWher
 
 export async function listTasks(user: SessionUser, f: z.infer<typeof taskFilterSchema>) {
   const ids = await visibleUserIds(user);
+  const conversation = f.conversationId ? await prisma.conversation.findFirst({ where: { id: f.conversationId, ...conversationScope(user) }, select: { contactId: true } }) : null;
+  if (f.conversationId && !conversation) throw new ApiError("שיחה לא נמצאה", 404, "not_found");
   const where: Prisma.TaskWhereInput = {
     businessId: user.businessId,
     ...(f.status !== "all" ? { status: f.status } : {}),
     ...(f.contactId ? { contactId: f.contactId } : {}),
-    ...(f.conversationId ? { OR: [{ conversationId: f.conversationId }, { conversationId: null }] } : {}),
+    ...(conversation ? { AND: [{ contactId: conversation.contactId }, { OR: [{ conversationId: f.conversationId }, { conversationId: null }] }] } : {}),
     ...(f.type ? { type: f.type } : {}),
     ...(f.userId ? { userId: ids && !ids.includes(f.userId) ? "__none__" : f.userId } : ids ? { userId: { in: ids } } : {}),
   };
@@ -365,9 +370,10 @@ export async function createTask(user: SessionUser, input: z.infer<typeof taskIn
   if (user.role === "agent" && assignee !== user.id) throw new ApiError("נציג יכול לשייך משימה לעצמו בלבד", 403, "forbidden");
   await assertCanSeeUser(user, assignee);
   await assertTenantReferences(user.businessId, { userIds: [assignee] });
-  const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true } });
+  const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true, ownerUserId: true } });
   if (!contact) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
   if (input.conversationId && !(await prisma.conversation.findFirst({ where: { id: input.conversationId, contactId: contact.id, ...conversationScope(user) }, select: { id: true } }))) throw new ApiError("השיחה אינה שייכת לאיש הקשר", 404, "not_found");
+  if (!input.conversationId && !(await canAccessContact(user, contact))) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
   const relatedOwnerScope = ownerScope(await visibleUserIds(user));
   if (input.leadId && !(await prisma.lead.findFirst({ where: { id: input.leadId, contactId: contact.id, businessId: user.businessId, ...relatedOwnerScope }, select: { id: true } }))) throw new ApiError("ליד לא נמצא", 404, "not_found");
   if (input.dealId && !(await prisma.deal.findFirst({ where: { id: input.dealId, contactId: contact.id, businessId: user.businessId, ...relatedOwnerScope }, select: { id: true } }))) throw new ApiError("עסקה לא נמצאה", 404, "not_found");

@@ -53,6 +53,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
       ...(b.role ? { role: b.role } : {}),
       ...(b.teamId !== undefined ? { teamId: b.teamId } : {}),
       ...(b.isActive !== undefined ? { isActive: b.isActive } : {}),
+      ...(b.coachEnabled !== undefined ? { coachEnabled: b.coachEnabled } : {}),
       ...(b.personalPhone !== undefined ? { personalPhone: b.personalPhone ? (normalizePhone(b.personalPhone) ?? (() => { throw new ApiError("מספר טלפון לא תקין", 400, "invalid_phone"); })()) : null } : {}),
     },
     select: { id: true, fullName: true, email: true, role: true, isActive: true, coachEnabled: true, teamId: true, personalPhone: true },

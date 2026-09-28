@@ -1,19 +1,23 @@
 /**
  * Browser QA for the real-time sales coach (telephony simulation + COACH_PROVIDER=mock on the server).
  * Usage: COACH_PROVIDER=mock npx next dev -p 3210   →   node scripts/qa-coach.mjs http://localhost:3210
+ * For a local production build also set COACH_ALLOW_MOCK_IN_PRODUCTION=1 and COACH_ALLOW_SIMULATION_INPUT=1.
  * Flow: enable the coach + knowledge (settings) → start a manual call from /leads → the coach card appears →
  * simulated customer line "זה יקר לי" → recommendation → feedback → hang up + outcome → learning example visible to the manager.
  */
 import { chromium } from "playwright";
+import fs from "node:fs";
+fs.mkdirSync(".qa-local/functional", {recursive:true});
 const BASE = process.argv[2] ?? process.env.BASE_URL ?? "http://localhost:3000";
+if (!["localhost", "127.0.0.1"].includes(new URL(BASE).hostname)) throw new Error("This QA script creates test data and runs locally only.");
 const results = [];
 const step = async (name, fn) => { try { await fn(); results.push(`✅ ${name}`); } catch (e) { results.push(`❌ ${name}: ${e.message.split("\n")[0]}`); } };
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ locale: "he-IL", viewport: { width: 1366, height: 900 } });
-const page = await ctx.newPage(); page.setDefaultTimeout(120000);
+const page = await ctx.newPage(); page.setDefaultTimeout(20000);
 page.on("dialog", (d) => d.accept());
-const shot = (n) => page.screenshot({ path: `docs/qa/coach-${n}.png` }).catch(() => undefined);
-const api = async (path, method = "GET", body) => { const r = await page.request.fetch(`${BASE}${path}`, { method, data: body, headers: { "Content-Type": "application/json" }, timeout: 120000 }); return { status: r.status(), json: await r.json().catch(() => null) }; };
+const shot = (n) => page.screenshot({ path: `.qa-local/functional/coach-${n}.png` }).catch(() => undefined);
+const api = async (path, method = "GET", body) => { const r = await page.request.fetch(`${BASE}${path}`, { method, data: body, headers: { "Content-Type": "application/json" }, timeout: 20000 }); return { status: r.status(), json: await r.json().catch(() => null) }; };
 const stateOf = async () => (await api("/api/dialer/state")).json?.data ?? {};
 
 await step("C0 login + cleanup + enable the coach and business knowledge", async () => {
@@ -35,21 +39,27 @@ await step("C0 login + cleanup + enable the coach and business knowledge", async
 
 let callId;
 await step("C1 manual call from /leads → the coach card shows inside the call screen (listening, simulation labelled)", async () => {
+  const stamp = Date.now(); const name = `QA Coach ${stamp}`;
+  const c = await api('/api/contacts','POST',{fullName:name,phone:`050${String(stamp).slice(-6)}5`});
+  const users = (await api('/api/users')).json.data.items;
+  const l = await api('/api/leads','POST',{contactId:c.json.data.id, ownerUserId: users.find(u=>u.email==='owner@demo.local').id});
+  if(l.status!==201) throw new Error('coach fixture failed');
   await page.goto(`${BASE}/leads`, { waitUntil: "domcontentloaded" });
+  await page.getByLabel('חיפוש לידים').fill(name); await page.getByTestId(`lead-row-${l.json.data.id}`).waitFor();
   await page.waitForSelector('[data-testid="open-dialer"]:not([disabled])');
-  await page.waitForSelector(".lead-call:not([disabled])", { timeout: 120000 });
+  await page.waitForSelector(".lead-call:not([disabled])", { timeout: 20000 });
   // Some demo contacts are DNC/unsubscribed (403 on dial) – try the first rows until a call is actually placed.
   let placed = false;
   for (let i = 0; i < 6 && !placed; i++) {
     const btn = page.locator(".lead-call:not([disabled])").nth(i); if (!(await btn.count())) break;
-    const res = page.waitForResponse((r) => r.url().includes("/api/dialer/call") && r.request().method() === "POST", { timeout: 60000 });
+    const res = page.waitForResponse((r) => r.url().includes("/api/dialer/call") && r.request().method() === "POST", { timeout: 20000 });
     await btn.click();
     placed = (await res).status() < 300;
   }
   if (!placed) throw new Error("no dialable lead in the first rows");
-  await page.waitForURL((u) => u.pathname === "/dialer", { timeout: 60000 });
+  await page.waitForURL((u) => u.pathname === "/dialer", { timeout: 20000 });
   await page.waitForSelector('[data-testid="dialer-embedded"]');
-  await page.waitForSelector('[data-testid="coach-card"]', { timeout: 120000 });
+  await page.waitForSelector('[data-testid="coach-card"]', { timeout: 20000 });
   await page.waitForFunction(async () => { const r = await fetch("/api/dialer/state"); const d = (await r.json()).data; return d.activeCall?.status === "answered"; }, null, { polling: 1500 });
   callId = (await stateOf()).activeCall.id;
   await page.waitForSelector('[data-testid="coach-sim"]');
@@ -61,21 +71,21 @@ await step("C1 manual call from /leads → the coach card shows inside the call 
 await step("C2 customer objection → one short recommendation from the approved knowledge, with latency shown", async () => {
   await page.fill('[aria-label="טקסט הדמיה"]', "תקשיב, זה יקר לי");
   await page.click('[data-testid="coach-sim-send"]');
-  await page.waitForSelector('[data-testid="coach-recommendation"]', { timeout: 60000 });
+  await page.waitForSelector('[data-testid="coach-recommendation"]', { timeout: 20000 });
   const say = await page.textContent('[data-testid="coach-say-now"]');
   if (!/הכי חשוב/.test(say)) throw new Error(`unexpected recommendation: ${say}`);
   if (say.split(" ").length > 30) throw new Error("recommendation too long");
   await page.click("text=למה זה מתאים?");
-  await page.waitForSelector("text=מבוסס על הידע העסקי");
+  await page.getByText(/מבוסס על (הידע העסקי|\d+ דוגמאות מכירה)/).first().waitFor();
   await shot("recommendation");
 });
 
 await step("C3 feedback dismisses the card; a new objection brings a new recommendation", async () => {
   await page.click("button:has-text('מועיל')");
-  await page.waitForFunction(() => !document.querySelector('[data-testid="coach-recommendation"]'), null, { timeout: 30000 });
+  await page.waitForFunction(() => !document.querySelector('[data-testid="coach-recommendation"]'), null, { timeout: 20000 });
   await page.fill('[aria-label="טקסט הדמיה"]', "אני צריך לחשוב על זה");
   await page.click('[data-testid="coach-sim-send"]');
-  await page.waitForSelector('[data-testid="coach-recommendation"]', { timeout: 60000 });
+  await page.waitForSelector('[data-testid="coach-recommendation"]', { timeout: 20000 });
   const recs = await api(`/api/coach/calls/${callId}/state`);
   if (!recs.json.data.session?.recommendation) throw new Error("no current recommendation");
 });
@@ -85,7 +95,7 @@ await step("C3b 'נתקעתי? שאל את ה-AI': free-text question → one li
   await page.waitForSelector('[data-testid="coach-chat"]');
   await page.fill('[data-testid="coach-chat-input"]', "היא אומרת שזה יקר ורוצה לחשוב על זה");
   await page.click('[data-testid="coach-chat-send"]');
-  await page.waitForSelector('[data-testid="coach-chat-answer"]', { timeout: 60000 });
+  await page.waitForSelector('[data-testid="coach-chat-answer"]', { timeout: 20000 });
   const say = await page.textContent('[data-testid="coach-chat-say-now"]');
   if (!say || say.split(" ").length > 30) throw new Error(`bad answer: ${say}`);
   const meta = await page.textContent('[data-testid="coach-chat-answer"] .coach-meta');
@@ -94,33 +104,38 @@ await step("C3b 'נתקעתי? שאל את ה-AI': free-text question → one li
   const inputStillThere = await page.$('[data-testid="coach-chat-input"]:not([disabled])'); if (!inputStillThere) throw new Error("input not available after the answer");
   await page.fill('[data-testid="coach-chat-input"]', "אמרתי את זה, עכשיו היא שואלת על משלוח");
   await page.click('[data-testid="coach-chat-send"]');
-  await page.waitForFunction(() => document.querySelectorAll('[data-testid="coach-chat-answer"]').length >= 2, null, { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="coach-chat-answer"]').length >= 2, null, { timeout: 20000 });
   await shot("chat");
   await page.click('[data-testid="coach-chat-close"]');
   if (await page.$('[data-testid="coach-chat"]')) throw new Error("chat still open after X");
   const st = await stateOf(); if (st.activeCall?.id !== callId || st.activeCall.status !== "answered") throw new Error("closing the chat changed the call");
   await page.click('[data-testid="coach-chat-open"]');
-  await page.waitForFunction(() => document.querySelectorAll('[data-testid="coach-chat-answer"]').length >= 2, null, { timeout: 30000 }); // history kept for this call
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="coach-chat-answer"]').length >= 2, null, { timeout: 20000 }); // history kept for this call
   await page.click('[data-testid="coach-chat-close"]');
 });
 
 await step("C4 hang up + outcome → the call finishes normally; learning extracts a reviewable example for the manager", async () => {
-  await page.click("button:has-text('נתק')");
+  await page.getByLabel("דובר", {exact:true}).selectOption("agent");
+  await page.getByLabel("טקסט הדמיה").fill("מבין אותך, מה הכי חשוב לך לקבל מהמנוי?");
+  const segmentSaved = page.waitForResponse(r=>r.url().includes("/segments") && r.request().method()==="POST");
+  await page.getByTestId("coach-sim-send").click(); if (!(await segmentSaved).ok()) throw new Error("agent transcript failed");
+  await page.getByTestId("call-strip").getByRole("button", {name:/^נתק/}).click();
+  await page.getByTestId("next-full").click();
   await page.waitForSelector("text=תוצאת שיחה");
   await page.locator("button", { hasText: /^ענה – מעוניין/ }).first().click();
   await page.click("button:has-text('שמור תוצאה והמשך')");
-  await page.waitForSelector('[data-testid="dialer-launcher"], [data-testid="open-dialer"]');
+  await page.waitForFunction(async () => { const r = await fetch("/api/dialer/state"); const d=(await r.json()).data; return !d.activeCall && !d.wrapUpCall; });
   // events are processed by the outbox worker; kick it and wait for the example
-  for (let i = 0; i < 20; i++) { if (process.env.CRON_SECRET) await page.request.get(`${BASE}/api/jobs/events`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, timeout: 120000 }).catch(() => undefined); const ex = await api("/api/coach/examples?status=pending"); if ((ex.json?.data?.items ?? []).some((e) => e.callId === callId)) return; await page.waitForTimeout(3000); }
+  for (let i = 0; i < 20; i++) { if (process.env.CRON_SECRET) await page.request.get(`${BASE}/api/jobs/events`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, timeout: 20000 }).catch(() => undefined); const ex = await api("/api/coach/examples?status=pending"); if ((ex.json?.data?.items ?? []).some((e) => e.callId === callId)) return; await page.waitForTimeout(3000); }
   const ex = await api("/api/coach/examples?status=pending"); throw new Error(`no example for call ${callId}: ${(ex.json?.data?.items ?? []).length} pending`);
 });
 
 await step("C5 manager: settings → מאמן AI shows knowledge, pending example with quote, approve it; metrics render", async () => {
   await page.goto(`${BASE}/settings`, { waitUntil: "domcontentloaded" });
-  await page.click("button:has-text('מאמן AI')");
+  await page.getByRole("button", {name:"מאמן AI", exact:true}).click();
   await page.waitForSelector('[data-testid="coach-enabled"]');
   await page.waitForSelector('[data-testid="coach-example"]');
-  await page.click('[data-testid="coach-example-approve"]');
+  await page.getByTestId("coach-example-approve").first().click();
   await page.waitForSelector("text=אושר לשימוש");
   await page.waitForSelector('[data-testid="coach-report"]');
   await shot("admin");
@@ -129,7 +144,7 @@ await step("C5 manager: settings → מאמן AI shows knowledge, pending exampl
 await step("C6 agent without coach: toggling the agent off hides the card next call (API)", async () => {
   const me = await api("/api/auth/me"); const id = me.json.data?.user?.id ?? me.json.data?.id;
   await api(`/api/users/${id}`, "PATCH", { coachEnabled: false });
-  const st = await api("/api/coach/status"); if (st.json.data.enabled) throw new Error("still enabled");
+  const st = await api("/api/coach/status"); if (st.status !== 200) throw new Error(`status ${st.status} ${JSON.stringify(st.json)}`); if (st.json.data.enabled) throw new Error("still enabled");
   await api(`/api/users/${id}`, "PATCH", { coachEnabled: true });
 });
 

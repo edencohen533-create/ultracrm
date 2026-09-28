@@ -26,7 +26,10 @@ export function zonedDateTime(timeZone: string, date: string, time: string): Dat
     const p = Object.fromEntries(format.formatToParts(new Date(instant)).map((x) => [x.type, x.value]));
     instant += want - Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
   }
-  return new Date(instant);
+  const result = new Date(instant);
+  // Date.UTC normalizes impossible dates; DST gaps can also shift the requested wall time.
+  const actual = zonedParts(timeZone, result);
+  return actual.date === date && actual.time === time ? result : null;
 }
 
 /** "2026-09-27" / "14:30" of an instant in the business timezone (for pickers and messages). */

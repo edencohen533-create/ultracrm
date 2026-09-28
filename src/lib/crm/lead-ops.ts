@@ -363,7 +363,7 @@ export async function waitingToday(user: SessionUser, agent?: string | null) {
   const now = new Date();
   const dayStart = businessDayStart(settings.timezone, now);
   const dayEnd = businessDayStart(settings.timezone, new Date(dayStart.getTime() + 36 * 3600_000));
-  const scope = ids ? Prisma.sql`AND (l.owner_user_id = ANY(${ids}) OR l.owner_user_id IS NULL)` : Prisma.empty;
+  const scope = ids ? (sharesPool(ids) ? Prisma.sql`AND (l.owner_user_id = ANY(${ids}) OR l.owner_user_id IS NULL)` : Prisma.sql`AND l.owner_user_id = ANY(${ids})`) : Prisma.empty;
   const who = agent === "unassigned" ? Prisma.sql`AND l.owner_user_id IS NULL` : agent ? Prisma.sql`AND l.owner_user_id = ${agent}` : Prisma.empty;
   const rows = await prisma.$queryRaw<Array<{ id: string; owner: string | null; status: string; due: Date | null; attempts: number }>>(Prisma.sql`
     WITH base AS (

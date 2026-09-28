@@ -39,7 +39,7 @@ async function waitEnd(a, tab, callId, max = 30) { for (let i = 0; i < max; i++)
   if (rows[0]) await call(`/api/dialer/call/${rows[0].id}/outcome`, { method: "POST", cookie: a.cookie, body: { outcome: "no_answer" } });
 }
 // F2 – refresh during a live call: the new tab takes over the session and sees the same call; no second call
-{ const a = biz.agents[41]; const s = await startAgent(a);
+{ const a = biz.agents[41]; const before = (await q("select count(*)::int n from calls where user_id = $1", [a.id]))[0].n; const s = await startAgent(a);
   const lead = (await call("/api/dialer/next-lead", { method: "POST", cookie: a.cookie, body: { sessionId: s.sessionId, browserSessionId: s.tab } })).json.data;
   const c = (await call("/api/dialer/call", { method: "POST", cookie: a.cookie, body: { idempotencyKey: crypto.randomUUID(), mode: "preview", sessionId: s.sessionId, browserSessionId: s.tab, leadId: lead.id, lockToken: lead.lockToken } })).json.data;
   const tab2 = `fault-refresh-${crypto.randomUUID()}`;
@@ -49,7 +49,7 @@ async function waitEnd(a, tab, callId, max = 30) { for (let i = 0; i < max; i++)
   check("F2 refresh: new tab sees the same live call", st2.json?.data?.activeCall?.id === c.id || st2.json?.data?.wrapUpCall?.id === c.id, `take=${take.status}`);
   check("F2 refresh: the old tab can no longer pull leads (single owner)", oldTabNext.status === 409, `status=${oldTabNext.status} ${oldTabNext.json?.code ?? ""}`);
   await waitEnd(a, tab2, c.id); await call(`/api/dialer/call/${c.id}/outcome`, { method: "POST", cookie: a.cookie, body: { outcome: "no_answer" } });
-  check("F2 no second call was created", (await q("select count(*)::int n from calls where user_id = $1 and created_at > now() at time zone 'utc' - interval '2 minutes'", [a.id]))[0].n === 1);
+  check("F2 no second call was created", (await q("select count(*)::int n from calls where user_id = $1", [a.id]))[0].n === before + 1);
 }
 // F3 – connection lost for 25s during an answered call, then back: the call is still there and can be finished
 { const a = biz.agents[42]; const s = await startAgent(a);

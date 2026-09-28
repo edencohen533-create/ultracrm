@@ -3,6 +3,7 @@ import { toSession } from "@/lib/auth-compat";
 import { ApiError } from "@/lib/response";
 import type { Prisma } from "@/generated/prisma/client";
 import { buildConversationScope } from "@/server/services/conversation-service";
+import { OPEN_LEAD_STATUSES } from "./labels";
 
 /** May these ids see unassigned (owner = null) records? Agents only when settings → הרשאות allow it. */
 export function sharesPool(ids: (string[] & { sharedPool?: boolean }) | null) {
@@ -18,12 +19,12 @@ export function ownerScope(ids: (string[] & { sharedPool?: boolean }) | null) {
 /** Contacts a non-owner may list: owned by them, holding one of their leads, or (if allowed) in the unassigned pool. */
 export function contactScope(ids: (string[] & { sharedPool?: boolean }) | null): Prisma.ContactWhereInput {
   if (!ids) return {};
-  return { OR: [{ ownerUserId: { in: ids } }, { leads: { some: { ownerUserId: { in: ids } } } }, ...(sharesPool(ids) ? [{ ownerUserId: null }] : [])] };
+  return { OR: [{ ownerUserId: { in: ids } }, { leads: { some: { ownerUserId: { in: ids } } } }, ...(sharesPool(ids) ? [{ ownerUserId: null, leads: { none: { ownerUserId: { notIn: ids }, status: { in: [...OPEN_LEAD_STATUSES] } } } }] : [])] };
 }
 
 export async function assertOwnerAccess(user: SessionUser, ownerUserId: string | null) {
   const ids = await visibleUserIds(user);
-  if (ownerUserId && ids && !ids.includes(ownerUserId)) throw new ApiError("אין הרשאה לנתוני נציג זה", 403, "forbidden");
+  if (ids && (ownerUserId ? !ids.includes(ownerUserId) : !sharesPool(ids))) throw new ApiError("אין הרשאה לנתוני נציג זה", 403, "forbidden");
 }
 
 export function conversationScope(user: SessionUser): Prisma.ConversationWhereInput {

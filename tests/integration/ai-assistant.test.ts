@@ -14,6 +14,9 @@ import { withBusiness } from "@/lib/tenant";
 import { signSession, type SessionUser } from "@/lib/auth";
 import { createBusiness, destroyBusiness } from "./helpers";
 
+// These tests drive the service handler explicitly; the background worker must not race it for the same reply slot.
+vi.mock("@/lib/events", async (original) => ({ ...await original<object>(), kickEventProcessing: vi.fn() }));
+
 process.env.ENCRYPTION_KEY ||= crypto.randomBytes(32).toString("hex");
 const { createSource, searchKnowledge, extractFile, chunkText } = await import("@/server/ai/knowledge");
 const { chatTurn, NEEDS_CONNECTION } = await import("@/server/ai/engine");

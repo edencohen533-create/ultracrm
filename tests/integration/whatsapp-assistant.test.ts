@@ -26,9 +26,9 @@ describe("whatsapp assistant", { timeout: 900_000 }, () => {
   const accounts: string[] = [];
   const inA = <T,>(fn: () => Promise<T>) => withBusiness(a.business.id, fn, a.session);
   const say = async (biz: { business: { id: string }; session: typeof a.session }, phone: string, text: string, id = crypto.randomUUID()) => {
-    const since = new Date(Date.now() - 1);
+    const previous = await db.assistantMessage.findMany({ where: { businessId: biz.business.id, direction: "out" }, select: { id: true } });
     const handled = await withBusiness(biz.business.id, () => handleAssistantInbound({ businessId: biz.business.id, phoneE164: phone, text, providerMessageId: id }), biz.session);
-    const out = await db.assistantMessage.findMany({ where: { businessId: biz.business.id, direction: "out", createdAt: { gte: since } }, orderBy: { createdAt: "asc" } });
+    const out = await db.assistantMessage.findMany({ where: { businessId: biz.business.id, direction: "out", id: { notIn: previous.map((m) => m.id) } }, orderBy: { createdAt: "asc" } });
     return { handled, reply: out.map((m) => m.text).join("\n---\n") };
   };
   const link = async (biz: { business: { id: string } }, userId: string, phone: string, scope = "business") => {

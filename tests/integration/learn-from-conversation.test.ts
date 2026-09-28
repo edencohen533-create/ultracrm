@@ -13,6 +13,9 @@ import { withBusiness } from "@/lib/tenant";
 import { signSession, type SessionUser } from "@/lib/auth";
 import { createBusiness, destroyBusiness } from "./helpers";
 
+// The test invokes the service handler itself after installing the model stub.
+vi.mock("@/lib/events", async (original) => ({ ...await original<object>(), kickEventProcessing: vi.fn() }));
+
 process.env.ENCRYPTION_KEY ||= crypto.randomBytes(32).toString("hex");
 const { analyzeConversation, saveLearned, testDraft, redact } = await import("@/server/ai/learn");
 const { searchKnowledge, createSource } = await import("@/server/ai/knowledge");

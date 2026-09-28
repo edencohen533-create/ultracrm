@@ -103,7 +103,10 @@ async function applyInbound(credential: ProviderCredential, ev: Extract<Provider
     const conversation = await tx.conversation.findFirst({ where: { contactId: contact.id, channel: "sms", providerCredentialId: credential.id, status: { in: ["OPEN", "PENDING"] } }, orderBy: { createdAt: "desc" } })
       ?? await tx.conversation.create({ data: { businessId, contactId: contact.id, channel: "sms", providerCredentialId: credential.id, source: "MANUAL" } });
     const message = await tx.message.create({ data: { businessId, conversationId: conversation.id, channel: "sms", category: "service", direction: "INBOUND", type: "TEXT", body: ev.body, status: "SENT", providerCredentialId: credential.id, providerMessageId: ev.providerMessageId, inboundKey: `${credential.provider}:${ev.providerMessageId}`, toIdentifier: ev.to, createdAt: ev.at } });
-    await tx.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: ev.at, lastInboundAt: ev.at, unreadCount: { increment: 1 } } });
+    // Delayed SMS webhooks must not move the inbox or last-inbound time backwards.
+    await tx.conversation.updateMany({ where: { id: conversation.id, OR: [{ lastMessageAt: null }, { lastMessageAt: { lt: ev.at } }] }, data: { lastMessageAt: ev.at } });
+    await tx.conversation.updateMany({ where: { id: conversation.id, OR: [{ lastInboundAt: null }, { lastInboundAt: { lt: ev.at } }] }, data: { lastInboundAt: ev.at } });
+    await tx.conversation.update({ where: { id: conversation.id }, data: { unreadCount: { increment: 1 } } });
     let unsubscribe: "clear" | "review" | null = null;
     if (isUnsubscribe(ev.body)) {
       unsubscribe = "clear";

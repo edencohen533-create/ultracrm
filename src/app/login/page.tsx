@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { api } from "@/lib/client/api";
+import { safeReturnPath } from "@/lib/navigation";
 import { Button, Input } from "@/components/ui";
 
 function LoginForm() {
@@ -19,8 +20,7 @@ function LoginForm() {
     setLoading(true);
     try {
       const u = await api.post<{ role: string }>("/api/auth/login", quick ? { quick: true } : { email, password });
-      const next = params.get("next");
-      router.push(next && next.startsWith("/") ? next : "/");
+      router.push(safeReturnPath(params.get("next")));
       router.refresh();
     } catch (err) {
       toast.error((err as Error).message);

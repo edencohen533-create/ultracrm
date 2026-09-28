@@ -19,7 +19,7 @@ import { visibleUserIds, type SessionUser } from "@/lib/auth";
 import { getBusinessSettings, isWithinDialWindow, nextDialWindowOpening } from "@/lib/settings";
 import { businessDayStart, zonedDateTime, zonedParts } from "@/lib/business-day";
 import { ownerScope, sharesPool } from "./access";
-import { OPEN_LEAD_STATUSES } from "./labels";
+import { LEAD_STATUS_LABEL, OPEN_LEAD_STATUSES } from "./labels";
 
 type Db = Prisma.TransactionClient;
 const T = (t: string) => Prisma.raw(`"${dbSchema()}"."${t}"`);
@@ -37,12 +37,13 @@ const CLOSED = ["unqualified", "converted", "lost"];
  * Attempts live on the lead/contact, never on the agent, so a transfer keeps the full history.
  */
 const ATTEMPT_LEAD = Prisma.sql`JOIN LATERAL (
-    SELECT l2.id AS lead_id FROM ${T("leads")} l2
+    SELECT l2.id AS lead_id, l2.reopened_at FROM ${T("leads")} l2
     WHERE l2.business_id = cl.business_id AND l2.contact_id = cl.contact_id
     ORDER BY (l2.created_at <= cl.created_at) DESC, CASE WHEN l2.created_at <= cl.created_at THEN l2.created_at END DESC NULLS LAST, l2.created_at ASC
     LIMIT 1
   ) x ON true`;
-const IS_ATTEMPT = Prisma.sql`cl.direction = 'outbound' AND cl.lead_dialed_at IS NOT NULL`;
+// A lead reopened on transfer starts counting again (the earlier calls stay in its history).
+const IS_ATTEMPT = Prisma.sql`cl.direction = 'outbound' AND cl.lead_dialed_at IS NOT NULL AND (x.reopened_at IS NULL OR cl.created_at >= x.reopened_at)`;
 
 export async function attemptStats(businessId: string, contactIds: string[], db: Db = prisma) {
   const out = new Map<string, { count: number; lastAt: Date | null; answered: number }>();
@@ -243,6 +244,9 @@ async function activeCallOn(db: Db, businessId: string, contactId: string) {
 }
 
 /** Move one lead now: owner, contact, open tasks (same times), queue rows; audited as who/from/to/when. */
+/** Closed statuses that restart as "new" when the lead is transferred to another agent. */
+export const REOPEN_ON_TRANSFER: string[] = ["lost"];
+
 async function applyTransfer(businessId: string, leadId: string, toUserId: string, actorId: string, onlyIfPending = false) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${"lead-followup:" + leadId}, 0))`);
@@ -251,7 +255,9 @@ async function applyTransfer(businessId: string, leadId: string, toUserId: strin
     // A deferred transfer is applied by whoever gets the lock first (outcome save or the cron safety net) – exactly once.
     if (onlyIfPending && lead.pendingTransferToUserId !== toUserId) return null;
     const from = lead.ownerUserId;
-    await tx.lead.update({ where: { id: lead.id }, data: { ownerUserId: toUserId, pendingTransferToUserId: null, pendingTransferById: null, pendingTransferAt: null } });
+    // A lost lead handed to another agent starts over for them as a new lead; everything before stays in its history.
+    const reopen = REOPEN_ON_TRANSFER.includes(lead.status);
+    await tx.lead.update({ where: { id: lead.id }, data: { ownerUserId: toUserId, pendingTransferToUserId: null, pendingTransferById: null, pendingTransferAt: null, ...(reopen ? { status: "new", closedAt: null, closeReason: null, reopenedAt: new Date() } : {}) } });
     if (!lead.contact.ownerUserId || lead.contact.ownerUserId === from) await tx.contact.update({ where: { id: lead.contactId }, data: { ownerUserId: toUserId } });
     const tasks = await tx.task.updateMany({ where: { businessId, status: "open", OR: [{ leadId: lead.id }, ...(from ? [{ contactId: lead.contactId, userId: from }] : []), { contactId: lead.contactId, leadId: null, type: "callback" }] }, data: { userId: toUserId } });
     // Queue: out of the previous agent's personal list and any lock they hold; other lists now prefer the new agent.
@@ -265,11 +271,16 @@ async function applyTransfer(businessId: string, leadId: string, toUserId: strin
     const toList = await personalListId(tx, businessId, toUserId);
     if (toList) {
       await tx.listLead.createMany({ data: [{ businessId, listId: toList, contactId: lead.contactId }], skipDuplicates: true });
-      await tx.listLead.updateMany({ where: { listId: toList, contactId: lead.contactId, status: { in: ["removed", "completed"] } }, data: { status: "pending", nextAttemptAt: null, preferredUserId: toUserId } });
+      await tx.listLead.updateMany({ where: { listId: toList, contactId: lead.contactId, status: { in: reopen ? ["removed", "completed", "exhausted"] : ["removed", "completed"] } }, data: { status: "pending", nextAttemptAt: null, preferredUserId: toUserId, ...(reopen ? { attempts: 0, lastOutcome: null } : {}) } });
     }
     await syncFollowUpQueue(tx, businessId, { contactId: lead.contactId });
-    await audit(businessId, actorId, "lead", lead.id, "lead.transferred", { from, to: toUserId, by: actorId, at: new Date().toISOString(), tasksMoved: tasks.count }, tx);
-    return { from, to: toUserId };
+    await audit(businessId, actorId, "lead", lead.id, "lead.transferred", { from, to: toUserId, by: actorId, at: new Date().toISOString(), tasksMoved: tasks.count, ...(reopen ? { reopened: true } : {}) }, tx);
+    if (reopen) {
+      await audit(businessId, actorId, "lead", lead.id, "lead.reopened", { previousStatus: lead.status, previousCloseReason: lead.closeReason, closedAt: lead.closedAt?.toISOString() ?? null, from, to: toUserId }, tx);
+      const { emitEvent } = await import("@/lib/events");
+      await emitEvent(tx, { businessId, type: "lead.status_changed", contactId: lead.contactId, actorUserId: actorId, source: "user", dedupeKey: `lead.status_changed:${lead.id}:new:reopen:${Date.now()}`, payload: { leadId: lead.id, from: lead.status, to: "new", reason: "transfer" } });
+    }
+    return { from, to: toUserId, reopened: reopen };
   });
 }
 
@@ -295,7 +306,7 @@ export async function transferLeads(user: SessionUser, input: z.infer<typeof tra
   if (!target || (!agent && ids && !ids.includes(target.id))) throw new ApiError("יש לבחור נציג פעיל בעסק", 400, "invalid_agent");
   const leads = await prisma.lead.findMany({ where: { id: { in: input.leadIds }, businessId: user.businessId, ...(agent ? { ownerUserId: user.id } : ownerScope(ids)) }, select: { id: true, contactId: true, ownerUserId: true } });
   const found = new Set(leads.map((l) => l.id));
-  const result = { transferred: [] as string[], pending: [] as string[], unchanged: [] as string[], notFound: input.leadIds.filter((id) => !found.has(id)) };
+  const result = { transferred: [] as string[], reopened: [] as string[], pending: [] as string[], unchanged: [] as string[], notFound: input.leadIds.filter((id) => !found.has(id)) };
   for (const l of leads) {
     if (l.ownerUserId === target.id) { result.unchanged.push(l.id); continue; }
     if (await activeCallOn(prisma, user.businessId, l.contactId)) {
@@ -304,8 +315,9 @@ export async function transferLeads(user: SessionUser, input: z.infer<typeof tra
       result.pending.push(l.id);
       continue;
     }
-    await applyTransfer(user.businessId, l.id, target.id, user.id);
+    const done = await applyTransfer(user.businessId, l.id, target.id, user.id);
     result.transferred.push(l.id);
+    if (done?.reopened) result.reopened.push(l.id);
     await notifyTransferred(user.businessId, l.id, target.id);
   }
   return { ...result, to: target };
@@ -406,4 +418,28 @@ export async function assertDialAllowed(user: SessionUser, contactId: string, au
     if (open.some((t) => t.dueAt.getTime() > Date.now())) throw new ApiError("מועד הפולואפ עוד לא הגיע", 409, "follow_up_not_due");
     if (!open.length && leads.some((l) => l.status === "follow_up")) throw new ApiError("לפולואפ אין מועד – נדרש תזמון לפני חיוג", 409, "follow_up_unscheduled");
   }
+}
+
+// ─── Lead history (the lead's own record: owner changes, reopen, status changes) ────────────────────────────────
+export interface LeadHistoryItem { id: string; leadId: string; kind: "transfer" | "reopen" | "status" | "exhausted"; at: Date; title: string; body: string | null; actor: string | null }
+/** Audit entries of the leads, readable: transfers (from → to), reopen after "lost", status changes, quota closes. */
+export async function leadHistory(businessId: string, leadIds: string[]): Promise<LeadHistoryItem[]> {
+  if (!leadIds.length) return [];
+  const rows = await prisma.auditLog.findMany({ where: { businessId, entityType: "lead", entityId: { in: leadIds }, action: { in: ["lead.transferred", "lead.transfer_pending", "lead.reopened", "lead.updated", "lead.attempts_exhausted"] } }, orderBy: { createdAt: "desc" }, take: 100, select: { id: true, entityId: true, action: true, payload: true, createdAt: true, actor: { select: { fullName: true } } } });
+  const userIds = new Set<string>();
+  for (const r of rows) { const p = (r.payload ?? {}) as Record<string, unknown>; for (const k of ["from", "to"]) if (typeof p[k] === "string") userIds.add(p[k] as string); }
+  const names = new Map((await prisma.user.findMany({ where: { businessId, id: { in: [...userIds] } }, select: { id: true, fullName: true } })).map((u) => [u.id, u.fullName]));
+  const who = (id: unknown) => (typeof id === "string" ? names.get(id) ?? "נציג" : "ללא נציג");
+  const status = (s: unknown) => LEAD_STATUS_LABEL[s as keyof typeof LEAD_STATUS_LABEL] ?? String(s ?? "");
+  const out: LeadHistoryItem[] = [];
+  for (const r of rows) {
+    const p = (r.payload ?? {}) as Record<string, unknown>;
+    const base = { id: r.id, leadId: r.entityId, at: r.createdAt, actor: r.actor?.fullName ?? null };
+    if (r.action === "lead.transferred") out.push({ ...base, kind: "transfer", title: `הליד הועבר מ${who(p.from)} ל${who(p.to)}`, body: p.reopened ? "נפתח מחדש אצל הנציג החדש כליד חדש" : null });
+    else if (r.action === "lead.transfer_pending") out.push({ ...base, kind: "transfer", title: `הועברה ל${who(p.to)} ממתינה לסיום השיחה`, body: null });
+    else if (r.action === "lead.reopened") out.push({ ...base, kind: "reopen", title: `נפתח מחדש כליד חדש (היה: ${status(p.previousStatus)})`, body: [p.previousCloseReason ? `סיבת הסגירה: ${p.previousCloseReason}` : null, `אצל ${who(p.from)} · הועבר ל${who(p.to)}`, "ספירת ניסיונות החיוג מתחילה מחדש; השיחות הקודמות נשארות בהיסטוריה"].filter(Boolean).join(" · ") });
+    else if (r.action === "lead.updated" && p.status) out.push({ ...base, kind: "status", title: `סטטוס שונה ל${status(p.status)}`, body: null });
+    else if (r.action === "lead.attempts_exhausted") out.push({ ...base, kind: "exhausted", title: "הועבר ללא רלוונטי – מכסת ניסיונות ללא מענה", body: null });
+  }
+  return out;
 }

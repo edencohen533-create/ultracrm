@@ -684,6 +684,8 @@ model Lead {
   closedAt    DateTime?  @map("closed_at")
   /// Why the lead was closed automatically (e.g. "מוצו ניסיונות חיוג").
   closeReason String?    @map("close_reason")
+  /// A closed lead handed to another agent restarts as "new": attempts are counted from here (earlier ones stay in history).
+  reopenedAt  DateTime?  @map("reopened_at")
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
@@ -1532,7 +1534,10 @@ model Template {
   id                 String           @id @default(cuid())
   businessId         String           @map("business_id")
   channel            Channel          @default(whatsapp)
+  /// The provider's template name (fixed at Meta once submitted – used for sending).
   name               String
+  /// Name shown in the app; editable any time (null = the provider name).
+  displayName        String?          @map("display_name")
   language           String           @default("he")
   category           TemplateCategory @default(UTILITY)
   providerTemplateId String?          @map("provider_template_id")

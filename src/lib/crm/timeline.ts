@@ -19,20 +19,26 @@ export interface TimelineItem {
 }
 
 export async function contactTimeline(user: SessionUser, contactId: string, limit = 100): Promise<TimelineItem[]> {
-  const ids = await visibleUserIds(user);
   const businessId = user.businessId;
+  // The current owner of the contact / its lead sees the whole history, incl. earlier agents' calls and tasks
+  // (same rule as the contact card) – e.g. a lead transferred to them after it was lost by someone else.
+  const { ownsContactHistory, leadHistory } = await import("./lead-ops");
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, businessId }, select: { id: true, ownerUserId: true } });
+  const ids = contact && (await ownsContactHistory(user, contact)) ? null : await visibleUserIds(user);
+  const scoped = await visibleUserIds(user);
   const [calls, messages, notes, tasks, leads, deals, events, runs] = await Promise.all([
     prisma.call.findMany({ where: { contactId, businessId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, direction: true, answeredAt: true, endedAt: true, talkSeconds: true, telephonyResult: true, outcome: true, outcomeNote: true, callbackAt: true, recordingStatus: true, user: { select: { fullName: true } } } }),
     prisma.message.findMany({ where: { businessId, conversation: { contactId, ...conversationScope(user) } }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, direction: true, type: true, body: true, status: true, category: true, channel: true, conversationId: true, subject: true, toIdentifier: true, openedAt: true, clickedAt: true, bounceType: true, errorReason: true, campaignRecipient: { select: { campaign: { select: { id: true, name: true } } } }, sentByUser: { select: { fullName: true } } } }),
-    prisma.note.findMany({ where: { businessId, contactId, ...noteScope(user, ids) }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, body: true, conversationId: true, author: { select: { fullName: true } } } }),
+    prisma.note.findMany({ where: { businessId, contactId, ...noteScope(user, scoped) }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, body: true, conversationId: true, author: { select: { fullName: true } } } }),
     prisma.task.findMany({ where: { businessId, contactId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { createdAt: "desc" }, take: limit, select: { id: true, createdAt: true, dueAt: true, status: true, type: true, title: true, note: true, doneAt: true, user: { select: { fullName: true } } } }),
-    prisma.lead.findMany({ where: { businessId, contactId, ...ownerScope(ids) }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, status: true, title: true, source: true, closedAt: true, owner: { select: { fullName: true } } } }),
-    prisma.deal.findMany({ where: { businessId, contactId, ...ownerScope(ids) }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, title: true, stage: true, status: true, amount: true, currency: true, closedAt: true, owner: { select: { fullName: true } } } }),
+    prisma.lead.findMany({ where: { businessId, contactId, ...ownerScope(scoped) }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, status: true, title: true, source: true, closedAt: true, owner: { select: { fullName: true } } } }),
+    prisma.deal.findMany({ where: { businessId, contactId, ...ownerScope(scoped) }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, createdAt: true, title: true, stage: true, status: true, amount: true, currency: true, closedAt: true, owner: { select: { fullName: true } } } }),
     prisma.domainEvent.findMany({ where: { businessId, contactId, type: { in: ["contact.suppressed", "contact.resubscribed", ...(ids ? [] : ["lead.status_changed", "deal.won"]), "contact.merged"] } }, orderBy: { occurredAt: "desc" }, take: 30, select: { id: true, occurredAt: true, type: true, payload: true, source: true } }),
     prisma.sequenceRun.findMany({ where: { businessId, contactId }, orderBy: { startedAt: "desc" }, take: 20, select: { id: true, startedAt: true, status: true, stopReason: true, stepIndex: true, log: true, completedAt: true, sequence: { select: { name: true } } } }),
   ]);
-  const signals = await prisma.callbackSignal.findMany({ where: { businessId, contactId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { requestedAt: "desc" }, take: 20 });
   const items: TimelineItem[] = [];
+  for (const h of (await leadHistory(businessId, leads.map((l) => l.id))).filter((x) => x.kind !== "status")) items.push({ id: `lead-history:${h.id}`, kind: "lead", at: h.at.toISOString(), title: h.title, body: h.body, actor: h.actor, href: `/contacts/${contactId}?lead=${h.leadId}` });
+  const signals = await prisma.callbackSignal.findMany({ where: { businessId, contactId, ...(ids ? { userId: { in: ids } } : {}) }, orderBy: { requestedAt: "desc" }, take: 20 });
   const SIG: Record<string, string> = { active: "הועבר/ה לראש תור החיוג", handled: "תעדוף טופל – חויג/ה", expired: "תעדוף פג – לא חויג/ה בזמן", cancelled: "תעדוף בוטל", scheduled: "נקבע פולואפ לפי בקשה", needs_review: "ממתין לבדיקת נציג", ineligible: "לא ניתן לתעדף" };
   for (const s of signals) items.push({ id: `signal:${s.id}`, kind: "event", at: s.updatedAt.toISOString(), title: `זמינות מוואטסאפ · ${SIG[s.status] ?? s.status}`, body: `"${s.text}"${s.reason ? ` – ${s.reason}` : ""}`, meta: { intent: s.intent, analyzer: s.analyzer } });
   for (const r of runs) {
@@ -54,8 +60,15 @@ export async function contactTimeline(user: SessionUser, contactId: string, limi
   for (const t of tasks) items.push({ id: `task:${t.id}`, kind: "task", at: t.createdAt.toISOString(), title: `משימה · ${t.title ?? t.type} · ${t.status === "open" ? "פתוחה" : t.status === "done" ? "בוצעה" : "בוטלה"}`, body: t.note, actor: t.user.fullName, meta: { dueAt: t.dueAt.toISOString(), status: t.status, taskId: t.id } });
   for (const l of leads) items.push({ id: `lead:${l.id}`, kind: "lead", at: l.createdAt.toISOString(), title: `ליד נוצר${l.title ? ` · ${l.title}` : ""} · ${l.status}`, body: l.source ? `מקור: ${l.source}` : null, actor: l.owner?.fullName ?? null, href: `/leads/${l.id}` });
   for (const d of deals) items.push({ id: `deal:${d.id}`, kind: "deal", at: d.createdAt.toISOString(), title: `עסקה · ${d.title} · ${d.stage}`, body: `${d.amount.toString()} ${d.currency}`, actor: d.owner?.fullName ?? null, href: `/deals/${d.id}` });
+  const { LEAD_STATUS_LABEL } = await import("./labels");
+  const st = (s: unknown) => LEAD_STATUS_LABEL[s as keyof typeof LEAD_STATUS_LABEL] ?? String(s ?? "");
   for (const e of events) {
     const p = (e.payload ?? {}) as Record<string, unknown>;
+    if (e.type === "lead.status_changed") {
+      if (p.reason === "transfer") continue; // shown as "נפתח מחדש כליד חדש" from the lead history
+      items.push({ id: `event:${e.id}`, kind: "lead", at: e.occurredAt.toISOString(), title: `סטטוס ליד: ${st(p.from)} ← ${st(p.to)}`, body: null, meta: p });
+      continue;
+    }
     items.push({ id: `event:${e.id}`, kind: "event", at: e.occurredAt.toISOString(), title: e.type === "contact.suppressed" ? `הסרה מדיוור (${p.scope === "all" ? "לא ליצור קשר" : "שיווקי"}) · מקור: ${p.source}` : e.type === "contact.resubscribed" ? "הסכמה מחודשת לדיוור" : e.type, body: typeof p.reason === "string" ? p.reason : null, meta: p });
   }
   items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));

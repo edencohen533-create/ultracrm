@@ -100,8 +100,9 @@ export function TransferModal({ leadIds, users, currentOwnerId, onClose, onDone 
   async function go() {
     setBusy(true);
     try {
-      const r = await api.post<{ transferred: string[]; pending: string[]; unchanged: string[]; notFound: string[]; to: { fullName: string } }>("/api/leads/transfer", { leadIds, toUserId: to });
+      const r = await api.post<{ transferred: string[]; reopened?: string[]; pending: string[]; unchanged: string[]; notFound: string[]; to: { fullName: string } }>("/api/leads/transfer", { leadIds, toUserId: to });
       if (r.transferred.length) toast.success(`${r.transferred.length === 1 ? "הליד הועבר" : `${r.transferred.length} לידים הועברו`} ל${r.to.fullName}`);
+      if (r.reopened?.length) toast.message(`${r.reopened.length === 1 ? "הליד היה במצב אבוד ויופיע" : `${r.reopened.length} לידים אבודים יופיעו`} אצל ${r.to.fullName} כליד חדש. ההיסטוריה המלאה נשמרה בכרטיס הליד.`, { duration: 8000 });
       if (r.pending.length) toast.message(`${r.pending.length === 1 ? "הליד נמצא" : `${r.pending.length} לידים נמצאים`} בשיחה פעילה – ההעברה תתבצע מיד בסיום השיחה, בלי לנתק אותה.`, { duration: 8000 });
       if (r.notFound.length) toast.error(`${r.notFound.length} לידים לא נמצאו או שאין הרשאה`);
       onDone(); onClose();
@@ -112,7 +113,7 @@ export function TransferModal({ leadIds, users, currentOwnerId, onClose, onDone 
       footer={<><Button variant="ghost" onClick={onClose} disabled={busy}>ביטול</Button><Button onClick={go} loading={busy} disabled={!to} data-testid="transfer-submit">העבר</Button></>}>
       <div className="space-y-3" data-testid="transfer-modal">
         <Select label="נציג יעד" value={to} onChange={(e) => setTo(e.target.value)} data-testid="transfer-to"><option value="">בחר נציג פעיל</option>{targets.filter((u) => u.id !== currentOwnerId).map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select>
-        <p className="text-xs text-muted">הליד יוסר מיד מהרשימה ומתור החיוג של הנציג הקודם, וגישתו אליו תיחסם. הנציג החדש יקבל את כל ההערות, השיחות, ניסיונות החיוג והפולואפים (באותו מועד). ליד שנמצא בשיחה פעילה יועבר בסיום השיחה.</p>
+        <p className="text-xs text-muted">הליד יוסר מיד מהרשימה ומתור החיוג של הנציג הקודם, וגישתו אליו תיחסם. הנציג החדש יקבל את כל ההערות, השיחות, ניסיונות החיוג והפולואפים (באותו מועד). ליד שנמצא בשיחה פעילה יועבר בסיום השיחה. ליד במצב ״אבוד״ יופיע אצל הנציג החדש כ״ליד חדש״ (ספירת הניסיונות מתחילה מאפס), וכל ההיסטוריה שלו נשמרת ומתועדת בכרטיס הליד.</p>
       </div>
     </Modal>
   );

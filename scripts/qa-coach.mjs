@@ -21,7 +21,7 @@ const api = async (path, method = "GET", body) => { const r = await page.request
 const stateOf = async () => (await api("/api/dialer/state")).json?.data ?? {};
 
 await step("C0 login + cleanup + enable the coach and business knowledge", async () => {
-  await page.goto(`${BASE}/login`); await page.fill('input[type="email"]', "owner@demo.local"); await page.fill('input[type="password"]', "Demo1234!"); await page.click('button[type="submit"]');
+  await page.goto(`${BASE}/login`); await page.fill('input[type="email"]', "owner@demo.local"); await page.fill('input[type="password"]', process.env.QA_PASSWORD ?? "Demo1234!"); await page.click('button[type="submit"]');
   await page.waitForURL((u) => !u.pathname.startsWith("/login"));
   for (let i = 0; i < 5; i++) { // a power session keeps dialing after a hangup – repeat until nothing is live
     const s = await stateOf();

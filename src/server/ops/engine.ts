@@ -285,11 +285,13 @@ async function executeAllocation(id: string, count: number, ctx: { via: string; 
   const snap = agents.find((a) => a.id === agent.id);
   if (!snap) return fail("הנציג אינו זמין לחלוקה");
   if (!snap.capOk) return fail("הנציג הגיע למכסת הלידים הפתוחים שלו");
-  if (p.mode !== "share") {
+  {
+    // Every mode adds leads to the agent: capacity must be known and still sufficient (never assume the agent is free).
     const cap = await agentCapacity(rec.businessId, snap);
     if (!cap.known) return fail(cap.reason ?? "הקיבולת אינה ידועה");
+    const needed = p.mode === "share" ? Math.ceil((p.sharePct / 100) * count) : count;
     // Capacity changed materially while waiting → stop and ask for an adjustment (nothing assigned).
-    if (cap.spare < count) return fail(`הקיבולת השתנתה: כעת פנויים ${cap.spare} (אושרו ${count}). יש לאשר כמות מותאמת`, "needs_adjustment", { spareNow: cap.spare, approved: count });
+    if (cap.spare < needed) return fail(`הקיבולת השתנתה: כעת פנויים ${cap.spare} (אושרו ${needed}). יש לאשר כמות מותאמת`, "needs_adjustment", { spareNow: cap.spare, approved: needed });
   }
   const loadCap = await ruleFor(rec.businessId, "load_cap");
   if (loadCap?.autonomy === "auto" && snap.untouched >= loadCap.config.maxUntouched) return fail(`לנציג ${snap.untouched} לידים שטרם טופלו (כלל עומס: ${loadCap.config.maxUntouched})`);

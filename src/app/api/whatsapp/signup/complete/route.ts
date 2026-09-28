@@ -12,6 +12,7 @@ const schema = z.object({
   wabaId: z.string().regex(/^\d+$/),
   phoneNumberId: z.string().regex(/^\d+$/),
   metaBusinessId: z.string().regex(/^\d+$/).optional(),
+  fbUserId: z.string().regex(/^\d+$/).optional(),
   label: z.string().trim().max(100).optional(),
   teamId: z.string().min(1).nullable().optional(),
 });

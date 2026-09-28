@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Badge, Button, EmptyState, ErrorState, Panel, Spinner, Textarea, cx } from "@/components/ui";
+import { useT } from "@/components/i18n/LangProvider";
 
 type Rate = { handled: number; answered: number; wins: number; rate: number | null };
 interface Cap { known: boolean; reason: string | null; shift: { start: string; end: string } | null; shiftEnd: string | null; remainingMinutes: number; pacePerHour: number | null; paceBasis: string | null; untouched: number; followUpsBeforeEnd: number; load: number; capacityLeads: number; spare: number }
@@ -15,146 +16,157 @@ interface Interp { allowedAutonomy?: string[]; kind: string | null; name: string
 interface Data { settings: { enabled: boolean; notifyWhatsApp: boolean; maxAlertsPerDay: number; cooldownMinutes: number }; timezone: string; aiConnected: boolean; rules: Rule[]; recommendations: Rec[]; team: Agent[]; impact: Array<{ id: string; agentName: string | null; at: string; approved: number | null; allocated: number; dialed: number; won: number; baselineRate: number | null; smallSample: boolean }>; log: Array<{ id: string; action: string; createdAt: string; payload: Record<string, unknown> | null; actor: { fullName: string } | null }>; lists: Array<{ id: string; name: string }>; sources: string[]; whatsappLinked: string[] }
 
 const pct = (x: number | null | undefined) => (x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`);
-const time = (s: string | null | undefined) => (s ? new Date(s).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—");
-const MODES: Array<[Proposal["mode"], string, string]> = [
-  ["extra", "לידים נוספים מעבר לחלקו הרגיל", "הנציג ממשיך לקבל את התור הרגיל שלו בחלוקה, ובנוסף מקבל את הכמות הזו מתורות של נציגים אחרים."],
-  ["priority", "קדימות בלידים החדשים הבאים", "הכמות הזו של הלידים החדשים הבאים תגיע אליו (כולל תורו הרגיל)."],
-  ["share", "חלוקה משוקללת (אחוז)", "אחוז מהלידים החדשים הבאים יגיע אליו; השאר בחלוקה הרגילה."],
+const time = (s: string | null | undefined, locale = "he-IL") => (s ? new Date(s).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : "—");
+const MODES: Array<[Proposal["mode"], string, string, string, string]> = [
+  ["extra", "לידים נוספים מעבר לחלקו הרגיל", "הנציג ממשיך לקבל את התור הרגיל שלו בחלוקה, ובנוסף מקבל את הכמות הזו מתורות של נציגים אחרים.", "Extra leads beyond their normal share", "The agent keeps getting their normal turn in distribution, and additionally receives this amount from other agents' turns."],
+  ["priority", "קדימות בלידים החדשים הבאים", "הכמות הזו של הלידים החדשים הבאים תגיע אליו (כולל תורו הרגיל).", "Priority on the next new leads", "This number of the next new leads will go to them (including their normal turn)."],
+  ["share", "חלוקה משוקללת (אחוז)", "אחוז מהלידים החדשים הבאים יגיע אליו; השאר בחלוקה הרגילה.", "Weighted distribution (percent)", "A percentage of the next new leads will go to them; the rest via normal distribution."],
 ];
-const STAGES = [["pending_manager", "אישור מנהל"], ["pending_agent", "אישור נציג"], ["active", "הקצאה פעילה"], ["completed", "הושלם"]] as const;
+const STAGES = [["pending_manager", "אישור מנהל", "Manager approval"], ["pending_agent", "אישור נציג", "Agent approval"], ["active", "הקצאה פעילה", "Active allocation"], ["completed", "הושלם", "Completed"]] as const;
 const TERMINAL: Record<string, "bad" | "warn" | "neutral"> = { rejected: "bad", expired: "warn", cancelled: "neutral", failed: "bad", needs_adjustment: "warn" };
-const STATE: Record<string, [string, "good" | "warn" | "bad" | "neutral" | "info"]> = { momentum: ["במומנטום", "good"], insufficient_data: ["אין מספיק נתונים", "neutral"], normal: ["רגיל", "neutral"], overloaded: ["עמוס", "warn"], not_available: ["לא בחלוקה", "neutral"] };
-const ACTION: Record<string, string> = { "ai_ops.sla_needs_attention": "חריגה מיעד חיוג ראשון", "ai_ops.sla_completed": "נמדד חיוג ראשון", "ai_ops.sla_cancelled": "מעקב זמן תגובה בוטל", "ai_ops.sla_delivery": "מצב משלוח התראת זמן תגובה", "ai_ops.followup_asked": "נשלחה בקשת פולואפ לנציג", "ai_ops.followup_answer": "התקבלה תשובת נציג", "ai_ops.followup_completed": "הנציג התחבר", "ai_ops.followup_expired": "בקשת פולואפ פגה", "ai_ops.followup_cancelled": "בקשת פולואפ בוטלה", "ai_ops.detected": "זוהה", "ai_ops.manager_approved": "מנהל אישר", "ai_ops.rejected": "נדחה", "ai_ops.agent_approved": "נציג אישר", "ai_ops.agent_declined": "נציג סירב", "ai_ops.allocation_started": "הקצאה הופעלה", "ai_ops.allocation_ended": "הקצאה הסתיימה – חזרה לחלוקה הרגילה", "ai_ops.lead_allocated": "ליד הוקצה במסגרת אישור", "ai_ops.expired": "פג תוקף", "ai_ops.cancelled": "בוטל", "ai_ops.failed": "לא בוצע", "ai_ops.needs_adjustment": "נדרשת התאמה", "ai_ops.transfer_executed": "ליד הועבר לנציג זמין", "ai_ops.settings_updated": "הגדרות עודכנו", "ops_rule.created": "כלל נוצר", "ops_rule.updated": "כלל עודכן", "ops_rule.deleted": "כלל נמחק" };
-const DAYS = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
+/** Rule kinds and capacity notes arrive from the server in Hebrew; English versions keyed by kind / text. */
+const KIND_EN: Record<string, string> = { momentum: "Agent on a roll", extra_leads_policy: "Extra leads with agent approval", availability: "Availability from WhatsApp", load_cap: "Stop assigning under load", approval_policy: "Approval policy" };
+const reasonEn = (r: string) => r === "שעות העבודה של הנציג לא הוגדרו – לא מניחים שהוא פנוי" ? "Agent working hours not set – not assuming availability"
+  : r === "הנציג לא במשמרת היום" ? "Agent is not on shift today"
+  : r === "אין מספיק נתונים על קצב הטיפול של הנציג" ? "Not enough data on the agent's handling pace"
+  : r.replace(/^המשמרת הסתיימה \((.*)\)$/, "Shift ended ($1)");
+const STATE: Record<string, [string, "good" | "warn" | "bad" | "neutral" | "info", string]> = { momentum: ["במומנטום", "good", "On a roll"], insufficient_data: ["אין מספיק נתונים", "neutral", "Not enough data"], normal: ["רגיל", "neutral", "Normal"], overloaded: ["עמוס", "warn", "Overloaded"], not_available: ["לא בחלוקה", "neutral", "Not in distribution"] };
+const ACTION: Record<string, [string, string]> = { "ai_ops.sla_needs_attention": ["חריגה מיעד חיוג ראשון", "First-dial deadline missed"], "ai_ops.sla_completed": ["נמדד חיוג ראשון", "First dial measured"], "ai_ops.sla_cancelled": ["מעקב זמן תגובה בוטל", "Response-time tracking cancelled"], "ai_ops.sla_delivery": ["מצב משלוח התראת זמן תגובה", "Response-time alert delivery"], "ai_ops.followup_asked": ["נשלחה בקשת פולואפ לנציג", "Follow-up request sent to agent"], "ai_ops.followup_answer": ["התקבלה תשובת נציג", "Agent replied"], "ai_ops.followup_completed": ["הנציג התחבר", "Agent connected"], "ai_ops.followup_expired": ["בקשת פולואפ פגה", "Follow-up request expired"], "ai_ops.followup_cancelled": ["בקשת פולואפ בוטלה", "Follow-up request cancelled"], "ai_ops.detected": ["זוהה", "Detected"], "ai_ops.manager_approved": ["מנהל אישר", "Manager approved"], "ai_ops.rejected": ["נדחה", "Rejected"], "ai_ops.agent_approved": ["נציג אישר", "Agent approved"], "ai_ops.agent_declined": ["נציג סירב", "Agent declined"], "ai_ops.allocation_started": ["הקצאה הופעלה", "Allocation started"], "ai_ops.allocation_ended": ["הקצאה הסתיימה – חזרה לחלוקה הרגילה", "Allocation ended – back to normal distribution"], "ai_ops.lead_allocated": ["ליד הוקצה במסגרת אישור", "Lead allocated under approval"], "ai_ops.expired": ["פג תוקף", "Expired"], "ai_ops.cancelled": ["בוטל", "Cancelled"], "ai_ops.failed": ["לא בוצע", "Not executed"], "ai_ops.needs_adjustment": ["נדרשת התאמה", "Needs adjustment"], "ai_ops.transfer_executed": ["ליד הועבר לנציג זמין", "Lead transferred to an available agent"], "ai_ops.settings_updated": ["הגדרות עודכנו", "Settings updated"], "ops_rule.created": ["כלל נוצר", "Rule created"], "ops_rule.updated": ["כלל עודכן", "Rule updated"], "ops_rule.deleted": ["כלל נמחק", "Rule deleted"] };
+const DAYS: Array<[string, string]> = [["א", "S"], ["ב", "M"], ["ג", "T"], ["ד", "W"], ["ה", "T"], ["ו", "F"], ["ש", "S"]];
 
 function Stepper({ status }: { status: string }) {
+  const t = useT();
   const idx = STAGES.findIndex(([k]) => k === status);
   const terminal = TERMINAL[status];
   return (
     <div className="flex flex-wrap items-center gap-1 text-[11px]" data-testid="ops-stepper">
-      {STAGES.map(([k, l], i) => <span key={k} className={cx("px-2 py-0.5 rounded-full border", i < idx || status === "completed" ? "bg-good/15 border-good/40 text-good" : i === idx ? "bg-accent text-white border-accent font-semibold" : "border-line text-muted")}>{l}</span>)}
-      {terminal && <Badge tone={terminal}>{({ rejected: "נדחה", expired: "פג תוקף", cancelled: "בוטל", failed: "לא בוצע", needs_adjustment: "נדרשת התאמה" } as Record<string, string>)[status]}</Badge>}
+      {STAGES.map(([k, l, en], i) => <span key={k} className={cx("px-2 py-0.5 rounded-full border", i < idx || status === "completed" ? "bg-good/15 border-good/40 text-good" : i === idx ? "bg-accent text-white border-accent font-semibold" : "border-line text-muted")}>{t(l, en)}</span>)}
+      {terminal && <Badge tone={terminal}>{t(({ rejected: "נדחה", expired: "פג תוקף", cancelled: "בוטל", failed: "לא בוצע", needs_adjustment: "נדרשת התאמה" } as Record<string, string>)[status], ({ rejected: "Rejected", expired: "Expired", cancelled: "Cancelled", failed: "Not executed", needs_adjustment: "Needs adjustment" } as Record<string, string>)[status])}</Badge>}
     </div>
   );
 }
 
 function Evidence({ r }: { r: Rec }) {
+  const t = useT();
   const a = r.evidence.agent; const c = r.evidence.capacity;
   if (!a) return null;
   return (
     <div className="grid md:grid-cols-2 gap-3 text-xs" data-testid="ops-evidence">
       <table className="w-full"><tbody className="[&_td]:py-0.5">
-        <tr><td className="text-muted">היום</td><td>{a.today.wins} סגירות / {a.today.handled} לידים שטופלו ({pct(a.today.rate)}) · {a.today.answered} שיחות נענו</td></tr>
-        <tr><td className="text-muted">ממוצע אישי</td><td>{pct(a.baseline.rate)} ({a.baseline.wins}/{a.baseline.handled} ב-{a.baseline.days} ימים)</td></tr>
-        <tr><td className="text-muted">נציגים על לידים דומים</td><td>{pct(a.peers.rate)} ({a.peers.wins}/{a.peers.handled})</td></tr>
-        <tr><td className="text-muted">גבול תחתון (ביטחון)</td><td>{pct(r.evidence.lowerBound ?? null)}</td></tr>
-        <tr><td className="text-muted">מקורות / גיל ליד</td><td>{a.sources.join(", ") || "—"} · {a.avgLeadAgeDays ?? "—"} ימים בממוצע</td></tr>
+        <tr><td className="text-muted">{t("היום", "Today")}</td><td>{t(`${a.today.wins} סגירות / ${a.today.handled} לידים שטופלו (${pct(a.today.rate)}) · ${a.today.answered} שיחות נענו`, `${a.today.wins} closed / ${a.today.handled} leads handled (${pct(a.today.rate)}) · ${a.today.answered} calls answered`)}</td></tr>
+        <tr><td className="text-muted">{t("ממוצע אישי", "Personal average")}</td><td>{t(`${pct(a.baseline.rate)} (${a.baseline.wins}/${a.baseline.handled} ב-${a.baseline.days} ימים)`, `${pct(a.baseline.rate)} (${a.baseline.wins}/${a.baseline.handled} over ${a.baseline.days} days)`)}</td></tr>
+        <tr><td className="text-muted">{t("נציגים על לידים דומים", "Agents on similar leads")}</td><td>{pct(a.peers.rate)} ({a.peers.wins}/{a.peers.handled})</td></tr>
+        <tr><td className="text-muted">{t("גבול תחתון (ביטחון)", "Lower bound (confidence)")}</td><td>{pct(r.evidence.lowerBound ?? null)}</td></tr>
+        <tr><td className="text-muted">{t("מקורות / גיל ליד", "Sources / lead age")}</td><td>{a.sources.join(", ") || "—"} · {a.avgLeadAgeDays ?? "—"} {t("ימים בממוצע", "days on average")}</td></tr>
       </tbody></table>
       {c && <table className="w-full"><tbody className="[&_td]:py-0.5">
-        <tr><td className="text-muted">משמרת</td><td>{c.shift ? `${c.shift.start}–${c.shift.end}` : "לא ידועה"} · נותרו {c.remainingMinutes} דק׳</td></tr>
-        <tr><td className="text-muted">קצב טיפול</td><td>{c.pacePerHour ?? "—"} לידים לשעה {c.paceBasis ? `(${c.paceBasis})` : ""}</td></tr>
-        <tr><td className="text-muted">עומס קיים</td><td>{c.untouched} שטרם טופלו + {c.followUpsBeforeEnd} פולואפים = {c.load}</td></tr>
-        <tr><td className="text-muted">הערכת קיבולת</td><td>{c.capacityLeads} לידים עד סוף המשמרת → פנוי ל-<b>{c.spare}</b></td></tr>
-        {c.reason && <tr><td className="text-muted">הערה</td><td>{c.reason}</td></tr>}
+        <tr><td className="text-muted">{t("משמרת", "Shift")}</td><td>{c.shift ? `${c.shift.start}–${c.shift.end}` : t("לא ידועה", "Unknown")} · {t(`נותרו ${c.remainingMinutes} דק׳`, `${c.remainingMinutes} min left`)}</td></tr>
+        <tr><td className="text-muted">{t("קצב טיפול", "Handling pace")}</td><td>{c.pacePerHour ?? "—"} {t("לידים לשעה", "leads/hour")} {c.paceBasis ? `(${c.paceBasis})` : ""}</td></tr>
+        <tr><td className="text-muted">{t("עומס קיים", "Current load")}</td><td>{t(`${c.untouched} שטרם טופלו + ${c.followUpsBeforeEnd} פולואפים = ${c.load}`, `${c.untouched} untouched + ${c.followUpsBeforeEnd} follow-ups = ${c.load}`)}</td></tr>
+        <tr><td className="text-muted">{t("הערכת קיבולת", "Capacity estimate")}</td><td>{t(`${c.capacityLeads} לידים עד סוף המשמרת → פנוי ל-`, `${c.capacityLeads} leads until end of shift → room for `)}<b>{c.spare}</b></td></tr>
+        {c.reason && <tr><td className="text-muted">{t("הערה", "Note")}</td><td>{t(c.reason, reasonEn(c.reason))}</td></tr>}
       </tbody></table>}
-      {r.evidence.interpretation && <p className="md:col-span-2 text-muted italic">פרשנות המודל: {r.evidence.interpretation}</p>}
+      {r.evidence.interpretation && <p className="md:col-span-2 text-muted italic">{t("פרשנות המודל:", "Model interpretation:")} {r.evidence.interpretation}</p>}
     </div>
   );
 }
 
 function RecCard({ r, data, onDone }: { r: Rec; data: Data; onDone: () => void }) {
+  const t = useT(); const loc = t.lang === "en" ? "en-GB" : "he-IL";
   const [edit, setEdit] = useState<Proposal>({ ...r.proposal });
   const [busy, setBusy] = useState(false);
   const act = async (action: "approve" | "reject" | "cancel") => {
     setBusy(true);
-    try { const res = await api.post<{ status: string; reason?: string }>(`/api/ops/recommendations/${r.id}`, action === "approve" && r.kind === "momentum" ? { action, edits: { mode: edit.mode, count: edit.count, sharePct: edit.sharePct, source: edit.source, listId: edit.listId, fromUnassigned: edit.fromUnassigned } } : { action }); toast.success(res.status === "pending_agent" ? "אושר – נשלחה בקשה לנציג" : res.status === "rejected" ? "נדחה" : res.status === "cancelled" ? "בוטל" : `סטטוס: ${res.status}`); onDone(); }
+    try { const res = await api.post<{ status: string; reason?: string }>(`/api/ops/recommendations/${r.id}`, action === "approve" && r.kind === "momentum" ? { action, edits: { mode: edit.mode, count: edit.count, sharePct: edit.sharePct, source: edit.source, listId: edit.listId, fromUnassigned: edit.fromUnassigned } } : { action }); toast.success(res.status === "pending_agent" ? t("אושר – נשלחה בקשה לנציג", "Approved – request sent to the agent") : res.status === "rejected" ? t("נדחה", "Rejected") : res.status === "cancelled" ? t("בוטל", "Cancelled") : t(`סטטוס: ${res.status}`, `Status: ${res.status}`)); onDone(); }
     catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
   };
   const mode = MODES.find(([k]) => k === (r.proposal.mode ?? "extra"));
   const linked = r.agentId ? data.whatsappLinked.includes(r.agentId) : false;
   return (
     <div className="rounded-lg border border-line bg-panel p-3 space-y-2" data-testid={`ops-rec-${r.id}`} data-status={r.status}>
-      <div className="flex flex-wrap items-center justify-between gap-2"><b className="text-sm">{r.title}</b><span className="text-[11px] text-muted">#{r.code} · {time(r.createdAt)}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><b className="text-sm">{r.title}</b><span className="text-[11px] text-muted">#{r.code} · {time(r.createdAt, loc)}</span></div>
       {r.kind === "momentum" && <Stepper status={r.status} />}
       <p className="text-sm">{r.explanation}</p>
-      {r.kind === "lead_response_sla" && r.proposal.leadId && <a className="text-xs underline" href={`/leads?leadId=${encodeURIComponent(r.proposal.leadId)}`}>פתח ליד לטיפול</a>}
+      {r.kind === "lead_response_sla" && r.proposal.leadId && <a className="text-xs underline" href={`/leads?leadId=${encodeURIComponent(r.proposal.leadId)}`}>{t("פתח ליד לטיפול", "Open lead")}</a>}
       {r.kind === "momentum" && <Evidence r={r} />}
       {r.kind === "momentum" && r.status !== "insight" && (
         <div className="text-xs rounded-md bg-muted-bg p-2 space-y-1" data-testid="ops-change">
-          <div><b>השינוי המדויק:</b> {mode?.[1]}{r.proposal.mode === "share" ? ` – ${r.proposal.sharePct}% מתוך ${r.proposal.count} הלידים הבאים` : ` – ${r.proposal.count} לידים`}{r.proposal.listName ? ` · קמפיין ${r.proposal.listName}` : ""}{r.proposal.source ? ` · מקור ${r.proposal.source}` : ""} · עד {time(r.proposal.until)}. <span className="text-muted">כרגע: החלוקה הרגילה (ללא שינוי) · רק לידים חדשים{r.proposal.fromUnassigned ? " + לידים ללא שיוך" : ""}; לידים של נציגים אחרים לא מועברים.</span></div>
-          <div data-testid="ops-counts">הומלצו: {r.requestedCount ?? "—"} · אושרו ע״י מנהל: {r.managerApprovedCount ?? "—"} · אושרו ע״י הנציג: {r.agentApprovedCount ?? "—"} · <b>הוקצו בפועל: {r.allocated}</b>{r.override ? ` (מתוך ${r.override.leadLimit}${r.override.mode === "share" ? ` לידים בחלון, ${r.override.assigned} אליו` : ""})` : ""}</div>
-          {r.agentReply && <div>תשובת הנציג: ״{r.agentReply}״</div>}
+          <div><b>{t("השינוי המדויק:", "Exact change:")}</b> {mode ? t(mode[1], mode[3]) : undefined}{r.proposal.mode === "share" ? t(` – ${r.proposal.sharePct}% מתוך ${r.proposal.count} הלידים הבאים`, ` – ${r.proposal.sharePct}% of the next ${r.proposal.count} leads`) : t(` – ${r.proposal.count} לידים`, ` – ${r.proposal.count} leads`)}{r.proposal.listName ? t(` · קמפיין ${r.proposal.listName}`, ` · Campaign ${r.proposal.listName}`) : ""}{r.proposal.source ? t(` · מקור ${r.proposal.source}`, ` · Source ${r.proposal.source}`) : ""} · {t("עד", "until")} {time(r.proposal.until, loc)}. <span className="text-muted">{t("כרגע: החלוקה הרגילה (ללא שינוי) · רק לידים חדשים", "Currently: normal distribution (unchanged) · new leads only")}{r.proposal.fromUnassigned ? t(" + לידים ללא שיוך", " + unassigned leads") : ""}{t("; לידים של נציגים אחרים לא מועברים.", "; other agents' leads are not moved.")}</span></div>
+          <div data-testid="ops-counts">{t("הומלצו:", "Recommended:")} {r.requestedCount ?? "—"} · {t("אושרו ע״י מנהל:", "Manager approved:")} {r.managerApprovedCount ?? "—"} · {t("אושרו ע״י הנציג:", "Agent approved:")} {r.agentApprovedCount ?? "—"} · <b>{t("הוקצו בפועל:", "Actually allocated:")} {r.allocated}</b>{r.override ? t(` (מתוך ${r.override.leadLimit}${r.override.mode === "share" ? ` לידים בחלון, ${r.override.assigned} אליו` : ""})`, ` (of ${r.override.leadLimit}${r.override.mode === "share" ? ` leads in the window, ${r.override.assigned} to them` : ""})`) : ""}</div>
+          {r.agentReply && <div>{t("תשובת הנציג:", "Agent's reply:")} ״{r.agentReply}״</div>}
           {r.result?.reason && <div className="text-warn">{r.result.reason}</div>}
         </div>
       )}
       {r.status === "pending_manager" && r.kind === "momentum" && (
         <div className="space-y-2 border-t border-line pt-2" data-testid="ops-edit">
-          <div className="grid md:grid-cols-3 gap-2">{MODES.map(([k, l, h]) => <label key={k} className={cx("rounded-md border p-2 text-xs cursor-pointer", edit.mode === k ? "border-accent bg-accent/5" : "border-line")}><input type="radio" name={`mode-${r.id}`} checked={edit.mode === k} onChange={() => setEdit({ ...edit, mode: k })} className="me-1" /><b>{l}</b><div className="text-muted mt-1">{h}</div></label>)}</div>
+          <div className="grid md:grid-cols-3 gap-2">{MODES.map(([k, l, h, lEn, hEn]) => <label key={k} className={cx("rounded-md border p-2 text-xs cursor-pointer", edit.mode === k ? "border-accent bg-accent/5" : "border-line")}><input type="radio" name={`mode-${r.id}`} checked={edit.mode === k} onChange={() => setEdit({ ...edit, mode: k })} className="me-1" /><b>{t(l, lEn)}</b><div className="text-muted mt-1">{t(h, hEn)}</div></label>)}</div>
           <div className="flex flex-wrap items-end gap-2 text-xs">
-            <label>כמות לידים<input type="number" min={1} max={100} value={edit.count} onChange={(e) => setEdit({ ...edit, count: Number(e.target.value) })} className="block h-8 w-20 rounded border border-line bg-bg px-2" data-testid="ops-count" /></label>
-            {edit.mode === "share" && <label>אחוז<input type="number" min={10} max={100} value={edit.sharePct} onChange={(e) => setEdit({ ...edit, sharePct: Number(e.target.value) })} className="block h-8 w-20 rounded border border-line bg-bg px-2" /></label>}
-            <label>קמפיין (לתור החיוג)<select value={edit.listId ?? ""} onChange={(e) => setEdit({ ...edit, listId: e.target.value || null })} className="block h-8 rounded border border-line bg-bg px-2"><option value="">ללא</option>{data.lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
-            <label>מקור ליד<select value={edit.source ?? ""} onChange={(e) => setEdit({ ...edit, source: e.target.value || null })} className="block h-8 rounded border border-line bg-bg px-2"><option value="">כל המקורות</option>{data.sources.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
-            {edit.mode !== "share" && <label className="flex items-center gap-1"><input type="checkbox" checked={edit.fromUnassigned} onChange={(e) => setEdit({ ...edit, fromUnassigned: e.target.checked })} />להתחיל מלידים קיימים ללא שיוך</label>}
+            <label>{t("כמות לידים", "Number of leads")}<input type="number" min={1} max={100} value={edit.count} onChange={(e) => setEdit({ ...edit, count: Number(e.target.value) })} className="block h-8 w-20 rounded border border-line bg-bg px-2" data-testid="ops-count" /></label>
+            {edit.mode === "share" && <label>{t("אחוז", "Percent")}<input type="number" min={10} max={100} value={edit.sharePct} onChange={(e) => setEdit({ ...edit, sharePct: Number(e.target.value) })} className="block h-8 w-20 rounded border border-line bg-bg px-2" /></label>}
+            <label>{t("קמפיין (לתור החיוג)", "Campaign (for the dial queue)")}<select value={edit.listId ?? ""} onChange={(e) => setEdit({ ...edit, listId: e.target.value || null })} className="block h-8 rounded border border-line bg-bg px-2"><option value="">{t("ללא", "None")}</option>{data.lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
+            <label>{t("מקור ליד", "Lead source")}<select value={edit.source ?? ""} onChange={(e) => setEdit({ ...edit, source: e.target.value || null })} className="block h-8 rounded border border-line bg-bg px-2"><option value="">{t("כל המקורות", "All sources")}</option>{data.sources.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+            {edit.mode !== "share" && <label className="flex items-center gap-1"><input type="checkbox" checked={edit.fromUnassigned} onChange={(e) => setEdit({ ...edit, fromUnassigned: e.target.checked })} />{t("להתחיל מלידים קיימים ללא שיוך", "Start with existing unassigned leads")}</label>}
           </div>
-          <p className="text-[11px] text-muted">אישור מנהל <b>לא מקצה עדיין</b> – הנציג יישאל {linked ? "בוואטסאפ ובמערכת" : "במערכת (אין לו וואטסאפ מאומת)"} אם יספיק לטפל בהם היום, וההקצאה תופעל רק אחרי שיאשר (עד הכמות שאישרת).</p>
-          <div className="flex gap-2"><Button size="sm" loading={busy} onClick={() => act("approve")} data-testid="ops-approve">אישור</Button><Button size="sm" variant="secondary" loading={busy} onClick={() => act("reject")} data-testid="ops-reject">דחייה</Button></div>
+          <p className="text-[11px] text-muted">{t("אישור מנהל", "Manager approval")} <b>{t("לא מקצה עדיין", "does not allocate yet")}</b> – {t("הנציג יישאל", "the agent will be asked")} {linked ? t("בוואטסאפ ובמערכת", "on WhatsApp and in the app") : t("במערכת (אין לו וואטסאפ מאומת)", "in the app (no verified WhatsApp)")} {t("אם יספיק לטפל בהם היום, וההקצאה תופעל רק אחרי שיאשר (עד הכמות שאישרת).", "whether they can handle them today, and the allocation starts only after they confirm (up to the amount you approved).")}</p>
+          <div className="flex gap-2"><Button size="sm" loading={busy} onClick={() => act("approve")} data-testid="ops-approve">{t("אישור", "Approve")}</Button><Button size="sm" variant="secondary" loading={busy} onClick={() => act("reject")} data-testid="ops-reject">{t("דחייה", "Reject")}</Button></div>
         </div>
       )}
-      {r.status === "pending_manager" && r.kind !== "momentum" && <div className="flex gap-2"><Button size="sm" loading={busy} onClick={() => act("approve")} data-testid="ops-approve">אישור</Button><Button size="sm" variant="secondary" loading={busy} onClick={() => act("reject")}>דחייה</Button></div>}
-      {r.status === "pending_agent" && <div className="flex flex-wrap items-center gap-2 text-xs"><span>ממתין לתשובת {r.agentName} עד {time(r.expiresAt)} · {r.result?.agentRequest?.delivery === "sent" ? "נשלח בוואטסאפ" : r.result?.agentRequest?.delivery === "template" ? "נשלחה התראה בוואטסאפ (תבנית)" : `במערכת בלבד${r.result?.agentRequest?.detail ? ` (${r.result.agentRequest.detail})` : ""}`}. {r.kind === "followup_checkin" ? "הליד נשאר אצל הנציג עד להחלטה." : "בזמן ההמתנה החלוקה הרגילה ממשיכה."}</span><Button size="sm" variant="ghost" loading={busy} onClick={() => act("cancel")}>ביטול</Button></div>}
+      {r.status === "pending_manager" && r.kind !== "momentum" && <div className="flex gap-2"><Button size="sm" loading={busy} onClick={() => act("approve")} data-testid="ops-approve">{t("אישור", "Approve")}</Button><Button size="sm" variant="secondary" loading={busy} onClick={() => act("reject")}>{t("דחייה", "Reject")}</Button></div>}
+      {r.status === "pending_agent" && <div className="flex flex-wrap items-center gap-2 text-xs"><span>{t(`ממתין לתשובת ${r.agentName} עד ${time(r.expiresAt, loc)}`, `Waiting for ${r.agentName}'s reply until ${time(r.expiresAt, loc)}`)} · {r.result?.agentRequest?.delivery === "sent" ? t("נשלח בוואטסאפ", "Sent on WhatsApp") : r.result?.agentRequest?.delivery === "template" ? t("נשלחה התראה בוואטסאפ (תבנית)", "WhatsApp notification sent (template)") : t(`במערכת בלבד${r.result?.agentRequest?.detail ? ` (${r.result.agentRequest.detail})` : ""}`, `In-app only${r.result?.agentRequest?.detail ? ` (${r.result.agentRequest.detail})` : ""}`)}. {r.kind === "followup_checkin" ? t("הליד נשאר אצל הנציג עד להחלטה.", "The lead stays with the agent until a decision.") : t("בזמן ההמתנה החלוקה הרגילה ממשיכה.", "Normal distribution continues while waiting.")}</span><Button size="sm" variant="ghost" loading={busy} onClick={() => act("cancel")}>{t("ביטול", "Cancel")}</Button></div>}
       {["followup_checkin", "lead_response_sla"].includes(r.kind) && r.result?.reason && <p className="text-xs text-muted">{r.result.reason}</p>}
-      {r.status === "waiting_connection" && <p className="text-xs">הנציג אמר שיתחבר. נבדוק התחברות בפועל עד {time(r.expiresAt)}; אם לא יתחבר, תתקבל התראה ללא העברה אוטומטית.</p>}
-      {r.status === "active" && <div className="flex flex-wrap items-center gap-2 text-xs"><span>הקצאה פעילה עד {time(r.override?.expiresAt)} · {r.override?.assigned ?? 0}/{r.override?.leadLimit ?? 0}</span><Button size="sm" variant="ghost" loading={busy} onClick={() => act("cancel")} data-testid="ops-cancel">עצור הקצאה</Button><span className="text-muted">(לידים שכבר הוקצו נשארים אצל הנציג)</span></div>}
+      {r.status === "waiting_connection" && <p className="text-xs">{t(`הנציג אמר שיתחבר. נבדוק התחברות בפועל עד ${time(r.expiresAt, loc)}; אם לא יתחבר, תתקבל התראה ללא העברה אוטומטית.`, `The agent said they will connect. We will check for an actual connection until ${time(r.expiresAt, loc)}; if they don't connect, you will get an alert with no automatic transfer.`)}</p>}
+      {r.status === "active" && <div className="flex flex-wrap items-center gap-2 text-xs"><span>{t("הקצאה פעילה עד", "Allocation active until")} {time(r.override?.expiresAt, loc)} · {r.override?.assigned ?? 0}/{r.override?.leadLimit ?? 0}</span><Button size="sm" variant="ghost" loading={busy} onClick={() => act("cancel")} data-testid="ops-cancel">{t("עצור הקצאה", "Stop allocation")}</Button><span className="text-muted">{t("(לידים שכבר הוקצו נשארים אצל הנציג)", "(leads already allocated stay with the agent)")}</span></div>}
     </div>
   );
 }
 
 function RuleForm({ rule, onSaved }: { rule: Rule; onSaved: () => void }) {
+  const t = useT();
   const [cfg, setCfg] = useState<Record<string, unknown>>(rule.config);
   const enumOf: Record<string, string[]> = { mode: ["extra", "priority", "share"], fallback: ["alert_manager", "transfer_to_available", "none"], confidence: ["0.8", "0.9", "0.95"] };
-  const save = async () => { try { await api.patch(`/api/ops/rules/${rule.id}`, { config: cfg }); toast.success("הכלל עודכן"); onSaved(); } catch (e) { toast.error((e as Error).message); } };
+  const save = async () => { try { await api.patch(`/api/ops/rules/${rule.id}`, { config: cfg }); toast.success(t("הכלל עודכן", "Rule updated")); onSaved(); } catch (e) { toast.error((e as Error).message); } };
   return (
     <div className="flex flex-wrap items-end gap-2 text-xs border-t border-line pt-2">
       {Object.entries(cfg).map(([k, v]) => (
-        <label key={k} className="flex flex-col">{({ minutes: "דקות לחיוג ראשון", requestMinutes: "דקות להמתנה לתשובה", connectMinutes: "דקות להתחברות לחייגן" } as Record<string, string>)[k] ?? k}
+        <label key={k} className="flex flex-col">{t(...(({ minutes: ["דקות לחיוג ראשון", "Minutes to first dial"], requestMinutes: ["דקות להמתנה לתשובה", "Minutes to wait for a reply"], connectMinutes: ["דקות להתחברות לחייגן", "Minutes to connect to the dialer"] } as Record<string, [string, string]>)[k] ?? [k, k]))}
           {typeof v === "boolean" ? <input type="checkbox" checked={v} onChange={(e) => setCfg({ ...cfg, [k]: e.target.checked })} />
             : enumOf[k] ? <select value={String(v)} onChange={(e) => setCfg({ ...cfg, [k]: k === "confidence" ? Number(e.target.value) : e.target.value })} className="h-8 rounded border border-line bg-bg px-1">{enumOf[k].map((o) => <option key={o}>{o}</option>)}</select>
-            : Array.isArray(v) ? <span>{(["assignment", "ownership"]).map((o) => <label key={o} className="me-2"><input type="checkbox" checked={(v as string[]).includes(o)} onChange={(e) => setCfg({ ...cfg, [k]: e.target.checked ? [...(v as string[]), o] : (v as string[]).filter((x) => x !== o) })} /> {o === "assignment" ? "חלוקה" : "בעלות"}</label>)}</span>
+            : Array.isArray(v) ? <span>{(["assignment", "ownership"]).map((o) => <label key={o} className="me-2"><input type="checkbox" checked={(v as string[]).includes(o)} onChange={(e) => setCfg({ ...cfg, [k]: e.target.checked ? [...(v as string[]), o] : (v as string[]).filter((x) => x !== o) })} /> {o === "assignment" ? t("חלוקה", "Distribution") : t("בעלות", "Ownership")}</label>)}</span>
             : typeof v === "number" ? <input type="number" value={v} onChange={(e) => setCfg({ ...cfg, [k]: Number(e.target.value) })} className="h-8 w-20 rounded border border-line bg-bg px-1" />
             : <input value={String(v ?? "")} onChange={(e) => setCfg({ ...cfg, [k]: e.target.value || null })} className="h-8 w-32 rounded border border-line bg-bg px-1" />}
         </label>
       ))}
-      <Button size="sm" onClick={save}>שמור</Button>
+      <Button size="sm" onClick={save}>{t("שמור", "Save")}</Button>
     </div>
   );
 }
 
 function RuleBuilder({ onSaved }: { onSaved: () => void }) {
+  const t = useT();
   const [text, setText] = useState(""); const [busy, setBusy] = useState(false);
   const [it, setIt] = useState<Interp | null>(null); const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const interpret = async () => { setBusy(true); try { const r = await api.post<Interp>("/api/ops/rules/interpret", { text }); setIt(r); setAnswers(Object.fromEntries(r.questions.filter((q) => q.field !== "kind" && q.field !== "config").map((q) => [q.field, q.proposed]))); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); } };
   const save = async () => {
     if (!it?.kind) return;
-    try { await api.post("/api/ops/rules", { kind: it.kind, name: it.name, config: { ...it.config, ...answers }, autonomy: it.autonomy, sourceText: text, priority: 40 }); toast.success("הכלל נשמר והופעל"); setIt(null); setText(""); onSaved(); }
+    try { await api.post("/api/ops/rules", { kind: it.kind, name: it.name, config: { ...it.config, ...answers }, autonomy: it.autonomy, sourceText: text, priority: 40 }); toast.success(t("הכלל נשמר והופעל", "Rule saved and activated")); setIt(null); setText(""); onSaved(); }
     catch (e) { toast.error((e as Error).message); }
   };
   return (
     <div className="space-y-2" data-testid="ops-rule-builder">
-      <Textarea label="כתוב כלל במילים שלך" rows={2} value={text} onChange={(e) => { setText(e.target.value); setIt(null); }} placeholder="למשל: כשמגיע פולואפ והנציג לא מחובר לחייגן, שאל אותו בוואטסאפ אם הוא מתחבר או רוצה להעביר לנציג אחר." data-testid="ops-rule-text" />
-      <p className="text-xs text-muted">אפשר לכתוב כאן הוראות קבועות. רק חוק נתמך שתאשר יופעל; בקשה שאינה נתמכת תוצג במפורש ככזו שדורשת פיתוח. הכללים אינם משנים את סדר תור העבודה שהגדרת.</p>
-      <Button size="sm" loading={busy} disabled={text.trim().length < 5} onClick={interpret} data-testid="ops-rule-interpret">הבן את הכלל</Button>
+      <Textarea label={t("כתוב כלל במילים שלך", "Write a rule in your own words")} rows={2} value={text} onChange={(e) => { setText(e.target.value); setIt(null); }} placeholder={t("למשל: כשמגיע פולואפ והנציג לא מחובר לחייגן, שאל אותו בוואטסאפ אם הוא מתחבר או רוצה להעביר לנציג אחר.", "e.g. When a follow-up is due and the agent is not connected to the dialer, ask them on WhatsApp whether they are connecting or want to transfer to another agent.")} data-testid="ops-rule-text" />
+      <p className="text-xs text-muted">{t("אפשר לכתוב כאן הוראות קבועות. רק חוק נתמך שתאשר יופעל; בקשה שאינה נתמכת תוצג במפורש ככזו שדורשת פיתוח. הכללים אינם משנים את סדר תור העבודה שהגדרת.", "You can write standing instructions here. Only a supported rule you approve is activated; an unsupported request is shown explicitly as needing development. Rules do not change the work-queue order you set.")}</p>
+      <Button size="sm" loading={busy} disabled={text.trim().length < 5} onClick={interpret} data-testid="ops-rule-interpret">{t("הבן את הכלל", "Interpret rule")}</Button>
       {it && (
         <div className="rounded-md border border-line p-3 text-sm space-y-2" data-testid="ops-rule-preview">
-          {!it.kind && <p className="text-warn" data-testid="ops-rule-unsupported">{it.note ?? "הכלל לא נשמר ולא הופעל. נדרש בירור או פיתוח יכולת חדשה."}</p>}
+          {!it.kind && <p className="text-warn" data-testid="ops-rule-unsupported">{it.note ?? t("הכלל לא נשמר ולא הופעל. נדרש בירור או פיתוח יכולת חדשה.", "The rule was not saved or activated. It needs clarification or a new capability.")}</p>}
           {it.kind && it.summary ? <>
-            <div className="flex items-center gap-2"><b>{it.name}</b><Badge tone="info">{it.analyzer === "ai" ? "פוענח ע״י המודל" : "פוענח לפי תבניות"}</Badge></div>
-            <p className="text-xs text-muted">הפירוש הראשוני מוצג כאן. הערכים ואופן האישור שתבחר למטה הם שיישמרו:</p>
-            <dl className="grid grid-cols-[110px_1fr] gap-x-2 gap-y-1 text-xs">{Object.entries({ trigger: "טריגר", conditions: "תנאים", action: "פעולה", scope: "היקף", validity: "תוקף", limits: "מגבלות", approval: "אופן אישור" }).map(([k, l]) => <Fragment key={k}><dt className="text-muted">{l}</dt><dd>{it.summary![k]}</dd></Fragment>)}</dl>
+            <div className="flex items-center gap-2"><b>{it.name}</b><Badge tone="info">{it.analyzer === "ai" ? t("פוענח ע״י המודל", "Interpreted by the model") : t("פוענח לפי תבניות", "Interpreted by patterns")}</Badge></div>
+            <p className="text-xs text-muted">{t("הפירוש הראשוני מוצג כאן. הערכים ואופן האישור שתבחר למטה הם שיישמרו:", "The initial interpretation is shown here. The values and approval mode you choose below are what will be saved:")}</p>
+            <dl className="grid grid-cols-[110px_1fr] gap-x-2 gap-y-1 text-xs">{Object.entries({ trigger: ["טריגר", "Trigger"], conditions: ["תנאים", "Conditions"], action: ["פעולה", "Action"], scope: ["היקף", "Scope"], validity: ["תוקף", "Validity"], limits: ["מגבלות", "Limits"], approval: ["אופן אישור", "Approval mode"] }).map(([k, [l, en]]) => <Fragment key={k}><dt className="text-muted">{t(l, en)}</dt><dd>{it.summary![k]}</dd></Fragment>)}</dl>
             {it.note && <p className="text-xs text-warn">{it.note}</p>}
           </> : null}
           {it.questions.length > 0 && <div className="space-y-1" data-testid="ops-rule-questions">{it.questions.map((q) => <label key={q.field} className="block text-xs"><span className="text-warn">❓ {q.question}</span>{q.field !== "kind" && q.field !== "config" && <input className="ms-2 h-7 w-24 rounded border border-line bg-bg px-1" value={String(answers[q.field] ?? "")} onChange={(e) => setAnswers({ ...answers, [q.field]: typeof q.proposed === "number" ? Number(e.target.value) : e.target.value })} />}</label>)}</div>}
-          {it.kind && <div className="flex items-center gap-2"><select className="h-8 rounded border border-line bg-bg px-2 text-xs" value={it.autonomy} onChange={(e) => setIt({ ...it, autonomy: e.target.value })}>{(it.allowedAutonomy ?? [it.autonomy]).map(x => <option key={x} value={x}>{({ insight: "תובנה בלבד", recommend: "המלצה באישור", auto: "ביצוע אוטומטי בגבולות" } as Record<string,string>)[x]}</option>)}</select><Button size="sm" onClick={save} data-testid="ops-rule-save">אשר והפעל</Button><Button size="sm" variant="ghost" onClick={() => setIt(null)}>ביטול</Button></div>}
+          {it.kind && <div className="flex items-center gap-2"><select className="h-8 rounded border border-line bg-bg px-2 text-xs" value={it.autonomy} onChange={(e) => setIt({ ...it, autonomy: e.target.value })}>{(it.allowedAutonomy ?? [it.autonomy]).map(x => <option key={x} value={x}>{t(...(({ insight: ["תובנה בלבד", "Insight only"], recommend: ["המלצה באישור", "Recommend with approval"], auto: ["ביצוע אוטומטי בגבולות", "Automatic within limits"] } as Record<string, [string, string]>)[x] ?? [x, x]))}</option>)}</select><Button size="sm" onClick={save} data-testid="ops-rule-save">{t("אשר והפעל", "Approve & activate")}</Button><Button size="sm" variant="ghost" onClick={() => setIt(null)}>{t("ביטול", "Cancel")}</Button></div>}
         </div>
       )}
     </div>
@@ -162,24 +174,26 @@ function RuleBuilder({ onSaved }: { onSaved: () => void }) {
 }
 
 function ShiftCell({ a, onSaved }: { a: Agent; onSaved: () => void }) {
+  const t = useT();
   const [open, setOpen] = useState(false); const [v, setV] = useState(a.shift ?? { start: "09:00", end: "17:00", days: [0, 1, 2, 3, 4] });
-  const save = async (value: typeof v | null) => { try { await api.patch("/api/ops/settings", { shift: { userId: a.id, value } }); toast.success("המשמרת נשמרה"); setOpen(false); onSaved(); } catch (e) { toast.error((e as Error).message); } };
-  if (!open) return <button className="underline text-xs" onClick={() => setOpen(true)} data-testid={`ops-shift-${a.id}`}>{a.shift ? `${a.shift.start}–${a.shift.end}` : "הגדר משמרת"}</button>;
+  const save = async (value: typeof v | null) => { try { await api.patch("/api/ops/settings", { shift: { userId: a.id, value } }); toast.success(t("המשמרת נשמרה", "Shift saved")); setOpen(false); onSaved(); } catch (e) { toast.error((e as Error).message); } };
+  if (!open) return <button className="underline text-xs" onClick={() => setOpen(true)} data-testid={`ops-shift-${a.id}`}>{a.shift ? `${a.shift.start}–${a.shift.end}` : t("הגדר משמרת", "Set shift")}</button>;
   return (
     <div className="flex flex-wrap items-center gap-1 text-xs">
       <input type="time" value={v.start} onChange={(e) => setV({ ...v, start: e.target.value })} className="h-7 rounded border border-line bg-bg px-1 ltr" />–<input type="time" value={v.end} onChange={(e) => setV({ ...v, end: e.target.value })} className="h-7 rounded border border-line bg-bg px-1 ltr" />
-      {DAYS.map((d, i) => <button key={i} className={cx("w-6 h-6 rounded border", v.days.includes(i) ? "bg-accent text-white border-accent" : "border-line")} onClick={() => setV({ ...v, days: v.days.includes(i) ? v.days.filter((x) => x !== i) : [...v.days, i].sort() })}>{d}</button>)}
-      <Button size="sm" onClick={() => save(v)} data-testid="ops-shift-save">שמור</Button>{a.shift && <Button size="sm" variant="ghost" onClick={() => save(null)}>הסר</Button>}
+      {DAYS.map(([dHe, dEn], i) => <button key={i} className={cx("w-6 h-6 rounded border", v.days.includes(i) ? "bg-accent text-white border-accent" : "border-line")} onClick={() => setV({ ...v, days: v.days.includes(i) ? v.days.filter((x) => x !== i) : [...v.days, i].sort() })}>{t(dHe, dEn)}</button>)}
+      <Button size="sm" onClick={() => save(v)} data-testid="ops-shift-save">{t("שמור", "Save")}</Button>{a.shift && <Button size="sm" variant="ghost" onClick={() => save(null)}>{t("הסר", "Remove")}</Button>}
     </div>
   );
 }
 
 /** "מנהל AI": recommendations with the numbers behind them, approvals, active allocations, rules, team today, log, impact. */
 export function OpsTab() {
+  const t = useT(); const loc = t.lang === "en" ? "en-GB" : "he-IL";
   const [d, setD] = useState<Data | null>(null); const [err, setErr] = useState<string | null>(null); const [checking, setChecking] = useState(false);
   const [editRule, setEditRule] = useState<string | null>(null);
   const load = useCallback(async () => { try { setD(await api.get<Data>("/api/ops")); setErr(null); } catch (e) { setErr((e as Error).message); } }, []);
-  useEffect(() => { void load(); const t = setInterval(() => void load(), 20_000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { void load(); const iv = setInterval(() => void load(), 20_000); return () => clearInterval(iv); }, [load]);
   if (err) return <ErrorState message={err} retry={load} />;
   if (!d) return <div className="py-16 flex justify-center"><Spinner /></div>;
   const open = d.recommendations.filter((r) => ["pending_manager", "pending_agent", "waiting_connection", "needs_attention", "active", "needs_adjustment"].includes(r.status));
@@ -190,54 +204,54 @@ export function OpsTab() {
   return (
     <div className="space-y-4" data-testid="ops-tab">
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <label className="flex items-center gap-1"><input type="checkbox" checked={d.settings.enabled} onChange={(e) => setting({ enabled: e.target.checked })} /> מנהל AI פעיל</label>
-        <label className="flex items-center gap-1"><input type="checkbox" checked={d.settings.notifyWhatsApp} onChange={(e) => setting({ notifyWhatsApp: e.target.checked })} /> התראות ואישורים בוואטסאפ (למספרים מאומתים)</label>
-        <span className="text-xs text-muted">עד {d.settings.maxAlertsPerDay} התראות ביום · צינון {d.settings.cooldownMinutes} דק׳</span>
-        {!d.aiConnected && <Badge tone="warn">ללא מודל: המספרים והטקסטים מחושבים בקוד; פענוח כללים לפי תבניות</Badge>}
-        <Button size="sm" variant="secondary" className="ms-auto" loading={checking} onClick={async () => { setChecking(true); try { await api.post("/api/ops/evaluate", {}); await load(); } finally { setChecking(false); } }} data-testid="ops-evaluate">בדוק עכשיו</Button>
+        <label className="flex items-center gap-1"><input type="checkbox" checked={d.settings.enabled} onChange={(e) => setting({ enabled: e.target.checked })} /> {t("מנהל AI פעיל", "AI Manager active")}</label>
+        <label className="flex items-center gap-1"><input type="checkbox" checked={d.settings.notifyWhatsApp} onChange={(e) => setting({ notifyWhatsApp: e.target.checked })} /> {t("התראות ואישורים בוואטסאפ (למספרים מאומתים)", "Alerts and approvals on WhatsApp (verified numbers)")}</label>
+        <span className="text-xs text-muted">{t(`עד ${d.settings.maxAlertsPerDay} התראות ביום · צינון ${d.settings.cooldownMinutes} דק׳`, `Up to ${d.settings.maxAlertsPerDay} alerts/day · ${d.settings.cooldownMinutes} min cooldown`)}</span>
+        {!d.aiConnected && <Badge tone="warn">{t("ללא מודל: המספרים והטקסטים מחושבים בקוד; פענוח כללים לפי תבניות", "No model: numbers and texts are computed in code; rules interpreted by patterns")}</Badge>}
+        <Button size="sm" variant="secondary" className="ms-auto" loading={checking} onClick={async () => { setChecking(true); try { await api.post("/api/ops/evaluate", {}); await load(); } finally { setChecking(false); } }} data-testid="ops-evaluate">{t("בדוק עכשיו", "Check now")}</Button>
       </div>
 
-      <Panel title={`המלצות ובקשות פתוחות (${open.length})`}>
-        {open.length ? <div className="space-y-3">{open.map((r) => <RecCard key={r.id} r={r} data={d} onDone={load} />)}</div> : <EmptyState title="אין המלצות פתוחות" hint="המערכת בודקת את הכללים הפעילים כל 2 דקות. בקשות והתראות יופיעו כאן כשיתקיימו תנאי הכלל." />}
+      <Panel title={t(`המלצות ובקשות פתוחות (${open.length})`, `Open recommendations & requests (${open.length})`)}>
+        {open.length ? <div className="space-y-3">{open.map((r) => <RecCard key={r.id} r={r} data={d} onDone={load} />)}</div> : <EmptyState title={t("אין המלצות פתוחות", "No open recommendations")} hint={t("המערכת בודקת את הכללים הפעילים כל 2 דקות. בקשות והתראות יופיעו כאן כשיתקיימו תנאי הכלל.", "The system checks the active rules every 2 minutes. Requests and alerts appear here when a rule's conditions are met.")} />}
       </Panel>
 
-      <Panel title="הצוות היום – הנתונים שמאחורי ההמלצות">
-        <div className="overflow-auto"><table className="w-full text-xs" data-testid="ops-team"><thead className="text-muted"><tr><th className="text-start p-1">נציג</th><th className="text-start">היום</th><th className="text-start">ממוצע אישי</th><th className="text-start">דומים</th><th className="text-start">מצב</th><th className="text-start">משמרת</th><th className="text-start">קיבולת פנויה</th></tr></thead>
-          <tbody>{d.team.map((a) => { const [l, tone] = STATE[a.assessment?.state ?? "normal"] ?? ["—", "neutral"]; return (
-            <tr key={a.id} className="border-t border-line align-top"><td className="p-1">{a.name}{a.online && <Badge tone="good" className="ms-1">מחובר</Badge>}{a.inCall && <Badge tone="info" className="ms-1">בשיחה</Badge>}</td>
+      <Panel title={t("הצוות היום – הנתונים שמאחורי ההמלצות", "Team today – the data behind the recommendations")}>
+        <div className="overflow-auto"><table className="w-full text-xs" data-testid="ops-team"><thead className="text-muted"><tr><th className="text-start p-1">{t("נציג", "Agent")}</th><th className="text-start">{t("היום", "Today")}</th><th className="text-start">{t("ממוצע אישי", "Personal avg")}</th><th className="text-start">{t("דומים", "Peers")}</th><th className="text-start">{t("מצב", "State")}</th><th className="text-start">{t("משמרת", "Shift")}</th><th className="text-start">{t("קיבולת פנויה", "Spare capacity")}</th></tr></thead>
+          <tbody>{d.team.map((a) => { const [l, tone, lEn] = STATE[a.assessment?.state ?? "normal"] ?? ["—", "neutral", "—"]; return (
+            <tr key={a.id} className="border-t border-line align-top"><td className="p-1">{a.name}{a.online && <Badge tone="good" className="ms-1">{t("מחובר", "Online")}</Badge>}{a.inCall && <Badge tone="info" className="ms-1">{t("בשיחה", "On a call")}</Badge>}</td>
               <td>{a.today.wins}/{a.today.handled} ({pct(a.today.rate)})</td><td>{pct(a.baseline.rate)} <span className="text-muted">({a.baseline.handled})</span></td><td>{pct(a.peers.rate)}</td>
-              <td><Badge tone={tone}>{l}</Badge>{a.assessment?.reasons.length ? <div className="text-muted mt-0.5">{a.assessment.reasons.join(" · ")}</div> : null}</td>
+              <td><Badge tone={tone}>{t(l, lEn)}</Badge>{a.assessment?.reasons.length ? <div className="text-muted mt-0.5">{a.assessment.reasons.join(" · ")}</div> : null}</td>
               <td><ShiftCell a={a} onSaved={load} /></td>
-              <td>{a.capacity.known ? `${a.capacity.spare} (${a.capacity.untouched} ממתינים)` : <span className="text-warn">{a.capacity.reason}</span>}</td></tr>); })}</tbody></table></div>
+              <td>{a.capacity.known ? t(`${a.capacity.spare} (${a.capacity.untouched} ממתינים)`, `${a.capacity.spare} (${a.capacity.untouched} waiting)`) : <span className="text-warn">{a.capacity.reason && t(a.capacity.reason, reasonEn(a.capacity.reason))}</span>}</td></tr>); })}</tbody></table></div>
       </Panel>
 
-      <Panel title="כללים">
+      <Panel title={t("כללים", "Rules")}>
         <RuleBuilder onSaved={load} />
         <div className="mt-3 space-y-2" data-testid="ops-rules">{d.rules.map((r) => (
           <div key={r.id} className={cx("rounded-md border border-line p-2 text-xs space-y-1", r.status !== "active" && "opacity-60")} data-testid={`ops-rule-${r.kind}`}>
-            <div className="flex flex-wrap items-center gap-2"><Badge tone="neutral">{r.kindLabel}</Badge><b className="text-sm">{r.name}</b>{r.status !== "active" && <Badge tone="warn">מושהה</Badge>}{r.expired && <Badge tone="warn">פג תוקף</Badge>}<span className="text-muted">עדיפות {r.priority}</span>
-              <select className="ms-auto h-7 rounded border border-line bg-bg px-1" value={r.autonomy} onChange={(e) => rule(r.id, { autonomy: e.target.value })}>{r.allowedAutonomy.map((x) => <option key={x} value={x}>{({ insight: "תובנה בלבד", recommend: "המלצה באישור", auto: "ביצוע אוטומטי בגבולות" } as Record<string, string>)[x]}</option>)}</select>
-              <Button size="sm" variant="ghost" onClick={() => setEditRule(editRule === r.id ? null : r.id)}>עריכה</Button>
-              <Button size="sm" variant="ghost" onClick={() => rule(r.id, { status: r.status === "active" ? "paused" : "active" })} data-testid={`ops-rule-toggle-${r.kind}`}>{r.status === "active" ? "השהה" : "הפעל"}</Button>
-              <Button size="sm" variant="ghost" onClick={() => { if (confirm("למחוק את הכלל?")) void rule(r.id, null); }}>מחק</Button></div>
+            <div className="flex flex-wrap items-center gap-2"><Badge tone="neutral">{t(r.kindLabel, KIND_EN[r.kind] ?? r.kindLabel)}</Badge><b className="text-sm">{r.name}</b>{r.status !== "active" && <Badge tone="warn">{t("מושהה", "Paused")}</Badge>}{r.expired && <Badge tone="warn">{t("פג תוקף", "Expired")}</Badge>}<span className="text-muted">{t("עדיפות", "Priority")} {r.priority}</span>
+              <select className="ms-auto h-7 rounded border border-line bg-bg px-1" value={r.autonomy} onChange={(e) => rule(r.id, { autonomy: e.target.value })}>{r.allowedAutonomy.map((x) => <option key={x} value={x}>{t(({ insight: "תובנה בלבד", recommend: "המלצה באישור", auto: "ביצוע אוטומטי בגבולות" } as Record<string, string>)[x], ({ insight: "Insight only", recommend: "Recommend with approval", auto: "Automatic within limits" } as Record<string, string>)[x])}</option>)}</select>
+              <Button size="sm" variant="ghost" onClick={() => setEditRule(editRule === r.id ? null : r.id)}>{t("עריכה", "Edit")}</Button>
+              <Button size="sm" variant="ghost" onClick={() => rule(r.id, { status: r.status === "active" ? "paused" : "active" })} data-testid={`ops-rule-toggle-${r.kind}`}>{r.status === "active" ? t("השהה", "Pause") : t("הפעל", "Activate")}</Button>
+              <Button size="sm" variant="ghost" onClick={() => { if (confirm(t("למחוק את הכלל?", "Delete this rule?"))) void rule(r.id, null); }}>{t("מחק", "Delete")}</Button></div>
             {r.sourceText && <div className="text-muted">״{r.sourceText}״</div>}
-            {r.summary && <div><b>טריגר:</b> {r.summary.trigger} · <b>תנאים:</b> {r.summary.conditions} · <b>פעולה:</b> {r.summary.action} · <b>אישור:</b> {r.summary.approval}</div>}
+            {r.summary && <div><b>{t("טריגר:", "Trigger:")}</b> {r.summary.trigger} · <b>{t("תנאים:", "Conditions:")}</b> {r.summary.conditions} · <b>{t("פעולה:", "Action:")}</b> {r.summary.action} · <b>{t("אישור:", "Approval:")}</b> {r.summary.approval}</div>}
             {editRule === r.id && <RuleForm rule={r} onSaved={() => { setEditRule(null); void load(); }} />}
           </div>
         ))}</div>
       </Panel>
 
-      {insights.length > 0 && <Panel title="תובנות (ללא פעולה)"><ul className="text-xs space-y-1">{insights.map((r) => <li key={r.id}><b>{r.title}</b> – {r.explanation}</li>)}</ul></Panel>}
+      {insights.length > 0 && <Panel title={t("תובנות (ללא פעולה)", "Insights (no action)")}><ul className="text-xs space-y-1">{insights.map((r) => <li key={r.id}><b>{r.title}</b> – {r.explanation}</li>)}</ul></Panel>}
 
-      <Panel title="השפעה נמדדת">
-        <p className="text-xs text-muted mb-2">השוואה תיאורית בלבד של הלידים שהוקצו במסגרת אישורים – לא הוכחה שהמערכת גרמה לשינוי (אין קבוצת ביקורת). מדגם קטן מסומן.</p>
-        {d.impact.length ? <table className="w-full text-xs" data-testid="ops-impact"><thead className="text-muted"><tr><th className="text-start">נציג</th><th className="text-start">מתי</th><th className="text-start">אושרו</th><th className="text-start">הוקצו</th><th className="text-start">חויגו</th><th className="text-start">נסגרו</th><th className="text-start">ממוצע אישי לפני</th></tr></thead>
-          <tbody>{d.impact.map((i) => <tr key={i.id} className="border-t border-line"><td>{i.agentName}</td><td>{new Date(i.at).toLocaleDateString("he-IL")}</td><td>{i.approved ?? "—"}</td><td>{i.allocated}</td><td>{i.dialed}</td><td>{i.won}{i.smallSample && <Badge tone="neutral" className="ms-1">מדגם קטן</Badge>}</td><td>{pct(i.baselineRate)}</td></tr>)}</tbody></table> : <p className="text-xs text-muted">עדיין אין הקצאות שהסתיימו.</p>}
+      <Panel title={t("השפעה נמדדת", "Measured impact")}>
+        <p className="text-xs text-muted mb-2">{t("השוואה תיאורית בלבד של הלידים שהוקצו במסגרת אישורים – לא הוכחה שהמערכת גרמה לשינוי (אין קבוצת ביקורת). מדגם קטן מסומן.", "A descriptive comparison only of leads allocated under approvals – not proof that the system caused the change (no control group). Small samples are marked.")}</p>
+        {d.impact.length ? <table className="w-full text-xs" data-testid="ops-impact"><thead className="text-muted"><tr><th className="text-start">{t("נציג", "Agent")}</th><th className="text-start">{t("מתי", "When")}</th><th className="text-start">{t("אושרו", "Approved")}</th><th className="text-start">{t("הוקצו", "Allocated")}</th><th className="text-start">{t("חויגו", "Dialed")}</th><th className="text-start">{t("נסגרו", "Closed")}</th><th className="text-start">{t("ממוצע אישי לפני", "Personal avg before")}</th></tr></thead>
+          <tbody>{d.impact.map((i) => <tr key={i.id} className="border-t border-line"><td>{i.agentName}</td><td>{new Date(i.at).toLocaleDateString(loc)}</td><td>{i.approved ?? "—"}</td><td>{i.allocated}</td><td>{i.dialed}</td><td>{i.won}{i.smallSample && <Badge tone="neutral" className="ms-1">{t("מדגם קטן", "Small sample")}</Badge>}</td><td>{pct(i.baselineRate)}</td></tr>)}</tbody></table> : <p className="text-xs text-muted">{t("עדיין אין הקצאות שהסתיימו.", "No completed allocations yet.")}</p>}
       </Panel>
 
-      <Panel title="היסטוריה ויומן">
-        {history.length > 0 && <ul className="text-xs space-y-1 mb-3">{history.map((r) => <li key={r.id}><Badge tone={TERMINAL[r.status] ?? "good"}>{r.statusLabel}</Badge> {r.title} {r.result?.reason ? `– ${r.result.reason}` : ""}{typeof r.result?.responseSeconds === "number" ? ` (${Math.floor(r.result.responseSeconds / 60)} דק׳ ו-${r.result.responseSeconds % 60} שנ׳)` : ""}</li>)}</ul>}
-        <ul className="text-xs space-y-0.5 max-h-72 overflow-auto" data-testid="ops-log">{d.log.map((l) => <li key={l.id}><span className="text-muted">{new Date(l.createdAt).toLocaleString("he-IL")}</span> · {ACTION[l.action] ?? l.action}{l.actor ? ` · ${l.actor.fullName}` : " · מערכת"}{l.payload && "via" in l.payload ? ` · דרך ${l.payload.via === "whatsapp" ? "וואטסאפ" : l.payload.via === "app" ? "המערכת" : String(l.payload.via)}` : ""}</li>)}</ul>
+      <Panel title={t("היסטוריה ויומן", "History & log")}>
+        {history.length > 0 && <ul className="text-xs space-y-1 mb-3">{history.map((r) => <li key={r.id}><Badge tone={TERMINAL[r.status] ?? "good"}>{r.statusLabel}</Badge> {r.title} {r.result?.reason ? `– ${r.result.reason}` : ""}{typeof r.result?.responseSeconds === "number" ? t(` (${Math.floor(r.result.responseSeconds / 60)} דק׳ ו-${r.result.responseSeconds % 60} שנ׳)`, ` (${Math.floor(r.result.responseSeconds / 60)} min ${r.result.responseSeconds % 60} s)`) : ""}</li>)}</ul>}
+        <ul className="text-xs space-y-0.5 max-h-72 overflow-auto" data-testid="ops-log">{d.log.map((l) => <li key={l.id}><span className="text-muted">{new Date(l.createdAt).toLocaleString(loc)}</span> · {ACTION[l.action] ? t(ACTION[l.action][0], ACTION[l.action][1]) : l.action}{l.actor ? ` · ${l.actor.fullName}` : ` · ${t("מערכת", "System")}`}{l.payload && "via" in l.payload ? ` · ${t("דרך", "via")} ${l.payload.via === "whatsapp" ? t("וואטסאפ", "WhatsApp") : l.payload.via === "app" ? t("המערכת", "the app") : String(l.payload.via)}` : ""}</li>)}</ul>
       </Panel>
     </div>
   );

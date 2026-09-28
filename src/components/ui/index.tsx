@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useT } from "@/components/i18n/LangProvider";
 
 export function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -135,12 +136,13 @@ export function EmptyState({ title, hint, action }: { title: string; hint?: stri
 }
 
 export function ErrorState({ message, retry }: { message: string; retry?: () => void }) {
+  const t = useT();
   return (
     <div className="flex flex-col items-center justify-center text-center py-8 px-4">
       <p className="text-sm text-bad">{message}</p>
       {retry && (
         <Button variant="secondary" size="sm" className="mt-3" onClick={retry}>
-          נסה שוב
+          {t("נסה שוב", "Try again")}
         </Button>
       )}
     </div>
@@ -148,6 +150,7 @@ export function ErrorState({ message, retry }: { message: string; retry?: () => 
 }
 
 export function Modal({ open, onClose, title, children, footer, width = "max-w-lg" }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; width?: string }) {
+  const t = useT();
   // Escape closes the dialog (keyboard users; QA relies on it too).
   useEffect(() => {
     if (!open) return;
@@ -161,7 +164,7 @@ export function Modal({ open, onClose, title, children, footer, width = "max-w-l
       <div role="dialog" aria-modal className={cx("w-full bg-panel border border-line rounded-2xl shadow-2xl flex flex-col max-h-[90vh]", width)}>
         <header className="flex items-center justify-between px-5 h-12 border-b border-line">
           <h3 className="font-semibold">{title}</h3>
-          <button onClick={onClose} className="text-muted hover:text-text text-xl leading-none px-1" aria-label="סגור">
+          <button onClick={onClose} className="text-muted hover:text-text text-xl leading-none px-1" aria-label={t("סגור", "Close")}>
             ×
           </button>
         </header>

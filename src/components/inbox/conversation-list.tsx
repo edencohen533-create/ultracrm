@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { he } from "date-fns/locale";
+import { enGB, he } from "date-fns/locale";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Ltr } from "@/components/shared/ltr";
@@ -14,12 +14,13 @@ import { cn } from "@/lib/utils";
 import { useRealtimeChannel } from "@/lib/realtime/use-realtime-channel";
 import { INBOX_CHANNEL } from "@/lib/realtime/channels";
 import type { ConversationListItem } from "@/types/domain";
+import { useT } from "@/components/i18n/LangProvider";
 
-const STATUS_LABELS: Record<string, string> = {
-  OPEN: "פתוח",
-  PENDING: "ממתין",
-  RESOLVED: "טופל",
-  CLOSED: "סגור",
+const STATUS_LABELS: Record<string, [string, string]> = {
+  OPEN: ["פתוח", "Open"],
+  PENDING: ["ממתין", "Pending"],
+  RESOLVED: ["טופל", "Resolved"],
+  CLOSED: ["סגור", "Closed"],
 };
 
 function initials(name: string) {
@@ -31,6 +32,7 @@ function initials(name: string) {
 }
 
 export function ConversationListPane({ initialConversations }: { initialConversations: ConversationListItem[] }) {
+  const t = useT();
   const searchParams = useSearchParams();
   const activeId = useParams<{ conversationId?: string }>().conversationId;
   const [conversations, setConversations] = useState<ConversationListItem[] | null>(initialConversations);
@@ -40,7 +42,7 @@ export function ConversationListPane({ initialConversations }: { initialConversa
   const [tagFilter, setTagFilter] = useState("");
   const [channelFilter, setChannelFilter] = useState("");
   const [tags, setTags] = useState<Array<{ id: string; name: string }>>([]);
-  useEffect(() => { fetch("/api/tags").then((r) => (r.ok ? r.json() : null)).then((d) => { const items = d?.data?.items ?? d?.items ?? d?.data ?? []; if (Array.isArray(items)) setTags(items.map((t: { id: string; name: string }) => ({ id: t.id, name: t.name }))); }).catch(() => undefined); }, []);
+  useEffect(() => { fetch("/api/tags").then((r) => (r.ok ? r.json() : null)).then((d) => { const items = d?.data?.items ?? d?.items ?? d?.data ?? []; if (Array.isArray(items)) setTags(items.map((tag: { id: string; name: string }) => ({ id: tag.id, name: tag.name }))); }).catch(() => undefined); }, []);
   const [senders, setSenders] = useState<{ id: string; label: string }[]>([]);
   useEffect(() => { fetch("/api/whatsapp/senders").then((res) => res.ok ? res.json() : null).then((data) => { if (data) setSenders(data.senders); }).catch(() => {}); }, []);
   const search = searchParams.get("search") ?? "";
@@ -97,9 +99,9 @@ export function ConversationListPane({ initialConversations }: { initialConversa
   return (
     <div className={cn("h-full w-full shrink-0 flex-col overflow-hidden border-e md:flex md:w-80", activeId ? "hidden" : "flex")}>
       <div className="flex flex-wrap gap-1 px-2 pt-2">
-        {senders.length > 0 && <select aria-label="סינון שיחות לפי מספר" className="rounded border p-1.5 text-xs" value={senderFilter} onChange={(event) => setSenderFilter(event.target.value)}><option value="">כל המספרים הנגישים</option>{senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label}</option>)}</select>}
-        {tags.length > 0 && <select aria-label="סינון שיחות לפי תגית" className="rounded border p-1.5 text-xs" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="">כל התגיות</option>{tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
-        <select aria-label="סינון שיחות לפי ערוץ" className="rounded border p-1.5 text-xs" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}><option value="">כל הערוצים</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">אימייל</option></select>
+        {senders.length > 0 && <select aria-label={t("סינון שיחות לפי מספר", "Filter conversations by number")} className="rounded border p-1.5 text-xs" value={senderFilter} onChange={(event) => setSenderFilter(event.target.value)}><option value="">{t("כל המספרים הנגישים", "All accessible numbers")}</option>{senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label}</option>)}</select>}
+        {tags.length > 0 && <select aria-label={t("סינון שיחות לפי תגית", "Filter conversations by tag")} className="rounded border p-1.5 text-xs" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="">{t("כל התגיות", "All tags")}</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select>}
+        <select aria-label={t("סינון שיחות לפי ערוץ", "Filter conversations by channel")} className="rounded border p-1.5 text-xs" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}><option value="">{t("כל הערוצים", "All channels")}</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">{t("אימייל", "Email")}</option></select>
       </div>
       <div className="flex-1 overflow-y-auto">
         {conversations === null && (
@@ -111,7 +113,7 @@ export function ConversationListPane({ initialConversations }: { initialConversa
         )}
 
         {conversations !== null && conversations.length === 0 && (
-          <EmptyState title="אין שיחות להצגה" description="נסה לשנות את הסינון או להמתין להודעות חדשות." />
+          <EmptyState title={t("אין שיחות להצגה", "No conversations to show")} description={t("נסה לשנות את הסינון או להמתין להודעות חדשות.", "Try changing the filters or wait for new messages.")} />
         )}
 
         {conversations?.map((conversation) => {
@@ -133,20 +135,20 @@ export function ConversationListPane({ initialConversations }: { initialConversa
                   <span className="truncate text-sm font-medium">{conversation.contact.fullName}</span>
                   {conversation.lastMessageAt && (
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {formatDistanceToNow(new Date(conversation.lastMessageAt), { locale: he, addSuffix: true })}
+                      {formatDistanceToNow(new Date(conversation.lastMessageAt), { locale: t.lang === "en" ? enGB : he, addSuffix: true })}
                     </span>
                   )}
                 </div>
                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
                   <Ltr>{conversation.contact.phoneE164}</Ltr>
                 </div>
-                {conversation.providerCredential && <p className="text-xs text-muted-foreground">{conversation.channel && conversation.channel !== "whatsapp" ? <span className="me-1 rounded border px-1 text-[10px] uppercase">{conversation.channel === "sms" ? "SMS" : "אימייל"}</span> : null}דרך: {conversation.providerCredential.label || conversation.providerCredential.displayPhoneNumber || "WhatsApp"}{conversation.providerCredential.isActive === false ? <span className="ms-1 text-amber-700">(מספר מנותק)</span> : null}</p>}
+                {conversation.providerCredential && <p className="text-xs text-muted-foreground">{conversation.channel && conversation.channel !== "whatsapp" ? <span className="me-1 rounded border px-1 text-[10px] uppercase">{conversation.channel === "sms" ? "SMS" : t("אימייל", "Email")}</span> : null}{t("דרך:", "Via:")} {conversation.providerCredential.label || conversation.providerCredential.displayPhoneNumber || "WhatsApp"}{conversation.providerCredential.isActive === false ? <span className="ms-1 text-amber-700">{t("(מספר מנותק)", "(disconnected number)")}</span> : null}</p>}
                 {lastMessage?.body && (
                   <p className="mt-1 truncate text-xs text-muted-foreground">{lastMessage.body}</p>
                 )}
                 <div className="mt-1 flex items-center gap-1.5">
                   <Badge variant="outline" className="text-[10px]">
-                    {STATUS_LABELS[conversation.status]}
+                    {STATUS_LABELS[conversation.status] ? t(STATUS_LABELS[conversation.status][0], STATUS_LABELS[conversation.status][1]) : undefined}
                   </Badge>
                   {conversation.assignedAgent && (
                     <span className="text-[10px] text-muted-foreground">{conversation.assignedAgent.fullName}</span>

@@ -18,29 +18,32 @@ import {
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Plus } from "lucide-react";
 import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
+import { useT } from "@/components/i18n/LangProvider";
 
 /** "סטטוס CRM השתנה" is a contact-level trigger – saved on the customer-journey engine (LEAD_STATUS_CHANGED). */
 const CRM_STATUS = "CRM_STATUS_CHANGED" as const;
 type TriggerChoice = AutomationTrigger | typeof CRM_STATUS;
-const TRIGGER_LABELS: Record<TriggerChoice, string> = {
-  CRM_STATUS_CHANGED: "סטטוס CRM השתנה",
-  NEW_INBOUND_MESSAGE: "הודעה נכנסת חדשה",
-  NEW_CONVERSATION: "שיחה חדשה",
-  TAG_ADDED: "תגית נוספה",
-  CONVERSATION_UNASSIGNED: "שיחה לא משויכת",
-  NO_REPLY_TIMEOUT: "אין מענה תוך X דקות",
+const TRIGGER_LABELS: Record<TriggerChoice, [string, string]> = {
+  CRM_STATUS_CHANGED: ["סטטוס CRM השתנה", "CRM status changed"],
+  NEW_INBOUND_MESSAGE: ["הודעה נכנסת חדשה", "New inbound message"],
+  NEW_CONVERSATION: ["שיחה חדשה", "New conversation"],
+  TAG_ADDED: ["תגית נוספה", "Tag added"],
+  CONVERSATION_UNASSIGNED: ["שיחה לא משויכת", "Unassigned conversation"],
+  NO_REPLY_TIMEOUT: ["אין מענה תוך X דקות", "No reply within X minutes"],
 };
 
-const ACTION_LABELS: Record<AutomationActionType, string> = {
-  ASSIGN_AGENT: "שיוך לנציג",
-  ADD_TAG: "הוספת תגית",
-  CHANGE_STATUS: "שינוי סטטוס",
-  ADD_INTERNAL_NOTE: "הוספת הערה פנימית",
-  SEND_CANNED_REPLY: "שליחת תגובה מוכנה",
-  SEND_TEMPLATE: "שליחת תבנית",
-  CREATE_TASK: "יצירת משימת מעקב",
-  SET_CUSTOM_FIELD: "עדכון שדה מותאם",
+const ACTION_LABELS: Record<AutomationActionType, [string, string]> = {
+  ASSIGN_AGENT: ["שיוך לנציג", "Assign to agent"],
+  ADD_TAG: ["הוספת תגית", "Add tag"],
+  CHANGE_STATUS: ["שינוי סטטוס", "Change status"],
+  ADD_INTERNAL_NOTE: ["הוספת הערה פנימית", "Add internal note"],
+  SEND_CANNED_REPLY: ["שליחת תגובה מוכנה", "Send canned reply"],
+  SEND_TEMPLATE: ["שליחת תבנית", "Send template"],
+  CREATE_TASK: ["יצירת משימת מעקב", "Create follow-up task"],
+  SET_CUSTOM_FIELD: ["עדכון שדה מותאם", "Update custom field"],
 };
+
+const CONV_STATUS: Record<string, [string, string]> = { OPEN: ["פתוח", "Open"], PENDING: ["ממתין", "Pending"], RESOLVED: ["טופל", "Resolved"], CLOSED: ["סגור", "Closed"] };
 
 interface Option {
   id: string;
@@ -50,6 +53,7 @@ interface Option {
 
 export function RuleBuilder({ agents, cannedReplies, templates, conversations }: { agents: Option[]; cannedReplies: Option[]; templates: Option[]; conversations: Option[] }) {
   const router = useRouter();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [name, setName] = useState("");
@@ -117,27 +121,27 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
     try {
       const response = await fetch("/api/automations/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: input });
       const result = await response.json();
-      if (!response.ok) { toast.error(typeof result.error === "string" ? result.error : "פרטי הבדיקה אינם תקינים"); return; }
+      if (!response.ok) { toast.error(typeof result.error === "string" ? result.error : t("פרטי הבדיקה אינם תקינים", "Invalid test details")); return; }
       setPreview({ input, result });
-    } catch { toast.error("הבדיקה נכשלה. יש לבדוק את החיבור ולנסות שוב"); }
+    } catch { toast.error(t("הבדיקה נכשלה. יש לבדוק את החיבור ולנסות שוב", "Test failed. Check your connection and try again")); }
     finally { setTesting(false); }
   }
 
   async function handleSubmit() {
     if (!name.trim()) {
-      toast.error("נא להזין שם לחוק");
+      toast.error(t("נא להזין שם לחוק", "Please enter a rule name"));
       return;
     }
     if (crm) {
-      const tpl = templates.find((t) => t.id === templateId);
-      if (!leadStatus || !tpl) { toast.error("יש לבחור סטטוס ותבנית WhatsApp"); return; }
-      if ((tpl.variables ?? []).some((k) => !variables[k]?.trim())) { toast.error("יש למלא את כל משתני התבנית"); return; }
+      const tpl = templates.find((x) => x.id === templateId);
+      if (!leadStatus || !tpl) { toast.error(t("יש לבחור סטטוס ותבנית WhatsApp", "Choose a status and a WhatsApp template")); return; }
+      if ((tpl.variables ?? []).some((k) => !variables[k]?.trim())) { toast.error(t("יש למלא את כל משתני התבנית", "Fill in all template variables")); return; }
       setIsSubmitting(true);
       try {
         const res = await fetch("/api/sequences", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, isActive, trigger: "LEAD_STATUS_CHANGED", triggerConfig: { leadStatus }, stopOn: [], steps: [{ action: "send", channel: "whatsapp", templateId, waitMinutes, variables, condition: { requireNoReply: false } }] }) });
-        if (!res.ok) { const j = await res.json().catch(() => ({})); toast.error(j.error ?? "שגיאה ביצירת החוק"); return; }
-        toast.success(isActive ? "החוק נוצר והופעל" : "החוק נוצר (לא פעיל)"); setOpen(false); router.refresh();
-      } catch { toast.error("שמירת החוק נכשלה"); } finally { setIsSubmitting(false); }
+        if (!res.ok) { const j = await res.json().catch(() => ({})); toast.error(j.error ?? t("שגיאה ביצירת החוק", "Error creating rule")); return; }
+        toast.success(isActive ? t("החוק נוצר והופעל", "Rule created and enabled") : t("החוק נוצר (לא פעיל)", "Rule created (inactive)")); setOpen(false); router.refresh();
+      } catch { toast.error(t("שמירת החוק נכשלה", "Saving the rule failed")); } finally { setIsSubmitting(false); }
       return;
     }
     setIsSubmitting(true);
@@ -148,13 +152,13 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
         body: JSON.stringify(rule),
       });
       if (!res.ok) {
-        toast.error("שגיאה ביצירת החוק");
+        toast.error(t("שגיאה ביצירת החוק", "Error creating rule"));
         return;
       }
-      toast.success("החוק נוצר בהצלחה");
+      toast.success(t("החוק נוצר בהצלחה", "Rule created successfully"));
       setOpen(false);
       router.refresh();
-    } catch { toast.error("שמירת החוק נכשלה. יש לבדוק את החיבור ולנסות שוב"); }
+    } catch { toast.error(t("שמירת החוק נכשלה. יש לבדוק את החיבור ולנסות שוב", "Saving the rule failed. Check your connection and try again")); }
     finally {
       setIsSubmitting(false);
     }
@@ -162,27 +166,27 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button><Plus className="h-4 w-4" /> חוק אוטומציה חדש</Button>} />
+      <DialogTrigger render={<Button><Plus className="h-4 w-4" /> {t("חוק אוטומציה חדש", "New automation rule")}</Button>} />
       <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="ps-8">חוק אוטומציה חדש</DialogTitle>
+          <DialogTitle className="ps-8">{t("חוק אוטומציה חדש", "New automation rule")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label>שם החוק</Label>
-            <Input aria-label="שם חוק האוטומציה" value={name} onChange={(e) => setName(e.target.value)} placeholder="לדוגמה: שיוך אוטומטי ללקוחות VIP" />
+            <Label>{t("שם החוק", "Rule name")}</Label>
+            <Input aria-label={t("שם חוק האוטומציה", "Automation rule name")} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("לדוגמה: שיוך אוטומטי ללקוחות VIP", "e.g. Auto-assign VIP customers")} />
           </div>
 
           <div className="space-y-1.5">
-            <Label>טריגר</Label>
+            <Label>{t("טריגר", "Trigger")}</Label>
             <Select value={trigger} onValueChange={(v) => { if (!v) return; setTrigger(v as TriggerChoice); if (v === CRM_STATUS) setActionType(AutomationActionType.SEND_TEMPLATE); }}>
               <SelectTrigger className="w-full">
-                <SelectValue>{TRIGGER_LABELS[trigger]}</SelectValue>
+                <SelectValue>{t(...TRIGGER_LABELS[trigger])}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {Object.entries(TRIGGER_LABELS).map(([value, label]) => (
                   <SelectItem key={value} value={value}>
-                    {label}
+                    {t(...label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -191,37 +195,37 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
 
           {crm && (
             <div className="space-y-1.5 rounded border p-3" data-testid="crm-status-trigger">
-              <Label>כשסטטוס הליד משתנה ל</Label>
-              <select aria-label="סטטוס CRM" className="w-full rounded border p-2" value={leadStatus} onChange={(e) => setLeadStatus(e.target.value)} data-testid="rule-lead-status"><option value="">בחר סטטוס</option>{statuses.items.map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</select>
-              <Label>לשלוח ללקוח</Label>
-              <select aria-label="המתנה" className="w-full rounded border p-2" value={waitMinutes} onChange={(e) => setWaitMinutes(Number(e.target.value))}><option value={0}>מיד</option><option value={5}>אחרי 5 דקות</option><option value={30}>אחרי חצי שעה</option><option value={60}>אחרי שעה</option><option value={1440}>אחרי יום</option></select>
-              <p className="text-xs text-muted-foreground">פעולה: שליחת תבנית WhatsApp מאושרת ללקוח של הליד (רק אם לא הסיר את עצמו מדיוור). במשתנים אפשר לכתוב {"{name}"} לשם הלקוח.</p>
+              <Label>{t("כשסטטוס הליד משתנה ל", "When the lead status changes to")}</Label>
+              <select aria-label={t("סטטוס CRM", "CRM status")} className="w-full rounded border p-2" value={leadStatus} onChange={(e) => setLeadStatus(e.target.value)} data-testid="rule-lead-status"><option value="">{t("בחר סטטוס", "Choose status")}</option>{statuses.items.map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</select>
+              <Label>{t("לשלוח ללקוח", "Send to customer")}</Label>
+              <select aria-label={t("המתנה", "Delay")} className="w-full rounded border p-2" value={waitMinutes} onChange={(e) => setWaitMinutes(Number(e.target.value))}><option value={0}>{t("מיד", "Immediately")}</option><option value={5}>{t("אחרי 5 דקות", "After 5 minutes")}</option><option value={30}>{t("אחרי חצי שעה", "After 30 minutes")}</option><option value={60}>{t("אחרי שעה", "After 1 hour")}</option><option value={1440}>{t("אחרי יום", "After 1 day")}</option></select>
+              <p className="text-xs text-muted-foreground">{t("פעולה: שליחת תבנית WhatsApp מאושרת ללקוח של הליד (רק אם לא הסיר את עצמו מדיוור). במשתנים אפשר לכתוב", "Action: send an approved WhatsApp template to the lead's customer (only if they have not unsubscribed). In variables you can write")} {"{name}"} {t("לשם הלקוח.", "for the customer's name.")}</p>
             </div>
           )}
-          {!crm && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={onlyOutsideHours} onChange={(e) => setOnlyOutsideHours(e.target.checked)} />להפעיל רק מחוץ לשעות הפעילות (חלון השליחה בהגדרות → דיוור)</label>}
+          {!crm && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={onlyOutsideHours} onChange={(e) => setOnlyOutsideHours(e.target.checked)} />{t("להפעיל רק מחוץ לשעות הפעילות (חלון השליחה בהגדרות → דיוור)", "Run only outside business hours (send window in Settings → Messaging)")}</label>}
           {trigger === AutomationTrigger.NO_REPLY_TIMEOUT && (
             <div className="space-y-1.5">
-              <Label>דקות ללא מענה</Label>
+              <Label>{t("דקות ללא מענה", "Minutes without reply")}</Label>
               <Input type="number" value={minutes} onChange={(e) => setMinutes(e.target.value)} />
             </div>
           )}
           {trigger === AutomationTrigger.TAG_ADDED && (
             <div className="space-y-1.5">
-              <Label>שם התגית (השאר ריק לכל תגית)</Label>
+              <Label>{t("שם התגית (השאר ריק לכל תגית)", "Tag name (leave empty for any tag)")}</Label>
               <Input value={tagName} onChange={(e) => setTagName(e.target.value)} placeholder="VIP" />
             </div>
           )}
 
           <div className={crm ? "hidden" : "space-y-1.5"}>
-            <Label>פעולה</Label>
+            <Label>{t("פעולה", "Action")}</Label>
             <Select value={actionType} onValueChange={(v) => v && setActionType(v as AutomationActionType)}>
-              <SelectTrigger className="w-full" aria-label="פעולת האוטומציה">
-                <SelectValue>{ACTION_LABELS[actionType]}</SelectValue>
+              <SelectTrigger className="w-full" aria-label={t("פעולת האוטומציה", "Automation action")}>
+                <SelectValue>{t(...ACTION_LABELS[actionType])}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {Object.entries(ACTION_LABELS).map(([value, label]) => (
                   <SelectItem key={value} value={value}>
-                    {label}
+                    {t(...label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -230,10 +234,10 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
 
           {actionType === AutomationActionType.ASSIGN_AGENT && (
             <div className="space-y-1.5">
-              <Label>נציג</Label>
+              <Label>{t("נציג", "Agent")}</Label>
               <Select value={agentId} onValueChange={(v) => v && setAgentId(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue>{agents.find((agent) => agent.id === agentId)?.label ?? "בחר נציג..."}</SelectValue>
+                  <SelectValue>{agents.find((agent) => agent.id === agentId)?.label ?? t("בחר נציג...", "Choose agent...")}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {agents.map((agent) => (
@@ -247,61 +251,61 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
           )}
           {actionType === AutomationActionType.ADD_TAG && (
             <div className="space-y-1.5">
-              <Label>שם התגית להוספה</Label>
+              <Label>{t("שם התגית להוספה", "Tag name to add")}</Label>
               <Input value={actionTagName} onChange={(e) => setActionTagName(e.target.value)} />
             </div>
           )}
           {actionType === AutomationActionType.CHANGE_STATUS && (
             <div className="space-y-1.5">
-              <Label>סטטוס חדש</Label>
+              <Label>{t("סטטוס חדש", "New status")}</Label>
               <Select value={status} onValueChange={(v) => v && setStatus(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue>{{ OPEN: "פתוח", PENDING: "ממתין", RESOLVED: "טופל", CLOSED: "סגור" }[status]}</SelectValue>
+                  <SelectValue>{CONV_STATUS[status] ? t(...CONV_STATUS[status]) : status}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="OPEN">פתוח</SelectItem>
-                  <SelectItem value="PENDING">ממתין</SelectItem>
-                  <SelectItem value="RESOLVED">טופל</SelectItem>
-                  <SelectItem value="CLOSED">סגור</SelectItem>
+                  <SelectItem value="OPEN">{t("פתוח", "Open")}</SelectItem>
+                  <SelectItem value="PENDING">{t("ממתין", "Pending")}</SelectItem>
+                  <SelectItem value="RESOLVED">{t("טופל", "Resolved")}</SelectItem>
+                  <SelectItem value="CLOSED">{t("סגור", "Closed")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           )}
           {actionType === AutomationActionType.CREATE_TASK && (
             <div className="space-y-1.5">
-              <Label>כותרת המשימה</Label>
-              <Input aria-label="כותרת המשימה" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="להתקשר ללקוח" />
-              <Label>יעד (שעות מהטריגר)</Label>
-              <Input aria-label="שעות ליעד" type="number" min={1} value={taskDueHours} onChange={(e) => setTaskDueHours(e.target.value)} />
-              <p className="text-xs text-muted-foreground">המשימה תשויך לנציג המשויך לשיחה, ואם אין – לאחראי איש הקשר.</p>
+              <Label>{t("כותרת המשימה", "Task title")}</Label>
+              <Input aria-label={t("כותרת המשימה", "Task title")} value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder={t("להתקשר ללקוח", "Call the customer")} />
+              <Label>{t("יעד (שעות מהטריגר)", "Due (hours after trigger)")}</Label>
+              <Input aria-label={t("שעות ליעד", "Hours until due")} type="number" min={1} value={taskDueHours} onChange={(e) => setTaskDueHours(e.target.value)} />
+              <p className="text-xs text-muted-foreground">{t("המשימה תשויך לנציג המשויך לשיחה, ואם אין – לאחראי איש הקשר.", "The task is assigned to the conversation's agent, or if none – to the contact owner.")}</p>
             </div>
           )}
           {actionType === AutomationActionType.SET_CUSTOM_FIELD && (
             <div className="space-y-1.5">
-              <Label>שדה מותאם</Label>
-              <Input aria-label="שם שדה" value={fieldKey} onChange={(e) => setFieldKey(e.target.value)} placeholder="למשל stage" />
-              <Label>ערך</Label>
-              <Input aria-label="ערך" value={fieldValue} onChange={(e) => setFieldValue(e.target.value)} />
+              <Label>{t("שדה מותאם", "Custom field")}</Label>
+              <Input aria-label={t("שם שדה", "Field name")} value={fieldKey} onChange={(e) => setFieldKey(e.target.value)} placeholder={t("למשל stage", "e.g. stage")} />
+              <Label>{t("ערך", "Value")}</Label>
+              <Input aria-label={t("ערך", "Value")} value={fieldValue} onChange={(e) => setFieldValue(e.target.value)} />
             </div>
           )}
           {actionType === AutomationActionType.SEND_TEMPLATE && (
             <div className="space-y-1.5">
-              <Label>קישור מדיה לכותרת (רק לתבניות עם כותרת תמונה/וידאו/מסמך)</Label>
-              <Input aria-label="קישור מדיה" value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} dir="ltr" placeholder="https://…" />
+              <Label>{t("קישור מדיה לכותרת (רק לתבניות עם כותרת תמונה/וידאו/מסמך)", "Header media URL (only for templates with an image/video/document header)")}</Label>
+              <Input aria-label={t("קישור מדיה", "Media URL")} value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} dir="ltr" placeholder="https://…" />
             </div>
           )}
           {actionType === AutomationActionType.ADD_INTERNAL_NOTE && (
             <div className="space-y-1.5">
-              <Label>תוכן ההערה</Label>
-              <Textarea aria-label="תוכן ההערה האוטומטית" value={noteBody} onChange={(e) => setNoteBody(e.target.value)} rows={3} />
+              <Label>{t("תוכן ההערה", "Note content")}</Label>
+              <Textarea aria-label={t("תוכן ההערה האוטומטית", "Automatic note content")} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} rows={3} />
             </div>
           )}
           {actionType === AutomationActionType.SEND_CANNED_REPLY && (
             <div className="space-y-1.5">
-              <Label>תגובה מוכנה</Label>
+              <Label>{t("תגובה מוכנה", "Canned reply")}</Label>
               <Select value={cannedReplyId} onValueChange={(v) => v && setCannedReplyId(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue>{cannedReplies.find((reply) => reply.id === cannedReplyId)?.label ?? "בחר תגובה..."}</SelectValue>
+                  <SelectValue>{cannedReplies.find((reply) => reply.id === cannedReplyId)?.label ?? t("בחר תגובה...", "Choose reply...")}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {cannedReplies.map((reply) => (
@@ -313,13 +317,13 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
               </Select>
             </div>
           )}
-          {actionType === AutomationActionType.SEND_TEMPLATE && <div className="space-y-2">{templates.find((t) => t.id === templateId)?.variables?.map((key) => <label key={key} className="block text-sm">משתנה {key}<Input value={variables[key] ?? ""} onChange={(e) => setVariables({ ...variables, [key]: e.target.value })} placeholder="ניתן להשתמש ב־{name} לשם הלקוח" maxLength={1024} /></label>)}</div>}
+          {actionType === AutomationActionType.SEND_TEMPLATE && <div className="space-y-2">{templates.find((x) => x.id === templateId)?.variables?.map((key) => <label key={key} className="block text-sm">{t("משתנה", "Variable")} {key}<Input value={variables[key] ?? ""} onChange={(e) => setVariables({ ...variables, [key]: e.target.value })} placeholder={t("ניתן להשתמש ב־{name} לשם הלקוח", "You can use {name} for the customer's name")} maxLength={1024} /></label>)}</div>}
           {actionType === AutomationActionType.SEND_TEMPLATE && (
             <div className="space-y-1.5">
-              <Label>תבנית</Label>
+              <Label>{t("תבנית", "Template")}</Label>
               <Select value={templateId} onValueChange={(v) => { if (v) { setTemplateId(v); setVariables({}); } }}>
                 <SelectTrigger className="w-full">
-                  <SelectValue>{templates.find((template) => template.id === templateId)?.label ?? "בחר תבנית..."}</SelectValue>
+                  <SelectValue>{templates.find((template) => template.id === templateId)?.label ?? t("בחר תבנית...", "Choose template...")}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {templates.map((template) => (
@@ -333,28 +337,28 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
           )}
         </div>
         <div className="space-y-2 rounded border p-3">
-          {crm ? <p className="text-sm text-muted-foreground">החוק יופיע ברשימת &quot;מסעות לקוח&quot; ויפעל על כל ליד שעובר לסטטוס שנבחר.</p> : <>
-          <label className="block text-sm">שיחה לבדיקה ללא ביצוע (50 השיחות האחרונות)
-            <select aria-label="שיחה לבדיקת אוטומציה" className="w-full rounded border p-2" value={conversationId} onChange={(event) => setConversationId(event.target.value)}>
-              <option value="">בחר שיחה</option>{conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.label}</option>)}
+          {crm ? <p className="text-sm text-muted-foreground">{t("החוק יופיע ברשימת \"מסעות לקוח\" ויפעל על כל ליד שעובר לסטטוס שנבחר.", "The rule will appear in the \"Customer journeys\" list and run on every lead that moves to the selected status.")}</p> : <>
+          <label className="block text-sm">{t("שיחה לבדיקה ללא ביצוע (50 השיחות האחרונות)", "Conversation for a dry-run test (last 50 conversations)")}
+            <select aria-label={t("שיחה לבדיקת אוטומציה", "Conversation for automation test")} className="w-full rounded border p-2" value={conversationId} onChange={(event) => setConversationId(event.target.value)}>
+              <option value="">{t("בחר שיחה", "Choose conversation")}</option>{conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.label}</option>)}
             </select>
           </label>
-          <Button variant="outline" onClick={handlePreview} disabled={testing || !conversationId || isSubmitting}>{testing ? "בודק..." : "בדוק ללא ביצוע"}</Button>
+          <Button variant="outline" onClick={handlePreview} disabled={testing || !conversationId || isSubmitting}>{testing ? t("בודק...", "Testing...") : t("בדוק ללא ביצוע", "Dry-run test")}</Button>
           {preview?.input === previewInput && <div role="status" className="space-y-1 text-sm">
-            <p>{preview.result.allowedLocally ? "הבדיקות המקומיות עברו" : "הפעולה חסומה לפי הבדיקות המקומיות"}</p>
+            <p>{preview.result.allowedLocally ? t("הבדיקות המקומיות עברו", "Local checks passed") : t("הפעולה חסומה לפי הבדיקות המקומיות", "The action is blocked by local checks")}</p>
             {preview.result.reasons.map((reason) => <p key={reason}>{reason}</p>)}
             {preview.result.body && <p className="whitespace-pre-wrap break-words" dir="auto">{preview.result.body}</p>}
             <p>{preview.result.provider}</p>
-            {preview.result.delayMinutes > 0 && <p>השהיה מוגדרת: {preview.result.delayMinutes} דקות; הבדיקה בוחנת את המצב כעת</p>}
+            {preview.result.delayMinutes > 0 && <p>{t(`השהיה מוגדרת: ${preview.result.delayMinutes} דקות; הבדיקה בוחנת את המצב כעת`, `Configured delay: ${preview.result.delayMinutes} minutes; the test checks the current state`)}</p>}
             <p className="text-muted-foreground">{preview.result.notice}</p>
           </div>}
           </>}
-          <label className="flex gap-2 text-sm"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />הפעל את החוק לאחר השמירה</label>
-          <p className="text-xs text-muted-foreground">ברירת המחדל היא חוק לא פעיל. הבדיקה אינה מפעילה את החוק ואינה שולחת הודעות.</p>
+          <label className="flex gap-2 text-sm"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />{t("הפעל את החוק לאחר השמירה", "Enable the rule after saving")}</label>
+          <p className="text-xs text-muted-foreground">{t("ברירת המחדל היא חוק לא פעיל. הבדיקה אינה מפעילה את החוק ואינה שולחת הודעות.", "Rules are inactive by default. The test does not run the rule or send messages.")}</p>
         </div>
         <DialogFooter>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? "שומר..." : "צור חוק"}
+            {isSubmitting ? t("שומר...", "Saving...") : t("צור חוק", "Create rule")}
           </Button>
         </DialogFooter>
       </DialogContent>

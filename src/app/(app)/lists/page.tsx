@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Badge, Button, EmptyState, Input, Modal, Select, Spinner, Textarea } from "@/components/ui";
+import { useT } from "@/components/i18n/LangProvider";
 
 interface ListRow {
   id: string; name: string; description: string | null; isActive: boolean; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null;
@@ -15,6 +16,7 @@ interface ListRow {
 
 export default function ListsPage() {
   const [lists, setLists] = useState<ListRow[] | null>(null);
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [users, setUsers] = useState<Array<{ id: string; fullName: string; role: string }>>([]);
   const [scripts, setScripts] = useState<Array<{ id: string; title: string }>>([]);
@@ -45,7 +47,7 @@ export default function ListsPage() {
         dialWindow: { start: form.start, end: form.end, days: form.days }, scriptId: form.scriptId || null, phoneNumberId: form.phoneNumberId || null, isDynamic: form.isDynamic, agentIds: form.access === "all" ? [] : form.agentIds,
         filter: form.filterSource || form.filterNeverCalled ? { source: form.filterSource || undefined, neverCalled: form.filterNeverCalled ? "true" : undefined } : undefined,
       });
-      toast.success(`הרשימה נוצרה${r.added ? ` עם ${r.added} לידים` : ""}`);
+      toast.success(t(`הרשימה נוצרה${r.added ? ` עם ${r.added} לידים` : ""}`, `List created${r.added ? ` with ${r.added} leads` : ""}`));
       setOpen(false);
       load();
     } catch (e) {
@@ -54,59 +56,59 @@ export default function ListsPage() {
   }
 
   const isManager = me?.role !== "agent";
-  const dayNames = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
+  const dayNames = t.lang === "en" ? ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] : ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
 
   return (
     <div className="p-5 space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold">קמפיינים – חייגן</h1>
-        {isManager && <Button size="sm" className="ms-auto" onClick={() => setOpen(true)}>+ רשימה חדשה</Button>}
+        <h1 className="text-lg font-semibold">{t("קמפיינים – חייגן", "Campaigns – Dialer")}</h1>
+        {isManager && <Button size="sm" className="ms-auto" onClick={() => setOpen(true)}>{t("+ רשימה חדשה", "+ New list")}</Button>}
       </div>
       {isManager && <QueueAlerts />}
-      {!lists ? <div className="flex justify-center p-10"><Spinner /></div> : lists.length === 0 ? <EmptyState title="אין רשימות" hint="צור רשימה מסינון אנשי קשר או ידנית" /> : (
+      {!lists ? <div className="flex justify-center p-10"><Spinner /></div> : lists.length === 0 ? <EmptyState title={t("אין רשימות", "No lists")} hint={t("צור רשימה מסינון אנשי קשר או ידנית", "Create a list from a contact filter or manually")} /> : (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
           {lists.map((l) => (
             <Link key={l.id} href={`/lists/${l.id}`} className="bg-panel border border-line rounded-xl p-4 hover:border-accent/50 transition-colors block">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-semibold truncate">{l.name}</h2>
-                <Badge tone={l.isActive ? "good" : "neutral"}>{l.isActive ? "פעילה" : "לא פעילה"}</Badge>
+                <Badge tone={l.isActive ? "good" : "neutral"}>{l.isActive ? t("פעילה", "Active") : t("לא פעילה", "Inactive")}</Badge>
               </div>
               {l.description && <p className="text-xs text-muted mt-1 line-clamp-2">{l.description}</p>}
               <div className="grid grid-cols-4 gap-2 mt-3 text-center">
-                {[["בתור", l.stats.dueNow], ["ממתינים", l.stats.byStatus.pending ?? 0], ["הושלמו", l.stats.byStatus.completed ?? 0], ["סה״כ", l.stats.total]].map(([k, v]) => (
+                {[[t("בתור", "In queue"), l.stats.dueNow], [t("ממתינים", "Pending"), l.stats.byStatus.pending ?? 0], [t("הושלמו", "Completed"), l.stats.byStatus.completed ?? 0], [t("סה״כ", "Total"), l.stats.total]].map(([k, v]) => (
                   <div key={k as string} className="bg-white/4 rounded-md py-1.5"><p className="text-base font-semibold tabular">{v as number}</p><p className="text-[10px] text-muted">{k as string}</p></div>
                 ))}
               </div>
-              <p className="text-[11px] text-muted mt-3 truncate">נציגים: {l.agents.length ? l.agents.map((a) => a.user.fullName).join(", ") : "כולם"} · עדיפות {l.priority}</p>
+              <p className="text-[11px] text-muted mt-3 truncate">{t("נציגים:", "Agents:")} {l.agents.length ? l.agents.map((a) => a.user.fullName).join(", ") : t("כולם", "All")} · {t("עדיפות", "Priority")} {l.priority}</p>
             </Link>
           ))}
         </div>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="רשימת חיוג חדשה" width="max-w-2xl" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>ביטול</Button><Button onClick={create} disabled={!form.name.trim() || (form.access === "selected" && !form.agentIds.length)}>צור</Button></>}>
+      <Modal open={open} onClose={() => setOpen(false)} title={t("רשימת חיוג חדשה", "New dial list")} width="max-w-2xl" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={create} disabled={!form.name.trim() || (form.access === "selected" && !form.agentIds.length)}>{t("צור", "Create")}</Button></>}>
         <div className="grid grid-cols-2 gap-3">
-          <Input label="שם" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="col-span-2" />
-          <Textarea label="תיאור" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="col-span-2" />
-          <Input label="עדיפות (0–100)" type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })} />
-          <Select label="תסריט" value={form.scriptId} onChange={(e) => setForm({ ...form, scriptId: e.target.value })}>
-            <option value="">ברירת מחדל של העסק</option>
+          <Input label={t("שם", "Name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="col-span-2" />
+          <Textarea label={t("תיאור", "Description")} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="col-span-2" />
+          <Input label={t("עדיפות (0–100)", "Priority (0–100)")} type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })} />
+          <Select label={t("תסריט", "Script")} value={form.scriptId} onChange={(e) => setForm({ ...form, scriptId: e.target.value })}>
+            <option value="">{t("ברירת מחדל של העסק", "Business default")}</option>
             {scripts.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
           </Select>
-          <Select label="מספר יוצא לרשימה" value={form.phoneNumberId} onChange={(e) => setForm({ ...form, phoneNumberId: e.target.value })}>
-            <option value="">ברירת מחדל של העסק</option>
+          <Select label={t("מספר יוצא לרשימה", "Outbound number for the list")} value={form.phoneNumberId} onChange={(e) => setForm({ ...form, phoneNumberId: e.target.value })}>
+            <option value="">{t("ברירת מחדל של העסק", "Business default")}</option>
             {numbers.map((n) => <option key={n.id} value={n.id}>{n.e164} {n.label ? `· ${n.label}` : ""}</option>)}
           </Select>
-          <Input label="מקס׳ ניסיונות (ריק = הגדרת עסק)" type="number" value={form.maxAttempts} onChange={(e) => setForm({ ...form, maxAttempts: e.target.value })} />
-          <Select label="ניסיונות ללא מענה לפני ״לא רלוונטי״" value={form.unansweredLimit} onChange={(e) => setForm({ ...form, unansweredLimit: e.target.value })}>
-            <option value="">לפי הגדרת העסק</option><option value="0">כבוי</option>
+          <Input label={t("מקס׳ ניסיונות (ריק = הגדרת עסק)", "Max attempts (empty = business setting)")} type="number" value={form.maxAttempts} onChange={(e) => setForm({ ...form, maxAttempts: e.target.value })} />
+          <Select label={t("ניסיונות ללא מענה לפני ״לא רלוונטי״", "Unanswered attempts before \"Not relevant\"")} value={form.unansweredLimit} onChange={(e) => setForm({ ...form, unansweredLimit: e.target.value })}>
+            <option value="">{t("לפי הגדרת העסק", "Per business setting")}</option><option value="0">{t("כבוי", "Off")}</option>
             {Array.from({ length: 30 }, (_, i) => <option key={i} value={i + 1}>{i + 1}</option>)}
           </Select>
-          <Input label="מרווח בין ניסיונות (דקות)" type="number" value={form.retryIntervalMinutes} onChange={(e) => setForm({ ...form, retryIntervalMinutes: e.target.value })} />
+          <Input label={t("מרווח בין ניסיונות (דקות)", "Interval between attempts (minutes)")} type="number" value={form.retryIntervalMinutes} onChange={(e) => setForm({ ...form, retryIntervalMinutes: e.target.value })} />
           <div className="col-span-2">
-            <span className="block text-xs text-muted mb-1">חלון חיוג (שעון ישראל)</span>
+            <span className="block text-xs text-muted mb-1">{t("חלון חיוג (שעון ישראל)", "Dial window (Israel time)")}</span>
             <div className="flex flex-wrap items-center gap-2">
               <input type="time" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} className="h-9 px-2 rounded-md bg-bg border border-line ltr" />
-              <span className="text-muted">עד</span>
+              <span className="text-muted">{t("עד", "to")}</span>
               <input type="time" value={form.end} onChange={(e) => setForm({ ...form, end: e.target.value })} className="h-9 px-2 rounded-md bg-bg border border-line ltr" />
               <div className="flex gap-1 ms-2">
                 {dayNames.map((d, i) => (
@@ -116,8 +118,8 @@ export default function ListsPage() {
             </div>
           </div>
           <div className="col-span-2">
-            <span className="block text-xs text-muted mb-1">למי הקמפיין פתוח</span>
-            <div className="flex gap-4 text-sm mb-2"><label className="flex items-center gap-1"><input type="radio" checked={form.access === "all"} onChange={() => setForm({ ...form, access: "all" })} /> כל הנציגים בעסק</label><label className="flex items-center gap-1"><input type="radio" checked={form.access === "selected"} onChange={() => setForm({ ...form, access: "selected" })} /> נציגים מסוימים</label></div>
+            <span className="block text-xs text-muted mb-1">{t("למי הקמפיין פתוח", "Who the campaign is open to")}</span>
+            <div className="flex gap-4 text-sm mb-2"><label className="flex items-center gap-1"><input type="radio" checked={form.access === "all"} onChange={() => setForm({ ...form, access: "all" })} /> {t("כל הנציגים בעסק", "All agents in the business")}</label><label className="flex items-center gap-1"><input type="radio" checked={form.access === "selected"} onChange={() => setForm({ ...form, access: "selected" })} /> {t("נציגים מסוימים", "Specific agents")}</label></div>
             {form.access === "selected" && <div className="flex flex-wrap gap-1.5">
               {users.filter((u) => u.role === "agent" || u.role === "manager").map((u) => (
                 <button key={u.id} type="button" onClick={() => setForm({ ...form, agentIds: form.agentIds.includes(u.id) ? form.agentIds.filter((x) => x !== u.id) : [...form.agentIds, u.id] })} className={`h-8 px-3 rounded-md text-xs ${form.agentIds.includes(u.id) ? "bg-accent text-white" : "bg-white/6 text-muted"}`}>{u.fullName}</button>
@@ -125,12 +127,12 @@ export default function ListsPage() {
             </div>}
           </div>
           <div className="col-span-2 border-t border-line pt-3">
-            <span className="block text-xs text-muted mb-1">מילוי ראשוני מ-CRM (אופציונלי)</span>
+            <span className="block text-xs text-muted mb-1">{t("מילוי ראשוני מ-CRM (אופציונלי)", "Initial fill from CRM (optional)")}</span>
             <div className="flex gap-2 items-center">
-              <Input placeholder="מקור (למשל facebook)" value={form.filterSource} onChange={(e) => setForm({ ...form, filterSource: e.target.value })} />
-              <label className="flex items-center gap-2 text-xs whitespace-nowrap"><input type="checkbox" checked={form.filterNeverCalled} onChange={(e) => setForm({ ...form, filterNeverCalled: e.target.checked })} /> רק שטרם חויגו</label>
+              <Input placeholder={t("מקור (למשל facebook)", "Source (e.g. facebook)")} value={form.filterSource} onChange={(e) => setForm({ ...form, filterSource: e.target.value })} />
+              <label className="flex items-center gap-2 text-xs whitespace-nowrap"><input type="checkbox" checked={form.filterNeverCalled} onChange={(e) => setForm({ ...form, filterNeverCalled: e.target.checked })} /> {t("רק שטרם חויגו", "Only never dialed")}</label>
             </div>
-            <label className="flex items-center gap-2 text-xs mt-2"><input type="checkbox" checked={form.isDynamic} onChange={(e) => setForm({ ...form, isDynamic: e.target.checked })} /> רשימה דינמית – ניתן לרענן ולהוסיף אנשי קשר חדשים שעונים לסינון (מוקפאת = חברות קבועה)</label>
+            <label className="flex items-center gap-2 text-xs mt-2"><input type="checkbox" checked={form.isDynamic} onChange={(e) => setForm({ ...form, isDynamic: e.target.checked })} /> {t("רשימה דינמית – ניתן לרענן ולהוסיף אנשי קשר חדשים שעונים לסינון (מוקפאת = חברות קבועה)", "Dynamic list – can be refreshed to add new contacts matching the filter (frozen = fixed membership)")}</label>
           </div>
         </div>
       </Modal>
@@ -142,13 +144,14 @@ interface QueueAlert { id: string; agentId: string; agent: string; listId: strin
 /** Managers: agents who ran out of dialable leads (open first). The same event also reaches linked managers on WhatsApp. */
 function QueueAlerts() {
   const [items, setItems] = useState<QueueAlert[]>([]);
+  const t = useT();
   useEffect(() => { api.get<{ items: QueueAlert[] }>("/api/dialer/queue-alerts").then((r) => setItems(r.items)).catch(() => undefined); }, []);
   const open = items.filter((a) => !a.closedAt);
   if (!open.length) return null;
   return (
     <div className="rounded-xl border border-warn/40 bg-warn/10 p-3 space-y-1" data-testid="queue-alerts">
-      <p className="text-sm font-semibold">נציגים ללא לידים זמינים</p>
-      {open.map((a) => <p key={a.id} className="text-sm" data-testid="queue-alert">לנציג <b>{a.agent}</b> אין כרגע לידים זמינים לחיוג בקמפיין <Link className="underline" href={`/lists/${a.listId}`}>{a.list}</Link>. מוצו: {a.exhaustedCount}. {a.nextAt ? `החיוג הבא צפוי ב-${new Date(a.nextAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })}.` : "אין עבודה עתידית בקמפיין."}</p>)}
+      <p className="text-sm font-semibold">{t("נציגים ללא לידים זמינים", "Agents without available leads")}</p>
+      {open.map((a) => <p key={a.id} className="text-sm" data-testid="queue-alert">{t("לנציג", "Agent")} <b>{a.agent}</b> {t("אין כרגע לידים זמינים לחיוג בקמפיין", "currently has no leads available to dial in campaign")} <Link className="underline" href={`/lists/${a.listId}`}>{a.list}</Link>. {t("מוצו:", "Exhausted:")} {a.exhaustedCount}. {a.nextAt ? t(`החיוג הבא צפוי ב-${new Date(a.nextAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })}.`, `Next dial expected at ${new Date(a.nextAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}.`) : t("אין עבודה עתידית בקמפיין.", "No future work in the campaign.")}</p>)}
     </div>
   );
 }

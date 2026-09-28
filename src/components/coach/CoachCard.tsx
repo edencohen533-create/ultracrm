@@ -4,13 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/client/api";
 import { Badge, Button, Input, cx } from "@/components/ui";
 import { CoachChat } from "@/components/coach/CoachChat";
+import { useT } from "@/components/i18n/LangProvider";
 
 type Providers = { llm: string; stt: string; embeddings: string; mock: boolean };
 type Status = { enabled: boolean; reason?: string; providers: Providers; live: boolean };
 type Rec = { id: string; objection: string | null; sayNow: string; why: string; confidence: number; basis: string; sources: { exampleIds?: string[]; exampleCalls?: string[]; knowledge?: string[]; model?: string; llmLatencyMs?: number }; latencyMs: number | null; createdAt: string };
 type SessionState = { id: string; status: "listening" | "analyzing" | "ready" | "unavailable" | "ended"; stage: string | null; lastObjection: string | null; segmentsCount: number; recommendation: Rec | null; usage: { costUsd: number; avgLatencyMs: number | null } } | null;
 
-const STAGE_LABEL: Record<string, string> = { opening: "פתיחה", discovery: "בירור צרכים", presentation: "הצגת הצעה", objection: "התנגדות", closing: "סגירה", wrap_up: "סיום" };
+const STAGE_LABEL: Record<string, { he: string; en: string }> = { opening: { he: "פתיחה", en: "Opening" }, discovery: { he: "בירור צרכים", en: "Discovery" }, presentation: { he: "הצגת הצעה", en: "Presentation" }, objection: { he: "התנגדות", en: "Objection" }, closing: { he: "סגירה", en: "Closing" }, wrap_up: { he: "סיום", en: "Wrap-up" } };
 const CHUNK_MS = 5000;
 const SILENCE_RMS = 0.01;
 
@@ -21,6 +22,7 @@ const SILENCE_RMS = 0.01;
  * In telephony simulation there is no audio, so a labelled text input feeds the same pipeline.
  */
 export function CoachCard({ callId, answered, simulation, onStatus }: { callId: string; answered: boolean; simulation: boolean; onStatus?: (s: Status | null) => void }) {
+  const t = useT();
   const [status, setStatus] = useState<Status | null>(null);
   const [session, setSession] = useState<SessionState>(null);
   const [expanded, setExpanded] = useState(false);
@@ -78,7 +80,7 @@ export function CoachCard({ callId, answered, simulation, onStatus }: { callId: 
       try {
         const el = document.getElementById("remote-audio") as HTMLMediaElement | null;
         const remote = el?.srcObject instanceof MediaStream ? el.srcObject : null;
-        if (!remote || remote.getAudioTracks().length === 0) throw new Error("אין ערוץ אודיו של הלקוח בדפדפן");
+        if (!remote || remote.getAudioTracks().length === 0) throw new Error(t("אין ערוץ אודיו של הלקוח בדפדפן", "No customer audio channel in the browser"));
         const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
         stops.push(() => mic.getTracks().forEach((t) => t.stop()));
         if (cancelled) return;
@@ -89,7 +91,7 @@ export function CoachCard({ callId, answered, simulation, onStatus }: { callId: 
     })();
     stopRef.current = () => { cancelled = true; stops.forEach((s) => s()); };
     return () => { stopRef.current?.(); stopRef.current = null; };
-  }, [answered, simulation, status?.live, status?.providers.stt, callId, poll]);
+  }, [answered, simulation, status?.live, status?.providers.stt, callId, poll, t]);
 
   async function feedback(kind: "helpful" | "not_helpful" | "skipped" | "hidden") {
     const rec = session?.recommendation; if (!rec) return;
@@ -107,51 +109,51 @@ export function CoachCard({ callId, answered, simulation, onStatus }: { callId: 
   if (!status.enabled) return null; // off for the business / agent – nothing to show, nothing to load
   const rec = session?.recommendation && session.recommendation.id !== hidden ? session.recommendation : null;
   const state: "unavailable" | "listening" | "analyzing" | "ready" = !status.live ? "unavailable" : rec ? "ready" : session?.status === "analyzing" ? "analyzing" : "listening";
-  const stateLabel = { unavailable: "לא זמין", listening: "מאזין", analyzing: "מנתח…", ready: "יש המלצה" }[state];
-  const basisLabel = rec ? (rec.basis === "examples" ? `מבוסס על ${rec.sources.exampleIds?.length ?? 0} דוגמאות מכירה שנבדקו בעסק` : rec.basis === "question" ? "שאלה לנציג – זיהוי לא ודאי" : "מבוסס על הידע העסקי המאושר בלבד – ללא דוגמאות מכירה מספיקות") : "";
+  const stateLabel = { unavailable: t("לא זמין", "Unavailable"), listening: t("מאזין", "Listening"), analyzing: t("מנתח…", "Analyzing…"), ready: t("יש המלצה", "Suggestion ready") }[state];
+  const basisLabel = rec ? (rec.basis === "examples" ? t(`מבוסס על ${rec.sources.exampleIds?.length ?? 0} דוגמאות מכירה שנבדקו בעסק`, `Based on ${rec.sources.exampleIds?.length ?? 0} reviewed sales examples from the business`) : rec.basis === "question" ? t("שאלה לנציג – זיהוי לא ודאי", "Question for the agent – uncertain detection") : t("מבוסס על הידע העסקי המאושר בלבד – ללא דוגמאות מכירה מספיקות", "Based on approved business knowledge only – not enough sales examples")) : "";
   return (
     <section className="rounded-xl border border-line bg-panel p-3 space-y-2" data-testid="coach-card" aria-live="polite">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-semibold">מאמן מכירות</span>
+        <span className="text-sm font-semibold">{t("מאמן מכירות", "Sales coach")}</span>
         <Badge tone={state === "ready" ? "good" : state === "analyzing" ? "warn" : state === "unavailable" ? "bad" : "info"} dot>{stateLabel}</Badge>
-        {session?.stage && <span className="text-[11px] text-muted">שלב: {STAGE_LABEL[session.stage] ?? session.stage}</span>}
-        {status.providers.mock && <Badge tone="warn">ספק AI מדומה</Badge>}
-        {simulation && <Badge tone="warn">הדמיה – אין אודיו</Badge>}
-        {!simulation && capture === "on" && <span className="text-[11px] text-good">מקליט לתמלול</span>}
-        {rec?.latencyMs != null && <span className="text-[11px] text-muted tabular" title="מסיום משפט הלקוח ועד ההמלצה">{(rec.latencyMs / 1000).toFixed(1)} שנ׳</span>}
-        <span className="ms-auto"><CoachChat callId={callId} disabledReason={status.live ? null : status.reason ?? "המאמן לא זמין"} mock={status.providers.mock} /></span>
+        {session?.stage && <span className="text-[11px] text-muted">{t("שלב:", "Stage:")} {STAGE_LABEL[session.stage] ? t(STAGE_LABEL[session.stage].he, STAGE_LABEL[session.stage].en) : session.stage}</span>}
+        {status.providers.mock && <Badge tone="warn">{t("ספק AI מדומה", "Mock AI provider")}</Badge>}
+        {simulation && <Badge tone="warn">{t("הדמיה – אין אודיו", "Simulation – no audio")}</Badge>}
+        {!simulation && capture === "on" && <span className="text-[11px] text-good">{t("מקליט לתמלול", "Recording for transcription")}</span>}
+        {rec?.latencyMs != null && <span className="text-[11px] text-muted tabular" title={t("מסיום משפט הלקוח ועד ההמלצה", "From end of customer's sentence to suggestion")}>{t(`${(rec.latencyMs / 1000).toFixed(1)} שנ׳`, `${(rec.latencyMs / 1000).toFixed(1)}s`)}</span>}
+        <span className="ms-auto"><CoachChat callId={callId} disabledReason={status.live ? null : status.reason ?? t("המאמן לא זמין", "Coach unavailable")} mock={status.providers.mock} /></span>
       </div>
-      {state === "unavailable" && <p className="text-xs text-bad">{status.reason ?? "המאמן לא זמין"}</p>}
-      {capture === "error" && !simulation && <p className="text-xs text-warn">תמלול חי לא פעיל: {captureError}</p>}
+      {state === "unavailable" && <p className="text-xs text-bad">{status.reason ?? t("המאמן לא זמין", "Coach unavailable")}</p>}
+      {capture === "error" && !simulation && <p className="text-xs text-warn">{t("תמלול חי לא פעיל:", "Live transcription inactive:")} {captureError}</p>}
       {rec ? (
         <div className="space-y-1.5" data-testid="coach-recommendation">
-          {rec.objection && <p className="text-xs"><span className="text-muted">התנגדות / שאלה: </span><span className="font-medium">{rec.objection}</span></p>}
-          <p className="text-[15px] leading-snug font-medium" data-testid="coach-say-now"><span className="text-muted text-xs block">מה לומר עכשיו</span>{rec.sayNow}</p>
-          <button onClick={() => setExpanded((e) => !e)} className="text-[11px] text-accent underline">{expanded ? "הסתר הסבר" : "למה זה מתאים?"}</button>
+          {rec.objection && <p className="text-xs"><span className="text-muted">{t("התנגדות / שאלה: ", "Objection / question: ")}</span><span className="font-medium">{rec.objection}</span></p>}
+          <p className="text-[15px] leading-snug font-medium" data-testid="coach-say-now"><span className="text-muted text-xs block">{t("מה לומר עכשיו", "What to say now")}</span>{rec.sayNow}</p>
+          <button onClick={() => setExpanded((e) => !e)} className="text-[11px] text-accent underline">{expanded ? t("הסתר הסבר", "Hide explanation") : t("למה זה מתאים?", "Why does this fit?")}</button>
           {expanded && (
             <div className="text-xs text-muted space-y-0.5 rounded-md bg-panel-2 p-2">
               <p>{rec.why || "—"}</p>
-              <p>{basisLabel} · ביטחון {Math.round(rec.confidence * 100)}%</p>
-              {rec.sources.knowledge?.length ? <p>ידע עסקי: {rec.sources.knowledge.join(" · ")}</p> : null}
+              <p>{basisLabel} · {t("ביטחון", "Confidence")} {Math.round(rec.confidence * 100)}%</p>
+              {rec.sources.knowledge?.length ? <p>{t("ידע עסקי:", "Business knowledge:")} {rec.sources.knowledge.join(" · ")}</p> : null}
             </div>
           )}
           <div className="flex flex-wrap gap-1 pt-1">
-            <Button size="sm" variant="secondary" onClick={() => feedback("helpful")}>מועיל</Button>
-            <Button size="sm" variant="ghost" onClick={() => feedback("not_helpful")}>לא מועיל</Button>
-            <Button size="sm" variant="ghost" onClick={() => feedback("skipped")}>דלג</Button>
-            <Button size="sm" variant="ghost" onClick={() => feedback("hidden")}>הסתר</Button>
+            <Button size="sm" variant="secondary" onClick={() => feedback("helpful")}>{t("מועיל", "Helpful")}</Button>
+            <Button size="sm" variant="ghost" onClick={() => feedback("not_helpful")}>{t("לא מועיל", "Not helpful")}</Button>
+            <Button size="sm" variant="ghost" onClick={() => feedback("skipped")}>{t("דלג", "Skip")}</Button>
+            <Button size="sm" variant="ghost" onClick={() => feedback("hidden")}>{t("הסתר", "Hide")}</Button>
           </div>
         </div>
       ) : state !== "unavailable" ? (
-        <p className="text-xs text-muted">{session?.segmentsCount ? "ממתין להתנגדות או לשאלה מהלקוח…" : answered ? "מאזין לשיחה. המלצה תופיע כשהלקוח מעלה התנגדות או שאלה." : "ההמלצות יתחילו כשהשיחה נענית."}</p>
+        <p className="text-xs text-muted">{session?.segmentsCount ? t("ממתין להתנגדות או לשאלה מהלקוח…", "Waiting for an objection or question from the customer…") : answered ? t("מאזין לשיחה. המלצה תופיע כשהלקוח מעלה התנגדות או שאלה.", "Listening to the call. A suggestion will appear when the customer raises an objection or question.") : t("ההמלצות יתחילו כשהשיחה נענית.", "Suggestions start once the call is answered.")}</p>
       ) : null}
       {simulation && status.live && answered && (
         <div className="border-t border-line pt-2 space-y-1" data-testid="coach-sim">
-          <p className="text-[11px] text-warn">הדמיה: אין אודיו אמיתי – הזן מה נאמר כדי להפעיל את אותו צינור ניתוח.</p>
+          <p className="text-[11px] text-warn">{t("הדמיה: אין אודיו אמיתי – הזן מה נאמר כדי להפעיל את אותו צינור ניתוח.", "Simulation: no real audio – enter what was said to run the same analysis pipeline.")}</p>
           <div className="flex gap-1">
-            <select value={simSpeaker} onChange={(e) => setSimSpeaker(e.target.value as "customer" | "agent")} className="h-8 rounded-md border border-line bg-bg text-xs px-1" aria-label="דובר"><option value="customer">לקוח</option><option value="agent">נציג</option></select>
-            <Input value={simText} onChange={(e) => setSimText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendSim()} placeholder="למשל: זה יקר לי" className={cx("h-8 text-xs")} aria-label="טקסט הדמיה" />
-            <Button size="sm" onClick={sendSim} disabled={!simText.trim()} data-testid="coach-sim-send">שלח</Button>
+            <select value={simSpeaker} onChange={(e) => setSimSpeaker(e.target.value as "customer" | "agent")} className="h-8 rounded-md border border-line bg-bg text-xs px-1" aria-label={t("דובר", "Speaker")}><option value="customer">{t("לקוח", "Customer")}</option><option value="agent">{t("נציג", "Agent")}</option></select>
+            <Input value={simText} onChange={(e) => setSimText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendSim()} placeholder={t("למשל: זה יקר לי", "e.g. It's too expensive for me")} className={cx("h-8 text-xs")} aria-label={t("טקסט הדמיה", "Simulation text")} />
+            <Button size="sm" onClick={sendSim} disabled={!simText.trim()} data-testid="coach-sim-send">{t("שלח", "Send")}</Button>
           </div>
         </div>
       )}

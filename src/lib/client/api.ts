@@ -1,4 +1,5 @@
 "use client";
+import { uiLang } from "@/lib/i18n-labels";
 
 export class ApiClientError extends Error {
   status: number;
@@ -24,7 +25,7 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
     if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
       window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
     }
-    throw new ApiClientError(json.error ?? `שגיאה (${res.status})`, res.status, json.code ?? "error", json.details);
+    throw new ApiClientError(json.error ?? (uiLang() === "en" ? `Error (${res.status})` : `שגיאה (${res.status})`), res.status, json.code ?? "error", json.details);
   }
   return json.data as T;
 }

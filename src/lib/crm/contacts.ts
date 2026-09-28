@@ -404,7 +404,7 @@ export async function importContacts(user: SessionUser, rows: ContactInput[], de
 /**
  * Merge `duplicateId` INTO `primaryId` (2.04 / 9.08). Never automatic – a manager chooses the survivor.
  * Moves phones, emails, tags, leads, deals, tasks, notes, conversations (+messages), calls, queue leads,
- * campaign recipients, suppressions, sequence runs and events; fills blank primary fields from the duplicate;
+ * campaign recipients, suppressions, sequence runs, carts and events; fills blank primary fields from the duplicate;
  * consent/blocking take the more restrictive value (an opt-out is never lost); deletes the duplicate row and
  * records a full snapshot in the audit log. Unique conflicts (same list, same campaign) keep the primary's row.
  */
@@ -441,6 +441,7 @@ export async function mergeContacts(user: SessionUser, primaryId: string, duplic
     await tx.note.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
     await tx.conversation.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
     await tx.call.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
+    await tx.cart.updateMany({ where: { contactId: duplicateId }, data: { contactId: primaryId } });
     for (const draft of await tx.noteDraft.findMany({ where: { contactId: duplicateId } })) {
       const existing = await tx.noteDraft.findUnique({ where: { userId_contactId: { userId: draft.userId, contactId: primaryId } } });
       if (existing) {
@@ -461,11 +462,19 @@ export async function mergeContacts(user: SessionUser, primaryId: string, duplic
     for (const r of await tx.sequenceRun.findMany({ where: { contactId: duplicateId } })) { if (primaryRuns.has(`${r.sequenceId}:${r.sourceKey}`)) await tx.sequenceRun.delete({ where: { id: r.id } }); else await tx.sequenceRun.update({ where: { id: r.id }, data: { contactId: primaryId } }); }
     // Fields: fill blanks; consent/blocking = most restrictive; custom fields: primary wins.
     const restrictive = primary.consentStatus === "OPTED_OUT" || duplicate.consentStatus === "OPTED_OUT" ? "OPTED_OUT" : primary.consentStatus === "OPTED_IN" || duplicate.consentStatus === "OPTED_IN" ? "OPTED_IN" : "UNKNOWN";
+    const latestDate = (a: Date | null, b: Date | null) => !a ? b : !b ? a : a.getTime() >= b.getTime() ? a : b;
+    const earliestDate = (a: Date | null, b: Date | null) => !a ? b : !b ? a : a.getTime() <= b.getTime() ? a : b;
+    // Deliverability belongs to the selected address, not to the contact being deleted.
+    const emailOwner = primary.email !== null ? primary : duplicate;
     await tx.contact.update({ where: { id: primaryId }, data: {
       email: primary.email ?? duplicate.email ?? undefined, company: primary.company ?? duplicate.company, city: primary.city ?? duplicate.city, source: primary.source ?? duplicate.source, notes: [primary.notes, duplicate.notes].filter(Boolean).join("\n---\n") || null,
       ownerUserId: primary.ownerUserId ?? duplicate.ownerUserId, customFields: { ...((duplicate.customFields ?? {}) as object), ...((primary.customFields ?? {}) as object) },
       consentStatus: restrictive, consentAt: restrictive !== primary.consentStatus ? (duplicate.consentAt ?? new Date()) : primary.consentAt, consentSource: restrictive !== primary.consentStatus ? (duplicate.consentSource ?? "merge") : primary.consentSource, consentEvidence: restrictive !== primary.consentStatus ? (duplicate.consentEvidence ?? "ממיזוג") : primary.consentEvidence,
-      isBlocked: primary.isBlocked || duplicate.isBlocked, emailStatus: primary.emailStatus ?? duplicate.emailStatus, lastActivityAt: [primary.lastActivityAt, duplicate.lastActivityAt].filter(Boolean).sort().at(-1) ?? null,
+      isBlocked: primary.isBlocked || duplicate.isBlocked,
+      emailStatus: emailOwner.emailStatus, emailBouncedAt: emailOwner.emailBouncedAt,
+      lastActivityAt: latestDate(primary.lastActivityAt, duplicate.lastActivityAt),
+      lastMarketingAt: latestDate(primary.lastMarketingAt, duplicate.lastMarketingAt),
+      customerSince: earliestDate(primary.customerSince, duplicate.customerSince),
     } });
     await tx.contact.delete({ where: { id: duplicateId } });
     await tx.auditLog.create({ data: { businessId, actorId: user.id, action: "contact.merged", entityType: "Contact", entityId: primaryId, payload: { duplicateId, duplicate: snapshot } as Prisma.InputJsonValue } });

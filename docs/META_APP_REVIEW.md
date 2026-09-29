@@ -4,9 +4,10 @@ Everything the product needs for review is built and deployed. This file covers 
 
 ## Status (checked 2026-09-28 against production)
 Ready: public pages, privacy policy matches the two permissions, signed webhook, Embedded Signup flow, template/quality webhooks, in-app deletion, English UI, app icon.
+Operator identity (set 2026-09-29): Eden Cohen · 4 Emma Tauber St., Herzliya, Israel · edencohen533@gmail.com – use exactly these in Business Verification.
+Production check once the Meta values are set: `npx vercel env pull --environment=production /tmp/prod.env && node scripts/meta-go-live-check.mjs /tmp/prod.env; rm /tmp/prod.env`.
 Still open (not code):
 - [ ] `META_APP_ID`, `META_APP_SECRET`, `META_ES_CONFIG_ID` missing in Vercel – until set, `/api/meta/data-deletion` and `/api/meta/deauthorize` answer 503 and Embedded Signup cannot open.
-- [ ] `PLATFORM_LEGAL_NAME`, `PLATFORM_ADDRESS`, `SUPPORT_EMAIL` missing – the public pages name only "UltraCRM", with no legal entity or contact email. Must match the verified business.
 - [ ] Own domain (recommended): Business Verification expects the business's own website; `*.vercel.app` cannot be domain-verified.
 - [ ] No reviewer account in production yet (step 4).
 - [ ] No real WhatsApp test yet (step 5).
@@ -30,9 +31,9 @@ Still open (not code):
    - `PLATFORM_LEGAL_NAME`, `PLATFORM_ADDRESS`, `SUPPORT_EMAIL` (and optionally `PRIVACY_EMAIL`, `PLATFORM_PRODUCT_NAME`). These are shown on the privacy / terms / support pages; reviewers expect a real operator name and contact.
 4. **Reviewer login** (run it yourself; the password is printed only to your terminal):
    ```
-   node scripts/create-reviewer.mjs reviewer@<your-domain>
+   node scripts/create-reviewer.mjs reviewer@<your-domain or any address you control>
    ```
-   After approval: `node scripts/create-reviewer.mjs reviewer@<your-domain> --revoke`.
+   After approval: `node scripts/create-reviewer.mjs reviewer@<your-domain or any address you control> --revoke`.
 5. **Real WhatsApp check:** connect your own WhatsApp Business number once through **Settings → Connections → Manage WhatsApp connection → Connect WhatsApp** (direct link: `/settings/whatsapp`), and send a test message. Until now the WhatsApp flows were only verified against the simulator.
 
 ## 1. App Dashboard settings
@@ -40,14 +41,14 @@ Still open (not code):
 |---|---|
 | App icon | `docs/meta/app-icon-1024.png` (1024×1024, the "U" mark) |
 | Category | Business and pages / Messaging |
-| App domains | your domain (e.g. `ultracrm-eta.vercel.app`) |
-| Privacy Policy URL | `https://<domain>/privacy` |
-| Terms of Service URL | `https://<domain>/terms` |
-| User data deletion | **Data Deletion Callback URL**: `https://<domain>/api/meta/data-deletion` (instructions page: `https://<domain>/data-deletion`) |
-| Deauthorize callback (Facebook Login for Business → Settings) | `https://<domain>/api/meta/deauthorize` |
-| Valid OAuth redirect / allowed domains for the JS SDK | `https://<domain>` |
-| WhatsApp → Configuration → Webhook | Callback `https://<domain>/api/webhooks/whatsapp`, verify token = `META_WEBHOOK_VERIFY_TOKEN`. Subscribe to **messages**, **message_template_status_update**, **phone_number_quality_update**, **account_update** |
-| Contact email | the `SUPPORT_EMAIL` address |
+| App domains | `ultracrm-eta.vercel.app` (replace everywhere in this file if you move to your own domain) |
+| Privacy Policy URL | `https://ultracrm-eta.vercel.app/privacy` |
+| Terms of Service URL | `https://ultracrm-eta.vercel.app/terms` |
+| User data deletion | **Data Deletion Callback URL**: `https://ultracrm-eta.vercel.app/api/meta/data-deletion` (instructions page: `https://ultracrm-eta.vercel.app/data-deletion`) |
+| Deauthorize callback (Facebook Login for Business → Settings) | `https://ultracrm-eta.vercel.app/api/meta/deauthorize` |
+| Valid OAuth redirect / allowed domains for the JS SDK | `https://ultracrm-eta.vercel.app` |
+| WhatsApp → Configuration → Webhook | Callback `https://ultracrm-eta.vercel.app/api/webhooks/whatsapp`, verify token = `META_WEBHOOK_VERIFY_TOKEN`. Subscribe to **messages**, **message_template_status_update**, **phone_number_quality_update**, **account_update** |
+| Contact email | `edencohen533@gmail.com` (same as `SUPPORT_EMAIL`) |
 
 ## 2. Permissions to request (Advanced Access) – only these two
 Requesting permissions you don't use is a common rejection reason.
@@ -72,7 +73,7 @@ Before recording, click **English** (login page, bottom of the side menu). Recor
 3. Outside the 24-hour window, or from the lead card, send an approved template. Show it arriving on the phone and the delivered/read status in UltraCRM.
 
 ## 4. Reviewer instructions (paste into the submission)
-> Login: https://<domain>/login – email/password below. The interface language can be switched with the "English" button on the login page and at the bottom of the side menu. WhatsApp settings: Settings → Connections → Manage WhatsApp connection (https://<domain>/settings/whatsapp). Templates: side menu → WhatsApp templates. Inbox: side menu → WhatsApp. Data deletion: Settings → Account and https://<domain>/data-deletion. Support: https://<domain>/support.
+> Login: https://ultracrm-eta.vercel.app/login – email/password below. The interface language can be switched with the "English" button on the login page and at the bottom of the side menu. WhatsApp settings: Settings → Connections → Manage WhatsApp connection (https://ultracrm-eta.vercel.app/settings/whatsapp). Templates: side menu → WhatsApp templates. Inbox: side menu → WhatsApp. Data deletion: Settings → Account and https://ultracrm-eta.vercel.app/data-deletion. Support: https://ultracrm-eta.vercel.app/support.
 
 ## 5. What reviewers will find (built)
 - **Public pages:** landing `/`, privacy `/privacy`, terms `/terms`, data deletion `/data-deletion` (with confirmation-code status), support `/support` (contact form stored for the platform team: `/platform` → Support & deletions).

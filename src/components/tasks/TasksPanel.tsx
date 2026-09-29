@@ -45,7 +45,7 @@ function TasksView({ embedded }: { embedded: boolean }) {
   async function setTask(id: string, s: "done" | "cancelled" | "open") {
     try { await api.patch(`/api/tasks/${id}`, { status: s }); load(); } catch (e) { toast.error((e as Error).message); }
   }
-  const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall && !state?.wrapUpCall;
+  const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall;
 
   return (
     <div className={embedded ? "space-y-3" : "p-5 space-y-4 max-w-5xl"}>

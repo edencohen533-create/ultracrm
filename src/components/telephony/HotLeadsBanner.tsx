@@ -23,7 +23,7 @@ export function HotLeadsBanner() {
   if (!items.length) return null;
   const session = state?.session;
   const autoDialing = Boolean(session && session.mode === "power" && session.status === "active" && session.ownedByThisTab !== false);
-  const inCall = Boolean(state?.activeCall || state?.wrapUpCall);
+  const inCall = Boolean(state?.activeCall);
   async function act(h: HotSignal, body: Record<string, unknown>, msg: string) {
     try { await api.post(`/api/dialer/hot/${h.id}`, body); toast.success(msg); setConfirm(null); } catch (e) { toast.error((e as Error).message); }
   }

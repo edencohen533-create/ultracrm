@@ -20,7 +20,8 @@ export const POST = withAuth(async ({ req, user }) => {
   const owner = (target?.filterJson as { leadOwnerUserId?: string } | null)?.leadOwnerUserId;
   if (!target || (owner && owner !== user.id)) throw new ApiError("הקמפיין אינו פתוח עבורך", 403, "forbidden");
   if (await prisma.call.findUnique({ where: { activeForUser: user.id }, select: { id: true } })) throw new ApiError("יש שיחה פעילה – סיים אותה לפני מעבר קמפיין", 409, "call_active");
-  if (await prisma.call.findFirst({ where: { userId: user.id, endedAt: { not: null }, outcomeSavedAt: null }, select: { id: true } })) throw new ApiError("יש שיחה שטרם תועדה – שמור תוצאה לפני מעבר קמפיין", 409, "outcome_required");
+  // A call left without a result is closed automatically (AI documents it) instead of blocking the switch.
+  await (await import("@/lib/dialer/calls")).autoFinalizePendingCalls(user);
   const s = await prisma.dialerSession.findFirst({ where: { userId: user.id, status: { in: ["active", "paused"] } } });
   if (s && s.browserSessionId !== b.browserSessionId) throw new ApiError("החיוג פעיל בלשונית אחרת", 409, "session_taken");
   if (s) {

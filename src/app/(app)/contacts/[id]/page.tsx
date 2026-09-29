@@ -156,7 +156,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
 
   if (loadError) return <div className="p-5 space-y-3" role="alert"><p>{loadError}</p><Button onClick={load}>{t("נסה שוב", "Try again")}</Button><Link href="/contacts" className="ms-3 underline">{t("חזרה לאנשי קשר", "Back to contacts")}</Link></div>;
   if (!c) return <div className="flex justify-center p-10"><Spinner /></div>;
-  const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall && !state?.wrapUpCall && !c.isDnc && !c.suppression.fullyBlocked && !c.suppression.doNotContact;
+  const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall && !c.isDnc && !c.suppression.fullyBlocked && !c.suppression.doNotContact;
   const isManager = me?.user.role === "manager" || me?.user.role === "owner";
   const openLeads = c.leads.filter((l) => ["new", "contacted", "qualified", "follow_up"].includes(l.status));
 

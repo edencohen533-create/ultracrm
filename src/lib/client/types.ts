@@ -1,5 +1,5 @@
 export type DialMode = "manual" | "preview" | "power";
-export type OutcomeKey = "answered_interested" | "answered_not_interested" | "callback" | "no_answer" | "busy" | "wrong_number" | "sale" | "dnc";
+export type OutcomeKey = "answered" | "answered_interested" | "answered_not_interested" | "callback" | "no_answer" | "busy" | "wrong_number" | "sale" | "dnc";
 
 export interface ContactLite {
   id: string;

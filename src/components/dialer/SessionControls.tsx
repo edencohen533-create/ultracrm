@@ -64,7 +64,7 @@ export function SessionControls() {
   }
 
   // A manual call (or its wrap-up) without a session: no start form in the workspace header – finish the call first.
-  if (state?.activeCall || state?.wrapUpCall) return <p className="text-xs text-muted">{t("שיחה ידנית – תעד את התוצאה בסיום ותחזור לרשימת הלידים. הפעלת החייגן האוטומטי זמינה מראש מסך הלידים.", "Manual call – log the outcome when done to return to the lead list. The auto-dialer can be started from the top of the leads screen.")}</p>;
+  if (state?.activeCall) return <p className="text-xs text-muted">{t("שיחה ידנית – התיעוד מתבצע אוטומטית על ידי AI. הפעלת החייגן האוטומטי זמינה מראש מסך הלידים.", "Manual call – documentation is done automatically by AI. The auto-dialer can be started from the top of the leads screen.")}</p>;
   return <StartSessionForm />;
 }
 
@@ -106,7 +106,7 @@ export function StartSessionForm({ onStarted, compact, initialListId }: { onStar
 
   const chosen = source === "mine" ? mine : (lists?.find((l) => l.id === listId) ?? null);
   const effectiveListId = source === "mine" ? (mine?.id ?? "") : listId;
-  const blocked = Boolean(state?.activeCall || state?.wrapUpCall);
+  const blocked = Boolean(state?.activeCall);
   return (
     <div className={compact ? "space-y-3" : "flex flex-wrap items-end gap-3"}>
       {compact && (
@@ -126,7 +126,7 @@ export function StartSessionForm({ onStarted, compact, initialListId }: { onStar
               {chosen.stats.dueNow === 0 && <p className="text-warn">{t("אין כרגע לידים זמינים ברשימה זו.", "No leads are available in this list right now.")}</p>}
             </>
           ) : null}
-          {blocked && <p className="text-warn">{t("יש שיחה פעילה או שיחה שממתינה לתיעוד – סיים אותה לפני הפעלת החייגן.", "There is an active call or a call waiting to be logged – finish it before starting the dialer.")}</p>}
+          {blocked && <p className="text-warn">{t("יש שיחה פעילה – סיים אותה לפני הפעלת החייגן.", "There is an active call – finish it before starting the dialer.")}</p>}
         </div>
       )}
       <div className="flex rounded-lg border border-line overflow-hidden">

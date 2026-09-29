@@ -140,7 +140,7 @@ export default function ContactsPage() {
     }
   }
 
-  const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall && !state?.wrapUpCall;
+  const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall;
   const isManager = me?.user.role === "manager" || me?.user.role === "owner";
 
   return (

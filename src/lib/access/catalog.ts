@@ -10,7 +10,7 @@ export const MODULES: ModuleKey[] = ["crm", "telephony", "whatsapp", "sms", "ema
 export const MODULE_LABEL: Record<ModuleKey, string> = bi({ crm: "CRM", telephony: "חייגן", whatsapp: "וואטסאפ", sms: "SMS מרקטינג", email: "אימייל מרקטינג" }, { crm: "CRM", telephony: "Dialer", whatsapp: "WhatsApp", sms: "SMS marketing", email: "Email marketing" });
 
 export const ACTIONS = {
-  crm: bi({ view: "צפייה", create: "יצירה", edit: "עריכה", export: "ייצוא", transfer: "העברת לידים" } as const, { view: "View", create: "Create", edit: "Edit", export: "Export", transfer: "Transfer leads" }),
+  crm: bi({ view: "צפייה", create: "יצירה", edit: "עריכה", export: "ייצוא", transfer: "העברת לידים", payments: "גבייה מלקוח (קישור / עמוד תשלום)", payment_amount: "שינוי סכום בגבייה" } as const, { view: "View", create: "Create", edit: "Edit", export: "Export", transfer: "Transfer leads", payments: "Take payments (link / payment page)", payment_amount: "Change the amount of a payment" }),
   telephony: bi({ use: "שימוש בחייגן", personal_settings: "שינוי הגדרות אישיות", team_settings: "ניהול הגדרות צוות וקמפיינים", recordings: "גישה להקלטות" } as const, { use: "Use the dialer", personal_settings: "Change personal settings", team_settings: "Manage team settings and campaigns", recordings: "Access recordings" }),
   whatsapp: bi({ view: "צפייה בשיחות", reply: "מענה", assign: "הקצאת שיחות", automations: "ניהול אוטומציות", campaign_draft: "הכנת הודעות תפוצה", campaign_send: "אישור ושליחת הודעות תפוצה" } as const, { view: "View conversations", reply: "Reply", assign: "Assign conversations", automations: "Manage automations", campaign_draft: "Prepare broadcasts", campaign_send: "Approve and send broadcasts" }),
   sms: bi({ view: "צפייה", draft: "יצירה ועריכת טיוטות", send: "אישור ושליחת קמפיינים" } as const, { view: "View", draft: "Create and edit drafts", send: "Approve and send campaigns" }),
@@ -32,7 +32,7 @@ const all = (m: ModuleKey) => Object.keys(ACTIONS[m]);
 const TEMPLATES_RAW: Record<TemplateKey, { label: string; en: string; scope: DataScope; actions: Record<ModuleKey, string[]> }> = {
   business_manager: { label: "מנהל עסק", en: "Business manager", scope: "business", actions: { crm: all("crm"), telephony: all("telephony"), whatsapp: all("whatsapp"), sms: all("sms"), email: all("email") } },
   team_manager: { label: "מנהל צוות", en: "Team manager", scope: "team", actions: { crm: all("crm"), telephony: all("telephony"), whatsapp: ["view", "reply", "assign", "automations", "campaign_draft"], sms: ["view", "draft"], email: ["view", "draft"] } },
-  agent: { label: "נציג", en: "Agent", scope: "own", actions: { crm: ["view", "create", "edit"], telephony: ["use", "personal_settings"], whatsapp: ["view", "reply"], sms: ["view"], email: ["view"] } },
+  agent: { label: "נציג", en: "Agent", scope: "own", actions: { crm: ["view", "create", "edit", "payments"], telephony: ["use", "personal_settings"], whatsapp: ["view", "reply"], sms: ["view"], email: ["view"] } },
 };
 export const TEMPLATES = Object.fromEntries(Object.entries(TEMPLATES_RAW).map(([k, v]) => [k, withLabel(v, v.en)])) as typeof TEMPLATES_RAW;
 

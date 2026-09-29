@@ -242,11 +242,11 @@ describe("dialer: attempt quota, empty queue, campaign switch", { timeout: 2_400
     const during = await switchPOST(await req(dana, "/api/dialer/campaigns/switch", "POST", { listId: to.id, browserSessionId }), ctx());
     expect(during.status).toBe(409);
     await endCall(dana, call.id);
-    expect((await switchPOST(await req(dana, "/api/dialer/campaigns/switch", "POST", { listId: to.id, browserSessionId }), ctx())).status).toBe(409); // outcome first
-    await run(dana, () => saveOutcome(dana, { callId: call.id, outcome: "busy" }));
+    // A call without a result no longer blocks the switch: it is closed automatically (the AI documents calls).
     const callsBefore = await db.call.count({ where: { businessId: a.business.id, userId: dana.id } });
     const ok = await switchPOST(await req(dana, "/api/dialer/campaigns/switch", "POST", { listId: to.id, browserSessionId }), ctx());
     expect(ok.status).toBe(200);
+    expect((await db.call.findUniqueOrThrow({ where: { id: call.id } })).outcomeSavedAt).not.toBeNull();
     expect(await db.call.count({ where: { businessId: a.business.id, userId: dana.id } })).toBe(callsBefore); // no dial
     expect((await db.dialerSession.findUniqueOrThrow({ where: { id: s.id } })).status).toBe("ended");
     expect(await db.task.findUniqueOrThrow({ where: { id: task.id } })).toMatchObject({ status: "open", dueAt: task.dueAt });

@@ -17,7 +17,7 @@ export function DueElsewhereBanner() {
     void load(); const iv = setInterval(load, 60_000); return () => clearInterval(iv);
   }, [active, state?.session?.listId]);
   if (!active || !items.length || emptyState) return null; // the empty-queue panel already lists them
-  const inCall = Boolean(state?.activeCall || state?.wrapUpCall);
+  const inCall = Boolean(state?.activeCall);
   return (
     <div className="mx-3 mt-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs" role="status" data-testid="due-elsewhere-banner">
       {items.map((d) => <span key={d.listId} className="me-3">⏰ {d.n === 1 ? t("הגיע מועד פולואפ בקמפיין", "A follow-up is due in campaign") : t(`הגיע מועד ${d.n} פולואפים בקמפיין`, `${d.n} follow-ups are due in campaign`)} <b>{d.listName}</b>{" "}

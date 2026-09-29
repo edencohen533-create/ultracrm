@@ -1,5 +1,6 @@
 "use client";
 
+import { PaymentButton } from "./PaymentModal";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useDialer } from "@/components/telephony/DialerProvider";
@@ -46,7 +47,8 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
   const wrapUp = state?.wrapUpCall ?? null;
   const focusContactId = call?.contactId ?? wrapUp?.contactId ?? lead?.contactId ?? null;
   const previewMode = session?.mode === "preview";
-  const canDialLead = Boolean(lead && lead.status === "locked" && !call && !wrapUp && !sessionTakenOver && session?.status === "active");
+  // A call waiting for a result never blocks the next one: the server closes it automatically (AI documents it).
+  const canDialLead = Boolean(lead && lead.status === "locked" && !call && !sessionTakenOver && session?.status === "active");
 
   useEffect(() => {
     setRefreshKey((k) => k + 1);
@@ -60,20 +62,19 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
 
   /** "חייג לליד" when no lead is locked yet (power countdown / preview before the next lead): pull the next one and dial now. */
   const dialNext = useCallback(async () => {
-    if (call || wrapUp || !session || session.status !== "active" || sessionTakenOver) return;
+    if (call || !session || session.status !== "active" || sessionTakenOver) return;
     cancelCountdown();
     const next = lead && lead.status === "locked" ? lead : await d.nextLead();
     if (!next) return; // the "אין לידים זמינים" panel explains why (loaded by nextLead)
     await dial({ mode: session.mode ?? "manual", leadId: next.id, lockToken: next.lockToken ?? undefined });
-  }, [call, wrapUp, session, sessionTakenOver, cancelCountdown, lead, d, dial]);
+  }, [call, session, sessionTakenOver, cancelCountdown, lead, d, dial]);
 
   const dialManual = useCallback(
     async (phone: string) => {
       if (call) return toast.error(t("יש שיחה פעילה", "A call is in progress"));
-      if (wrapUp) return toast.error(t("תעד את השיחה הקודמת קודם", "Log the previous call first"));
       await dial({ mode: "manual", phone });
     },
-    [call, wrapUp, dial, t],
+    [call, dial, t],
   );
 
   useEffect(() => { setFullWrapUp(false); }, [wrapUp?.id]);
@@ -151,13 +152,16 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
           {session?.listId ? (
             <LeadQueue listId={session.listId} currentLeadId={lead?.id} refreshKey={refreshKey} />
           ) : (
-            <div className="p-4 text-xs text-muted">{session ? t("סשן ידני – אין תור. חייג מהלוח או מכרטיס ליד.", "Manual session – no queue. Dial from the keypad or a lead card.") : t("אין סשן פעיל. תעד את השיחה כדי לחזור לרשימת הלידים.", "No active session. Log the call to return to the lead list.")}</div>
+            <div className="p-4 text-xs text-muted">{session ? t("סשן ידני – אין תור. חייג מהלוח או מכרטיס ליד.", "Manual session – no queue. Dial from the keypad or a lead card.") : t("אין סשן פעיל. אפשר להתחיל סשן או לחייג ידנית.", "No active session. Start a session or dial manually.")}</div>
           )}
         </aside>
 
         {/* Active lead */}
         <section className={minimal ? "flex-1 min-h-0 flex flex-col" : compact ? "min-h-[330px] flex flex-col order-2 shrink-0" : "min-h-0 flex flex-col"}>
           {minimal && <CallStrip onContinueAuto={wrapUp && !wrapUp.answeredAt && !fullWrapUp && session?.status === "active" && session.mode !== "manual" ? () => continueNext(wrapUp.telephonyResult === "busy" ? "busy" : "no_answer") : undefined} canDialLead={canDialLead} onDialLead={dialLead} onDialNext={dialNext} canDialNext={Boolean(session && session.status === "active" && session.mode !== "manual" && !call && !wrapUp && !sessionTakenOver)} blockedReason={!session ? t("אין סשן חיוג פעיל – התחל חייגן מהתור או חייג מכרטיס ליד", "No active dial session – start the dialer from the queue or dial from a lead card") : session.status !== "active" ? t("הסשן מושהה – לחץ המשך", "Session paused – click Resume") : sessionTakenOver ? t("הסשן פעיל בלשונית אחרת", "Session is active in another tab") : wrapUp ? (wrapUp.answeredAt ? t("השיחה הסתיימה – בחר תוצאה למטה והמשך", "Call ended – choose an outcome below and continue") : t("השיחה הסתיימה", "Call ended"))  : session.mode === "manual" ? t("סשן ידני – חייג מכרטיס ליד או מהלוח", "Manual session – dial from a lead card or the keypad") : null} onSkip={previewMode ? () => setSkipOpen(true) : undefined} />}
+          {(call?.contactId || wrapUp?.contactId) && (
+            <div className="flex justify-end px-3 pt-2" data-testid="dialer-payment"><PaymentButton contactId={call?.contactId ?? wrapUp?.contactId} callId={call?.id ?? wrapUp?.id} /></div>
+          )}
           {call && (
             <div className="p-3 border-b border-line shrink-0">
               <CoachCard callId={call.id} answered={call.status === "answered"} simulation={Boolean(state?.telephony.simulation)} />
@@ -179,7 +183,8 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
           {sale && <DealCloseModal contactId={sale.contactId} name={sale.name} onClose={() => setSale(null)} onDone={() => { const then = sale.then; setSale(null); if (then === "next") void continueNext("sale", true); }} />}
           {wrapUp && !call && (minimal && !fullWrapUp
             ? <NextBar call={wrapUp} canContinue={Boolean(session && session.status === "active" && session.mode !== "manual" && !sessionTakenOver)} busy={busy === "outcome" || busy === "next" || busy === "dial"} onContinue={continueNext} onFull={() => setFullWrapUp(true)} />
-            : <><div className="px-4 pt-2"><PostCallWhatsApp callId={wrapUp.id} /></div><OutcomePanel call={wrapUp} note={note} onSave={onSave} saving={busy === "outcome"} /></>)}
+            
+            : <><p className="px-4 pt-2 text-xs text-muted" data-testid="outcome-optional">{t("בחירת תוצאה אינה חובה: השיחה מתועדת אוטומטית על ידי AI, ואם תמשיכו בלי לבחור היא תיסגר לפי מה שדווח מהספק. בחרו תוצאה כשצריך פולואפ, מכירה או חסימה.", "Choosing a result is optional: the call is documented automatically by AI, and if you move on without choosing it is closed according to what the provider reported. Choose a result when you need a follow-up, a sale or a block.")}</p><div className="px-4 pt-2"><PostCallWhatsApp callId={wrapUp.id} /></div><OutcomePanel call={wrapUp} note={note} onSave={onSave} saving={busy === "outcome"} /></>)}
         </section>
 
         {/* Call panel (left in RTL) */}

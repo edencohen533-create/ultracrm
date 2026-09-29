@@ -73,7 +73,7 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   const requestId = useRef(0);
   const manager = Boolean(me && me.user.role !== "agent");
   const telephony = Boolean(me?.modules.telephony);
-  const canDial = telephony && Boolean(state) && !state?.activeCall && !state?.wrapUpCall;
+  const canDial = telephony && Boolean(state) && !state?.activeCall;
   const owner = filter.ownerUserId === "me" ? me?.user.id ?? "" : filter.ownerUserId;
   const dates = useMemo(() => {
     const now = new Date(); let start: Date | undefined; let end: Date | undefined;

@@ -28,8 +28,18 @@ export const OUTCOMES: OutcomeDef[] = ([
   { key: "dnc", label: "לא ליצור קשר", closesLead: true, retry: false, requiresCallbackTime: false, isSale: false, addsToDnc: true, hotkey: "8", tone: "danger" },
 ] as OutcomeDef[]).map((o) => withLabel(o, OUTCOME_EN[o.key] ?? o.label));
 
+/**
+ * Set by the system, never picked by the agent: an answered call the agent left without choosing a result (the AI
+ * documentation holds what was said). The queue row is completed; the CRM lead stays open (new → contacted).
+ */
+export const AUTO_OUTCOMES: OutcomeDef[] = ([
+  { key: "answered", label: "ענה – תועד אוטומטית", closesLead: true, retry: false, requiresCallbackTime: false, isSale: false, addsToDnc: false, hotkey: "", tone: "neutral" },
+] as OutcomeDef[]).map((o) => withLabel(o, "Answered – documented automatically"));
+/** Every outcome a call can have (manual + automatic) – for labels, reports and filters. */
+export const ALL_OUTCOMES: OutcomeDef[] = [...OUTCOMES, ...AUTO_OUTCOMES];
+
 export const OUTCOME_BY_KEY: Record<OutcomeKey, OutcomeDef> = Object.fromEntries(
-  OUTCOMES.map((o) => [o.key, o]),
+  ALL_OUTCOMES.map((o) => [o.key, o]),
 ) as Record<OutcomeKey, OutcomeDef>;
 
 export function outcomeLabel(key: OutcomeKey | null | undefined) {

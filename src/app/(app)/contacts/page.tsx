@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/client/api";
@@ -26,16 +27,27 @@ interface Row {
   lastActivityAt: string | null;
   isDnc: boolean;
   suppression: "marketing" | "all" | null;
+  whatsappBlock: string | null;
   owner: { fullName: string } | null;
   tags: Array<{ id: string; name: string; color: string }>;
   _count: { calls: number; conversations: number; leads: number };
   lastCall: { createdAt: string; outcome: string | null } | null;
 }
 
+const WA_BLOCK_EN: Record<string, string> = { "אין מספר טלפון תקין": "no valid phone number", "חסום לכל פנייה": "blocked from all contact" };
+
 const CONSENT: Record<string, { label: string; en: string; tone: "good" | "bad" | "neutral" }> = { OPTED_IN: { label: "הסכמה", en: "Consent", tone: "good" }, OPTED_OUT: { label: "הוסר", en: "Opted out", tone: "bad" }, UNKNOWN: { label: "ללא הסכמה", en: "No consent", tone: "neutral" } };
 
 export default function ContactsPage() {
   const { dial, state } = useDialer();
+  const router = useRouter();
+  const [waBusy, setWaBusy] = useState<string | null>(null);
+  async function openWhatsApp(contactId: string) {
+    setWaBusy(contactId);
+    try { const r = await api.post<{ conversationId: string }>(`/api/contacts/${contactId}/whatsapp`); router.push(`/inbox/${r.conversationId}`); }
+    catch (e) { toast.error((e as Error).message); }
+    finally { setWaBusy(null); }
+  }
   const me = useMe();
   const t = useT();
   const [rows, setRows] = useState<Row[]>([]);
@@ -194,7 +206,11 @@ export default function ContactsPage() {
                   </td>
                   <td className="px-3 text-end whitespace-nowrap">
                     {me?.modules.telephony && <Button size="sm" variant="good" disabled={!canDial || c.isDnc || c.suppression === "all"} onClick={() => dial({ mode: "manual", contactId: c.id })}>{t("חייג", "Call")}</Button>}
+                    {me?.modules.messaging && <Button size="sm" variant="ghost" className="ms-1" data-testid="contact-whatsapp" disabled={Boolean(c.whatsappBlock) || waBusy === c.id}
+                      title={c.whatsappBlock ? t(`וואטסאפ לא זמין: ${c.whatsappBlock}`, `WhatsApp unavailable: ${WA_BLOCK_EN[c.whatsappBlock] ?? c.whatsappBlock}`) : c.suppression === "marketing" || c.isDnc ? t("הלקוח ביקש לא לקבל פניות – מענה ידני בלבד", "The customer asked not to be contacted – manual replies only") : t("פתיחת שיחת הוואטסאפ במערכת", "Open the WhatsApp conversation in the system")}
+                      onClick={() => openWhatsApp(c.id)}>WhatsApp</Button>}
                     <Link href={`/contacts/${c.id}`} className="inline-flex items-center h-8 px-3 text-xs text-muted hover:text-text">{t("כרטיס", "Card")}</Link>
+                    {me?.modules.messaging && c.whatsappBlock && <span className="block text-[11px] text-bad" data-testid="contact-whatsapp-reason">{t(`וואטסאפ: ${c.whatsappBlock}`, `WhatsApp: ${WA_BLOCK_EN[c.whatsappBlock] ?? c.whatsappBlock}`)}</span>}
                   </td>
                 </tr>
               ))}

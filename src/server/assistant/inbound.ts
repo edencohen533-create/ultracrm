@@ -71,6 +71,26 @@ export async function handleAssistantInbound(input: { businessId: string; phoneE
     await reply(fresh.pendingReport, { intent: "pending_report" });
     if (/^(דוח|הדוח|כן|שלח|תשלח|report|ok|אוקיי)[\s!.?]*$/i.test(input.text.trim())) return true;
   }
+  // "תוסיף ליד: …" – lead creation by a verified internal user (with a focused question when something is missing).
+  {
+    const u = await prisma.user.findFirst({ where: { id: link.userId, businessId: input.businessId, isActive: true }, select: { id: true, role: true, teamId: true, email: true, fullName: true, accountId: true } });
+    if (u) {
+      const { handleLeadCommand } = await import("./create-lead");
+      const { parse } = await import("./router");
+      const { effectiveAccess, can } = await import("@/lib/access/engine");
+      const me: SessionUser = { id: u.id, accountId: u.accountId, businessId: input.businessId, email: u.email, fullName: u.fullName, role: u.role, teamId: u.teamId };
+      const mem = (fresh.context ?? {}) as Record<string, unknown>;
+      const mayCreate = await effectiveAccess(input.businessId, u.id).then((a) => can(a, "crm.create")).catch(() => false);
+      const r = await handleLeadCommand({ user: me, text: input.text, memory: mem, messageKey: input.providerMessageId ?? null, mayCreate, isOtherQuestion: (t) => parse(t, []).intent !== null });
+      if (r.handled || JSON.stringify(r.memory) !== JSON.stringify(mem)) await prisma.assistantLink.update({ where: { id: link.id }, data: { context: r.memory as Prisma.InputJsonValue } });
+      if (r.handled) {
+        if (r.reply) await reply(r.reply, { intent: "create_lead" });
+        if (r.leadId) await prisma.auditLog.create({ data: { businessId: input.businessId, actorId: u.id, action: "assistant.lead_created", entityType: "Lead", entityId: r.leadId, payload: { via: "whatsapp_assistant" } } });
+        return true;
+      }
+      fresh.context = link.context = r.memory as Prisma.JsonValue;
+    }
+  }
   // "מנהל AI": approvals by a manager ("אשר 4821") and an agent's answer to an extra-leads request. Only verified,
   // linked users of THIS business get here – a customer's message can never reach these commands.
   {

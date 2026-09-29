@@ -32,7 +32,7 @@ const MGMT: Role[] = ["manager", "owner"];
 const ITEMS: Item[] = [
   { href: "/leads", label: "CRM", en: "CRM", roles: ALL, need: ["crm.view"], Icon: Star, testid: "nav-leads", match: (p) => p === "/leads" || p.startsWith("/leads/") || (p.startsWith("/contacts/") && !p.startsWith("/contacts/duplicates")) || p === "/dialer" || p.startsWith("/deals") },
   { href: "/lists", label: "קמפיינים", en: "Dial campaigns", roles: ALL, need: ["telephony.use"], Icon: PhoneCall, testid: "nav-dial-campaigns", match: (p) => p.startsWith("/lists") },
-  { href: "/inbox", label: "וואטסאפ", en: "WhatsApp", roles: ALL, need: ["whatsapp.view"], Icon: MessageCircle, testid: "nav-inbox", match: (p) => p.startsWith("/inbox") },
+  { href: "/inbox", label: "שיחות וואטסאפ", en: "WhatsApp chats", roles: ALL, need: ["whatsapp.view"], Icon: MessageCircle, testid: "nav-inbox", match: (p) => p.startsWith("/inbox") },
   { href: "/contacts", label: "קהלים ואנשי קשר", en: "Audiences & contacts", roles: ALL, need: ["crm.view", "sms.draft", "email.draft", "whatsapp.campaign_draft"], Icon: Users, testid: "nav-contacts", match: (p) => p === "/contacts" || p.startsWith("/contacts/duplicates") || p.startsWith("/audiences") },
   { href: "/templates", label: "תבניות WhatsApp", en: "WhatsApp templates", roles: ALL, need: ["whatsapp.campaign_draft", "whatsapp.automations"], Icon: FileText, testid: "nav-templates", match: (p) => p.startsWith("/templates") },
   { href: "/campaigns/whatsapp", label: "הודעות תפוצה", en: "Broadcasts", roles: ALL, need: ["whatsapp.campaign_draft", "whatsapp.campaign_send", "sms.view", "email.view"], Icon: Megaphone, testid: "nav-campaigns", match: (p) => p.startsWith("/campaigns") },

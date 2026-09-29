@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, it, vi } from "vitest";
 import ContactsPage from "@/app/(app)/contacts/page";
 import { api } from "@/lib/client/api";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/components/telephony/DialerProvider", () => ({ useDialer: () => ({ state: null, dial: vi.fn() }) }));
 vi.mock("@/lib/client/use-me", () => ({ useMe: () => ({ user: { role: "owner" }, modules: {} }) }));
 vi.mock("@/components/contacts/segments-panel", () => ({ SegmentsPanel: () => null }));

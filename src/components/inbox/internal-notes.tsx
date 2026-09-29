@@ -12,7 +12,7 @@ export function InternalNotes({ conversationId, notes }: { conversationId: strin
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const router = useRouter();
-  return <details className="max-h-64 overflow-y-auto border-b bg-amber-50 p-2 text-sm dark:bg-amber-950">
+  return <details className="max-h-64 overflow-y-auto border-b border-line bg-white p-2 text-sm text-neutral-900">
     <summary className="cursor-pointer font-medium">{t(`הערות פנימיות לצוות (${notes.length}) — אינן נשלחות ללקוח`, `Internal team notes (${notes.length}) — not sent to the customer`)}</summary>
     <div className="my-2 space-y-2">{notes.map((note) => <article key={note.id} className="rounded border p-2">
       <p className="text-xs">{note.author.fullName ?? note.author.name} · {new Date(note.createdAt).toLocaleString(t.lang === "en" ? "en-GB" : "he-IL")}</p>

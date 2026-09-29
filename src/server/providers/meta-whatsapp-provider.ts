@@ -137,9 +137,27 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
     // Header media: the template declares IMAGE/VIDEO/DOCUMENT; the send supplies a public link.
     const headerFormat = (template.headerFormat ?? "").toUpperCase();
     if (["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat)) {
-      if (!payload.templateMedia?.link) return { providerMessageId: "", status: "FAILED", error: "לתבנית זו נדרש קובץ מדיה לכותרת", errorCode: "template_media_required", retryable: false };
       const key = headerFormat.toLowerCase();
-      components.push({ type: "header", parameters: [{ type: key, [key]: { link: payload.templateMedia.link, ...(key === "document" && payload.templateMedia.filename ? { filename: payload.templateMedia.filename } : {}) } }] });
+      if (payload.templateMedia?.link) {
+        components.push({ type: "header", parameters: [{ type: key, [key]: { link: payload.templateMedia.link, ...(key === "document" && payload.templateMedia.filename ? { filename: payload.templateMedia.filename } : {}) } }] });
+      } else if (headerFormat === "IMAGE" && template.headerMediaAssetId && this.credentialId) {
+        // The template's uploaded image: uploaded to Meta for this number (media id, reused ~29 days) – our own
+        // storage is private, so a local link would not be reachable by Meta.
+        let mediaId: string;
+        try {
+          const { providerMediaId } = await import("@/server/services/media-asset-service");
+          mediaId = await providerMediaId(template.businessId, template.headerMediaAssetId, this.credentialId, async (f) => {
+            const r = await this.uploadMedia(f.bytes, f.mimeType, f.fileName);
+            if (!r.mediaId) throw new Error("Missing Meta media ID");
+            return r.mediaId;
+          });
+        } catch {
+          return { providerMessageId: "", status: "FAILED", error: "העלאת תמונת הכותרת ל-Meta נכשלה", errorCode: "template_media_upload_failed", retryable: true };
+        }
+        components.push({ type: "header", parameters: [{ type: "image", image: { id: mediaId } }] });
+      } else {
+        return { providerMessageId: "", status: "FAILED", error: "לתבנית זו נדרש קובץ מדיה לכותרת", errorCode: "template_media_required", retryable: false };
+      }
     }
     // Text header with one variable ({{1}}): the value comes as templateVariables.h1.
     if (headerFormat === "TEXT") {
@@ -180,11 +198,11 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
     return { providerMessageId: data.messages[0].id, status: "ACCEPTED" };
   }
 
-  async uploadMedia(file: Buffer, mimeType: string): Promise<{ mediaUrl: string; mediaId?: string }> {
+  async uploadMedia(file: Buffer, mimeType: string, fileName?: string): Promise<{ mediaUrl: string; mediaId?: string }> {
     const form = new FormData();
     form.append("messaging_product", "whatsapp");
     form.append("type", mimeType);
-    form.append("file", new Blob([new Uint8Array(file)], { type: mimeType }));
+    form.append("file", new Blob([new Uint8Array(file)], { type: mimeType }), fileName ?? "file");
 
     const res = await fetch(`${this.baseUrl}/media`, {
       method: "POST",

@@ -69,7 +69,8 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
       try { validateTemplateVariables(template.body, input.variables); }
       catch (error) { throw new CampaignError((error as Error).message); }
       const headerFormat = (template.headerFormat ?? "").toUpperCase();
-      if (["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat) && !input.mediaUrl) throw new CampaignError(`התבנית כוללת כותרת ${headerFormat === "IMAGE" ? "תמונה" : headerFormat === "VIDEO" ? "וידאו" : "מסמך"} – יש לצרף קישור https ציבורי לקובץ`);
+      // A template with an uploaded header image sends that image by default; a link is needed only otherwise.
+      if (["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat) && !input.mediaUrl && !(headerFormat === "IMAGE" && template.headerMediaAssetId)) throw new CampaignError(`התבנית כוללת כותרת ${headerFormat === "IMAGE" ? "תמונה" : headerFormat === "VIDEO" ? "וידאו" : "מסמך"} – יש לצרף קישור https ציבורי לקובץ`);
       if (!["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat) && input.mediaUrl) throw new CampaignError("התבנית אינה כוללת כותרת מדיה – הסר את קישור המדיה");
       const buttons = (template.buttons as Array<{ type: string; dynamic?: boolean }> | null) ?? [];
       buttons.forEach((b, i) => { if (b.type === "URL" && b.dynamic && !input.buttonParams?.[String(i)]) throw new CampaignError(`לכפתור הקישור מס' ${i + 1} בתבנית נדרש ערך`); });

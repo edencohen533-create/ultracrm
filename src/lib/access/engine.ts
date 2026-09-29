@@ -120,7 +120,9 @@ export async function userPermissions(businessId: string, u: UserRow, ent?: Busi
     // Agents never had the campaign screens (the menu showed them to managers only) → no SMS / email seat.
     if (u.role === "agent" && (m === "sms" || m === "email")) continue;
     // Managers could do everything in every module before (only their data scope differed).
-    const actions = u.role === "agent" ? [...t.actions[m]] : Object.keys(ACTIONS[m]);
+    const actions = u.role === "agent" ? [...t.actions[m]] : Object.keys(ACTIONS[m]).filter((a) => !(m === "whatsapp" && a === "connect" && key === "team_manager"));
+    // Connecting / disconnecting the business's WhatsApp account: owner and business-level managers by default; a
+    // team-scoped manager only when granted explicitly.
     // Before this feature every user could work every module of the business; lead transfer followed הרשאות.
     if (m === "crm" && u.role === "agent" && (s.agentTransfer === "all" || (s.agentTransfer === "selected" && s.agentTransferUserIds.includes(u.id)))) actions.push("transfer");
     modules[m] = { enabled: true, actions: [...new Set(actions)] };

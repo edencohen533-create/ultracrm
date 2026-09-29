@@ -8,4 +8,4 @@ export const dynamic = "force-dynamic";
 export const POST = withAuth(async ({ user }) => {
   const r = await startSignup(user);
   return ok({ state: r.session.state, expiresAt: r.session.expiresAt.toISOString(), appId: r.appId, configId: r.configId, version: r.version, reused: r.reused });
-}, { minRole: "manager", module: "whatsapp" });
+}, { minRole: "manager", perm: "whatsapp.connect" });

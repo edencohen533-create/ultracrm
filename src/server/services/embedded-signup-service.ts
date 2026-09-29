@@ -179,6 +179,20 @@ export function deriveReadiness(c: { status: WaConnectionStatus; isActive: boole
 
 // ─── Complete / retry ────────────────────────────────────────────────────────
 
+/**
+ * Is this phone number or WhatsApp Business Account already connected to ANOTHER business of the platform?
+ * One business per phone (any state – the row keeps its history) and per active WABA: an asset moves to another
+ * business only after the current business disconnects it (explicit, audited), never by connecting it again.
+ * Read across businesses → outside the tenant scope (RLS would hide the other business).
+ */
+export async function assetsTakenElsewhere(businessId: string, assets: { phoneNumberId?: string | null; wabaId?: string | null }): Promise<"phone" | "waba" | null> {
+  return withoutBusiness(async () => {
+    if (assets.phoneNumberId && await db.providerCredential.findFirst({ where: { phoneNumberId: assets.phoneNumberId, businessId: { not: businessId } }, select: { id: true } })) return "phone";
+    if (assets.wabaId && await db.providerCredential.findFirst({ where: { wabaId: assets.wabaId, isActive: true, businessId: { not: businessId } }, select: { id: true } })) return "waba";
+    return null;
+  });
+}
+
 export interface CompleteInput { state: string; code: string; wabaId: string; phoneNumberId: string; metaBusinessId?: string; fbUserId?: string; label?: string; teamId?: string | null }
 
 export async function completeSignup(user: SessionUser, input: CompleteInput) {
@@ -206,8 +220,9 @@ export async function completeSignup(user: SessionUser, input: CompleteInput) {
 
   // Conflicts: the phone (globally unique) must not belong to another business; one WABA per business.
   // Global-uniqueness read across businesses → outside the tenant scope (RLS would hide the other business).
-  const foreign = await withoutBusiness(() => db.providerCredential.findFirst({ where: { phoneNumberId: input.phoneNumberId, businessId: { not: user.businessId } }, select: { id: true } }));
-  if (foreign) { await fail(new Error("phone bound to another business"), "conflict"); throw new SignupError("המספר הזה כבר מחובר לעסק אחר במערכת. יש לנתק אותו שם לפני חיבור כאן", 409, "phone_bound_elsewhere"); }
+  const taken = await assetsTakenElsewhere(user.businessId, { phoneNumberId: input.phoneNumberId, wabaId: input.wabaId });
+  if (taken === "phone") { await fail(new Error("phone bound to another business"), "conflict"); throw new SignupError("המספר הזה כבר מחובר לעסק אחר במערכת. יש לנתק אותו שם לפני חיבור כאן", 409, "phone_bound_elsewhere"); }
+  if (taken === "waba") { await fail(new Error("WABA bound to another business"), "conflict"); throw new SignupError("חשבון ה-WhatsApp Business הזה כבר מחובר לעסק אחר במערכת. חיבור לעסק נוסף אפשרי רק אחרי ניתוק שם על ידי בעל העסק", 409, "waba_bound_elsewhere"); }
   const otherWaba = await prisma.providerCredential.findFirst({ where: { isActive: true, provider: "meta_whatsapp_cloud_api", wabaId: { not: input.wabaId } }, select: { id: true, wabaId: true } });
   if (otherWaba) { await fail(new Error("another WABA active"), "conflict"); throw new SignupError("בעסק זה כבר מחובר חשבון WhatsApp אחר. נתק אותו לפני חיבור חשבון חדש", 409, "waba_conflict"); }
 
@@ -412,7 +427,7 @@ export async function connectionOverview() {
       const r = deriveReadiness(c);
       return {
         id: c.id, label: c.label, method: c.connectionMethod, status: r.status, sendReady: r.sendReady, receiveReady: r.receiveReady, blockers: r.blockers,
-        wabaId: c.wabaId, wabaName: c.wabaName, phoneNumberId: c.phoneNumberId, displayPhoneNumber: c.displayPhoneNumber, verifiedName: c.verifiedName, nameStatus: c.nameStatus,
+        wabaId: c.wabaId, wabaName: c.wabaName, metaBusinessId: c.metaBusinessId, phoneNumberId: c.phoneNumberId, hints: setupHints(c), displayPhoneNumber: c.displayPhoneNumber, verifiedName: c.verifiedName, nameStatus: c.nameStatus,
         qualityRating: c.qualityRating, messagingLimitTier: c.messagingLimitTier, codeVerificationStatus: c.codeVerificationStatus, platformType: c.platformType, grantedScopes: c.grantedScopes, isDefault: c.isDefault, isActive: c.isActive,
         team: c.team, subscribedAt: c.subscribedAt, registeredAt: c.registeredAt, tokenCheckedAt: c.tokenCheckedAt, lastCheckedAt: c.lastCheckedAt, lastWebhookAt: c.lastWebhookAt,
         lastOutboundTestAt: c.lastOutboundTestAt, lastError: c.lastConnectionError, sendingBlocked: c.sendingBlocked, createdAt: c.createdAt,
@@ -420,6 +435,21 @@ export async function connectionOverview() {
       };
     }),
   };
+}
+
+/**
+ * Information still missing for a complete setup that does not block sending by itself (shown under the blockers).
+ * Only facts Meta reported – nothing is assumed.
+ */
+function setupHints(c: { isActive: boolean; nameStatus: string | null; metaBusinessId: string | null; lastWebhookAt: Date | null; lastOutboundTestAt: Date | null; qualityRating: string | null }): string[] {
+  if (!c.isActive) return [];
+  const hints: string[] = [];
+  if (c.nameStatus && !["APPROVED", "AVAILABLE_WITHOUT_REVIEW"].includes(c.nameStatus.toUpperCase())) hints.push(`שם התצוגה אצל Meta: ${c.nameStatus} – עד לאישור השם ייתכנו מגבלות`);
+  if (!c.metaBusinessId) hints.push("מזהה תיק העסק (Business Portfolio) לא התקבל מ-Meta");
+  if (!c.lastWebhookAt) hints.push("טרם התקבל אירוע מ-Meta (Webhook) – שלחו הודעה למספר כדי לוודא קבלה");
+  if (!c.lastOutboundTestAt) hints.push("טרם בוצעה בדיקת שליחה אמיתית");
+  if (c.qualityRating && ["RED", "LOW"].includes(c.qualityRating.toUpperCase())) hints.push(`דירוג האיכות של המספר נמוך (${c.qualityRating})`);
+  return hints;
 }
 
 export const STATUS_LABEL: Record<WaConnectionStatus, string> = {

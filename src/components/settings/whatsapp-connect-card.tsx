@@ -29,7 +29,7 @@ type Translate = (he: string, en: string) => string;
 type WaStatus = "disconnected" | "in_progress" | "needs_action" | "connected_not_ready" | "connected" | "revoked" | "error";
 
 export interface ConnectionView {
-  id: string; label: string | null; method: string; status: WaStatus; sendReady: boolean; receiveReady: boolean; blockers: string[];
+  id: string; label: string | null; method: string; status: WaStatus; sendReady: boolean; receiveReady: boolean; blockers: string[]; hints?: string[]; metaBusinessId?: string | null;
   wabaId: string | null; wabaName: string | null; phoneNumberId: string | null; displayPhoneNumber: string | null; verifiedName: string | null; nameStatus: string | null;
   qualityRating: string | null; messagingLimitTier?: string | null; codeVerificationStatus: string | null; platformType: string | null; grantedScopes: unknown; isDefault: boolean; isActive: boolean;
   team: { id: string; name: string } | null; subscribedAt: string | null; registeredAt: string | null; tokenCheckedAt: string | null; lastCheckedAt: string | null;
@@ -283,12 +283,16 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
             <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("חשבון:", "Account:")}</dt><dd>{c.wabaName ?? "—"} <span className="font-mono text-xs text-muted-foreground"><Ltr>{c.wabaId ?? ""}</Ltr></span></dd></div>
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("מספר:", "Number:")}</dt><dd><Ltr>{c.displayPhoneNumber ?? c.phoneNumberId ?? "—"}</Ltr></dd></div>
+              <div className="flex gap-2"><dt className="text-muted-foreground">{t("תיק עסק ב-Meta:", "Meta business portfolio:")}</dt><dd className="font-mono text-xs"><Ltr>{c.metaBusinessId ?? "—"}</Ltr></dd></div>
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("שם מאומת:", "Verified name:")}</dt><dd>{c.verifiedName ?? "—"} {c.nameStatus && <span className="text-xs text-muted-foreground">({c.nameStatus})</span>}</dd></div>
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("איכות:", "Quality:")}</dt><dd data-testid="wa-quality">{({ GREEN: t("🟢 גבוהה", "🟢 High"), YELLOW: t("🟡 בינונית", "🟡 Medium"), RED: t("🔴 נמוכה", "🔴 Low") } as Record<string, string>)[c.qualityRating ?? ""] ?? c.qualityRating ?? "—"}</dd></div>
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("מגבלת הודעות:", "Messaging limit:")}</dt><dd data-testid="wa-tier">{({ TIER_250: t("250 לקוחות ביום", "250 customers/day"), TIER_1K: t("1,000 לקוחות ביום", "1,000 customers/day"), TIER_10K: t("10,000 לקוחות ביום", "10,000 customers/day"), TIER_100K: t("100,000 לקוחות ביום", "100,000 customers/day"), TIER_UNLIMITED: t("ללא הגבלה", "Unlimited") } as Record<string, string>)[c.messagingLimitTier ?? ""] ?? c.messagingLimitTier ?? "—"}</dd></div>
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("שליחה:", "Sending:")}</dt><dd>{c.sendReady ? <span className="text-emerald-700">{t("מוכן", "Ready")}</span> : <span className="text-amber-700">{t("לא מוכן", "Not ready")}</span>}{c.lastOutboundTestAt ? t(` · בדיקת שליחה: ${fmt(c.lastOutboundTestAt)}`, ` · Send test: ${fmt(c.lastOutboundTestAt)}`) : t(" · טרם בוצעה בדיקת שליחה", " · No send test yet")}</dd></div>
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("קבלה:", "Receiving:")}</dt><dd>{c.receiveReady ? <span className="text-emerald-700">{t("רשום לאירועים", "Subscribed to webhooks")}</span> : <span className="text-amber-700">{t("לא רשום", "Not subscribed")}</span>}{c.lastWebhookAt ? t(` · אירוע אחרון: ${fmt(c.lastWebhookAt)}`, ` · Last event: ${fmt(c.lastWebhookAt)}`) : t(" · טרם התקבל אירוע מ-Meta", " · No event received from Meta yet")}</dd></div>
             </dl>
+            {(c.hints?.length ?? 0) > 0 && (
+              <div className="mt-3 text-sm" data-testid="wa-hints"><p className="font-medium">{t("להשלמת ההגדרה:", "To complete the setup:")}</p><ul className="list-disc pe-5 text-muted-foreground">{c.hints!.map((h) => <li key={h} dir="auto">{h}</li>)}</ul></div>
+            )}
             {c.blockers.length > 0 && (
               <ul className="mt-3 list-disc pe-5 text-sm text-amber-800" data-testid="wa-blockers">{c.blockers.map((b) => <li key={b}>{t(b, blockerEn(b))}</li>)}</ul>
             )}

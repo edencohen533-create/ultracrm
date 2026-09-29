@@ -470,6 +470,8 @@ model Business {
   knowledgeSources       KnowledgeSource[]
 
   @@map("businesses")
+  mediaAssets          MediaAsset[]
+  mediaProviderUploads MediaProviderUpload[]
 }
 
 /// A person who can log in. One account can be a member of several businesses.
@@ -1624,6 +1626,9 @@ model Template {
   components         Json?
   /// TEXT | IMAGE | VIDEO | DOCUMENT | null
   headerFormat       String?          @map("header_format")
+  /// Uploaded header image (MediaAsset) – the review sample and the default header when sending. Null = link-based (older templates).
+  headerMediaAssetId String?          @map("header_media_asset_id")
+  headerMediaAsset   MediaAsset?      @relation(fields: [headerMediaAssetId], references: [id], onDelete: SetNull)
   /// [{ type: QUICK_REPLY|URL|PHONE_NUMBER|COPY_CODE, text, url?, dynamic?: boolean }]
   buttons            Json?
   subject            String?
@@ -3071,4 +3076,52 @@ model TelephonyAgentEndpoint {
   @@unique([userId, provider])
   @@unique([businessId, provider, extension])
   @@map("telephony_agent_endpoints")
+}
+
+/// A file uploaded by a business (template header images). Bytes are kept in the business's own row (RLS by
+/// business_id) and streamed only through scope-checked routes; uploaded in chunks (serverless body limits).
+model MediaAsset {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  /// template_header
+  kind        String    @default("template_header")
+  fileName    String    @map("file_name")
+  mimeType    String    @map("mime_type")
+  /// Declared size; the upload is complete when `data` has exactly this many bytes.
+  sizeBytes   Int       @map("size_bytes")
+  data        Bytes     @default("")
+  sha256      String?
+  width       Int?
+  height      Int?
+  /// uploading | ready | deleted
+  status      String    @default("uploading")
+  createdById String?   @map("created_by_id")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  business  Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  uploads   MediaProviderUpload[]
+  templates Template[]
+
+  @@index([businessId, kind, status])
+  @@map("media_assets")
+}
+
+/// The same asset uploaded to Meta for one WhatsApp number (POST /{phone-number-id}/media). Meta media ids expire
+/// after 30 days – reused until shortly before that, then uploaded again.
+model MediaProviderUpload {
+  id              String   @id @default(cuid())
+  businessId      String   @map("business_id")
+  assetId         String   @map("asset_id")
+  credentialId    String   @map("credential_id")
+  providerMediaId String   @map("provider_media_id")
+  expiresAt       DateTime @map("expires_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  asset    MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, credentialId])
+  @@map("media_provider_uploads")
 }

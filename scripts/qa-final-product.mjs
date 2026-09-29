@@ -187,7 +187,8 @@ await step("F11 campaigns area: channel tabs whatsapp|email|sms, secondary links
   for (const [ch, label] of [["whatsapp", "WhatsApp"], ["email", "אימייל"], ["sms", "SMS"]]) {
     await goto(`/campaigns/${ch}`); await page.waitForSelector(`h1:has-text('קמפיין ${label}')`);
     if (!(await page.$eval(`[data-testid="campaigns-tab-${ch}"]`, (a) => a.classList.contains("active")))) throw new Error(`${ch}: tab not active`);
-    await page.waitForSelector('[data-testid="campaigns-audiences"]'); await page.waitForSelector('[data-testid="campaigns-templates"]');
+    // The shortcut links were removed from the broadcasts area (the pages themselves stay in the main menu).
+    if (await page.locator('[data-testid="campaigns-audiences"], [data-testid="campaigns-templates"]').count()) throw new Error("shortcut links still shown");
     if (await page.$('[role="tablist"][aria-label="ערוץ"]')) throw new Error(`${ch}: channel picker still shown`);
     if (await page.$("h2:has-text('רשימת תפוצה חדשה')")) throw new Error(`${ch}: audience editor leaked into the campaign page`);
     await page.waitForSelector("h2:has-text('קמפיין חדש')");

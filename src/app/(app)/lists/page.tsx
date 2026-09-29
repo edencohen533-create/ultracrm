@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Badge, Button, EmptyState, Input, Modal, Select, Spinner, Textarea } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
+import { ListAdminActions } from "@/components/lists/ListAdminActions";
 
 interface ListRow {
   id: string; name: string; description: string | null; isActive: boolean; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null;
@@ -68,7 +69,8 @@ export default function ListsPage() {
       {!lists ? <div className="flex justify-center p-10"><Spinner /></div> : lists.length === 0 ? <EmptyState title={t("אין רשימות", "No lists")} hint={t("צור רשימה מסינון אנשי קשר או ידנית", "Create a list from a contact filter or manually")} /> : (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
           {lists.map((l) => (
-            <Link key={l.id} href={`/lists/${l.id}`} className="bg-panel border border-line rounded-xl p-4 hover:border-accent/50 transition-colors block">
+            <div key={l.id} className={`bg-panel border border-line rounded-xl p-4 hover:border-accent/50 transition-colors ${l.isActive ? "" : "opacity-80"}`} data-testid={`list-card-${l.id}`}>
+            <Link href={`/lists/${l.id}`} className="block">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-semibold truncate">{l.name}</h2>
                 <Badge tone={l.isActive ? "good" : "neutral"}>{l.isActive ? t("פעילה", "Active") : t("לא פעילה", "Inactive")}</Badge>
@@ -81,6 +83,8 @@ export default function ListsPage() {
               </div>
               <p className="text-[11px] text-muted mt-3 truncate">{t("נציגים:", "Agents:")} {l.agents.length ? l.agents.map((a) => a.user.fullName).join(", ") : t("כולם", "All")} · {t("עדיפות", "Priority")} {l.priority}</p>
             </Link>
+            {isManager && <ListAdminActions list={l} lists={lists} onChanged={load} />}
+            </div>
           ))}
         </div>
       )}

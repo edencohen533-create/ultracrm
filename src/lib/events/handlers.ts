@@ -91,7 +91,8 @@ const leadCreated: EventHandler = {
         // Allocated through an approved "מנהל AI" allocation: traceable per lead, queued in its campaign if set.
         const ov = await prisma.assignmentOverride.findUnique({ where: { id: picked.overrideId }, select: { recommendationId: true } });
         await audit(event.businessId, null, "lead", lead.id, "ai_ops.lead_allocated", { recommendationId: ov?.recommendationId ?? null, overrideId: picked.overrideId, agentId: ownerUserId });
-        if (picked.listId) await prisma.listLead.createMany({ data: [{ businessId: event.businessId, listId: picked.listId, contactId: lead.contactId, preferredUserId: ownerUserId }], skipDuplicates: true });
+        // An inactive / archived list gets no automatically distributed leads.
+        if (picked.listId && await (await import("@/lib/dialer/list-admin")).isListOpen(prisma, picked.listId)) await prisma.listLead.createMany({ data: [{ businessId: event.businessId, listId: picked.listId, contactId: lead.contactId, preferredUserId: ownerUserId }], skipDuplicates: true });
       }
     }
     if (!ownerUserId) return { skipped: "no active agent" };

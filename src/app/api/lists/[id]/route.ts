@@ -41,12 +41,16 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   const list = await prisma.dialList.findFirst({ where: { id: params.id, businessId: user.businessId } });
   if (!list) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
   await assertTenantReferences(user.businessId, { scriptId: b.scriptId, phoneNumberId: b.phoneNumberId });
+  // Active / inactive goes through the list administration (releases reservations, stops future work, audited).
+  if (b.isActive !== undefined && b.isActive !== list.isActive) {
+    const { setListActive } = await import("@/lib/dialer/list-admin");
+    await setListActive(user, list.id, b.isActive);
+  }
   const updated = await prisma.dialList.update({
     where: { id: list.id },
     data: {
       ...(b.name !== undefined ? { name: b.name.trim() } : {}),
       ...(b.description !== undefined ? { description: b.description } : {}),
-      ...(b.isActive !== undefined ? { isActive: b.isActive } : {}),
       ...(b.priority !== undefined ? { priority: b.priority } : {}),
       ...(b.maxAttempts !== undefined ? { maxAttempts: b.maxAttempts } : {}),
       ...(b.unansweredLimit !== undefined ? { unansweredLimit: b.unansweredLimit } : {}),
@@ -62,11 +66,9 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   return ok(updated);
 }, { minRole: "manager", perm: "telephony.team_settings" });
 
-export const DELETE = withAuth(async ({ user, params }) => {
-  const list = await prisma.dialList.findFirst({ where: { id: params.id, businessId: user.businessId } });
-  if (!list) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
-  const inCall = await prisma.listLead.count({ where: { listId: list.id, status: "in_call" } });
-  if (inCall > 0) throw new ApiError("יש שיחות פעילות ברשימה – לא ניתן למחוק כעת", 409, "list_busy");
-  await prisma.dialList.update({ where: { id: list.id }, data: { isActive: false } });
-  return ok({ deactivated: true });
+/** "מחק רשימה": the list and its queue rows are removed; contacts, leads and their history stay. Needs the list's name. */
+export const DELETE = withAuth(async ({ req, user, params }) => {
+  const b = await parseBody(req, z.object({ confirmName: z.string().max(200) }));
+  const { deleteList } = await import("@/lib/dialer/list-admin");
+  return ok(await deleteList(user, params.id, b.confirmName));
 }, { minRole: "manager", perm: "telephony.team_settings" });

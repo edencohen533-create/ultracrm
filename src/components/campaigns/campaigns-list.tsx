@@ -63,7 +63,7 @@ export function CampaignsList({ channel, timezone }: { channel: ChannelKey; time
   }
   async function run(key: string, fn: () => Promise<void>) { setBusy(key); setMenu(null); try { await fn(); await load(); } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); } }
   async function createCampaign() {
-    await run("new", async () => { const { draft } = await api("/api/campaigns/drafts", "POST", { channel }); router.push(`/campaigns/wizard/${draft.id}`); });
+    await run("new", async () => { const { draft } = await api("/api/campaigns/drafts", "POST", { channel }); router.push(`/campaigns/wizard/${draft.id}?new=1`); });
   }
   async function continueEditing(c: Campaign) {
     await run(c.id, async () => { const { draft } = await api(`/api/campaigns/drafts/from-campaign/${c.id}`, "POST"); router.push(`/campaigns/wizard/${draft.id}`); });
@@ -103,12 +103,11 @@ export function CampaignsList({ channel, timezone }: { channel: ChannelKey; time
           <div className="cmp-head-actions">
             <label className="cmp-search"><Search size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("חיפוש", "Search")} aria-label={t("חיפוש קמפיינים", "Search campaigns")} data-testid="campaigns-search" /></label>
             <button className="cmp-btn" onClick={() => setView(view === "list" ? "calendar" : "list")} data-testid="campaigns-view-toggle">{view === "list" ? <><CalendarDays size={15} /> {t("תצוגת יומן", "Calendar view")}</> : <><List size={15} /> {t("תצוגת רשימה", "List view")}</>}</button>
-            <button className="cmp-btn primary" onClick={createCampaign} disabled={busy === "new"} data-testid="campaign-create">{t("יצירת קמפיין", "Create campaign")}</button>
+            <button className="cmp-btn primary" onClick={createCampaign} disabled={busy === "new"} data-testid="campaign-create">{channel === "whatsapp" ? t("יצירת קמפיין וואטסאפ", "Create WhatsApp campaign") : channel === "sms" ? t("יצירת קמפיין SMS", "Create SMS campaign") : t("יצירת קמפיין אימייל", "Create email campaign")}</button>
           </div>
         </header>
         <nav className="campaigns-nav" aria-label={t("קמפיינים", "Campaigns")} data-testid="campaigns-nav">
           <div className="campaigns-tabs" role="tablist">{(["whatsapp", "email", "sms"] as ChannelKey[]).map((ch) => <Link key={ch} role="tab" href={`/campaigns/${ch}`} aria-selected={channel === ch} className={channel === ch ? "active" : ""} data-testid={`campaigns-tab-${ch}`}>{ch === "email" ? t("דואר אלקטרוני", "Email") : ch === "sms" ? t("קמפייני SMS", "SMS campaigns") : t("וואטסאפ", "WhatsApp")}</Link>)}</div>
-          <div className="campaigns-secondary"><Link href="/audiences" data-testid="campaigns-audiences">{t("קהלים ואנשי קשר", "Audiences & contacts")}</Link><Link href="/templates" data-testid="campaigns-templates">{t("תבניות", "Templates")}</Link></div>
         </nav>
         {view === "calendar" ? (
           <div className="cmp-cal" data-testid="campaigns-calendar">

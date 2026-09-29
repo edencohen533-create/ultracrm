@@ -14,7 +14,7 @@ const PRESENCE_PAIR: Record<string, [string, string]> = { offline: ["מנותק"
 import { api } from "@/lib/client/api";
 import type { ModuleKey } from "@/lib/modules";
 import type { EffectiveModule } from "@/lib/access/engine";
-import { Lock, Shield } from "lucide-react";
+import { Lock, Menu, Shield } from "lucide-react";
 import { resetLeadStatusesCache } from "@/lib/client/use-lead-statuses";
 
 type Role = "owner" | "manager" | "agent";
@@ -48,6 +48,9 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
   const router = useRouter();
   const { state, phone } = useDialer();
   const [switching, setSwitching] = useState(false);
+  // Phones: the nav is a drawer opened from the top bar; it closes by itself on navigation (open "at" a path).
+  const [openAt, setOpenAt] = useState<string | null>(null);
+  const mobileOpen = openAt === pathname;
   const role = user.role as Role;
   const allowed = (need: string) => { const [m, a] = need.split(".") as [ModuleKey, string]; return access[m]?.state === "active" && access[m].actions.includes(a); };
   const anyModule = Object.values(access).some((x) => x.state === "active");
@@ -67,8 +70,17 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
     catch (e) { toast.error((e as Error).message); } finally { setSwitching(false); }
   }
 
+  const activeName = businesses.find((b) => b.active)?.name ?? businessName;
   return (
-    <aside className="app-sidebar w-[256px] shrink-0 h-screen sticky top-0 bg-panel border-e border-line flex flex-col" data-testid="side-nav">
+    <>
+    <div className="mobile-topbar bg-panel border-b border-line" data-testid="mobile-topbar">
+      <button type="button" className="mobile-menu-btn" onClick={() => setOpenAt(pathname)} aria-label={t("פתיחת תפריט", "Open menu")} aria-expanded={mobileOpen} aria-controls="app-side-nav" data-testid="mobile-menu"><Menu size={22} aria-hidden /></button>
+      <Link href="/leads" className="min-w-0 flex-1 truncate font-bold text-accent leading-[44px]">{activeName}</Link>
+      {access.telephony?.state === "active" && <Badge tone={presenceTone} dot>{t(...(PRESENCE_PAIR[presence] ?? [presence, presence]))}</Badge>}
+    </div>
+    {mobileOpen && <div className="mobile-nav-backdrop" onClick={() => setOpenAt(null)} aria-hidden data-testid="mobile-nav-backdrop" />}
+    <aside id="app-side-nav" className={cx("app-sidebar w-[256px] shrink-0 h-screen sticky top-0 bg-panel border-e border-line flex flex-col", mobileOpen && "open")} data-testid="side-nav"
+      onKeyDown={(e) => { if (e.key === "Escape") setOpenAt(null); }} onClick={(e) => { if ((e.target as HTMLElement).closest("a[href]")) setOpenAt(null); }}>
       <div className="px-5 h-[74px] flex items-center gap-3 border-b border-line">
         <Link href="/" aria-label={t("למסך הבית", "Home")} title={t("למסך הבית", "Home")} data-testid="nav-home" className="shrink-0 w-9 h-9 rounded-lg bg-accent text-white font-extrabold text-lg inline-flex items-center justify-center hover:opacity-90">U</Link>
         <div className="min-w-0">
@@ -128,5 +140,6 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
         <button onClick={logout} data-testid="nav-logout" className="w-full h-8 rounded-md text-xs text-muted hover:text-text hover:bg-panel-2">{t("התנתקות", "Log out")}</button>
       </div>
     </aside>
+    </>
   );
 }

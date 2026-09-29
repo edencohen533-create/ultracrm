@@ -41,9 +41,12 @@ export function TelephonyReport() {
   }, [from, to, listId]);
 
   useEffect(() => {
-    load();
-    const i = setInterval(load, 4000);
-    return () => clearInterval(i);
+    const tick = () => { if (document.visibilityState === "visible") void load(); };
+    tick();
+    const i = setInterval(tick, 4000);
+    const onVis = tick;
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(i); document.removeEventListener("visibilitychange", onVis); };
   }, [load]);
 
   async function togglePause(scope: "business" | "list", paused: boolean, id?: string) {

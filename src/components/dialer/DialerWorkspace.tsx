@@ -127,7 +127,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
   if (error && !state) return <ErrorState message={error} retry={refresh} />;
 
   return (
-    <div className={embedded ? "flex flex-col h-full min-h-0" : "flex flex-col h-screen min-h-0"}>
+    <div className={embedded ? "flex flex-col h-full min-h-0" : "flex flex-col h-dvh min-h-0"}>
       <header className="px-4 py-3 border-b border-line bg-panel/60 shrink-0">
         {!minimal && <div className="flex items-center gap-3 mb-2">
           <h1 className="text-base font-semibold">{embedded ? t("חייגן פעיל", "Active dialer") : t("מסך עבודה", "Workspace")}</h1>

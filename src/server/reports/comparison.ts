@@ -6,11 +6,11 @@
  * Filters on data that does not carry them are applied through the contact: a campaign filter keeps leads / deals
  * whose contact is in that dial list; a product filter keeps calls / leads / deals whose contact's product matches.
  */
-import { prisma } from "@/lib/db";
+import { Prisma } from "@/generated/prisma/client";
+import { prisma, dbSchema } from "@/lib/db";
 import { visibleUserIds, type SessionUser } from "@/lib/auth";
 import { ApiError } from "@/lib/response";
 import { getBusinessSettings } from "@/lib/settings";
-import { agentMetrics } from "@/lib/stats";
 import { compareMetric, dayOf, periodDays, resolvePeriods, type Change, type Direction, type MetricKind, type Period } from "@/lib/reports/compare";
 
 export interface ReportFilters { userId?: string | null; listId?: string | null; product?: string | null }
@@ -34,54 +34,70 @@ export const METRICS: MetricDef[] = [
 
 type Values = Record<string, number | null>;
 
-async function contactIdsFor(businessId: string, f: ReportFilters): Promise<string[] | null> {
-  if (!f.listId && !f.product) return null;
-  const rows = await prisma.contact.findMany({ where: { businessId, ...(f.listId ? { queueLeads: { some: { listId: f.listId } } } : {}), ...(f.product ? { customFields: { path: ["product"], equals: f.product } } : {}) }, select: { id: true }, take: 50_000 });
-  return rows.map((r) => r.id);
+const T = (t: string) => Prisma.raw(`"${dbSchema()}"."${t}"`);
+const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
+
+/** Contact-level filters (campaign membership / product) as SQL on alias `ct` (a contact id column). */
+function contactFilter(col: Prisma.Sql, f: ReportFilters) {
+  const parts: Prisma.Sql[] = [];
+  if (f.listId) parts.push(Prisma.sql`EXISTS (SELECT 1 FROM ${T("list_leads")} ll WHERE ll.contact_id = ${col} AND ll.list_id = ${f.listId})`);
+  if (f.product) parts.push(Prisma.sql`EXISTS (SELECT 1 FROM ${T("contacts")} pc WHERE pc.id = ${col} AND pc.custom_fields->>'product' = ${f.product})`);
+  return parts.length ? Prisma.sql`AND ${Prisma.join(parts, " AND ")}` : Prisma.empty;
 }
 
-async function valuesFor(businessId: string, userIds: string[] | null, p: Period, f: ReportFilters, contactIds: string[] | null, tz: string) {
+/**
+ * All metrics of one period as SQL aggregates (no rows pulled into memory). Same definitions as before:
+ * outbound = outbound calls with an agent leg; answered = of those with answeredAt; leads created in the period,
+ * converted = status "converted" or a won deal; response = first real dial (leadDialedAt) at/after the lead.
+ */
+async function valuesFor(businessId: string, userIds: string[] | null, p: Period, f: ReportFilters, tz: string) {
   const to = new Date(p.end.getTime() - 1);
-  const byContact = contactIds ? { contactId: { in: contactIds } } : {};
-  const owner = userIds ? { ownerUserId: { in: userIds } } : {};
-  const [calls, deals, leads] = await Promise.all([
-    // Calls: the dial-list filter is native (Call.listId); a product filter goes through the contact.
-    f.product ? prisma.call.findMany({ where: { businessId, ...(userIds ? { userId: { in: userIds } } : {}), ...(f.listId ? { listId: f.listId } : {}), ...byContact, createdAt: { gte: p.start, lte: to } }, select: { direction: true, agentLegId: true, answeredAt: true, talkSeconds: true, createdAt: true } })
-      .then((rows) => ({ perDay: rows, totals: null as null | { outboundAttempts: number; outboundAnswered: number; outboundTalkSeconds: number } }))
-      : agentMetrics({ businessId, userIds, from: p.start, to, listId: f.listId ?? undefined }).then((m) => ({ perDay: null, totals: m.totals })),
-    prisma.deal.findMany({ where: { businessId, status: "won", closedAt: { gte: p.start, lte: to }, ...owner, ...byContact }, select: { amount: true, currency: true, closedAt: true } }),
-    prisma.lead.findMany({ where: { businessId, createdAt: { gte: p.start, lte: to }, ...owner, ...byContact }, select: { id: true, contactId: true, createdAt: true, status: true, deals: { where: { status: "won" }, select: { id: true } } } }),
+  const byUser = (col: Prisma.Sql) => (userIds ? Prisma.sql`AND ${col} = ANY(${userIds})` : Prisma.empty);
+  const localDay = (col: Prisma.Sql) => Prisma.sql`to_char((${col} AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, 'YYYY-MM-DD')`;
+  // Calls: the campaign filter is native (list_id); a product filter goes through the call's contact.
+  const callWhere = Prisma.sql`c.business_id = ${businessId} AND c.direction = 'outbound' AND c.agent_leg_id IS NOT NULL AND c.created_at >= ${p.start} AND c.created_at <= ${to}
+    ${byUser(Prisma.sql`c.user_id`)} ${f.listId ? Prisma.sql`AND c.list_id = ${f.listId}` : Prisma.empty}
+    ${f.product ? Prisma.sql`AND EXISTS (SELECT 1 FROM ${T("contacts")} pc WHERE pc.id = c.contact_id AND pc.custom_fields->>'product' = ${f.product})` : Prisma.empty}`;
+  const dealWhere = Prisma.sql`d.business_id = ${businessId} AND d.status = 'won' AND d.closed_at >= ${p.start} AND d.closed_at <= ${to} ${byUser(Prisma.sql`d.owner_user_id`)} ${contactFilter(Prisma.sql`d.contact_id`, f)}`;
+  const [callDays, dealDays, leadAgg] = await Promise.all([
+    prisma.$queryRaw<Array<{ day: string; outbound: bigint; answered: bigint; talk: bigint | null }>>(Prisma.sql`
+      SELECT ${localDay(Prisma.sql`c.created_at`)} AS day, count(*) AS outbound, count(*) FILTER (WHERE c.answered_at IS NOT NULL) AS answered,
+        sum(COALESCE(c.talk_seconds, 0)) FILTER (WHERE c.answered_at IS NOT NULL) AS talk
+      FROM ${T("calls")} c WHERE ${callWhere} GROUP BY 1`),
+    prisma.$queryRaw<Array<{ day: string; won: bigint; ils_count: bigint; ils_sum: Prisma.Decimal | null }>>(Prisma.sql`
+      SELECT ${localDay(Prisma.sql`d.closed_at`)} AS day, count(*) AS won, count(*) FILTER (WHERE d.currency = 'ILS') AS ils_count, sum(d.amount) FILTER (WHERE d.currency = 'ILS') AS ils_sum
+      FROM ${T("deals")} d WHERE ${dealWhere} GROUP BY 1`),
+    prisma.$queryRaw<Array<{ total: bigint; won: bigint; not_called: bigint; resp: number | null }>>(Prisma.sql`
+      WITH lz AS (
+        SELECT l.id, l.contact_id, l.created_at,
+          (l.status = 'converted' OR EXISTS (SELECT 1 FROM ${T("deals")} wd WHERE wd.lead_id = l.id AND wd.status = 'won')) AS won
+        FROM ${T("leads")} l
+        WHERE l.business_id = ${businessId} AND l.created_at >= ${p.start} AND l.created_at <= ${to} ${byUser(Prisma.sql`l.owner_user_id`)} ${contactFilter(Prisma.sql`l.contact_id`, f)}
+      ), first AS (
+        SELECT lz.id, (SELECT min(fc.created_at) FROM ${T("calls")} fc WHERE fc.business_id = ${businessId} AND fc.contact_id = lz.contact_id
+          AND fc.direction = 'outbound' AND fc.lead_dialed_at IS NOT NULL AND fc.created_at >= lz.created_at) AS first_at
+        FROM lz
+      )
+      SELECT count(*) AS total, count(*) FILTER (WHERE lz.won) AS won, count(*) FILTER (WHERE f.first_at IS NULL) AS not_called,
+        (percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (f.first_at - lz.created_at)) / 60.0) FILTER (WHERE f.first_at IS NOT NULL))::float AS resp
+      FROM lz JOIN first f ON f.id = lz.id`),
   ]);
-  let outbound = 0, answered = 0, talk = 0;
-  if (calls.totals) { outbound = calls.totals.outboundAttempts; answered = calls.totals.outboundAnswered; talk = calls.totals.outboundTalkSeconds; }
-  else for (const c of calls.perDay!) if (c.direction === "outbound" && c.agentLegId) { outbound++; if (c.answeredAt) { answered++; talk += c.talkSeconds ?? 0; } }
-  // First real dial after each new lead (same definition as the agent table).
-  const firsts = leads.length ? await prisma.call.findMany({ where: { businessId, direction: "outbound", leadDialedAt: { not: null }, contactId: { in: [...new Set(leads.map((l) => l.contactId))] }, createdAt: { gte: p.start } }, orderBy: { createdAt: "asc" }, select: { contactId: true, createdAt: true } }) : [];
-  const resp: number[] = []; let notCalled = 0; let leadsWon = 0;
-  for (const l of leads) {
-    if (l.status === "converted" || l.deals.length) leadsWon++;
-    const first = firsts.find((c) => c.contactId === l.contactId && c.createdAt >= l.createdAt);
-    if (first) resp.push((first.createdAt.getTime() - l.createdAt.getTime()) / 60_000); else notCalled++;
-  }
-  resp.sort((a, b) => a - b);
-  const median = resp.length ? (resp.length % 2 ? resp[(resp.length - 1) / 2] : (resp[resp.length / 2 - 1] + resp[resp.length / 2]) / 2) : null;
-  const ils = deals.filter((d) => d.currency === "ILS");
-  const revenue = Math.round(ils.reduce((s, d) => s + Number(d.amount), 0) * 100) / 100;
+  const outbound = callDays.reduce((a, r) => a + num(r.outbound), 0);
+  const answered = callDays.reduce((a, r) => a + num(r.answered), 0);
+  const talk = callDays.reduce((a, r) => a + num(r.talk), 0);
+  const dealsWon = dealDays.reduce((a, r) => a + num(r.won), 0);
+  const ilsCount = dealDays.reduce((a, r) => a + num(r.ils_count), 0);
+  const revenue = Math.round(dealDays.reduce((a, r) => a + num(r.ils_sum), 0) * 100) / 100;
+  const L = leadAgg[0] ?? { total: 0, won: 0, not_called: 0, resp: null };
+  const newLeads = num(L.total);
   const values: Values = {
     outbound, answered, answerRate: outbound ? answered / outbound : null, talkSeconds: talk, avgTalkSeconds: answered ? Math.round(talk / answered) : null,
-    newLeads: leads.length, leadCloseRate: leads.length ? leadsWon / leads.length : null, responseMinutes: median === null ? null : Math.round(median * 10) / 10, notCalled,
-    dealsWon: deals.length, revenue, avgDeal: ils.length ? Math.round((revenue / ils.length) * 100) / 100 : null,
+    newLeads, leadCloseRate: newLeads ? num(L.won) / newLeads : null, responseMinutes: L.resp === null ? null : Math.round(Number(L.resp) * 10) / 10, notCalled: num(L.not_called),
+    dealsWon, revenue, avgDeal: ilsCount ? Math.round((revenue / ilsCount) * 100) / 100 : null,
   };
-  // Daily series (business-timezone days) for the charts.
   const days = periodDays(p, tz);
-  const series = Object.fromEntries(days.map((d) => [d, { outbound: 0, answered: 0, dealsWon: 0 }]));
-  if (calls.perDay) for (const c of calls.perDay) { const d = series[dayOf(tz, c.createdAt)]; if (d && c.direction === "outbound" && c.agentLegId) { d.outbound++; if (c.answeredAt) d.answered++; } }
-  else {
-    const rows = await prisma.call.findMany({ where: { businessId, direction: "outbound", agentLegId: { not: null }, ...(userIds ? { userId: { in: userIds } } : {}), ...(f.listId ? { listId: f.listId } : {}), createdAt: { gte: p.start, lte: to } }, select: { createdAt: true, answeredAt: true } });
-    for (const c of rows) { const d = series[dayOf(tz, c.createdAt)]; if (d) { d.outbound++; if (c.answeredAt) d.answered++; } }
-  }
-  for (const d of deals) { const s = d.closedAt ? series[dayOf(tz, d.closedAt)] : undefined; if (s) s.dealsWon++; }
-  return { values, series: days.map((d) => ({ day: d, ...series[d] })) };
+  const series = days.map((day) => { const c = callDays.find((r) => r.day === day); const d = dealDays.find((r) => r.day === day); return { day, outbound: num(c?.outbound), answered: num(c?.answered), dealsWon: num(d?.won) }; });
+  return { values, series };
 }
 
 export async function comparisonReport(user: SessionUser, q: { from: string; to: string; compare: "previous" | "custom" | "none"; compareFrom?: string | null; compareTo?: string | null } & ReportFilters) {
@@ -96,8 +112,7 @@ export async function comparisonReport(user: SessionUser, q: { from: string; to:
   if (q.listId && !(await prisma.dialList.findFirst({ where: { id: q.listId, businessId: user.businessId }, select: { id: true } }))) throw new ApiError("הקמפיין לא נמצא", 404, "not_found");
   const userIds = q.userId ? [q.userId] : visible;
   const f: ReportFilters = { userId: q.userId ?? null, listId: q.listId ?? null, product: q.product?.trim() || null };
-  const contactIds = await contactIdsFor(user.businessId, f);
-  const [cur, cmp] = await Promise.all([valuesFor(user.businessId, userIds, periods.current, f, contactIds, tz), periods.compare ? valuesFor(user.businessId, userIds, periods.compare, f, contactIds, tz) : Promise.resolve(null)]);
+  const [cur, cmp] = await Promise.all([valuesFor(user.businessId, userIds, periods.current, f, tz), periods.compare ? valuesFor(user.businessId, userIds, periods.compare, f, tz) : Promise.resolve(null)]);
   const metrics = METRICS.map((m) => ({ ...m, change: compareMetric(cur.values[m.id] ?? null, cmp ? cmp.values[m.id] ?? null : undefined, m.kind, m.direction) as Change }));
   const iso = (p: Period | null) => p && { from: p.from, to: p.to, start: p.start.toISOString(), end: p.end.toISOString(), days: p.days, partial: p.partial };
   return { timezone: tz, periods: { current: iso(periods.current), compare: iso(periods.compare), mode: periods.mode, lengthMismatch: periods.lengthMismatch, partialCompare: periods.partialCompare }, filters: f, metrics, series: { current: cur.series, compare: cmp?.series ?? null } };

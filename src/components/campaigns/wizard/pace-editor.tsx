@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useT } from "@/components/i18n/LangProvider";
-import type { Throttle } from "@/lib/campaigns";
+import type { Throttle } from "@/lib/campaign-shared";
 
 export interface MetaLimit { limit: number | null; tier: string | null; source: "meta" | "default"; used: number; remaining: number | null }
 

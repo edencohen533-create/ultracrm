@@ -48,8 +48,8 @@ export function AgentPerformance({ range }: { range?: { from: string; to: string
   useEffect(() => {
     let alive = true; let pending = false; let lastSuccess = 0;
     const poll = async () => { if(pending) return; pending = true; try { const result = await api.get<{rows:LiveAgent[]}>("/api/manager/live"); if(alive){setLive(result.rows);lastSuccess=Date.now();setStale(false);} } catch { if(alive)setStale(true); } finally{pending=false;} };
-    void poll(); const interval=setInterval(poll,2000);const ticker=setInterval(()=>{if(alive){setLiveNow(Date.now());if(Date.now()-lastSuccess>10000)setStale(true);}},1000);
-    return()=>{alive=false;clearInterval(interval);clearInterval(ticker);};
+    void poll(); const interval=setInterval(()=>{if(document.visibilityState==="visible")void poll();},2000);const onVis=()=>{if(document.visibilityState==="visible")void poll();};document.addEventListener("visibilitychange",onVis);const ticker=setInterval(()=>{if(alive){setLiveNow(Date.now());if(Date.now()-lastSuccess>10000)setStale(true);}},1000);
+    return()=>{alive=false;clearInterval(interval);clearInterval(ticker);document.removeEventListener("visibilitychange",onVis);};
   }, []);
   const rows = useMemo(() => [...data?.rows ?? []].sort((a,b) => { const result = sort.key === "fullName" ? a.fullName.localeCompare(b.fullName,"he") : sort.key === "total" ? (a.dialSeconds + a.talkSeconds) - (b.dialSeconds + b.talkSeconds) : a[sort.key] - b[sort.key]; return sort.asc ? result : -result; }), [data, sort]);
   function sorting(key: Sort) { setSort(s => ({ key, asc: key === s.key ? !s.asc : true })); }

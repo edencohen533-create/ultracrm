@@ -13,12 +13,14 @@ import { Button, EmptyState, Input, Modal, Select, Spinner } from "@/components/
 import { formatPhone } from "@/lib/client/format";
 import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 import { LeadDrawer } from "@/components/leads/LeadDrawer";
-import { LeadsSettingsModal } from "@/components/leads/LeadsSettingsModal";
 import { TasksPanel } from "@/components/tasks/TasksPanel";
 import { CallsInbox } from "@/components/inbox/CallsInbox";
-import { LeadImportModal } from "@/components/leads/LeadImportModal";
-import { DealCloseModal } from "@/components/leads/DealCloseModal";
-import { MoveToCampaignModal } from "@/components/leads/MoveToCampaignModal";
+import dynamic from "next/dynamic";
+// Dialogs load on first open (they carry the settings forms / validation) – not with the leads list.
+const LeadsSettingsModal = dynamic(() => import("@/components/leads/LeadsSettingsModal").then((m) => m.LeadsSettingsModal), { ssr: false });
+const LeadImportModal = dynamic(() => import("@/components/leads/LeadImportModal").then((m) => m.LeadImportModal), { ssr: false });
+const DealCloseModal = dynamic(() => import("@/components/leads/DealCloseModal").then((m) => m.DealCloseModal), { ssr: false });
+const MoveToCampaignModal = dynamic(() => import("@/components/leads/MoveToCampaignModal").then((m) => m.MoveToCampaignModal), { ssr: false });
 import { AttemptsCell, AttemptsModal, FollowUpBadge, FollowUpModal, TransferModal, WaitingCard, type FollowUpInfo, type WaitingKey } from "@/components/leads/LeadActions";
 import { useT } from "@/components/i18n/LangProvider";
 
@@ -85,13 +87,15 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
     return { createdFrom: start?.toISOString(), createdTo: end?.toISOString() };
   }, [filter.period, filter.from, filter.to]);
   const load = useCallback(async () => {
-    if (filter.ownerUserId === "me" && !me) return;
+    if (filter.ownerUserId === "me" && !owner) return;
     const id = ++requestId.current; setLoading(true); setError("");
     try { const result = await api.get<LeadData>(`/api/leads${qs({ ...filter, ownerUserId: owner, ...(filter.waiting ? {} : dates), listId, sort: sort.key, direction: sort.direction, page, limit: 30 })}`); if (id === requestId.current) setData(result); }
     catch (e) { if (id === requestId.current) setError((e as Error).message); }
     finally { if (id === requestId.current) setLoading(false); }
-  }, [filter, owner, dates, sort, page, me, listId]);
-  useEffect(() => { const t = setTimeout(load, 220); return () => { clearTimeout(t); requestId.current++; }; }, [load, state?.wrapUpCall?.id]);
+  }, [filter, owner, dates, sort, page, listId]);
+  // The debounce is for typing/filter bursts; the first load goes out immediately.
+  const loadedOnce = useRef(false);
+  useEffect(() => { const t = setTimeout(() => { loadedOnce.current = true; void load(); }, loadedOnce.current ? 220 : 0); return () => { clearTimeout(t); requestId.current++; }; }, [load, state?.wrapUpCall?.id]);
   useEffect(() => { const t = setInterval(() => { if (document.visibilityState === "visible" && !bulkBusy) void load(); }, 30_000); return () => clearInterval(t); }, [load, bulkBusy]);
   useEffect(() => { api.get<{ items: { id: string; fullName: string; isActive: boolean }[] }>("/api/users").then(r => setUsers(r.items.filter(u => u.isActive))).catch(() => undefined); }, []);
   // Client-side navigation to /leads?tasks=1 or ?settings=1 while already mounted (e.g. the /tasks redirect) must open the drawer/modal too.
@@ -186,7 +190,7 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
     {followUpFor && <FollowUpModal leadId={followUpFor.id} name={followUpFor.contact.fullName} tz={tz} current={followUpFor.followUp} onClose={() => setFollowUpFor(null)} onSaved={() => { void load(); }} />}
     {attemptsFor && <AttemptsModal leadId={attemptsFor.id} name={attemptsFor.contact.fullName} tz={tz} onClose={() => setAttemptsFor(null)} />}
     {transferIds && <TransferModal leadIds={transferIds.ids} currentOwnerId={transferIds.owner} users={users} onClose={() => setTransferIds(null)} onDone={() => { setSelected([]); void load(); }} />}
-    <LeadsSettingsModal open={settingsOpen} onClose={closeSettings} manager={manager} initialTab={settingsTab} />
+    {settingsOpen && <LeadsSettingsModal open={settingsOpen} onClose={closeSettings} manager={manager} initialTab={settingsTab} />}
     <Modal open={open} onClose={() => !saving && setOpen(false)} title={t("ליד חדש", "New lead")} footer={<><Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>{t("ביטול", "Cancel")}</Button><Button onClick={create} loading={saving} disabled={newContact ? !form.contactName || !form.phone : !form.contactId}>{t("צור ליד", "Create lead")}</Button></>}><div className="space-y-3"><div className="flex gap-3"><button className={!newContact ? "text-accent font-medium" : "text-muted"} onClick={() => { setNewContact(false); setForm(f => ({ ...f, contactId: "" })); }}>{t("איש קשר קיים", "Existing contact")}</button><button className={newContact ? "text-accent font-medium" : "text-muted"} onClick={() => { setNewContact(true); setForm(f => ({ ...f, contactId: "", contactName: "" })); }}>{t("איש קשר חדש", "New contact")}</button></div>{newContact ? <><Input label={t("שם מלא", "Full name")} value={form.contactName} onChange={e => setForm({ ...form, contactName: e.target.value })}/><Input label={t("טלפון", "Phone")} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} ltr/></> : form.contactId ? <div>{form.contactName}<button className="ms-3 text-accent" onClick={() => setForm({ ...form, contactId: "" })}>{t("שנה", "Change")}</button></div> : <><Input label={t("חיפוש איש קשר", "Search contact")} value={search} onChange={e => setSearch(e.target.value)}/><ul className="max-h-44 overflow-auto">{hits.map(h => <li key={h.id}><button className="w-full text-start p-2 hover:bg-panel-2" onClick={() => setForm({ ...form, contactId: h.id, contactName: h.fullName })}>{h.fullName} · {formatPhone(h.phoneE164)}</button></li>)}</ul></>}<Input label={t("כותרת", "Title")} value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}/><Input label={t("מקור", "Source")} value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}/>{manager && <Select label={t("נציג", "Agent")} value={form.ownerUserId} onChange={e => setForm({ ...form, ownerUserId: e.target.value })}><option value="">{t("ללא שיוך (לפי חלוקת הלידים)", "Unassigned (per lead distribution)")}</option>{users.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select>}</div></Modal>
     {convert && <DealCloseModal contactId={convert.contact.id} leadId={convert.id} name={convert.contact.fullName} onClose={() => setConvert(null)} onDone={() => { void load(); }} />}
   </div>;

@@ -86,9 +86,12 @@ export function LiveFloor() {
 
   useEffect(() => {
     poll();
-    const i = setInterval(poll, 1500);
+    // A hidden tab stops polling; it catches up the moment it's visible again.
+    const i = setInterval(() => { if (document.visibilityState === "visible") poll(); }, 1500);
     const tk = setInterval(() => setNow(Date.now()), 1000);
-    return () => { clearInterval(i); clearInterval(tk); };
+    const onVis = () => { if (document.visibilityState === "visible") poll(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(i); clearInterval(tk); document.removeEventListener("visibilitychange", onVis); };
   }, [poll]);
 
   const serverNow = now + offset;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useT } from "@/components/i18n/LangProvider";
-import { CHANNEL_LABELS, recipientStatusLabels, deliveryStatusLabels, CAMPAIGN_BUCKET_LABELS, campaignBucket } from "@/lib/campaigns";
+import { CHANNEL_LABELS, recipientStatusLabels, deliveryStatusLabels, CAMPAIGN_BUCKET_LABELS, campaignBucket } from "@/lib/campaign-shared";
 
 type Report = { id: string; name: string; channel: string; status: string; scheduledAt?: string | null; audienceExcluded?: number; statusReason: string | null; simulated: boolean; recipients: Record<string, number>; delivery: Record<string, number>; engagement: { opened: number; clicked: number; complained: number; hardBounce: number; softBounce: number; replies: number | null; unsubscribes: number }; cost: { actual: { amount: number; currency: string | null; messages: number } | null; estimate: { total: number | null; currency: string | null; known: boolean } | null }; availability: Record<string, string>; notes: string[] };
 type Recipient = { id: string; status: string; error: string | null; attempts: number; contact: { name: string; phone: string }; identifier: string | null; deliveryStatus?: string | null; deliveryError?: string | null };

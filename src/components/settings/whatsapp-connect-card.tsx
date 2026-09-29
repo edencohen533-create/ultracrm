@@ -281,7 +281,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
               <div className="text-xs text-muted-foreground">{t("נבדק לאחרונה:", "Last checked:")} {fmt(c.lastCheckedAt)}</div>
             </div>
             <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-              <div className="flex gap-2"><dt className="text-muted-foreground">{t("חשבון:", "Account:")}</dt><dd>{c.wabaName ?? "—"} <span className="font-mono text-xs text-muted-foreground"><Ltr>{c.wabaId ?? ""}</Ltr></span></dd></div>
+              <div className="flex flex-wrap gap-x-2"><dt className="text-muted-foreground">{t("חשבון:", "Account:")}</dt><dd className="min-w-0">{c.wabaName ?? "—"} <span className="font-mono text-xs text-muted-foreground"><Ltr>{c.wabaId ?? ""}</Ltr></span></dd></div>
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("מספר:", "Number:")}</dt><dd><Ltr>{c.displayPhoneNumber ?? c.phoneNumberId ?? "—"}</Ltr></dd></div>
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("תיק עסק ב-Meta:", "Meta business portfolio:")}</dt><dd className="font-mono text-xs"><Ltr>{c.metaBusinessId ?? "—"}</Ltr></dd></div>
               <div className="flex gap-2"><dt className="text-muted-foreground">{t("שם מאומת:", "Verified name:")}</dt><dd>{c.verifiedName ?? "—"} {c.nameStatus && <span className="text-xs text-muted-foreground">({c.nameStatus})</span>}</dd></div>
@@ -317,7 +317,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
             )}
             {canManage && (
               <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3" data-testid="wa-settings">
-                <div><Label htmlFor={`allow-${c.id}`} className="text-xs">{t("מספרי בדיקה מורשים (מופרדים בפסיק) – שליחות בדיקה יוצאות רק אליהם", "Allowed test numbers (comma-separated) – test sends go only to them")}</Label><Input id={`allow-${c.id}`} value={allow[c.id] ?? (c.testRecipients ?? []).join(", ")} onChange={(e) => setAllow({ ...allow, [c.id]: e.target.value })} dir="ltr" className="w-72" placeholder="+972501234567" /></div>
+                <div className="min-w-0 max-w-full"><Label htmlFor={`allow-${c.id}`} className="text-xs">{t("מספרי בדיקה מורשים (מופרדים בפסיק) – שליחות בדיקה יוצאות רק אליהם", "Allowed test numbers (comma-separated) – test sends go only to them")}</Label><Input id={`allow-${c.id}`} value={allow[c.id] ?? (c.testRecipients ?? []).join(", ")} onChange={(e) => setAllow({ ...allow, [c.id]: e.target.value })} dir="ltr" className="w-full sm:w-72" placeholder="+972501234567" /></div>
                 <div><Label htmlFor={`price-${c.id}`} className="text-xs">{t("מחיר ידני לשיחה שיווקית (לאומדן; ריק = לא ידוע)", "Manual price per marketing conversation (for estimates; blank = unknown)")}</Label><Input id={`price-${c.id}`} value={price[c.id] ?? (c.unitPrice?.toString() ?? "")} onChange={(e) => setPrice({ ...price, [c.id]: e.target.value })} dir="ltr" type="number" step="0.001" min="0" className="w-36" /></div>
                 <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => act(c, "settings", { testRecipients: (allow[c.id] ?? (c.testRecipients ?? []).join(", ")).split(/[,\n]/).map((s) => s.trim()).filter(Boolean), unitPrice: (price[c.id] ?? c.unitPrice?.toString() ?? "") === "" ? null : Number(price[c.id] ?? c.unitPrice), unitPriceCurrency: "USD" })} data-testid="wa-save-settings">{t("שמור הגדרות בדיקה ועלות", "Save test and cost settings")}</Button>
               </div>
@@ -342,7 +342,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
 
       <Separator className="my-4" />
       <div className="text-xs text-muted-foreground">
-        <div>{t("Webhook URL (מוגדר פעם אחת ברמת האפליקציה ב-Meta):", "Webhook URL (configured once at the app level in Meta):")} <Ltr><code>{webhookUrl}</code></Ltr></div>
+        <div>{t("Webhook URL (מוגדר פעם אחת ברמת האפליקציה ב-Meta):", "Webhook URL (configured once at the app level in Meta):")} <Ltr className="max-w-full break-all"><code>{webhookUrl}</code></Ltr></div>
         <div className="mt-1">Graph API {es.version}{es.appId ? <> · App ID <Ltr><code>{es.appId}</code></Ltr></> : null}</div>
       </div>
 

@@ -40,7 +40,7 @@ export function CallBar() {
   if (call) {
     const answered = call.status === "answered";
     return (
-      <div className={cx("sticky top-0 z-40 flex flex-wrap items-center gap-2 px-3 py-2 min-h-12 border-b border-line", answered ? "bg-[#ecf9ef]" : "bg-panel-2")}>
+      <div className={cx("sticky top-[var(--topnav-h)] z-40 flex flex-wrap items-center gap-2 px-3 py-2 min-h-12 border-b border-line", answered ? "bg-[#ecf9ef]" : "bg-panel-2")}>
         <span className={cx("w-2.5 h-2.5 rounded-full", answered ? "bg-good pulse-good" : "bg-warn animate-pulse")} />
         <span className="font-semibold truncate">{call.contact?.fullName ?? t("שיחה", "Call")}</span>
         <Phone value={formatPhone(call.toE164)} className="text-muted whitespace-nowrap" />

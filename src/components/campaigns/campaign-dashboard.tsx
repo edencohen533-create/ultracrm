@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { campaignStatusLabels, recipientStatusLabels, deliveryStatusLabels, renderTemplate, templateParameterKeys, CHANNEL_LABELS } from "@/lib/campaigns";
+import { campaignStatusLabels, recipientStatusLabels, deliveryStatusLabels, renderTemplate, templateParameterKeys, CHANNEL_LABELS } from "@/lib/campaign-shared";
 import { smsMetrics } from "@/lib/sms";
 import { mergeTagsOf } from "@/lib/merge-tags";
 import { useT } from "@/components/i18n/LangProvider";

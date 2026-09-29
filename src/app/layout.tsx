@@ -14,7 +14,9 @@ export const metadata: Metadata = {
   description: "CRM, WhatsApp Business messaging, dialer, SMS and email in one platform",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#0b0e14" };
+// resizes-content: the on-screen keyboard shrinks the layout (dvh), so bottom composers stay above it (Chrome/Android;
+// iOS Safari ignores it and scrolls the focused field into view).
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#0b0e14", interactiveWidget: "resizes-content" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const lang = await getLang();

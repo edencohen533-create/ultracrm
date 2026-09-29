@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CalendarDays, ChevronDown, FileEdit, List, MoreHorizontal, Search, Send, Clock, Hourglass, AlertCircle, Globe, Mail, MessageCircle, Smartphone } from "lucide-react";
-import { CAMPAIGN_BUCKET_LABELS, campaignBucket, CHANNEL_LABELS, throttleLabel, type CampaignBucket } from "@/lib/campaigns";
+import { CAMPAIGN_BUCKET_LABELS, campaignBucket, CHANNEL_LABELS, throttleLabel, type CampaignBucket } from "@/lib/campaign-shared";
 import { Modal, Button } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
 

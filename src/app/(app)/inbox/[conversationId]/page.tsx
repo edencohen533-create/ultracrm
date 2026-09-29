@@ -13,6 +13,8 @@ import type { MessageItem } from "@/types/domain";
 import { getAiSettings } from "@/server/ai/settings";
 import { AiHandlingBar } from "@/components/inbox/ai-handling-bar";
 import { serverT } from "@/lib/i18n-server";
+import { suppressionSummary } from "@/lib/suppression";
+import { ContactBlockNotice } from "@/components/contacts/ContactBlockNotice";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -45,6 +47,8 @@ export default organizationRequest(async function ConversationPage({
     aiBot: Boolean(message.requestKey?.startsWith("ai:svc:")),
   }));
   const { ai } = await getAiSettings(conversation.businessId);
+  // Why this person may not be contacted (explained in the thread itself, not only on the contact card).
+  const block = await suppressionSummary(conversation.businessId, conversation.contactId);
   const aiEnabledHere = ai.service.enabled && ai.service.credentialIds.includes(conversation.providerCredentialId ?? "demo");
 
   const now = Date.now();
@@ -72,6 +76,7 @@ export default organizationRequest(async function ConversationPage({
       {(aiEnabledHere || conversation.aiMode) && <AiHandlingBar conversationId={conversation.id} aiMode={conversation.aiMode} enabledHere={aiEnabledHere} reason={conversation.aiHandoffReason} summary={conversation.aiHandoffSummary} />}
       <div className="flex items-center justify-between border-b px-3 py-2 text-sm"><span>{conversation.contact.fullName}</span><Link className="underline" href={`/contacts/${conversation.contactId}`}>{t("כרטיס לקוח והסרה מדיוור", "Contact profile & unsubscribe")}</Link></div>
       <div className="border-b px-3 py-1 text-xs text-muted-foreground">{t("מספר השיחה:", "Conversation number:")} {conversation.providerCredential ? `${conversation.providerCredential.label || "WhatsApp"} · ${conversation.providerCredential.displayPhoneNumber || t("מספר עסקי", "Business number")}` : t("הדגמה בלבד", "Demo only")}</div>
+      {(block.doNotContact || block.fullyBlocked || block.pendingReview) && <div className="border-b px-3 py-2"><ContactBlockNotice summary={JSON.parse(JSON.stringify(block))} /></div>}
       <Tasks key={`tasks:${conversation.id}`} contactId={conversation.contactId} conversationId={conversation.id} userId={session.user.id} />
       <InternalNotes key={conversation.id} conversationId={conversation.id} notes={conversation.notes.map((note) => ({ id: note.id, body: note.body, createdAt: note.createdAt.toISOString(), author: { name: note.author.fullName } }))} />
       <div className="flex min-h-0 flex-1">

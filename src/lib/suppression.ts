@@ -11,7 +11,14 @@
  *  • Queued-but-not-yet-sent campaign recipients / marketing automations are
  *    stopped; messages already handed to the provider are never re-labelled.
  *  • Re-import, list changes or a provider switch never revoke a suppression.
- *    Revocation requires documented re-consent (`revokeSuppressions`).
+ *    Revocation requires documented re-consent (`revokeSuppressions`). There is no automatic expiry.
+ *  • Any CONFIRMED request (unsubscribe in any channel, "don't call", wrong number) also stops outbound calls: every
+ *    phone of the contact goes on the dialer's DNC list. A request held for review stops every AUTOMATIC outreach
+ *    (campaigns, automations, the auto-dialer queue) until a manager decides; a person may still dial by hand.
+ *  • "Wrong number / not the person" is a full block (scope `all`): that number is not our customer.
+ *  • Essential service messages (e.g. a purchase receipt) are a separate, narrow path: a utility template, never
+ *    automated marketing, always audited (`sendBlockReason(..., { essential: true })`).
+ *  • Keyed by business: nothing is shared or looked up across businesses.
  */
 import { prisma, type Db } from "@/lib/db";
 import { audit } from "@/lib/audit";
@@ -32,6 +39,10 @@ export interface SuppressInput {
   actorId?: string | null;
   /** Unclear request: block marketing now, ask a manager to confirm/dismiss. */
   pendingReview?: boolean;
+  /** unsubscribe | do_not_call | wrong_person | unclear | complaint | manual | import | unsubscribe_link */
+  kind?: string;
+  /** Message that produced the request. */
+  messageId?: string | null;
 }
 
 export interface ContactIdentifiers {
@@ -75,7 +86,7 @@ export async function contactForIdentifier(businessId: string, identifier: strin
 /** Active suppressions covering any of the identifiers. */
 export async function activeSuppressions(businessId: string, identifiers: string[], db: Db = prisma) {
   if (!identifiers.length) return [];
-  return db.suppression.findMany({ where: { businessId, identifier: { in: identifiers }, revokedAt: null }, select: { id: true, identifier: true, scope: true, source: true, reason: true, createdAt: true, contactId: true, pendingReview: true, messageId: true } });
+  return db.suppression.findMany({ where: { businessId, identifier: { in: identifiers }, revokedAt: null }, select: { id: true, identifier: true, scope: true, source: true, reason: true, createdAt: true, contactId: true, pendingReview: true, messageId: true, kind: true } });
 }
 
 /**
@@ -83,7 +94,7 @@ export async function activeSuppressions(businessId: string, identifiers: string
  * Returns a Hebrew reason when blocked, otherwise null. Marketing is blocked by
  * any active suppression; service messages only by scope `all` (or a hard block).
  */
-export async function sendBlockReason(businessId: string, contactId: string, category: "service" | "marketing", db: Db = prisma): Promise<string | null> {
+export async function sendBlockReason(businessId: string, contactId: string, category: "service" | "marketing", db: Db = prisma, opts: { automated?: boolean } = {}): Promise<string | null> {
   const ids = await contactIdentifiers(contactId, db);
   const contact = await db.contact.findUnique({ where: { id: contactId }, select: { isBlocked: true, consentStatus: true } });
   if (!contact) return "איש הקשר לא נמצא";
@@ -95,15 +106,32 @@ export async function sendBlockReason(businessId: string, contactId: string, cat
     if (active.length) return "איש הקשר הוסר מכל הדיוור השיווקי";
     if (contact.consentStatus !== "OPTED_IN") return "איש הקשר אינו מאשר קבלת דיוור";
   }
+  // Automatic outreach (automations, journeys, sequences) never reaches someone who asked to stop – whatever the
+  // message's category. Only a person replying by hand can.
+  if (opts.automated && active.length) return active.some((s) => s.pendingReview) ? "בקשה לא ברורה ממתינה לבירור – פנייה אוטומטית מושהית" : "איש הקשר ביקש שלא ליצור עמו קשר – אין פנייה אוטומטית";
   return null;
 }
 
-/** Same check for an outbound call (scope `all` and the DNC list). */
-export async function callBlockReason(businessId: string, phoneE164: string, db: Db = prisma): Promise<string | null> {
+/**
+ * May this number be called? Checked for every dial (manual, preview, power) and again when a queued lead is taken.
+ * Blocks: the DNC list, a blocked contact, and any confirmed request on the number OR on any identifier of the
+ * contact (another phone, a duplicate card). A request still under review blocks automatic dialing only.
+ */
+export async function callBlockReason(businessId: string, phoneE164: string, db: Db = prisma, opts: { contactId?: string | null; automated?: boolean } = {}): Promise<string | null> {
   const dnc = await db.dncEntry.findUnique({ where: { businessId_phoneE164: { businessId, phoneE164 } }, select: { id: true } });
+  const identifiers = new Set([phoneE164]);
+  if (opts.contactId) {
+    const c = await db.contact.findFirst({ where: { id: opts.contactId, businessId }, select: { isBlocked: true } });
+    if (c?.isBlocked) return "איש הקשר חסום לכל פנייה";
+    const ids = await contactIdentifiers(opts.contactId, db);
+    for (const i of [...ids.phones, ...ids.emails]) identifiers.add(i);
+  }
+  const active = await db.suppression.findMany({ where: { businessId, identifier: { in: [...identifiers] }, revokedAt: null }, select: { pendingReview: true, kind: true } });
+  // The specific reason (e.g. wrong number) wins over the generic DNC message.
+  if (active.some((s) => !s.pendingReview)) return active.some((s) => s.kind === "wrong_person") ? "מספר שגוי – זה לא איש הקשר" : "איש הקשר ביקש שלא ליצור עמו קשר";
   if (dnc) return "המספר חסום – לא ליצור קשר";
-  const active = await db.suppression.findFirst({ where: { businessId, identifier: phoneE164, scope: "all", revokedAt: null }, select: { id: true } });
-  return active ? "איש הקשר ביקש שלא ליצור עמו קשר" : null;
+  if (opts.automated && active.length) return "בקשה לא ברורה ממתינה לבירור – חיוג אוטומטי מושהה";
+  return null;
 }
 
 /** Throws right before the provider call. Used inside workers. */
@@ -128,12 +156,14 @@ export async function suppressContact(input: SuppressInput, db: Db = prisma) {
   for (const identifier of identifiers) {
     const existing = await db.suppression.findFirst({ where: { businessId: input.businessId, identifier, revokedAt: null } });
     if (existing) {
+      // A clear request confirms one that was only held for review.
+      if (existing.pendingReview && !input.pendingReview) await db.suppression.update({ where: { id: existing.id }, data: { pendingReview: false, kind: input.kind ?? existing.kind, reason: input.reason ?? existing.reason, evidence: input.evidence ?? existing.evidence } });
       if (existing.scope === "marketing" && scope === "all") await db.suppression.update({ where: { id: existing.id }, data: { scope: "all", reason: input.reason ?? existing.reason, evidence: input.evidence ?? existing.evidence, contactId: existing.contactId ?? contactId } });
       else if (!existing.contactId && contactId) await db.suppression.update({ where: { id: existing.id }, data: { contactId } });
       continue;
     }
     const row = await db.suppression.create({
-      data: { businessId: input.businessId, contactId, identifier, identifierType: identifierType(identifier), scope, source: input.source, reason: input.reason ?? null, evidence: input.evidence ?? null, createdByUserId: input.actorId ?? null, pendingReview: Boolean(input.pendingReview) },
+      data: { businessId: input.businessId, contactId, identifier, identifierType: identifierType(identifier), scope, source: input.source, reason: input.reason ?? null, evidence: input.evidence ?? null, createdByUserId: input.actorId ?? null, pendingReview: Boolean(input.pendingReview), kind: input.kind ?? null, messageId: input.messageId ?? null },
     });
     created.push(row.id);
   }
@@ -144,10 +174,11 @@ export async function suppressContact(input: SuppressInput, db: Db = prisma) {
       where: { id: contactId },
       data: { consentStatus: "OPTED_OUT", consentAt: new Date(), consentSource: input.source, consentScope: scope, consentEvidence: input.evidence ?? input.reason ?? null, ...(scope === "all" ? { isBlocked: true } : {}) },
     });
-    await stopPendingMarketing(input.businessId, contactId, scope, db);
-    if (scope === "all") {
+    // Any request (clear or under review) stops what is queued automatically; only a clear one goes on the DNC list.
+    await stopPendingMarketing(input.businessId, contactId, "all", db);
+    if (!input.pendingReview) {
       const { addToDnc } = await import("@/lib/dialer/queue");
-      for (const phone of ids.phones) await addToDnc(input.businessId, input.actorId ?? null, phone, `suppression:${input.source}`, db, { skipSuppression: true });
+      for (const phone of ids.phones) await addToDnc(input.businessId, input.actorId ?? null, phone, `${input.kind ?? "suppression"}:${input.source}`, db, { skipSuppression: true });
     }
   }
 
@@ -178,6 +209,10 @@ export async function reviewSuppression(businessId: string, suppressionId: strin
   if (action === "confirm") {
     await db.suppression.updateMany({ where: { id: { in: ids } }, data: { pendingReview: false, reviewedAt: new Date(), reviewedByUserId: actorId, reason: note.trim() ? `${row.reason ?? ""} · אושר: ${note.trim()}` : row.reason } });
     if (row.contactId) await db.contact.update({ where: { id: row.contactId }, data: { consentStatus: "OPTED_OUT", consentAt: new Date(), consentSource: row.source, consentScope: row.scope, consentEvidence: row.evidence ?? row.reason ?? null } });
+    // Confirmed → the same as a clear request: the number(s) go on the DNC list.
+    const phones = row.contactId ? (await contactIdentifiers(row.contactId, db)).phones : row.identifierType === "phone" ? [row.identifier] : [];
+    const { addToDnc } = await import("@/lib/dialer/queue");
+    for (const phone of phones) await addToDnc(businessId, actorId, phone, `confirmed:${row.source}`, db, { skipSuppression: true });
   } else {
     await db.suppression.updateMany({ where: { id: { in: ids } }, data: { pendingReview: false, reviewedAt: new Date(), reviewedByUserId: actorId, revokedAt: new Date(), revokedByUserId: actorId, revokeEvidence: `לא בקשת הסרה: ${note.trim()}` } });
   }
@@ -226,10 +261,9 @@ export async function revokeSuppressions(businessId: string, contactId: string, 
   const hadAll = active.some((s) => s.scope === "all");
   const r = await db.suppression.updateMany({ where: { businessId, identifier: { in: identifiers }, revokedAt: null }, data: { revokedAt: new Date(), revokedByUserId: actorId, revokeEvidence: evidence.trim() } });
   await db.contact.update({ where: { id: contactId }, data: { consentStatus: "OPTED_IN", consentAt: new Date(), consentSource: "re-consent", consentScope: "marketing", consentEvidence: evidence.trim(), ...(hadAll ? { isBlocked: false } : {}) } });
-  if (hadAll) {
-    const { removeFromDnc } = await import("@/lib/dialer/queue");
-    for (const phone of ids.phones) await removeFromDnc(businessId, actorId, phone, db);
-  }
+  // Every confirmed request put the phones on the DNC list – documented re-consent takes them off again.
+  const { removeFromDnc } = await import("@/lib/dialer/queue");
+  for (const phone of ids.phones) await removeFromDnc(businessId, actorId, phone, db);
   await audit(businessId, actorId, "contact", contactId, "contact.resubscribed", { revoked: r.count, evidence: evidence.trim() }, db);
   await emitEvent(db, { businessId, type: "contact.resubscribed", contactId, actorUserId: actorId, source: "user", dedupeKey: `contact.resubscribed:${contactId}:${Date.now()}`, payload: { revoked: r.count } });
   return { revoked: r.count };
@@ -251,10 +285,37 @@ export async function suppressionSummary(businessId: string, contactId: string, 
   const ids = await contactIdentifiers(contactId, db);
   const active = await activeSuppressions(businessId, [...ids.phones, ...ids.emails], db);
   const history = await db.suppression.findMany({ where: { businessId, contactId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, identifier: true, scope: true, source: true, reason: true, evidence: true, createdAt: true, revokedAt: true, revokeEvidence: true } });
+  const confirmed = active.filter((s) => !s.pendingReview);
   return {
     marketingBlocked: active.length > 0,
     fullyBlocked: active.some((s) => s.scope === "all"),
+    /** No calls and no automatic outreach (any confirmed request). */
+    doNotContact: confirmed.length > 0,
+    pendingReview: active.some((s) => s.pendingReview),
     active,
     history,
   };
+}
+
+/**
+ * Inbound message (WhatsApp / SMS) → apply what it asks about being contacted. One classifier for every channel
+ * (src/lib/contact-requests.ts). Clear request → recorded at once (marketing stopped, number on the DNC list; wrong
+ * number → full block). Unclear → automatic outreach paused and held for a manager. Returns what was done.
+ */
+export async function applyInboundContactRequest(input: { businessId: string; contactId: string; channel: "whatsapp" | "sms"; body: string | null | undefined; messageRef: string }, db: Db = prisma) {
+  const { classifyContactRequest, REQUEST_LABEL } = await import("@/lib/contact-requests");
+  const r = classifyContactRequest(input.body);
+  if (r.kind === "none") return { kind: "none" as const };
+  const quote = `"${(input.body ?? "").trim().slice(0, 60)}"`;
+  await suppressContact({
+    businessId: input.businessId, contactId: input.contactId, source: input.channel, kind: r.kind,
+    scope: r.kind === "wrong_person" ? "all" : "marketing",
+    pendingReview: r.kind === "unclear",
+    reason: `${REQUEST_LABEL[r.kind]}: ${quote}`, evidence: `${input.channel}:${input.messageRef}${r.matched ? ` · "${r.matched}"` : ""}`,
+  }, db);
+  if (r.kind !== "unclear") {
+    const { applyUnsubscribeAutomation } = await import("@/lib/unsubscribe-automation");
+    await applyUnsubscribeAutomation(input.businessId, input.contactId, db);
+  }
+  return { kind: r.kind };
 }

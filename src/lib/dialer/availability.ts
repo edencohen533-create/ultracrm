@@ -100,7 +100,7 @@ async function blockReason(businessId: string, lead: { id: string; status: strin
   if (!(OPEN_LEAD_STATUSES as readonly string[]).includes(lead.status)) return "הליד סגור";
   if (lead.pendingTransferToUserId) return "הליד ממתין להעברה לנציג אחר";
   const { callBlockReason } = await import("@/lib/suppression");
-  const blocked = await callBlockReason(businessId, phone); if (blocked) return blocked;
+  const blocked = await callBlockReason(businessId, phone, undefined, { contactId: lead.contactId, automated: true }); if (blocked) return blocked;
   const owner = await prisma.user.findFirst({ where: { id: lead.ownerUserId, businessId, isActive: true }, select: { id: true } });
   if (!owner) return "הנציג המשויך אינו פעיל";
   const { effectiveAccess, can } = await import("@/lib/access/engine");

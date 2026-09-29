@@ -36,7 +36,8 @@ describe("global suppression", () => {
       const c = await createContact(t.session, { fullName: "Free form opt out", phone: "0502220099", consentStatus: "OPTED_IN", consentEvidence: "test" });
       await createInboundMessage({ contactId: c.id, body: "בבקשה אל תשלחו לי יותר הודעות", providerMessageId: `free-${Date.now()}` });
       expect(await sendBlockReason(t.business.id, c.id, "marketing")).not.toBeNull();
-      expect(await prisma.suppression.count({ where: { contactId: c.id, pendingReview: true, revokedAt: null } })).toBeGreaterThan(0);
+      // A clear request ("אל תשלחו לי יותר הודעות") is applied at once – no review needed.
+      expect(await prisma.suppression.count({ where: { contactId: c.id, pendingReview: false, revokedAt: null } })).toBeGreaterThan(0);
       await expect(revokeSuppressions(t.business.id, c.id, t.user.id, "")).rejects.toThrow();
     });
   });

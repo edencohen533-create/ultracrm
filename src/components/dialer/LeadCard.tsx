@@ -1,5 +1,7 @@
 "use client";
 
+import { ContactBlockNotice, type BlockSummary } from "@/components/contacts/ContactBlockNotice";
+
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -24,6 +26,7 @@ interface ContactFull extends ContactLite {
   /** Dial-list rows (the queues this contact sits in). */
   queueLeads?: Array<{ id: string; status: string; list: { id: string; name: string } }>;
   isDnc: boolean;
+  suppression?: BlockSummary;
 }
 
 const outcomeLabel = (k: string | null) => OUTCOMES.find((o) => o.key === k)?.label ?? k ?? "—";
@@ -134,9 +137,10 @@ export function LeadCard({
             ) : (
               <h2 className="text-xl font-semibold truncate">{contact.fullName}</h2>
             )}
+            {contact.suppression && <div className="mt-2"><ContactBlockNotice summary={contact.suppression} isDnc={contact.isDnc} /></div>}
             <div className="flex items-center gap-3 mt-1 text-sm">
               <Phone value={formatPhone(contact.phoneE164)} className="text-accent underline text-base font-medium" />
-              {contact.isDnc && <Badge tone="bad">{t("לא ליצור קשר", "Do not contact")}</Badge>}
+              {contact.isDnc && !contact.suppression && <Badge tone="bad">{t("לא ליצור קשר", "Do not contact")}</Badge>}
               {hotNow && <AvailableNowTag at={hotNow.requestedAt} text={hotNow.text} />}
               {lead && (
                 <span className="text-xs text-muted">

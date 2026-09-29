@@ -178,7 +178,7 @@ const outcomeFollowUpMessage: EventHandler = {
     const template = await prisma.template.findUnique({ where: { id: cfg.templateId } });
     if (!template || template.status !== "APPROVED") return { skipped: "template not approved" };
     const category = template.category === "MARKETING" ? "marketing" : "service";
-    const blocked = await sendBlockReason(event.businessId, event.contactId, category);
+    const blocked = await sendBlockReason(event.businessId, event.contactId, category, undefined, { automated: true });
     if (blocked) return { skipped: blocked };
     const { resolveSender, ProviderUnavailableError } = await import("@/server/providers/provider-registry");
     let sender;

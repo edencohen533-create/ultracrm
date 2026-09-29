@@ -1,10 +1,10 @@
 import { acquireSendLease, SendConflictError } from "./send-guard";
 import { requireBusinessId } from "@/lib/tenant";
-import { sendBlockReason, suppressContact } from "@/lib/suppression";
+import { applyInboundContactRequest, sendBlockReason } from "@/lib/suppression";
 import { emitEvent, kickEventProcessing } from "@/lib/events";
 import { consumeQuota } from "@/lib/modules";
 import { ApiError } from "@/lib/response";
-import { eligibilityError, isUnsubscribe, isAmbiguousUnsubscribe, marketingIntervalMs } from "@/lib/message-policy";
+import { eligibilityError, marketingIntervalMs } from "@/lib/message-policy";
 import { getBusinessSettings } from "@/lib/settings";
 import { randomUUID } from "node:crypto";
 import { renderTemplate, validateTemplateVariables } from "@/lib/campaigns";
@@ -46,15 +46,8 @@ export async function createInboundMessage(input: CreateInboundMessageInput) {
       const existing = await tx.message.findUnique({ where: { inboundKey: input.providerMessageId }, include: { conversation: true } });
       if (existing) return { conversation: existing.conversation, message: existing, isNewConversation: false, isDuplicate: true };
     }
-    if (isUnsubscribe(input.body)) {
-      // Global unsubscribe: blocks marketing on every channel of the business (see src/lib/suppression.ts).
-      const { applyUnsubscribeAutomation } = await import("@/lib/unsubscribe-automation");
-      await suppressContact({ businessId: requireBusinessId(), contactId: input.contactId, scope: "marketing", source: "whatsapp", reason: `הודעה נכנסת: "${input.body.trim().slice(0, 40)}"`, evidence: input.providerMessageId ?? "inbound-demo" }, tx);
-      await applyUnsubscribeAutomation(requireBusinessId(), input.contactId, tx);
-    }
-    if (!isUnsubscribe(input.body) && isAmbiguousUnsubscribe(input.body)) {
-      await suppressContact({ businessId: requireBusinessId(), contactId: input.contactId, scope: "marketing", source: "whatsapp", reason: "בקשת הסרה בניסוח חופשי – ממתינה לבדיקה", evidence: input.providerMessageId ?? "inbound-demo", pendingReview: true }, tx);
-    }
+    // What the customer asks about being contacted (unsubscribe / don't call / wrong number / unclear) – by context.
+    await applyInboundContactRequest({ businessId: requireBusinessId(), contactId: input.contactId, channel: "whatsapp", body: input.body, messageRef: input.providerMessageId ?? "inbound-demo" }, tx);
     const openConversation = await tx.conversation.findFirst({
       where: { contactId: input.contactId, providerCredentialId, status: { in: [ConversationStatus.OPEN, ConversationStatus.PENDING] } },
       orderBy: { createdAt: "desc" },
@@ -197,7 +190,7 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
   const eligibility = eligibilityError(conversation.contact, marketing, serviceWindow);
   if (eligibility) throw new MessagePolicyError(eligibility);
   // Global suppression list (all channels) – checked here and again right before the provider call.
-  const suppressed = await sendBlockReason(requireBusinessId(), conversation.contact.id, marketing ? "marketing" : "service");
+  const suppressed = await sendBlockReason(requireBusinessId(), conversation.contact.id, marketing ? "marketing" : "service", undefined, { automated: Boolean(input.automated || input.journeyStep) });
   if (suppressed) throw new MessagePolicyError(suppressed);
   let provider;
   try { provider = await getActiveProvider(conversation.providerCredentialId); }
@@ -267,7 +260,7 @@ async function sendOutboundMessage(input: CreateOutboundMessageInput) {
     const freshContact = await prisma.contact.findUniqueOrThrow({ where: { id: conversation.contact.id } });
     let latestError = eligibilityError(freshContact, marketing, serviceWindow);
     // Worker-side guard immediately before the provider call: a suppression recorded a moment ago must win.
-    if (!latestError) latestError = await sendBlockReason(requireBusinessId(), freshContact.id, marketing ? "marketing" : "service");
+    if (!latestError) latestError = await sendBlockReason(requireBusinessId(), freshContact.id, marketing ? "marketing" : "service", undefined, { automated: Boolean(input.automated || input.journeyStep) });
     if (latestError) {
       await prisma.message.update({ where: { id: queued.id }, data: { status: "FAILED", errorReason: latestError, failedAt: new Date() } });
       throw new MessagePolicyError(latestError);

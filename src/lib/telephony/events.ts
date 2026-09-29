@@ -275,6 +275,15 @@ export async function dialLeadLeg(callId: string) {
   if (!call || call.endedAt || call.leadLegId || !call.agentLegId || call.hangupRequestedAt) return;
   const telephony = adapterFor(call.provider);
   if (telephony.capabilities.dialModel === "callback") return; // the provider dials the customer itself
+  // Last check before the customer's phone rings: a request may have arrived while the agent's leg was connecting.
+  // Provider webhooks may reach here outside a business scope; the ledger is only readable inside the call's own.
+  const [{ callBlockReason }, { withBusiness }] = await Promise.all([import("@/lib/suppression"), import("@/lib/tenant")]);
+  const blocked = await withBusiness(call.businessId, () => callBlockReason(call.businessId, call.toE164, undefined, { contactId: call.contactId, automated: call.mode !== "manual" }));
+  if (blocked) {
+    await prisma.call.update({ where: { id: call.id }, data: { status: "failed", endedAt: new Date(), telephonyResult: "failed", failureReason: `blocked: ${blocked}`.slice(0, 300), activeForUser: null, talkSeconds: 0 } });
+    await afterCallFinalized(call.id);
+    return;
+  }
   const settings = await getBusinessSettings(call.businessId);
   try {
     // The answered agent leg becomes the first participant of a conference so supervisors can join later.

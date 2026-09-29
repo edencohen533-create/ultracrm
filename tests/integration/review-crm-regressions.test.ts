@@ -141,11 +141,13 @@ it('R17: removing a full block preserves opt-out until explicit re-consent', asy
     const unblocked = await run(a.session, () => updateContact(a.session, c.id, { isBlocked: false, consentEvidence: 'Customer permits service only' }));
     expect(unblocked).toMatchObject({ isBlocked: false, consentStatus: 'OPTED_OUT' });
     expect(await run(a.session, () => sendBlockReason(a.business.id, c.id, 'service'))).toBeNull();
-    expect(await run(a.session, () => callBlockReason(a.business.id, c.phoneE164))).toBeNull();
+    // An opt-out is also "do not call" – until explicit, documented re-consent.
+    expect(await run(a.session, () => callBlockReason(a.business.id, c.phoneE164))).not.toBeNull();
     expect(await run(a.session, () => sendBlockReason(a.business.id, c.id, 'marketing'))).not.toBeNull();
     const optedIn = await run(a.session, () => updateContact(a.session, c.id, { consentStatus: 'OPTED_IN', consentEvidence: 'Explicit marketing opt-in' }));
     expect(optedIn.consentStatus).toBe('OPTED_IN');
     expect(await run(a.session, () => sendBlockReason(a.business.id, c.id, 'marketing'))).toBeNull();
+    expect(await run(a.session, () => callBlockReason(a.business.id, c.phoneE164))).toBeNull();
 });
 it('R18: a rejected consent change rolls back other contact fields', async () => {
     await run(a.session, () => suppressContact({ businessId: a.business.id, contactId: c.id, scope: 'marketing', source: 'manual' }));

@@ -87,7 +87,7 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
   if (!identifier) throw new MessagePolicyError(input.channel === "email" ? "אין כתובת אימייל תקינה לאיש הקשר" : "אין מספר טלפון");
 
   // Consent + global suppression (every channel) – first gate.
-  const blocked = await sendBlockReason(businessId, contact.id, marketing ? "marketing" : "service");
+  const blocked = await sendBlockReason(businessId, contact.id, marketing ? "marketing" : "service", undefined, { automated: true });
   if (blocked) throw new MessagePolicyError(blocked);
 
   const credential = await activeChannelCredential(input.channel, input.credentialId);
@@ -134,7 +134,7 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
   await prisma.message.update({ where: { id: queued.id }, data: { body: input.channel === "sms" ? rendered.body : rendered.text, subject: rendered.subject ?? null, segments: rendered.segments ?? null, encoding: rendered.encoding ?? null } });
 
   // Worker-side guard immediately before the provider call: a suppression recorded a moment ago wins.
-  const latest = await sendBlockReason(businessId, contact.id, marketing ? "marketing" : "service");
+  const latest = await sendBlockReason(businessId, contact.id, marketing ? "marketing" : "service", undefined, { automated: true });
   if (latest) {
     await prisma.message.update({ where: { id: queued.id }, data: { status: "CANCELLED", errorReason: latest, failedAt: new Date() } });
     throw new MessagePolicyError(latest);

@@ -1,5 +1,7 @@
 "use client";
 
+import { ContactBlockNotice } from "@/components/contacts/ContactBlockNotice";
+
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { use, useCallback, useEffect, useState } from "react";
@@ -32,7 +34,7 @@ interface Card {
   conversations: Array<{ id: string; channel: string; status: string; lastMessageAt: string | null; unreadCount: number; assignedAgent: { fullName: string } | null; providerCredential: { label: string | null; displayPhoneNumber: string | null; isActive: boolean } | null; messages: Array<{ body: string | null; direction: string; createdAt: string }> }>;
   noteItems: Array<{ id: string; body: string; createdAt: string; author: { fullName: string } }>;
   isDnc: boolean; dncReason: string | null;
-  suppression: { marketingBlocked: boolean; fullyBlocked: boolean; active: Array<{ id: string; identifier: string; identifierType?: string; scope: string; source: string; reason: string | null; createdAt: string }>; history: Array<{ id: string; identifier: string; scope: string; source: string; reason: string | null; createdAt: string; revokedAt: string | null; revokeEvidence: string | null }> };
+  suppression: { marketingBlocked: boolean; fullyBlocked: boolean; doNotContact?: boolean; pendingReview?: boolean; active: Array<{ id: string; identifier: string; identifierType?: string; scope: string; source: string; reason: string | null; createdAt: string }>; history: Array<{ id: string; identifier: string; scope: string; source: string; reason: string | null; createdAt: string; revokedAt: string | null; revokeEvidence: string | null }> };
 }
 
 const KIND_ICON: Record<TimelineItem["kind"], string> = { call: "📞", message: "💬", note: "📝", task: "✅", lead: "⭐", deal: "💼", event: "⚡" };
@@ -154,7 +156,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
 
   if (loadError) return <div className="p-5 space-y-3" role="alert"><p>{loadError}</p><Button onClick={load}>{t("נסה שוב", "Try again")}</Button><Link href="/contacts" className="ms-3 underline">{t("חזרה לאנשי קשר", "Back to contacts")}</Link></div>;
   if (!c) return <div className="flex justify-center p-10"><Spinner /></div>;
-  const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall && !state?.wrapUpCall && !c.isDnc && !c.suppression.fullyBlocked;
+  const canDial = Boolean(me?.modules.telephony) && Boolean(state) && !state?.activeCall && !state?.wrapUpCall && !c.isDnc && !c.suppression.fullyBlocked && !c.suppression.doNotContact;
   const isManager = me?.user.role === "manager" || me?.user.role === "owner";
   const openLeads = c.leads.filter((l) => ["new", "contacted", "qualified", "follow_up"].includes(l.status));
 
@@ -165,6 +167,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
         <Phone value={formatPhone(c.phoneE164)} className="text-accent underline" />
         {c.company && <span className="text-muted text-sm">{c.company}</span>}
         {c.suppression.fullyBlocked ? <Badge tone="bad">{t("לא ליצור קשר", "Do not contact")}</Badge> : c.suppression.marketingBlocked ? <Badge tone="bad">{t("הוסר מדיוור שיווקי", "Unsubscribed from marketing")}</Badge> : c.consentStatus === "OPTED_IN" ? <Badge tone="good">{t("הסכמה לדיוור", "Marketing consent")}</Badge> : <Badge tone="neutral">{t("ללא הסכמה לדיוור", "No marketing consent")}</Badge>}
+        {(c.suppression.doNotContact || c.suppression.pendingReview) && <div className="basis-full"><ContactBlockNotice summary={c.suppression} isDnc={c.isDnc} /></div>}
         {c.isDnc && !c.suppression.fullyBlocked && <Badge tone="bad">{t("DNC שיחות", "DNC calls")}{c.dncReason ? ` · ${c.dncReason}` : ""}</Badge>}
         <div className="ms-auto flex flex-wrap gap-2">
           {edit ? <><Button variant="ghost" size="sm" onClick={() => setEdit(false)}>{t("ביטול", "Cancel")}</Button><Button size="sm" onClick={save}>{t("שמור", "Save")}</Button></> : <Button variant="secondary" size="sm" onClick={beginEdit}>{t("עריכה", "Edit")}</Button>}

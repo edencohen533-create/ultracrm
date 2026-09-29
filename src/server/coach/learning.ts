@@ -29,10 +29,10 @@ async function outcomeForCall(call: { contactId: string | null; createdAt: Date 
 export async function transcriptFromRecording(callId: string, businessId: string) {
   const settings = await getBusinessSettings(businessId);
   if (!settings.coach.learnFromRecordings || providerStatus().stt === "missing") return 0;
-  const call = await prisma.call.findUnique({ where: { id: callId }, select: { recordingStatus: true, recordingId: true, talkSeconds: true } });
+  const call = await prisma.call.findUnique({ where: { id: callId }, select: { recordingStatus: true, recordingId: true, talkSeconds: true, provider: true } });
   if (!call || call.recordingStatus !== "saved" || !call.recordingId) return 0;
-  const { getTelephony } = await import("@/lib/telephony");
-  const src = await getTelephony().getRecordingDownloadUrl(call.recordingId);
+  const { adapterFor } = await import("@/lib/telephony");
+  const src = await adapterFor(call.provider).getRecordingDownloadUrl(call.recordingId);
   if (!src) return 0;
   const res = await fetch(src.url);
   if (!res.ok) return 0;

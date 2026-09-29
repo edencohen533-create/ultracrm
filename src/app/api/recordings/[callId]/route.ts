@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/api";
 import { ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { assertCanSeeUser } from "@/lib/auth";
-import { getTelephony } from "@/lib/telephony";
+import { adapterFor } from "@/lib/telephony";
 import { audit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,8 @@ export const GET = withAuth(async ({ user, params }) => {
   if (!call) throw new ApiError("שיחה לא נמצאה", 404, "not_found");
   await assertCanSeeUser(user, call.userId);
   if (call.recordingStatus !== "saved" || !call.recordingId) throw new ApiError("אין הקלטה לשיחה זו", 404, "no_recording");
-  const src = await getTelephony().getRecordingDownloadUrl(call.recordingId);
+  // The recording lives at the provider that carried the call.
+  const src = await adapterFor(call.provider).getRecordingDownloadUrl(call.recordingId);
   if (!src) throw new ApiError("ההקלטה אינה זמינה כרגע", 404, "recording_unavailable");
   const upstream = await fetch(src.url);
   if (!upstream.ok || !upstream.body) throw new ApiError("שגיאה בהורדת ההקלטה", 502, "recording_fetch_failed");

@@ -1,3 +1,4 @@
+import { ApiError } from "@/lib/response";
 import type { TelephonyProvider as ProviderName } from "@/generated/prisma/enums";
 
 /** Normalized provider event, independent of vendor payload shape. */
@@ -64,10 +65,45 @@ export interface DialResult {
   recordingId?: string;
 }
 
+/** What a provider can do. Routing and the UI never assume two providers are interchangeable. */
+export interface ProviderCapabilities {
+  outboundDial: boolean;
+  inboundCalls: boolean;
+  /** Conference bridging (agent leg + customer leg + supervisors). */
+  conference: boolean;
+  supervisorMonitor: boolean;
+  recording: boolean;
+  answeringMachineDetection: boolean;
+  dtmf: boolean;
+  /** How the agent's browser gets audio. A provider whose client is not implemented cannot carry real calls. */
+  agentClient: "telnyx-webrtc" | "sip-websocket" | "simulation" | "none";
+  /** Can we find a leg by our own reference after a dial request timed out (reconciliation)? */
+  legLookupByReference: boolean;
+}
+
+export interface ProviderConfigStatus {
+  configured: boolean;
+  missing: string[];
+  /** Non-secret account reference (e.g. Call Control App id) stored on attempts. */
+  accountRef: string | null;
+}
+
+export interface ProviderCheck { name: string; ok: boolean; detail?: string }
+
 export interface TelephonyAdapter {
   name: ProviderName;
   /** True when this adapter only simulates calls (must be shown clearly in the UI). */
   simulation: boolean;
+  /** Test-only adapters are never eligible for real routing. */
+  testOnly?: boolean;
+  capabilities: ProviderCapabilities;
+  configStatus(): ProviderConfigStatus;
+  /** Read-only configuration check against the provider account (no paid actions). */
+  verifyConfig(): Promise<ProviderCheck[]>;
+  /** The agent's address at this provider (SIP username), or null when the agent never registered with it. */
+  agentAddress(userId: string): Promise<string | null>;
+  /** After a timed-out dial: find a live leg carrying our reference. `null` = could not check. */
+  findLegByReference(ref: { callId: string; leg: "agent" | "lead" | "supervisor" }): Promise<{ legId: string } | "none" | null>;
   dialAgent(input: DialAgentInput): Promise<DialResult>;
   dialLead(input: DialLeadInput): Promise<DialResult>;
   hangupLeg(legId: string, commandId: string): Promise<void>;
@@ -86,11 +122,26 @@ export interface TelephonyAdapter {
   createBrowserToken(userId: string): Promise<{ token: string; sipUsername: string; expiresAt: Date }>;
   /** Resolve a temporary download URL for a saved recording. */
   getRecordingDownloadUrl(recordingId: string): Promise<{ url: string; contentType: string } | null>;
+  /** Webhooks: signature check on the raw body (timestamp / replay window included) and payload → normalized event. */
+  verifyWebhook?(rawBody: string, headers: Headers): boolean;
+  parseWebhook?(body: unknown): ProviderEvent | null;
+  /** Delete a recording at the provider (retention). True when gone (also when it no longer existed). */
+  deleteRecording(recordingId: string): Promise<boolean>;
 }
 
 export class TelephonyRequestTimeout extends Error {
   constructor(message = "telephony request timed out") {
     super(message);
     this.name = "TelephonyRequestTimeout";
+  }
+}
+
+export type FailureClass = "provider_outage" | "account" | "rate_limit" | "auth" | "invalid_request" | "timeout" | "unknown";
+
+/** A provider API error with its classification (status stays 502 for API callers, as before). */
+export class TelephonyProviderError extends ApiError {
+  constructor(message: string, readonly httpStatus: number | null, readonly failureClass: FailureClass, readonly retryAfterSeconds: number | null = null, code = "telephony_provider_error") {
+    super(message, 502, code);
+    this.name = "TelephonyProviderError";
   }
 }

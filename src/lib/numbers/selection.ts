@@ -1,3 +1,4 @@
+import type { TelephonyProvider } from "@/generated/prisma/enums";
 import { randomInt } from "node:crypto";
 import { getAgentSettings } from "@/lib/agent-settings";
 /**
@@ -31,7 +32,7 @@ export function connectionFresh(connection: { status: string; fingerprint: strin
   return Boolean(cfg.configured && connection?.status === "verified" && connection.fingerprint === cfg.fingerprint && connection.checkedAt && Date.now() - connection.checkedAt.getTime() < VERIFICATION_TTL_MS);
 }
 
-export async function selectOutboundNumber(tx: Prisma.TransactionClient, input: { businessId: string; userId: string; listId?: string | null; phoneNumberId?: string | null; toE164: string; simulation: boolean }) {
+export async function selectOutboundNumber(tx: Prisma.TransactionClient, input: { businessId: string; userId: string; listId?: string | null; phoneNumberId?: string | null; toE164: string; simulation: boolean; provider?: TelephonyProvider }) {
   await lockNumberPool(tx, input.businessId);
   const list = input.listId ? await tx.dialList.findFirst({ where: { id: input.listId, businessId: input.businessId } }) : null;
   const policy = numberPolicySchema.parse(list?.numberPolicy ?? {});
@@ -41,7 +42,8 @@ export async function selectOutboundNumber(tx: Prisma.TransactionClient, input: 
   // Explicit campaign caller IDs remain authoritative. Personal rotation only narrows a permitted pool.
   const carousel = personal && personal.numbers.length > 0 && !input.phoneNumberId && !list?.phoneNumberId && (policy.mode !== "agent");
   const explicit = input.phoneNumberId ?? (policy.mode === "fixed" ? list?.phoneNumberId : null);
-  const all = await tx.phoneNumber.findMany({ where: { businessId: input.businessId }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }, { id: "asc" }] });
+  // A caller id works only through the provider that owns (or verified) it – never assume another provider can use it.
+  const all = await tx.phoneNumber.findMany({ where: { businessId: input.businessId, ...(!input.simulation && input.provider ? { provider: input.provider } : {}) }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }, { id: "asc" }] });
   if (input.phoneNumberId && !all.some((n) => n.id === input.phoneNumberId)) throw new ApiError("מספר יוצא לא מורשה", 400, "invalid_from_number");
   let pool = all.filter((n) => (explicit ? n.id === explicit : (!policy.numberIds.length || policy.numberIds.includes(n.id))));
   if (carousel) {

@@ -14,8 +14,9 @@
 import crypto from "node:crypto";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
-import type { DialAgentInput, DialLeadInput, DialResult, ProviderEvent, TelephonyAdapter } from "./types";
-import { TelephonyRequestTimeout } from "./types";
+import type { DialAgentInput, DialLeadInput, DialResult, ProviderCheck, ProviderEvent, TelephonyAdapter } from "./types";
+import { TelephonyProviderError, TelephonyRequestTimeout } from "./types";
+import { classifyHttpFailure } from "./classify";
 
 const BASE = "https://api.telnyx.com/v2";
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -29,7 +30,7 @@ function env(name: string): string {
 export function telnyxConfigStatus() {
   const keys = ["TELNYX_API_KEY", "TELNYX_PUBLIC_KEY", "TELNYX_CALL_CONTROL_APP_ID", "TELNYX_CREDENTIAL_CONNECTION_ID"];
   const missing = keys.filter((k) => !process.env[k]);
-  return { configured: missing.length === 0, missing };
+  return { configured: missing.length === 0, missing, accountRef: process.env.TELNYX_CALL_CONTROL_APP_ID ?? null };
 }
 
 async function telnyxFetch<T>(path: string, init: RequestInit & { rawText?: boolean } = {}): Promise<T> {
@@ -55,7 +56,8 @@ async function telnyxFetch<T>(path: string, init: RequestInit & { rawText?: bool
       } catch {
         /* keep text */
       }
-      throw new ApiError(`Telnyx ${res.status}: ${detail}`.slice(0, 500), 502, "telnyx_error");
+      const retryAfter = Number(res.headers.get("retry-after"));
+      throw new TelephonyProviderError(`Telnyx ${res.status}: ${detail}`.slice(0, 500), res.status, classifyHttpFailure(res.status, detail), Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null, "telnyx_error");
     }
     if (init.rawText) return text as unknown as T;
     return (text ? JSON.parse(text) : {}) as T;
@@ -84,9 +86,65 @@ interface DialResponse {
   data: { call_control_id: string; call_leg_id: string; call_session_id: string; is_alive: boolean; recording_id?: string };
 }
 
+async function getJson<T>(path: string): Promise<T> { return telnyxFetch<T>(path); }
+
 export const telnyxAdapter: TelephonyAdapter = {
   name: "telnyx",
   simulation: false,
+  capabilities: {
+    outboundDial: true, inboundCalls: true, conference: true, supervisorMonitor: true, recording: true,
+    answeringMachineDetection: true, dtmf: true, agentClient: "telnyx-webrtc", legLookupByReference: true,
+  },
+  configStatus: telnyxConfigStatus,
+
+  /** Read-only: app + credential connection + outbound profile + webhook settings + balance. Never dials. */
+  async verifyConfig(): Promise<ProviderCheck[]> {
+    const status = telnyxConfigStatus();
+    if (!status.configured) return [{ name: "env", ok: false, detail: `missing ${status.missing.join(", ")}` }];
+    const checks: ProviderCheck[] = [];
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+    try {
+      const app = await getJson<{ data: { active?: boolean; webhook_event_url?: string; webhook_event_failover_url?: string; webhook_api_version?: string; outbound?: { outbound_voice_profile_id?: string | null } } }>(`/call_control_applications/${encodeURIComponent(env("TELNYX_CALL_CONTROL_APP_ID"))}`);
+      checks.push({ name: "call_control_app", ok: app.data.active !== false, detail: app.data.active === false ? "inactive" : "found" });
+      checks.push({ name: "webhook_url", ok: Boolean(appUrl) && app.data.webhook_event_url === `${appUrl}/api/webhooks/telnyx`, detail: app.data.webhook_event_url ?? "not set" });
+      checks.push({ name: "webhook_api_version", ok: app.data.webhook_api_version === "2", detail: app.data.webhook_api_version ?? "unknown" });
+      checks.push({ name: "outbound_voice_profile", ok: Boolean(app.data.outbound?.outbound_voice_profile_id), detail: app.data.outbound?.outbound_voice_profile_id ? "assigned" : "not assigned (dials fail with 403 D38)" });
+      if (app.data.outbound?.outbound_voice_profile_id) {
+        const ovp = await getJson<{ data: { enabled?: boolean; whitelisted_destinations?: string[]; concurrent_call_limit?: number | null } }>(`/outbound_voice_profiles/${encodeURIComponent(app.data.outbound.outbound_voice_profile_id)}`);
+        checks.push({ name: "allowed_destinations", ok: (ovp.data.whitelisted_destinations ?? []).includes("IL"), detail: (ovp.data.whitelisted_destinations ?? []).join(",") || "none" });
+        checks.push({ name: "concurrent_call_limit", ok: true, detail: ovp.data.concurrent_call_limit == null ? "account default" : String(ovp.data.concurrent_call_limit) });
+      }
+    } catch (err) { checks.push({ name: "call_control_app", ok: false, detail: (err as Error).message.slice(0, 200) }); }
+    try {
+      await getJson(`/credential_connections/${encodeURIComponent(env("TELNYX_CREDENTIAL_CONNECTION_ID"))}`);
+      checks.push({ name: "credential_connection", ok: true, detail: "found" });
+    } catch (err) { checks.push({ name: "credential_connection", ok: false, detail: (err as Error).message.slice(0, 200) }); }
+    try {
+      const b = await getJson<{ data: { balance?: string; available_credit?: string; currency?: string } }>("/balance");
+      checks.push({ name: "balance", ok: Number(b.data.available_credit ?? b.data.balance ?? 0) > 0, detail: `${b.data.available_credit ?? b.data.balance ?? "?"} ${b.data.currency ?? ""}`.trim() });
+    } catch (err) { checks.push({ name: "balance", ok: false, detail: (err as Error).message.slice(0, 200) }); }
+    return checks;
+  },
+
+  async agentAddress(userId) {
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { sipUsername: true, telnyxCredentialId: true } });
+    return u?.telnyxCredentialId && u.sipUsername ? u.sipUsername : null;
+  },
+
+  /** Live legs of the Call Control App, matched by our client_state (callId + leg). Paginated; checks up to 1000 legs. */
+  async findLegByReference(ref) {
+    try {
+      for (let page = 1; page <= 4; page++) {
+        const r = await getJson<{ data: Array<{ call_control_id: string; client_state?: string }>; meta?: { total_pages?: number } }>(`/connections/${encodeURIComponent(env("TELNYX_CALL_CONTROL_APP_ID"))}/active_calls?page[number]=${page}&page[size]=250`);
+        const hit = r.data.find((c) => { const cs = decodeClientState(c.client_state); return cs?.callId === ref.callId && cs?.leg === ref.leg; });
+        if (hit) return { legId: hit.call_control_id };
+        if (!r.meta?.total_pages || page >= r.meta.total_pages) return "none";
+      }
+      return null; // more live legs than we scan – cannot prove absence
+    } catch {
+      return null;
+    }
+  },
 
   async dialAgent(input: DialAgentInput): Promise<DialResult> {
     const body: Record<string, unknown> = {
@@ -214,6 +272,22 @@ export const telnyxAdapter: TelephonyAdapter = {
     });
     // Telnyx tokens are valid for 24h; we re-fetch well before that.
     return { token: token.trim(), sipUsername, expiresAt: new Date(Date.now() + 23 * 3600 * 1000) };
+  },
+
+  verifyWebhook(rawBody, headers) {
+    return verifyTelnyxSignature(rawBody, headers.get("telnyx-signature-ed25519"), headers.get("telnyx-timestamp"));
+  },
+  parseWebhook(body) {
+    return parseTelnyxWebhook(body as Parameters<typeof parseTelnyxWebhook>[0]);
+  },
+
+  async deleteRecording(recordingId) {
+    try {
+      await telnyxFetch(`/recordings/${encodeURIComponent(recordingId)}`, { method: "DELETE" });
+      return true;
+    } catch (err) {
+      return err instanceof TelephonyProviderError && err.httpStatus === 404;
+    }
   },
 
   async getRecordingDownloadUrl(recordingId) {

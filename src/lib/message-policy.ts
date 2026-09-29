@@ -9,7 +9,7 @@ export function isUnsubscribe(text: string) {
 /** Not a clear opt-out, but likely one: marketing is HELD and a manager decides. */
 export function isAmbiguousUnsubscribe(text: string) {
   const t = text.normalize("NFKC").trim().toLowerCase();
-  if (!t || isUnsubscribe(t) || t.length > 200) return false;
+  if (!t || isUnsubscribe(t)) return false;
   return [/תפסיק/, /אל תשלח/, /לא מעוניי/, /מספיק/, /תורידו אותי/, /להוריד אותי/, /הסירו/, /הסר אותי/, /למה אתם שולחים/, /stop/, /unsubscribe/, /remove me/, /not interested/, /leave me alone/, /opt ?out/].some((r) => r.test(t));
 }
 export function eligibilityError(contact: { consentStatus: string; isBlocked?: boolean }, marketing: boolean, serviceWindow: boolean) {

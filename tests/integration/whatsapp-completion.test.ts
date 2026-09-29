@@ -220,10 +220,12 @@ describe("WhatsApp completion (simulated Meta)", () => {
     const conv = (await db.conversation.findFirst({ where: { businessId: a.business.id } })) ?? (await db.conversation.create({ data: { businessId: a.business.id, contactId: contacts[0], channel: "whatsapp" } }));
     const old = await db.message.create({ data: { businessId: a.business.id, conversationId: conv.id, channel: "whatsapp", direction: "INBOUND", type: "TEXT", body: "ישן מאוד", status: "SENT", createdAt: new Date(Date.now() - 40 * 86400_000) } });
     const fresh = await db.message.create({ data: { businessId: a.business.id, conversationId: conv.id, channel: "whatsapp", direction: "INBOUND", type: "TEXT", body: "טרי", status: "SENT" } });
+    const historic = await db.domainEvent.create({data:{businessId:a.business.id,type:"message.received",dedupeKey:`retention-${Date.now()}`,payload:{body:"private historic copy",messageId:"already-purged"},occurredAt:new Date(Date.now()-40*86400_000)}});
     const res = await retentionJob(new NextRequest("http://localhost/api/jobs/retention", { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }));
     expect(res.status).toBe(200);
     expect((await db.message.findUniqueOrThrow({ where: { id: old.id } })).body).toBeNull();
     expect((await db.message.findUniqueOrThrow({ where: { id: fresh.id } })).body).toBe("טרי");
+    expect((await db.domainEvent.findUniqueOrThrow({where:{id:historic.id}})).payload).toEqual({messageId:"already-purged"});
     expect(await db.auditLog.count({ where: { businessId: a.business.id, action: "automation.messages_purged" } })).toBe(1);
     const unauth = await retentionJob(new NextRequest("http://localhost/api/jobs/retention"));
     expect(unauth.status).toBe(401);

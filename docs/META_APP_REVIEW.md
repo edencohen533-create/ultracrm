@@ -1,6 +1,6 @@
 # Meta App Review – WhatsApp Tech Provider submission guide
 
-Everything the product needs for review is built and deployed. This file covers what to fill in at Meta, and the exact videos and texts to submit.
+Code readiness and Meta account approval are separate. See docs/META_READINESS_RELEASE.md for the verified release status. This file covers what to fill in at Meta, and the exact videos and texts to submit.
 
 ## Status (checked 2026-09-28 against production)
 Ready: public pages, privacy policy matches the two permissions, signed webhook, Embedded Signup flow, template/quality webhooks, in-app deletion, English UI, app icon.
@@ -9,11 +9,11 @@ Production check once the Meta values are set: `npx vercel env pull --environmen
 Still open (not code):
 - [ ] `META_APP_ID`, `META_APP_SECRET`, `META_ES_CONFIG_ID` missing in Vercel – until set, `/api/meta/data-deletion` and `/api/meta/deauthorize` answer 503 and Embedded Signup cannot open.
 - [ ] Own domain (recommended): Business Verification expects the business's own website; `*.vercel.app` cannot be domain-verified.
-- [ ] No reviewer account in production yet (step 4).
+- [x] Isolated reviewer account provisioned and login verified; credentials stored privately (see META_READINESS_RELEASE.md).
 - [ ] No real WhatsApp test yet (step 5).
 
 ## Meta requirements check (web research, 2026-09-28)
-- **Access Verification** is no longer required for Tech Providers (Meta changelog, since 2025-10-03). Steps: Business Verification → App Review (two permissions) → webhooks + Embedded Signup.
+- **Account verification:** complete Business Verification and every additional verification required by your current App Dashboard. Official overview and historical changelog wording differ; do not assume a dashboard requirement is waived.
 - **Embedded Signup v4:** create the Facebook Login for Business configuration with the WhatsApp product selected (that makes it v4). The code sends `extras: { setup: {} }` only; v2/v3 end in October 2026.
 - **Graph API:** v25.0 (`META_GRAPH_VERSION` in production).
 - **Business Verification:** the legal name must match on the documents, Business Manager, the website footer and the privacy policy (`PLATFORM_LEGAL_NAME`). Use an owned domain (a `*.vercel.app` subdomain cannot be DNS-verified) and a contact email on that domain.

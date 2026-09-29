@@ -4,7 +4,7 @@ import { sendBlockReason, suppressContact } from "@/lib/suppression";
 import { emitEvent, kickEventProcessing } from "@/lib/events";
 import { consumeQuota } from "@/lib/modules";
 import { ApiError } from "@/lib/response";
-import { eligibilityError, isUnsubscribe, marketingIntervalMs } from "@/lib/message-policy";
+import { eligibilityError, isUnsubscribe, isAmbiguousUnsubscribe, marketingIntervalMs } from "@/lib/message-policy";
 import { getBusinessSettings } from "@/lib/settings";
 import { randomUUID } from "node:crypto";
 import { renderTemplate, validateTemplateVariables } from "@/lib/campaigns";
@@ -51,6 +51,9 @@ export async function createInboundMessage(input: CreateInboundMessageInput) {
       const { applyUnsubscribeAutomation } = await import("@/lib/unsubscribe-automation");
       await suppressContact({ businessId: requireBusinessId(), contactId: input.contactId, scope: "marketing", source: "whatsapp", reason: `הודעה נכנסת: "${input.body.trim().slice(0, 40)}"`, evidence: input.providerMessageId ?? "inbound-demo" }, tx);
       await applyUnsubscribeAutomation(requireBusinessId(), input.contactId, tx);
+    }
+    if (!isUnsubscribe(input.body) && isAmbiguousUnsubscribe(input.body)) {
+      await suppressContact({ businessId: requireBusinessId(), contactId: input.contactId, scope: "marketing", source: "whatsapp", reason: "בקשת הסרה בניסוח חופשי – ממתינה לבדיקה", evidence: input.providerMessageId ?? "inbound-demo", pendingReview: true }, tx);
     }
     const openConversation = await tx.conversation.findFirst({
       where: { contactId: input.contactId, providerCredentialId, status: { in: [ConversationStatus.OPEN, ConversationStatus.PENDING] } },

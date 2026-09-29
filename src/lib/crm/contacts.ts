@@ -161,6 +161,7 @@ export async function contactCardInclude(user: SessionUser) {
 
 export async function createContact(user: SessionUser, input: ContactInput) {
   const businessId = user.businessId;
+  if (input.consentStatus === "OPTED_IN" && !input.consentEvidence?.trim()) throw new ApiError("נדרשת אסמכתה להסכמה לדיוור", 400, "consent_evidence_required");
   const e164 = normalizePhone(input.phone);
   if (!e164) throw new ApiError("מספר טלפון לא תקין", 400, "invalid_phone");
   const dupPhone = await findDuplicateByPhone(businessId, e164);
@@ -265,6 +266,7 @@ export async function updateContact(user: SessionUser, id: string, input: z.infe
     } else if (input.consentStatus === "OPTED_OUT") {
       await suppressContact({ businessId, contactId: c.id, scope: "marketing", source: "manual", reason: input.consentEvidence || "הסרה על ידי נציג", actorId: user.id }, tx);
     } else if (input.consentStatus === "OPTED_IN") {
+      if (!summary.marketingBlocked && !input.consentEvidence?.trim()) throw new ApiError("נדרשת אסמכתה להסכמה לדיוור", 400, "consent_evidence_required");
       if (summary.fullyBlocked) throw new ApiError("יש להסיר חסימה מלאה במפורש לפני הסכמה לדיוור", 400, "fully_blocked");
       if (summary.marketingBlocked) await revokeSuppressions(businessId, c.id, user.id, input.consentEvidence ?? "", tx);
       else await tx.contact.update({ where: { id: c.id }, data: { consentStatus: "OPTED_IN", consentAt: new Date(), consentSource: input.consentSource || "manual", consentScope: "marketing", consentEvidence: input.consentEvidence || null } });
@@ -391,7 +393,8 @@ export async function importContacts(user: SessionUser, rows: ContactInput[], de
         invalid++;
         continue;
       }
-      const c = await prisma.contact.create({ data: { ...base, businessId, phoneE164: e164, phoneRaw: r.phone, source: r.source || defaultSource || "import", ownerUserId: r.ownerUserId || null, consentStatus: r.consentStatus ?? "UNKNOWN", consentSource: r.consentStatus ? "import" : null, consentAt: r.consentStatus && r.consentStatus !== "UNKNOWN" ? new Date() : null, consentScope: r.consentStatus ? "marketing" : null } });
+      if (r.consentStatus === "OPTED_IN" && !r.consentEvidence?.trim()) { errors.push({row:i+1,phone:r.phone,reason:"נדרשת אסמכתה להסכמה לדיוור"}); invalid++; continue; }
+      const c = await prisma.contact.create({ data: { consentEvidence: r.consentEvidence?.trim() || null, ...base, businessId, phoneE164: e164, phoneRaw: r.phone, source: r.source || defaultSource || "import", ownerUserId: r.ownerUserId || null, consentStatus: r.consentStatus ?? "UNKNOWN", consentSource: r.consentStatus ? "import" : null, consentAt: r.consentStatus && r.consentStatus !== "UNKNOWN" ? new Date() : null, consentScope: r.consentStatus ? "marketing" : null } });
       await syncTags(prisma, businessId, c.id, undefined, r.tagNames);
       if (r.consentStatus === "OPTED_OUT") await suppressContact({ businessId, contactId: c.id, scope: "marketing", source: "import", reason: "import flag", actorId: user.id });
       created++;

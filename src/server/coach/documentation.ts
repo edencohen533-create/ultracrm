@@ -53,29 +53,44 @@ function parse(text: string): Omit<CallDocumentation, "source"> | null {
   } catch { return null; }
 }
 
-/** Runs after call.ended (idempotent per call). */
-export async function documentCall(callId: string) {
+/**
+ * Runs after call.ended (and on "נסה שוב"). Idempotent per call and safe against duplicate events: one run claims the
+ * call (status "running"); "done" is written only together with the stored documentation. When a model is configured
+ * and fails, the call is marked "failed" with the reason (retry allowed) – a transcript is never passed off as the AI
+ * documentation. Without a model, the timed transcript IS the documentation (source "transcript", shown as such).
+ */
+export async function documentCall(callId: string, opts: { retry?: boolean } = {}) {
   const call = await prisma.call.findUnique({ where: { id: callId }, select: { id: true, businessId: true, answeredAt: true, talkSeconds: true, contact: { select: { fullName: true } }, user: { select: { fullName: true } } } });
   if (!call?.answeredAt) return { skipped: "not answered" };
   const settings = await getBusinessSettings(call.businessId);
   if (settings.coach.documentCalls === false) return { skipped: "documentation disabled" };
-  const existing = await prisma.coachSession.findUnique({ where: { callId }, select: { documentedAt: true } });
-  if (existing?.documentedAt) return { skipped: "already documented" };
-  let segs = await prisma.coachSegment.findMany({ where: { callId }, orderBy: [{ startMs: "asc" }, { createdAt: "asc" }], select: { speaker: true, text: true, startMs: true, endMs: true } });
-  if (!segs.length) { await transcriptFromRecording(callId, call.businessId).catch(() => 0); segs = await prisma.coachSegment.findMany({ where: { callId }, orderBy: [{ startMs: "asc" }, { createdAt: "asc" }], select: { speaker: true, text: true, startMs: true, endMs: true } }); }
-  if (!segs.length) return { skipped: "no transcript" };
   const session = await ensureSession(callId);
-  let doc: CallDocumentation = transcriptDoc(segs, call.talkSeconds);
-  const status = providerStatus();
-  if (status.llm === "anthropic") {
-    const transcript = segs.map((s) => `[${mmss(s.startMs)}] ${s.speaker}: ${s.text.replace(/<\/?transcript>/gi, "")}`).join("\n").slice(0, 60_000);
-    try {
-      const r = await llmComplete(SYSTEM, `נציג: ${call.user.fullName}\nלקוח: ${call.contact?.fullName ?? "לא ידוע"}\nמשך: ${call.talkSeconds ?? 0} שניות\n<transcript>\n${transcript}\n</transcript>`, { maxTokens: 1800, temperature: 0.1 });
-      const parsed = parse(r.text);
-      if (parsed) doc = { ...parsed, source: "ai" };
+  // Claim: nobody else is documenting this call (duplicate call.ended events, a double click on retry).
+  const staleRun = new Date(Date.now() - 10 * 60_000);
+  const claimed = await prisma.coachSession.updateMany({
+    where: { id: session.id, documentedAt: null, OR: [{ documentationStatus: null }, { documentationStatus: { in: opts.retry ? ["failed", "skipped"] : ["failed"] } }, { documentationStatus: "running", updatedAt: { lt: staleRun } }] },
+    data: { documentationStatus: "running", documentationError: null, documentationAttempts: { increment: 1 } },
+  });
+  if (!claimed.count) return { skipped: (await prisma.coachSession.findUnique({ where: { id: session.id }, select: { documentedAt: true } }))?.documentedAt ? "already documented" : "in progress" };
+  const fail = async (reason: string) => { await prisma.coachSession.update({ where: { id: session.id }, data: { documentationStatus: "failed", documentationError: reason.slice(0, 300) } }); return { failed: reason }; };
+  try {
+    let segs = await prisma.coachSegment.findMany({ where: { callId }, orderBy: [{ startMs: "asc" }, { createdAt: "asc" }], select: { speaker: true, text: true, startMs: true, endMs: true } });
+    if (!segs.length) { await transcriptFromRecording(callId, call.businessId).catch(() => 0); segs = await prisma.coachSegment.findMany({ where: { callId }, orderBy: [{ startMs: "asc" }, { createdAt: "asc" }], select: { speaker: true, text: true, startMs: true, endMs: true } }); }
+    if (!segs.length) return await fail("אין תמלול לשיחה (ייתכן שההקלטה עדיין לא זמינה)");
+    let doc: CallDocumentation = transcriptDoc(segs, call.talkSeconds);
+    if (providerStatus().llm === "anthropic") {
+      const transcript = segs.map((x) => `[${mmss(x.startMs)}] ${x.speaker}: ${x.text.replace(/<\/?transcript>/gi, "")}`).join("\n").slice(0, 60_000);
+      let r;
+      try { r = await llmComplete(SYSTEM, `נציג: ${call.user.fullName}\nלקוח: ${call.contact?.fullName ?? "לא ידוע"}\nמשך: ${call.talkSeconds ?? 0} שניות\n<transcript>\n${transcript}\n</transcript>`, { maxTokens: 1800, temperature: 0.1 }); }
+      catch (e) { console.warn("[coach] documentation LLM failed", (e as Error).message.slice(0, 200)); return await fail("שירות ה-AI לא הגיב – אפשר לנסות שוב"); }
       await prisma.coachSession.update({ where: { id: session.id }, data: { tokensIn: { increment: r.usage.inputTokens }, tokensOut: { increment: r.usage.outputTokens }, costUsd: { increment: usageCostUsd(r.usage) } } });
-    } catch (e) { console.warn("[coach] documentation LLM failed", (e as Error).message.slice(0, 200)); }
+      const parsed = parse(r.text);
+      if (!parsed) return await fail("תשובת ה-AI לא הייתה בפורמט תקין – אפשר לנסות שוב");
+      doc = { ...parsed, source: "ai" };
+    }
+    await prisma.coachSession.update({ where: { id: session.id }, data: { documentation: doc as unknown as Prisma.InputJsonValue, documentedAt: new Date(), documentationStatus: "done", documentationError: null } });
+    return { documented: doc.source, blocks: doc.timeline.length };
+  } catch (e) {
+    return fail(`שגיאה בתיעוד: ${(e as Error).message.slice(0, 200)}`);
   }
-  await prisma.coachSession.update({ where: { id: session.id }, data: { documentation: doc as unknown as Prisma.InputJsonValue, documentedAt: new Date() } });
-  return { documented: doc.source, blocks: doc.timeline.length };
 }

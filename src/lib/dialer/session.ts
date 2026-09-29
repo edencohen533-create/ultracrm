@@ -31,6 +31,8 @@ export async function startSession(user: SessionUser, input: { mode: DialMode; l
   }
   const live = await prisma.call.findUnique({ where: { activeForUser: user.id }, select: { id: true } });
   if (live) throw new ApiError("יש שיחה פעילה – סיים אותה לפני התחלת סשן חדש", 409, "call_active", { callId: live.id });
+  // Calls left without a result are closed automatically (AI documentation) – never a reason to refuse a session.
+  await (await import("./calls")).autoFinalizePendingCalls(user);
 
   const settings = await getBusinessSettings(user.businessId);
   const countdown = Math.min(60, Math.max(0, input.countdownSeconds ?? settings.autoDialCountdownSeconds));

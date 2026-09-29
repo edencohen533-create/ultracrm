@@ -19,8 +19,9 @@ export const POST = withAuth(async ({ req, user }) => {
   if (!s.listId) throw new ApiError("לסשן ידני אין תור לידים", 400, "manual_session");
   const live = await prisma.call.findUnique({ where: { activeForUser: user.id }, select: { id: true } });
   if (live) throw new ApiError("יש שיחה פעילה", 409, "call_active", { callId: live.id });
-  const pending = await prisma.call.findFirst({ where: { userId: user.id, endedAt: { not: null }, outcomeSavedAt: null }, select: { id: true } });
-  if (pending) throw new ApiError("יש שיחה שטרם תועדה – שמור תוצאה לפני המעבר לליד הבא", 409, "outcome_required", { callId: pending.id });
+  // The previous call is closed automatically (AI documents it) – moving on is never blocked.
+  const { autoFinalizePendingCalls } = await import("@/lib/dialer/calls");
+  await autoFinalizePendingCalls(user);
   await assertListAccess(user.businessId, user.id, user.role, s.listId);
   const lead = await claimNextLead(user.businessId, user.id, s.listId);
   // Work came back → the next emptying may alert the managers again. Empty → classify and alert once (deduped).

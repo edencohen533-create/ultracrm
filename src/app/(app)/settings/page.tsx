@@ -1,5 +1,6 @@
 "use client";
 
+import { PaymentSettings } from "@/components/settings/PaymentSettings";
 import { AccountDeletion } from "@/components/settings/AccountDeletion";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -393,6 +394,7 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
           <li className="flex flex-wrap items-center gap-2"><b>{t("אימייל", "Email")}</b>{(modules.email ?? modules.messaging) ? <ChannelStatus channel="email" /> : <Badge tone="neutral">{t("המודול כבוי בחבילה", "Module disabled in plan")}</Badge>}{modules.messaging && <a href="/settings/email" className="text-accent underline hover:underline ms-auto text-xs">{t("ניהול חיבור אימייל →", "Manage email connection →")}</a>}</li>
         </ul>
       </Panel>
+      <PaymentSettings />
       {modules.telephony && <TelephonyTab />}
       {modules.telephony && <ProviderRoutingPanel />}
     </div>

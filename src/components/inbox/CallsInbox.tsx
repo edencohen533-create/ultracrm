@@ -34,7 +34,7 @@ export function CallsInbox() {
     api.get<{ items: Row[] }>(`/api/calls${qs({ from, limit: 100 })}`).then((r) => setRows(r.items)).catch((e) => toast.error(e.message));
   }, [days]);
   useEffect(() => { load(); }, [load]);
-  const canDial = Boolean(state) && !state?.activeCall && !state?.wrapUpCall;
+  const canDial = Boolean(state) && !state?.activeCall;
   const missed = (r: Row) => (r.direction === "inbound" && !r.answeredAt) || (r.direction === "outbound" && !r.answeredAt && r.outcome === null);
   const shown = (rows ?? []).filter((r) => (view === "missed" ? missed(r) : true));
   async function callBack(r: Row) {

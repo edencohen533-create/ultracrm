@@ -1,6 +1,7 @@
 "use client";
 
 /** Persistent call strip shown on every page while a call is alive or waiting for an outcome. */
+import { PaymentButton } from "@/components/dialer/PaymentModal";
 import {RequestExpert} from "@/components/sales/ExpertAssistance";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -47,7 +48,7 @@ export function CallBar() {
         {answered && <span className="tabular font-mono text-sm">{formatDuration(callElapsed(call))}</span>}
         {state?.telephony.simulation && <Badge tone="warn">{t("הדמיה", "Simulation")}</Badge>}
         {call.direction === "inbound" && !call.answeredAt && <Badge tone="info">{t("שיחה נכנסת", "Incoming call")}</Badge>}
-        <div className="ms-auto flex flex-wrap items-center gap-2">{answered&&<RequestExpert callId={call.id}/>}
+        <div className="ms-auto flex flex-wrap items-center gap-2">{answered&&<RequestExpert callId={call.id}/>}{answered && <PaymentButton contactId={call.contactId} callId={call.id} />}
           {call.direction === "inbound" && !call.answeredAt && (
             <>
               <Button size="sm" variant="good" onClick={acceptInbound} loading={busy === "accept"}>{t("קבל", "Accept")}</Button>
@@ -67,15 +68,6 @@ export function CallBar() {
       </div>
     );
   }
-  return (
-    <div className="sticky top-0 z-40 flex flex-wrap items-center gap-2 px-3 py-2 min-h-12 border-b border-line bg-[#fff5df]">
-      <span className="w-2.5 h-2.5 rounded-full bg-warn" />
-      <span className="font-medium">{t(`שיחה עם ${wrap!.contact?.fullName ?? formatPhone(wrap!.toE164)} ממתינה לתיעוד`, `Call with ${wrap!.contact?.fullName ?? formatPhone(wrap!.toE164)} is waiting to be logged`)}</span>
-      <Link href="/leads" className="ms-auto">
-        <Button size="sm" variant="warn">
-          {t("תעד עכשיו", "Log now")}
-        </Button>
-      </Link>
-    </div>
-  );
+  // No "waiting to be logged" bar: documentation is automatic (AI) and a call without a result never blocks work.
+  return null;
 }

@@ -70,8 +70,8 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
   if (input.mode !== "manual" && (!input.sessionId || !input.leadId || !input.lockToken)) {
     throw new ApiError("נדרש סשן פעיל וליד נעול", 409, "session_required");
   }
-  const pending = await pendingWrapUpFor(user.id);
-  if (pending) throw new ApiError("יש לשמור את תוצאת השיחה הקודמת", 409, "outcome_required");
+  // A call left without a result is closed automatically (AI documents it) – never a reason to block the next call.
+  await autoFinalizePendingCalls(user);
 
   // Destination
   let contactId: string;
@@ -556,6 +556,23 @@ export async function activeCallFor(userId: string) {
 }
 
 /** The most recent ended call that still needs an outcome (wrap-up). */
+/**
+ * Documentation is done by the AI, so an agent is never blocked by an unlogged call: before the next call / lead /
+ * session, calls the agent left without a result are closed automatically through the regular outcome path (queue,
+ * retries, follow-ups and exhaustion behave exactly as with a manual result). The result follows what the provider
+ * reported: answered → "answered" (documented automatically), busy → busy, anything else → no answer.
+ */
+export async function autoFinalizePendingCalls(user: SessionUser) {
+  const pending = await prisma.call.findMany({ where: { userId: user.id, businessId: user.businessId, endedAt: { not: null }, outcomeSavedAt: null }, orderBy: { createdAt: "asc" }, take: 10, select: { id: true, answeredAt: true, telephonyResult: true } });
+  let closed = 0;
+  for (const c of pending) {
+    const outcome: OutcomeKey = c.answeredAt ? "answered" : c.telephonyResult === "busy" ? "busy" : "no_answer";
+    try { await saveOutcome(user, { callId: c.id, outcome }); closed++; }
+    catch (e) { console.error("[dialer] auto wrap-up failed", c.id, (e as Error).message); }
+  }
+  return closed;
+}
+
 export async function pendingWrapUpFor(userId: string) {
   return prisma.call.findFirst({
     where: { userId, endedAt: { not: null }, outcomeSavedAt: null },

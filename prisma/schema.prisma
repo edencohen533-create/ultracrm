@@ -149,6 +149,8 @@ enum TelephonyResult {
 }
 
 enum OutcomeKey {
+  /// Set automatically when the agent moves on without choosing a result – the AI documentation holds the details.
+  answered
   answered_interested
   answered_not_interested
   callback
@@ -472,6 +474,9 @@ model Business {
   @@map("businesses")
   mediaAssets          MediaAsset[]
   mediaProviderUploads MediaProviderUpload[]
+  paymentConnections   PaymentProviderConnection[]
+  paymentRequests      PaymentRequest[]
+  paymentEvents        PaymentEvent[]
 }
 
 /// A person who can log in. One account can be a member of several businesses.
@@ -2229,6 +2234,10 @@ model CoachSession {
   /// AI documentation of the whole call: { summary, timeline:[{from,to,title,details}], customerNeeds, objections, agreements, nextSteps, sentiment, source }
   documentation  Json?
   documentedAt   DateTime?          @map("documented_at")
+  /// running | done | failed | skipped – documentation is "done" only once it was actually stored.
+  documentationStatus   String?     @map("documentation_status")
+  documentationError    String?     @map("documentation_error")
+  documentationAttempts Int         @default(0) @map("documentation_attempts")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 
@@ -3124,4 +3133,93 @@ model MediaProviderUpload {
 
   @@unique([assetId, credentialId])
   @@map("media_provider_uploads")
+/// A card-payment provider connected by the business (PayPlus, or the built-in sandbox for tests). Secrets sealed.
+/// UltraCRM never sees card numbers: payments happen on the provider's hosted page (embedded or sent as a link).
+model PaymentProviderConnection {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  /// payplus | sandbox
+  provider    String
+  /// test | live
+  environment String    @default("test")
+  label       String?
+  /// { apiKey: enc, secretKey: enc, paymentPageUid }
+  config      Json      @default("{}")
+  isActive    Boolean   @default(true) @map("is_active")
+  lastError   String?   @map("last_error")
+  createdById String?   @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  requests PaymentRequest[]
+
+  @@index([businessId, isActive])
+  @@map("payment_provider_connections")
+}
+
+/// One payment asked from a customer (during a call or not). Status changes only on the provider's confirmation.
+model PaymentRequest {
+  id                    String    @id @default(cuid())
+  businessId            String    @map("business_id")
+  connectionId          String    @map("connection_id")
+  provider              String
+  contactId             String    @map("contact_id")
+  callId                String?   @map("call_id")
+  /// The agent who asked for the payment.
+  agentId               String    @map("agent_id")
+  /// product (SalesOffer) | quote (SalesQuote) | deal | custom
+  sourceType            String    @map("source_type")
+  sourceId              String?   @map("source_id")
+  description           String
+  amountAgorot          Int       @map("amount_agorot")
+  currency              String    @default("ILS")
+  /// The price of the source before a (permitted) change of amount.
+  listAmountAgorot      Int?      @map("list_amount_agorot")
+  amountEditedById      String?   @map("amount_edited_by_id")
+  /// created | pending | succeeded | failed | cancelled | expired
+  status                String    @default("created")
+  idempotencyKey        String    @map("idempotency_key")
+  providerRequestId     String?   @map("provider_request_id")
+  paymentUrl            String?   @map("payment_url")
+  providerTransactionId String?   @map("provider_transaction_id")
+  approvalNumber        String?   @map("approval_number")
+  receiptUrl            String?   @map("receipt_url")
+  failureReason         String?   @map("failure_reason")
+  /// Confirmed by the provider after the request was cancelled locally (money moved – shown, never hidden).
+  lateConfirmation      Boolean   @default(false) @map("late_confirmation")
+  sentVia               String?   @map("sent_via")
+  lastCheckedAt         DateTime? @map("last_checked_at")
+  confirmedAt           DateTime? @map("confirmed_at")
+  cancelledAt           DateTime? @map("cancelled_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  business   Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  connection PaymentProviderConnection @relation(fields: [connectionId], references: [id])
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([provider, providerRequestId])
+  @@index([businessId, contactId])
+  @@index([callId])
+  @@map("payment_requests")
+}
+
+/// Provider notifications (verified) – stored once per provider event id; a duplicate is ignored. No card data.
+model PaymentEvent {
+  id               String   @id @default(cuid())
+  businessId       String   @map("business_id")
+  provider         String
+  eventKey         String   @map("event_key")
+  paymentRequestId String?  @map("payment_request_id")
+  kind             String
+  /// Redacted summary (status code, amount, ids) – never card numbers.
+  summary          Json     @default("{}")
+  receivedAt       DateTime @default(now()) @map("received_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, eventKey])
+  @@index([paymentRequestId])
+  @@map("payment_events")
 }

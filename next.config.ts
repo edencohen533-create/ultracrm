@@ -13,6 +13,11 @@ const nextConfig: NextConfig = {
         { key: "Content-Security-Policy", value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'" },
       ] },
       { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "private, no-store" }] },
+      // The sandbox payment page is shown inside the CRM's own call screen (same origin only; no card fields on it).
+      { source: "/pay/sandbox/:path*", headers: [
+        { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        { key: "Content-Security-Policy", value: "frame-ancestors 'self'; object-src 'none'; base-uri 'self'" },
+      ] },
     ];
   },
   // Keep isolated QA builds separate from an existing developer server.

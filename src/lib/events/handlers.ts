@@ -149,6 +149,7 @@ const outcomeFollowUp: EventHandler = {
       result.taskId = task.id;
     }
     // Lead pipeline
+    if (outcome === "answered") result.leadsContacted = (await prisma.lead.updateMany({ where: { contactId: event.contactId, status: "new" }, data: { status: "contacted" } })).count;
     if (outcome === "answered_interested") result.leadsQualified = (await prisma.lead.updateMany({ where: { contactId: event.contactId, status: { in: ["new", "contacted"] } }, data: { status: "qualified" } })).count;
     if (outcome === "answered_not_interested") result.leadsUnqualified = (await prisma.lead.updateMany({ where: { contactId: event.contactId, status: { in: ["new", "contacted"] } }, data: { status: "unqualified", closedAt: new Date() } })).count;
     if (outcome === "sale") {

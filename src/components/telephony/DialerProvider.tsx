@@ -614,7 +614,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       return;
     }
     const latest = stateRef.current;
-    if (!latest?.session || latest.session.status !== "active" || latest.session.ownedByThisTab === false || latest.activeCall || latest.wrapUpCall) return;
+    if (!latest?.session || latest.session.status !== "active" || latest.session.ownedByThisTab === false || latest.activeCall) return;
     await dial({ mode: "power", leadId: lead.id, lockToken: lead.lockToken ?? undefined });
   }, [dial, nextLead]);
   // A "זמינה עכשיו" reply arrived while the power dialer sits idle (queue was empty): dial her now – once per signal.
@@ -624,7 +624,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     const s = state;
     const hot = s?.hot?.find((h) => h.status === "active" && h.mine && !autoDialed.current.has(h.id));
     if (!hot || !s?.session || s.session.mode !== "power" || s.session.status !== "active" || s.session.ownedByThisTab === false) return;
-    if (s.activeCall || s.wrapUpCall || (s.lead && s.lead.status === "locked") || countdown || busy) return;
+    if (s.activeCall || (s.lead && s.lead.status === "locked") || countdown || busy) return;
     autoDialed.current.add(hot.id);
     void advancePowerRef.current();
   }, [state, countdown, busy]);
@@ -702,7 +702,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       await api.patch("/api/dialer/session", { sessionId: s.session.id, browserSessionId, action: "resume" });
       await refresh();
       const st = stateRef.current;
-      if (st?.session?.mode === "power" && !st.activeCall && !st.wrapUpCall) startCountdown(st.session.countdownSeconds, st.lead?.id ?? null, () => advancePower());
+      if (st?.session?.mode === "power" && !st.activeCall) startCountdown(st.session.countdownSeconds, st.lead?.id ?? null, () => advancePower());
     } catch (err) {
       handleErr(err);
     }
@@ -849,7 +849,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       const lead = s.lead && s.lead.status === "locked" ? s.lead : await nextLead();
       if (!lead) { toast.info(t("אין כרגע לידים זמינים לחיוג בתור", "No leads available to dial in the queue right now")); return; }
       const latest = stateRef.current;
-      if (!latest?.session || latest.session.status !== "active" || latest.activeCall || latest.wrapUpCall) return;
+      if (!latest?.session || latest.session.status !== "active" || latest.activeCall) return;
       await dial({ mode: latest.session.mode, leadId: lead.id, lockToken: lead.lockToken ?? undefined });
     },
     [cancelCountdown, dial, handleErr, nextLead, refresh, t],

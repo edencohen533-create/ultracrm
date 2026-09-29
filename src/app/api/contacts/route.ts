@@ -1,3 +1,4 @@
+import { normalizePhone } from "@/lib/phone";
 import { z } from "zod";
 import { withAuth, parseBody, parseQuery } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
@@ -49,7 +50,9 @@ export const GET = withAuth(async ({ req, user }) => {
   const supMap = new Map<string, "marketing" | "all">();
   for (const s of suppressed) if (s.contactId) supMap.set(s.contactId, s.scope === "all" || supMap.get(s.contactId) === "all" ? "all" : "marketing");
   return ok({
-    items: items.map((c) => ({ ...c, tags: c.tags.map((t) => t.tag), isDnc: dncSet.has(c.phoneE164), suppression: supMap.get(c.id) ?? null, lastCall: c.calls[0] ?? null, calls: undefined })),
+    items: items.map((c) => ({ ...c, tags: c.tags.map((t) => t.tag), isDnc: dncSet.has(c.phoneE164), suppression: supMap.get(c.id) ?? null, lastCall: c.calls[0] ?? null, calls: undefined,
+      // Why the WhatsApp button is unavailable (same rules as POST /api/contacts/:id/whatsapp).
+      whatsappBlock: !c.phoneE164 || !normalizePhone(c.phoneE164) ? "אין מספר טלפון תקין" : c.isBlocked || supMap.get(c.id) === "all" ? "חסום לכל פנייה" : null })),
     total,
     page: f.page,
     limit: f.limit,

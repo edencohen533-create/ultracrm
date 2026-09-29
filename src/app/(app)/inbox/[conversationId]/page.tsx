@@ -7,7 +7,10 @@ import { auth } from "@/lib/auth-compat";
 import { prisma } from "@/lib/db";
 import { getConversationForUser } from "@/server/services/conversation-service";
 import { ChatPanel } from "@/components/inbox/chat-panel";
-import { ContactProfilePanel } from "@/components/inbox/contact-profile-panel";
+import { ContactProfilePanel, CustomerFileDrawerButton } from "@/components/inbox/contact-profile-panel";
+import { customerFile } from "@/server/services/customer-file-service";
+import { currentSessionUser } from "@/lib/tenant";
+import { can, effectiveAccess } from "@/lib/access/engine";
 import { ConversationActions } from "@/components/inbox/conversation-actions";
 import type { MessageItem } from "@/types/domain";
 import { getAiSettings } from "@/server/ai/settings";
@@ -49,6 +52,13 @@ export default organizationRequest(async function ConversationPage({
   const { ai } = await getAiSettings(conversation.businessId);
   // Why this person may not be contacted (explained in the thread itself, not only on the contact card).
   const block = await suppressionSummary(conversation.businessId, conversation.contactId);
+  // "תיק לקוח" beside the thread – loaded per conversation (keyed by it below), so switching threads never mixes customers.
+  const me = currentSessionUser();
+  if (!me) notFound();
+  const access = await effectiveAccess(me.businessId, me.id).catch(() => null);
+  const file = await customerFile(me, conversation.contactId, { crmView: Boolean(access && can(access, "crm.view")) });
+  if (!file) notFound();
+  const fileProps = { file: JSON.parse(JSON.stringify(file)) as typeof file, extra: { consentStatus: conversation.contact.consentStatus, tags: conversation.contact.tags } };
   const aiEnabledHere = ai.service.enabled && ai.service.credentialIds.includes(conversation.providerCredentialId ?? "demo");
 
   const now = Date.now();
@@ -64,7 +74,8 @@ export default organizationRequest(async function ConversationPage({
   });
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full">
+    <div className="flex min-w-0 flex-1 flex-col">
       <Link href="/inbox" className="border-b p-2 text-sm underline md:hidden">{t("חזרה לרשימת השיחות", "Back to conversations")}</Link>
       <ConversationActions
         conversationId={conversation.id}
@@ -74,7 +85,7 @@ export default organizationRequest(async function ConversationPage({
         isSpam={conversation.isSpam}
       />
       {(aiEnabledHere || conversation.aiMode) && <AiHandlingBar conversationId={conversation.id} aiMode={conversation.aiMode} enabledHere={aiEnabledHere} reason={conversation.aiHandoffReason} summary={conversation.aiHandoffSummary} />}
-      <div className="flex items-center justify-between border-b px-3 py-2 text-sm"><span>{conversation.contact.fullName}</span><Link className="underline" href={`/contacts/${conversation.contactId}`}>{t("כרטיס לקוח והסרה מדיוור", "Contact profile & unsubscribe")}</Link></div>
+      <div className="flex items-center justify-between gap-2 border-b px-3 py-2 text-sm"><span className="min-w-0 truncate" dir="auto">{conversation.contact.fullName}</span><div className="flex shrink-0 items-center gap-2"><CustomerFileDrawerButton key={`drawer:${conversation.id}`} {...fileProps} /><Link className="underline" href={`/contacts/${conversation.contactId}`}>{t("כרטיס לקוח והסרה מדיוור", "Contact profile & unsubscribe")}</Link></div></div>
       <div className="border-b px-3 py-1 text-xs text-muted-foreground">{t("מספר השיחה:", "Conversation number:")} {conversation.providerCredential ? `${conversation.providerCredential.label || "WhatsApp"} · ${conversation.providerCredential.displayPhoneNumber || t("מספר עסקי", "Business number")}` : t("הדגמה בלבד", "Demo only")}</div>
       {(block.doNotContact || block.fullyBlocked || block.pendingReview) && <div className="border-b px-3 py-2"><ContactBlockNotice summary={JSON.parse(JSON.stringify(block))} /></div>}
       <Tasks key={`tasks:${conversation.id}`} contactId={conversation.contactId} conversationId={conversation.id} userId={session.user.id} />
@@ -88,17 +99,9 @@ export default organizationRequest(async function ConversationPage({
         composerDisabled={composerDisabled}
         composerDisabledReason={t("עברו יותר מ-24 שעות מאז הודעת הלקוח האחרונה — יש לשלוח תבנית מאושרת.", "More than 24 hours have passed since the customer's last message — send an approved template.")}
       />
-      <ContactProfilePanel
-        contact={{
-          name: conversation.contact.fullName,
-          phone: conversation.contact.phoneE164,
-          email: conversation.contact.email,
-          consentStatus: conversation.contact.consentStatus,
-          tags: conversation.contact.tags,
-          customFields: Object.entries((conversation.contact.customFields as Record<string, unknown> | null) ?? {}).map(([key, value]) => ({ key, value: String(value ?? "") })),
-        }}
-      />
       </div>
+    </div>
+    <ContactProfilePanel key={`file:${conversation.id}`} {...fileProps} />
     </div>
   );
 }, "whatsapp.view");

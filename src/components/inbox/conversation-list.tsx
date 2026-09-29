@@ -11,6 +11,7 @@ import { Ltr } from "@/components/shared/ltr";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { useMe } from "@/lib/client/use-me";
 import { useRealtimeChannel } from "@/lib/realtime/use-realtime-channel";
 import { INBOX_CHANNEL } from "@/lib/realtime/channels";
 import type { ConversationListItem } from "@/types/domain";
@@ -40,7 +41,11 @@ export function ConversationListPane({ initialConversations }: { initialConversa
   const filter = searchParams.get("filter");
   const [senderFilter, setSenderFilter] = useState("");
   const [tagFilter, setTagFilter] = useState("");
-  const [channelFilter, setChannelFilter] = useState("");
+  // This area is "שיחות וואטסאפ": WhatsApp by default; SMS / email threads only through the selector, and only for
+  // users who have those modules (there is no mixed "all channels" view here).
+  const [channelFilter, setChannelFilter] = useState<"whatsapp" | "sms" | "email">("whatsapp");
+  const me = useMe();
+  const otherChannels = [me?.modules.sms ? "sms" : null, me?.modules.email ? "email" : null].filter(Boolean) as Array<"sms" | "email">;
   const [tags, setTags] = useState<Array<{ id: string; name: string }>>([]);
   useEffect(() => { fetch("/api/tags").then((r) => (r.ok ? r.json() : null)).then((d) => { const items = d?.data?.items ?? d?.items ?? d?.data ?? []; if (Array.isArray(items)) setTags(items.map((tag: { id: string; name: string }) => ({ id: tag.id, name: tag.name }))); }).catch(() => undefined); }, []);
   const [senders, setSenders] = useState<{ id: string; label: string }[]>([]);
@@ -60,7 +65,7 @@ export function ConversationListPane({ initialConversations }: { initialConversa
     const params = new URLSearchParams();
     if (senderFilter) params.set("providerCredentialId", senderFilter);
     if (tagFilter) params.set("tagId", tagFilter);
-    if (channelFilter) params.set("channel", channelFilter);
+    params.set("channel", channelFilter);
     if (search) params.set("search", search);
     if (statusParam === "open") params.set("status", "OPEN");
     if (statusParam === "pending") params.set("status", "PENDING");
@@ -81,7 +86,7 @@ export function ConversationListPane({ initialConversations }: { initialConversa
   // (or a later change back to unfiltered) still fetches normally.
   const skippedInitialFetch = useRef(false);
   useEffect(() => {
-    if (!skippedInitialFetch.current && statusParam === undefined && !search && !senderFilter && !tagFilter && !channelFilter) {
+    if (!skippedInitialFetch.current && statusParam === undefined && !search && !senderFilter && !tagFilter && channelFilter === "whatsapp") {
       skippedInitialFetch.current = true;
       return;
     }
@@ -101,7 +106,7 @@ export function ConversationListPane({ initialConversations }: { initialConversa
       <div className="flex flex-wrap gap-1 px-2 pt-2">
         {senders.length > 0 && <select aria-label={t("סינון שיחות לפי מספר", "Filter conversations by number")} className="rounded border p-1.5 text-xs" value={senderFilter} onChange={(event) => setSenderFilter(event.target.value)}><option value="">{t("כל המספרים הנגישים", "All accessible numbers")}</option>{senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label}</option>)}</select>}
         {tags.length > 0 && <select aria-label={t("סינון שיחות לפי תגית", "Filter conversations by tag")} className="rounded border p-1.5 text-xs" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="">{t("כל התגיות", "All tags")}</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select>}
-        <select aria-label={t("סינון שיחות לפי ערוץ", "Filter conversations by channel")} className="rounded border p-1.5 text-xs" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}><option value="">{t("כל הערוצים", "All channels")}</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">{t("אימייל", "Email")}</option></select>
+        {otherChannels.length > 0 && <select aria-label={t("סינון שיחות לפי ערוץ", "Filter conversations by channel")} className="rounded border p-1.5 text-xs" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value as "whatsapp" | "sms" | "email")}><option value="whatsapp">WhatsApp</option>{otherChannels.includes("sms") && <option value="sms">SMS</option>}{otherChannels.includes("email") && <option value="email">{t("אימייל", "Email")}</option>}</select>}
       </div>
       <div className="flex-1 overflow-y-auto">
         {conversations === null && (

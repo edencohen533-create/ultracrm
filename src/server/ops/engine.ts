@@ -312,7 +312,7 @@ async function executeAllocation(id: string, count: number, ctx: { via: string; 
         const u = await tx.lead.updateMany({ where: { id: l.id, ownerUserId: null }, data: { ownerUserId: agent.id } });
         if (!u.count) continue;
         await tx.contact.updateMany({ where: { id: l.contactId, ownerUserId: null }, data: { ownerUserId: agent.id } });
-        if (p.listId) await tx.listLead.createMany({ data: [{ businessId: rec.businessId, listId: p.listId, contactId: l.contactId, preferredUserId: agent.id }], skipDuplicates: true });
+        if (p.listId && await (await import("@/lib/dialer/list-admin")).isListOpen(tx, p.listId)) await tx.listLead.createMany({ data: [{ businessId: rec.businessId, listId: p.listId, contactId: l.contactId, preferredUserId: agent.id }], skipDuplicates: true });
         await audit(rec.businessId, ctx.by, "lead", l.id, "ai_ops.lead_allocated", { recommendationId: rec.id, agentId: agent.id, existing: true }, tx);
         now++;
       }

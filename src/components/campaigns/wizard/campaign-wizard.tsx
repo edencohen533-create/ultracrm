@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Check, ChevronDown, ChevronUp, Search, X } from "lucide-react";
@@ -11,6 +11,7 @@ import { EMAIL_STARTERS } from "@/lib/email/starters";
 import { smsMetrics } from "@/lib/sms";
 import { mergeTagsOf } from "@/lib/merge-tags";
 import { EmailEditor } from "./email-editor";
+import { PaceEditor, type MetaLimit } from "./pace-editor";
 import { useT } from "@/components/i18n/LangProvider";
 import { parseLang, pick } from "@/lib/i18n";
 
@@ -20,6 +21,13 @@ interface Draft { id: string; channel: Channel; name: string; step: string; data
 type Problem = { step: string; message: string };
 const STEP_LABEL: Record<Step, { he: string; en: string }> = { info: { he: "מידע", en: "Info" }, audience: { he: "קהל יעד", en: "Audience" }, template: { he: "תבנית", en: "Template" }, content: { he: "תוכן", en: "Content" }, review: { he: "בקרה", en: "Review" } };
 const BUILTIN_TAGS = ["name", "first_name", "company", "city", "email", "phone", "unsubscribe_url"];
+
+/** Key-order independent JSON (the server may return the draft's keys in another order). */
+function stable(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v as object).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(v ?? null);
+}
 
 async function api<T = unknown>(url: string, method = "GET", body?: unknown): Promise<T> {
   const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -39,8 +47,14 @@ export function CampaignWizard({ draftId }: { draftId: string }) {
   const pending = useRef<{ name?: string; data?: Record<string, unknown> }>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // "צא בלי לשמור": the draft as it was when the editor opened (autosave writes every edit, so this is what we go back
+  // to). A draft created by "יצירת קמפיין" (?new=1) is deleted instead.
+  const isNew = useSearchParams().get("new") === "1";
+  const [snapshot, setSnapshot] = useState<{ name: string; step: string; data: Record<string, unknown>; templateId: string | null; campaignId: string | null } | null>(null);
+  const [leaving, setLeaving] = useState<string | null>(null);
+  const [discarding, setDiscarding] = useState(false);
 
-  useEffect(() => { api<{ draft: Draft; problems: Problem[] }>(`/api/campaigns/drafts/${draftId}`).then((r) => { setDraft(r.draft); setProblems(r.problems); setStep((r.draft.step as Step) || "info"); }).catch((e) => setError(e.message)); }, [draftId]);
+  useEffect(() => { api<{ draft: Draft; problems: Problem[] }>(`/api/campaigns/drafts/${draftId}`).then((r) => { setDraft(r.draft); setProblems(r.problems); setStep((r.draft.step as Step) || "info"); setSnapshot((s) => s ?? { name: r.draft.name, step: r.draft.step, data: r.draft.data, templateId: (r.draft as Draft & { templateId?: string | null }).templateId ?? null, campaignId: (r.draft as Draft & { campaignId?: string | null }).campaignId ?? null }); }).catch((e) => setError(e.message)); }, [draftId]);
 
   const chain = useRef<Promise<void>>(Promise.resolve());
   const flush = useCallback((extra?: { step?: Step }) => {
@@ -61,8 +75,11 @@ export function CampaignWizard({ draftId }: { draftId: string }) {
     return job;
   }, [draftId]);
   const lockedRef = useRef(false);
-  const patch = useCallback((data: Record<string, unknown>, name?: string) => {
+  const patch = useCallback((data: Record<string, unknown>, name?: string, opts?: { auto?: boolean }) => {
     if (lockedRef.current) return;
+    // Defaults the builder fills in by itself (e.g. the only sender) are not the user's changes: they join the
+    // "opened" state, so leaving an untouched draft does not ask, and discarding keeps them.
+    if (opts?.auto) setSnapshot((s) => s ? { ...s, data: { ...s.data, ...data } } : s);
     setDraft((d) => d ? { ...d, ...(name !== undefined ? { name } : {}), data: { ...d.data, ...data } } : d);
     pending.current = { ...pending.current, data: { ...(pending.current.data ?? {}), ...data }, ...(name !== undefined ? { name } : {}) };
     setSaveState("dirty");
@@ -88,6 +105,25 @@ export function CampaignWizard({ draftId }: { draftId: string }) {
   const next = () => idx < steps.length - 1 && go(steps[idx + 1]);
   const prev = () => idx > 0 && go(steps[idx - 1]);
   const exit = async () => { await flush({ step }); router.push(`/campaigns/${draft?.channel ?? "email"}`); };
+  const hasChanges = Boolean(draft && snapshot && stable({ name: draft.name, data: draft.data }) !== stable({ name: snapshot.name, data: snapshot.data }));
+  /** Leaving (exit button / logo): with changes → ask; without → go (a brand-new untouched draft is not kept). */
+  const leaveTo = async (dest: string) => {
+    if (draft?.campaignStatus && draft.campaignStatus !== "DRAFT") { router.push(dest); return; }
+    if (hasChanges) { setLeaving(dest); return; }
+    if (isNew) { await discard(dest); return; }
+    await flush({ step }); router.push(dest);
+  };
+  const discard = async (dest: string) => {
+    setDiscarding(true);
+    try {
+      if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+      pending.current = {};
+      await chain.current; // let an in-flight save land first, then undo it
+      if (isNew) await api(`/api/campaigns/drafts/${draftId}`, "DELETE");
+      else if (snapshot) await api(`/api/campaigns/drafts/${draftId}/revert`, "POST", snapshot);
+      router.push(dest);
+    } catch (e) { toast.error((e as Error).message); setDiscarding(false); }
+  };
   const stepProblems = (s: Step) => problems.filter((p) => p.step === s);
 
   if (error) return <div className="wz"><div className="wz-body"><p className="text-bad p-8">{error} · <Link href="/campaigns/email">{t("חזרה לקמפיינים", "Back to campaigns")}</Link></p></div></div>;
@@ -96,15 +132,29 @@ export function CampaignWizard({ draftId }: { draftId: string }) {
   return (
     <div className="wz" data-testid="campaign-wizard" data-step={step}>
       <header className="wz-head">
-        <div className="wz-brand"><span className="wz-mark">U</span><input className="wz-name" value={draft.name} onChange={(e) => patch({}, e.target.value)} aria-label={t("שם הקמפיין", "Campaign name")} data-testid="wz-name" /></div>
+        <div className="wz-brand"><button type="button" className="wz-mark" onClick={() => void leaveTo("/")} aria-label={t("למסך הבית", "Home")} title={t("למסך הבית", "Home")} data-testid="wz-home">U</button><input className="wz-name" value={draft.name} onChange={(e) => patch({}, e.target.value)} aria-label={t("שם הקמפיין", "Campaign name")} data-testid="wz-name" /></div>
         <nav className="wz-steps" aria-label={t("שלבים", "Steps")}>{steps.map((s, i) => { const done = i < idx; const bad = stepProblems(s).length > 0 && i !== idx; return <button key={s} className={`${s === step ? "active" : ""} ${bad ? "bad" : ""}`} onClick={() => go(s)} data-testid={`wz-step-${s}`}><span className="wz-num">{done ? <Check size={12} /> : i + 1}</span>{t(STEP_LABEL[s].he, STEP_LABEL[s].en)}</button>; })}</nav>
         <div className="wz-actions">
           <span className={`wz-save ${saveState}`} data-testid="wz-save-state">{saveState === "saved" ? t("נשמר", "Saved") : saveState === "saving" ? t("שומר…", "Saving…") : saveState === "dirty" ? t("שינויים לא שמורים", "Unsaved changes") : t("שגיאת שמירה", "Save error")}</span>
+          <button className="wz-btn ghost" onClick={() => void leaveTo(`/campaigns/${draft.channel}`)} data-testid="wz-leave">{t("יציאה", "Exit")}</button>
           <button className="wz-btn ghost" onClick={exit} data-testid="wz-exit">{t("שמור וצא", "Save & exit")}</button>
           {idx > 0 && <button className="wz-btn ghost" onClick={prev} data-testid="wz-prev">{t("הקודם", "Back")}</button>}
           {step !== "review" && <button className="wz-btn primary" onClick={next} data-testid="wz-next">{t("השלב הבא", "Next step")}</button>}
         </div>
       </header>
+      {leaving && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="wz-leave-title" data-testid="wz-leave-dialog">
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+            <h2 id="wz-leave-title" className="text-base font-semibold">{t("יש שינויים שלא נשמרו בקמפיין", "This campaign has unsaved changes")}</h2>
+            <p className="mt-2 text-sm text-muted">{isNew ? t("יציאה בלי לשמור תמחק את הטיוטה שנוצרה.", "Leaving without saving deletes the draft that was created.") : t("יציאה בלי לשמור תחזיר את הטיוטה למצב שבו פתחת אותה.", "Leaving without saving puts the draft back as it was when you opened it.")}</p>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button className="wz-btn ghost" onClick={() => setLeaving(null)} disabled={discarding} data-testid="wz-keep-editing">{t("המשך עריכה", "Keep editing")}</button>
+              <button className="wz-btn ghost" onClick={() => void discard(leaving)} disabled={discarding} data-testid="wz-discard">{discarding ? t("מבטל…", "Discarding…") : t("צא בלי לשמור", "Leave without saving")}</button>
+              <button className="wz-btn primary" onClick={async () => { const d = leaving; setLeaving(null); await flush({ step }); router.push(d); }} disabled={discarding} data-testid="wz-save-leave">{t("שמור וצא", "Save & exit")}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="wz-body">
         {locked && <div className="wz-locked">{draft.campaignStatus === "SCHEDULED" ? t("הקמפיין כבר מתוזמן – התוכן מוצג לקריאה בלבד.", "The campaign is already scheduled – content is read-only.") : t("הקמפיין כבר נשלח – התוכן מוצג לקריאה בלבד.", "The campaign has already been sent – content is read-only.")} <Link href={`/campaigns/report/${draft.campaignId}`}>{t("לדוח", "View report")}</Link></div>}
         <fieldset className="wz-fieldset" disabled={locked}>
@@ -135,13 +185,13 @@ function ConnStatus({ p }: { p: Profile | null | undefined }) {
   if (p.simulated) return <span className="wz-conn warn">{t("מצב הדמיה – לא נשלחות הודעות אמיתיות", "Simulation mode – no real messages are sent")} · <Link href="/settings">{t("חבר ספק", "Connect provider")}</Link></span>;
   return <span className="wz-conn ok">{t("מחובר", "Connected")}{p.domainStatus ? (p.domainStatus === "verified" ? t(" · דומיין מאומת", " · domain verified") : t(" · דומיין לא מאומת", " · domain not verified")) : ""}</span>;
 }
-function InfoStep({ draft, patch, problems }: { draft: Draft; patch: (d: Record<string, unknown>, name?: string) => void; problems: Problem[] }) {
+function InfoStep({ draft, patch, problems }: { draft: Draft; patch: (d: Record<string, unknown>, name?: string, opts?: { auto?: boolean }) => void; problems: Problem[] }) {
   const t = useT();
   const senders = useSenders(draft.channel);
   const [more, setMore] = useState(false);
   const d = draft.data;
   const profile = senders?.profiles?.find((p) => p.id === d.senderCredentialId) ?? senders?.profiles?.[0] ?? null;
-  useEffect(() => { if (senders?.profiles?.length && !d.senderCredentialId) patch({ senderCredentialId: senders.profiles[0].id, replyTo: d.replyTo ?? senders.profiles[0].replyTo ?? null }); if (draft.channel === "sms" && profile && !d.senderId && profile.senders?.length) patch({ senderId: profile.senders[0].value }); if (draft.channel === "whatsapp" && senders?.senders?.length && !d.senderCredentialId) patch({ senderCredentialId: (senders.senders.find((s) => s.isDefault) ?? senders.senders[0]).id }); }, [senders]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (senders?.profiles?.length && !d.senderCredentialId) patch({ senderCredentialId: senders.profiles[0].id, replyTo: d.replyTo ?? senders.profiles[0].replyTo ?? null }, undefined, { auto: true }); if (draft.channel === "sms" && profile && !d.senderId && profile.senders?.length) patch({ senderId: profile.senders[0].value }, undefined, { auto: true }); if (draft.channel === "whatsapp" && senders?.senders?.length && !d.senderCredentialId) patch({ senderCredentialId: (senders.senders.find((s) => s.isDefault) ?? senders.senders[0]).id }, undefined, { auto: true }); }, [senders]); // eslint-disable-line react-hooks/exhaustive-deps
   const err = (s: string) => problems.find((p) => p.message.includes(s))?.message;
   return (
     <div className="wz-form" data-testid="wz-info">
@@ -369,10 +419,7 @@ function ReviewStep({ draft, patch, problems, flush, go, onSent }: { draft: Draf
       <div className="wz-testbar"><input dir="ltr" placeholder={draft.channel === "whatsapp" ? t("מספר בדיקה מורשה", "Authorized test number") : t("נמען בדיקה (מוגדר בחיבור)", "Test recipient (set in connection)")} value={testTo} onChange={(e) => setTestTo(e.target.value)} aria-label={t("נמען בדיקה", "Test recipient")} data-testid="review-test-to" /><button className="wz-btn ghost" disabled={!testTo || !state} onClick={sendTest} data-testid="review-test-send">{t("שליחת ניסיון", "Send test")}</button></div>
       <div className="wz-pace" data-testid="review-pace">
         <span className="wz-label">{t("קצב שליחה", "Sending pace")}</span>
-        <label className="jr-check"><input type="radio" name="pace" checked={!throttle} onChange={() => patch({ throttle: null })} data-testid="pace-all" /> {t("לשלוח לכולם ברצף", "Send to everyone continuously")}</label>
-        <label className="jr-check"><input type="radio" name="pace" checked={Boolean(throttle)} onChange={() => patch({ throttle: { batchSize: 100, intervalMinutes: 60 } })} data-testid="pace-batched" /> {t("לשלוח בהדרגה:", "Send gradually:")}</label>
-        {throttle && <div className="wz-pace-row"><input type="number" min={1} max={100000} value={throttle.batchSize} onChange={(e) => patch({ throttle: { ...throttle, batchSize: Math.max(1, Math.round(Number(e.target.value) || 1)) } })} aria-label={t("כמות נמענים בכל סבב", "Recipients per round")} data-testid="pace-size" /><span>{t("נמענים כל", "recipients every")}</span><select value={throttle.intervalMinutes} onChange={(e) => patch({ throttle: { ...throttle, intervalMinutes: Number(e.target.value) } })} aria-label={t("מרווח בין סבבים", "Interval between rounds")} data-testid="pace-interval"><option value={15}>{t("רבע שעה", "15 minutes")}</option><option value={30}>{t("חצי שעה", "30 minutes")}</option><option value={60}>{t("שעה", "1 hour")}</option><option value={120}>{t("שעתיים", "2 hours")}</option><option value={180}>{t("3 שעות", "3 hours")}</option><option value={360}>{t("6 שעות", "6 hours")}</option><option value={1440}>{t("יום", "1 day")}</option></select></div>}
-        {throttle && pf && <span className="wz-hint">{t(`${pf.eligible.toLocaleString(loc)} נמענים ⇐ כ-${Math.ceil(pf.eligible / throttle.batchSize)} סבבים, סיום משוער בעוד כ-${Math.round((Math.ceil(pf.eligible / throttle.batchSize) - 1) * throttle.intervalMinutes / 60 * 10) / 10} שעות (בתוך חלון השליחה של העסק).`, `${pf.eligible.toLocaleString(loc)} recipients ⇒ ~${Math.ceil(pf.eligible / throttle.batchSize)} rounds, estimated finish in ~${Math.round((Math.ceil(pf.eligible / throttle.batchSize) - 1) * throttle.intervalMinutes / 60 * 10) / 10} hours (within the business send window).`)}</span>}
+        <PaceEditor throttle={throttle} onChange={(tt) => patch({ throttle: tt })} eligible={pf?.eligible ?? null} metaLimit={draft.channel === "whatsapp" ? ((senders as { metaLimit?: MetaLimit | null } | null)?.metaLimit ?? null) : null} />
       </div>
       <div className="wz-sendbar">
         <label className="wz-field inline"><span className="wz-label">{t("תזמון (אופציונלי)", "Schedule (optional)")}</span><input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} data-testid="review-when" /></label>

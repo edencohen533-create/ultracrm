@@ -103,6 +103,30 @@ export async function updateDraft(id: string, patch: z.infer<typeof draftPatchSc
   return getDraft(id);
 }
 
+export const draftRevertSchema = z.object({ name: z.string().trim().min(1).max(120), step: z.string().max(20), data: draftDataSchema, templateId: z.string().nullable(), campaignId: z.string().nullable() });
+
+/**
+ * "צא בלי לשמור": the wizard autosaves every edit, so leaving without saving puts the draft back exactly as it was
+ * when the editor opened (name, step, data – replaced, not merged). Anything the session created meanwhile – an
+ * internal template copy or a campaign built at review that is still a DRAFT – is removed. Never touches a
+ * campaign that was already scheduled or sent.
+ */
+export async function revertDraft(id: string, snapshot: z.infer<typeof draftRevertSchema>, actorUserId: string) {
+  const d = await prisma.campaignDraft.findUnique({ where: { id }, select: { channel: true, campaignId: true, templateId: true, name: true } });
+  if (!d) throw new CampaignError("הטיוטה לא נמצאה");
+  await assertEditable(d);
+  if (!DRAFT_STEPS[d.channel as DraftChannel].includes(snapshot.step === "building" ? "review" : snapshot.step)) throw new CampaignError("שלב לא תקין");
+  await prisma.$transaction(async (tx) => {
+    const orphanTemplate = d.templateId && d.templateId !== snapshot.templateId ? d.templateId : null;
+    const orphanCampaign = d.campaignId && d.campaignId !== snapshot.campaignId ? d.campaignId : null;
+    await tx.campaignDraft.update({ where: { id }, data: { name: snapshot.name, step: snapshot.step, data: snapshot.data as Prisma.InputJsonValue, ...(orphanTemplate ? { templateId: snapshot.templateId } : {}), ...(orphanCampaign ? { campaignId: snapshot.campaignId } : {}) } });
+    if (orphanCampaign) await tx.campaign.deleteMany({ where: { id: orphanCampaign, status: "DRAFT" } });
+    if (orphanTemplate) await tx.template.deleteMany({ where: { id: orphanTemplate, internal: true, campaigns: { none: {} }, sequenceSteps: { none: {} } } });
+  });
+  await audit(requireBusinessId(), actorUserId, "campaign", id, "campaign.draft_reverted", { name: snapshot.name });
+  return getDraft(id);
+}
+
 export async function deleteDraft(id: string, actorUserId: string) {
   const d = await prisma.campaignDraft.findUnique({ where: { id }, include: { campaign: { select: { status: true } } } });
   if (!d) throw new CampaignError("הטיוטה לא נמצאה");

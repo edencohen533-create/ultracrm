@@ -9,6 +9,7 @@ import { Badge, Button, Input, Modal, Phone, Select, Spinner, Stat } from "@/com
 import { LEAD_STATUS_LABEL, formatDateTime, formatPhone } from "@/lib/client/format";
 import { OUTCOMES } from "@/lib/outcomes";
 import { useT } from "@/components/i18n/LangProvider";
+import { MoveLeadsDialog } from "./ListAdminActions";
 
 interface ListFull { id: string; name: string; unansweredLimit?: number | null; description: string | null; isActive: boolean; isPaused: boolean; isDynamic: boolean; archivedAt: string | null; lastRefreshedAt: string | null; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null; dialWindowJson: { start: string; end: string; days: number[] } | null; agents: Array<{ user: { id: string; fullName: string } }>; stats: { byStatus: Record<string, number>; dueNow: number; total: number; unavailable: { notDueYet: number; inProgress: number; exhausted: number; completed: number; dnc: number; removed: number; outsideDialWindow: boolean; listPaused: boolean; listInactive: boolean } } }
 interface LeadRow { id: string; status: string; attempts: number; priority: number; lastAttemptAt: string | null; nextAttemptAt: string | null; lastOutcome: string | null; lastSkipReason: string | null; contact: { id: string; fullName: string; phoneE164: string; source: string | null }; lockedBy: { fullName: string } | null }
@@ -57,6 +58,8 @@ export function ListQueuePanel({ id }: { id: string }) {
   }, []);
 
   const isManager = me?.role !== "agent";
+  const [moveLists, setMoveLists] = useState<Array<{ id: string; name: string; isActive: boolean }> | null>(null);
+  async function openMove() { try { setMoveLists(await api.get<Array<{ id: string; name: string; isActive: boolean }>>("/api/lists")); } catch (e) { toast.error((e as Error).message); } }
   async function bulk(action: "remove" | "requeue") {
     if (sel.size === 0) return;
     try {
@@ -95,6 +98,7 @@ export function ListQueuePanel({ id }: { id: string }) {
 
   return (
     <div className="p-5 space-y-4">
+      {moveLists && <MoveLeadsDialog from={{ id: list.id, name: list.name, isActive: list.isActive }} lists={moveLists} leadIds={[...sel]} onClose={() => setMoveLists(null)} onDone={() => { setSel(new Set()); load(); }} />}
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold">{list.name}</h1>
         <Badge tone={list.isActive ? "good" : "neutral"}>{list.isActive ? t("פעילה", "Active") : t("לא פעילה", "Inactive")}</Badge>
@@ -145,6 +149,7 @@ export function ListQueuePanel({ id }: { id: string }) {
           <div className="flex gap-2 ms-auto">
             <span className="text-xs text-muted self-center">{t(`${sel.size} נבחרו`, `${sel.size} selected`)}</span>
             <Button size="sm" variant="secondary" onClick={() => bulk("requeue")}>{t("החזר לתור", "Requeue")}</Button>
+            <Button size="sm" variant="secondary" onClick={() => void openMove()} data-testid="bulk-move">{t("העבר לרשימה…", "Move to list…")}</Button>
             <Button size="sm" variant="danger" onClick={() => bulk("remove")}>{t("הסר", "Remove")}</Button>
           </div>
         )}

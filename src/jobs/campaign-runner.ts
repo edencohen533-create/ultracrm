@@ -53,10 +53,19 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
   let processed = 0;
   let sends = 0;
   const pausedCampaigns = new Set<string>();
+  // Meta messaging limit (unique users / 24h, per business portfolio) – applies whatever pace the user chose.
+  const { whatsappCapacity } = await import("@/lib/meta/messaging-limit");
+  const capacity = due.some((r) => r.campaign.channel === "whatsapp") ? await whatsappCapacity(requireBusinessId()) : null;
+  const limitHit = new Set<string>();
+  const sentWhatsApp = new Set<string>();
   for (const recipient of due) {
     if (Date.now() >= deadline) break;
     if (pausedCampaigns.has(recipient.campaignId)) continue;
     if (sends >= budget) break;
+    // A contact already messaged in the last 24h does not use the limit again; a new one needs free capacity.
+    if (recipient.campaign.channel === "whatsapp" && capacity && capacity.remaining !== null && !capacity.recent.has(recipient.contactId)) {
+      if (capacity.remaining <= 0) { limitHit.add(recipient.campaignId); continue; }
+    }
     if (paceLeft.has(recipient.campaignId)) {
       const left = paceLeft.get(recipient.campaignId)!; if (left <= 0) continue;
       // Re-check right before claiming: another worker may have sent part of this interval's batch meanwhile.
@@ -71,6 +80,7 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
     });
     if (!claimed.count) continue;
     processed++;
+    if (recipient.campaign.channel === "whatsapp" && capacity && capacity.remaining !== null && !capacity.recent.has(recipient.contactId)) { capacity.remaining--; capacity.recent.add(recipient.contactId); }
     const attempt = recipient.attempts;
     const requestKey = attempt === 0 ? `campaign:${recipient.id}` : `campaign:${recipient.id}:a${attempt}`;
     /** Transient failure → schedule another attempt (bounded), otherwise final FAILED. */
@@ -116,7 +126,16 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
         await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "SKIPPED", error: suppressed ?? "אין הסכמה פעילה לדיוור", completedAt: new Date() } });
         continue;
       }
+      // The recipient must still be reachable on this channel (a number edited to an invalid value is skipped, not sent).
+      if (campaign.channel !== "email") {
+        const { normalizePhone } = await import("@/lib/phone");
+        if (!contact.phoneE164 || !normalizePhone(contact.phoneE164)) {
+          await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "SKIPPED", error: "מספר הטלפון של הנמען אינו תקין", completedAt: new Date() } });
+          continue;
+        }
+      }
       sends++;
+      if (campaign.channel === "whatsapp") sentWhatsApp.add(campaign.id);
       if (campaign.channel !== "whatsapp") {
         try {
           const { message } = await sendChannelMessage({
@@ -166,6 +185,11 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
       } });
     }
   }
+  if (capacity && capacity.limit !== null) {
+    const reason = `מגבלת Meta: עד ${capacity.limit.toLocaleString("he-IL")} נמענים חדשים ב-24 שעות – השליחה תמשיך אוטומטית כשתתפנה מכסה`;
+    for (const id of limitHit) if (!sentWhatsApp.has(id)) await prisma.campaign.updateMany({ where: { id, status: "RUNNING" }, data: { statusReason: reason } });
+  }
+  for (const id of sentWhatsApp) await prisma.campaign.updateMany({ where: { id, status: "RUNNING", statusReason: { startsWith: "מגבלת Meta" } }, data: { statusReason: null } });
   await prisma.campaign.updateMany({
     where: { status: "RUNNING", recipients: { none: { status: { in: ["QUEUED", "PROCESSING"] } } } },
     data: { status: "COMPLETED" },

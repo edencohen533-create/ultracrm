@@ -102,7 +102,7 @@ export async function verifyToken(accessToken: string, wabaId: string) {
 
 export async function readAssets(accessToken: string, wabaId: string, phoneNumberId: string) {
   const waba = await graph<WabaInfo>(wabaId, { token: accessToken, query: { fields: "id,name,account_review_status,business_verification_status,ownership_type" } });
-  const phone = await graph<PhoneInfo>(phoneNumberId, { token: accessToken, query: { fields: "id,display_phone_number,verified_name,name_status,code_verification_status,quality_rating,messaging_limit_tier,status,platform_type" } });
+  const phone = await graph<PhoneInfo>(phoneNumberId, { token: accessToken, query: { fields: "id,display_phone_number,verified_name,name_status,code_verification_status,quality_rating,whatsapp_business_manager_messaging_limit,messaging_limit_tier,status,platform_type" } });
   // The phone must belong to the granted WABA (never trust ids posted from the window alone).
   let belongs = false;
   let after: string | undefined;
@@ -224,7 +224,7 @@ export async function completeSignup(user: SessionUser, input: CompleteInput) {
     config: config as Prisma.InputJsonValue, isActive: true, sendingBlocked: false, lastConnectionError: null, lastCheckedAt: new Date(),
     // Who at Meta this connection belongs to – matched by Meta's data-deletion / deauthorize callbacks.
     metaUserIds: [...new Set([...(existing?.metaUserIds ?? []), verified.userId, input.fbUserId].filter((x): x is string => Boolean(x)))],
-    messagingLimitTier: (assets.phone as { messaging_limit_tier?: string }).messaging_limit_tier ?? null,
+    messagingLimitTier: (assets.phone as { whatsapp_business_manager_messaging_limit?: string; messaging_limit_tier?: string }).whatsapp_business_manager_messaging_limit ?? (assets.phone as { messaging_limit_tier?: string }).messaging_limit_tier ?? null,
     ...(input.label !== undefined ? { label: input.label } : {}), ...(input.teamId !== undefined ? { teamId: input.teamId } : {}),
   };
   const credential = await prisma.$transaction(async (tx) => {
@@ -295,7 +295,7 @@ export async function checkConnection(user: { id: string | null; businessId: str
       data.tokenCheckedAt = new Date();
     }
     const assets = await readAssets(cfg.accessToken, c.wabaId, c.phoneNumberId);
-    Object.assign(data, { wabaName: assets.waba.name ?? null, displayPhoneNumber: assets.phone.display_phone_number ?? null, verifiedName: assets.phone.verified_name ?? null, nameStatus: assets.phone.name_status ?? null, qualityRating: assets.phone.quality_rating ?? null, codeVerificationStatus: assets.phone.code_verification_status ?? null, platformType: assets.phone.platform_type ?? null, messagingLimitTier: (assets.phone as { messaging_limit_tier?: string }).messaging_limit_tier ?? null });
+    Object.assign(data, { wabaName: assets.waba.name ?? null, displayPhoneNumber: assets.phone.display_phone_number ?? null, verifiedName: assets.phone.verified_name ?? null, nameStatus: assets.phone.name_status ?? null, qualityRating: assets.phone.quality_rating ?? null, codeVerificationStatus: assets.phone.code_verification_status ?? null, platformType: assets.phone.platform_type ?? null, messagingLimitTier: (assets.phone as { whatsapp_business_manager_messaging_limit?: string; messaging_limit_tier?: string }).whatsapp_business_manager_messaging_limit ?? (assets.phone as { messaging_limit_tier?: string }).messaging_limit_tier ?? null });
     data.subscribedAt = (await isAppSubscribed(cfg.accessToken, c.wabaId)) ? (c.subscribedAt ?? new Date()) : null;
     data.sendingBlocked = false;
     status = c.status === "revoked" ? "connected_not_ready" : c.status;

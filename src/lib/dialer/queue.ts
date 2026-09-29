@@ -136,6 +136,10 @@ export function queueFilter(q: QueueParams, opts: { timeAware: boolean }) {
 export async function claimNextLead(businessId: string, userId: string, listId: string) {
   const settings = await getBusinessSettings(businessId);
   if (settings.dialingPaused) throw new ApiError("החיוג מושהה ברמת העסק על ידי המנהל", 409, "dialing_paused");
+  // An inactive / archived list supplies no leads – whoever asks (every caller, not only the agent routes).
+  const state = await prisma.dialList.findFirst({ where: { id: listId, businessId }, select: { isActive: true, archivedAt: true } });
+  if (!state) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
+  if (!state.isActive || state.archivedAt) throw new ApiError("הרשימה אינה פעילה", 400, "list_inactive");
   const window = await listDialWindow(businessId, listId);
   if (!isWithinDialWindow(window)) {
     const next = nextDialWindowOpening(window);

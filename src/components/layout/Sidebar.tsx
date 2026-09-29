@@ -70,7 +70,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
   return (
     <aside className="app-sidebar w-[256px] shrink-0 h-screen sticky top-0 bg-panel border-e border-line flex flex-col" data-testid="side-nav">
       <div className="px-5 h-[74px] flex items-center gap-3 border-b border-line">
-        <Link href="/leads" aria-label={t("למסך הבית", "Home")} title={t("למסך הבית", "Home")} data-testid="nav-home" className="shrink-0 w-9 h-9 rounded-lg bg-accent text-white font-extrabold text-lg inline-flex items-center justify-center hover:opacity-90">U</Link>
+        <Link href="/" aria-label={t("למסך הבית", "Home")} title={t("למסך הבית", "Home")} data-testid="nav-home" className="shrink-0 w-9 h-9 rounded-lg bg-accent text-white font-extrabold text-lg inline-flex items-center justify-center hover:opacity-90">U</Link>
         <div className="min-w-0">
           {businesses.length > 1 ? (
             <select aria-label={t("בחירת עסק", "Select business")} className="bg-transparent font-bold text-xl leading-tight truncate text-accent w-full outline-none" value={businesses.find((b) => b.active)?.id} disabled={switching} onChange={(e) => switchBusiness(e.target.value)}>

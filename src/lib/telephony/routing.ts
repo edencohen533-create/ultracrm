@@ -13,6 +13,9 @@ import { prisma, dbSchema } from "@/lib/db";
 import { adapterFor, platformDefaultProvider, realCallBlocker } from "./registry";
 import { CLOSED, DEFAULT_BREAKER, onFailure, onSuccess, tryAcquire, advance, type BreakerConfig, type BreakerSnapshot } from "./breaker";
 import { countsTowardBreaker } from "./classify";
+import { queueSwitchAlert } from "./alerts";
+import { ApiError } from "@/lib/response";
+import { businessDayStart } from "@/lib/business-day";
 import type { FailureClass } from "./types";
 
 type Tx = Prisma.TransactionClient;
@@ -27,6 +30,8 @@ export interface Routing {
   mode: TelephonyRoutingMode;
   manualActive: "primary" | "backup";
   breaker: BreakerConfig;
+  backupDailyCallLimit: number | null;
+  failoverOnCapacity: boolean;
   stored: boolean;
 }
 
@@ -38,17 +43,25 @@ export async function loadRouting(businessId: string, db: Tx | typeof prisma = p
     mode: r?.mode ?? "primary_only",
     manualActive: r?.manualActive === "backup" ? "backup" : "primary",
     breaker: r ? { failureThreshold: r.failureThreshold, windowSeconds: r.windowSeconds, cooldownSeconds: r.cooldownSeconds, probeCalls: r.probeCalls } : DEFAULT_BREAKER,
+    backupDailyCallLimit: r?.backupDailyCallLimit ?? null,
+    failoverOnCapacity: r?.failoverOnCapacity ?? false,
     stored: Boolean(r),
   };
 }
 
 /** Is this provider allowed to carry real calls for new dials? */
-export async function providerEligibility(provider: ProviderName | null): Promise<{ eligible: boolean; reason: string }> {
+export async function providerEligibility(provider: ProviderName | null, businessId?: string): Promise<{ eligible: boolean; reason: string }> {
   if (!provider) return { eligible: false, reason: "not_configured" };
   const adapter = adapterFor(provider);
   const blocker = realCallBlocker(adapter);
   if (blocker) return { eligible: false, reason: blocker };
   if (adapter.testOnly) return { eligible: true, reason: "test_adapter" };
+  // A per-business account (e.g. Zadarma): credentials, approved caller ID, extensions and a passed live test.
+  if (adapter.businessReadiness) {
+    if (!businessId) return { eligible: false, reason: "not_configured" };
+    const r = await adapter.businessReadiness(businessId);
+    return r.ready ? { eligible: true, reason: "verified" } : { eligible: false, reason: r.reason };
+  }
   const ref = adapter.configStatus().accountRef ?? "default";
   const acc = await prisma.telephonyProviderAccount.findUnique({ where: { provider_accountRef: { provider, accountRef: ref } } });
   if (!acc?.ok || !acc.verifiedAt) return { eligible: false, reason: "not_verified" };
@@ -56,8 +69,8 @@ export async function providerEligibility(provider: ProviderName | null): Promis
   return { eligible: true, reason: "verified" };
 }
 
-function snapshotOf(row: { state: BreakerSnapshot["state"]; failuresInWindow: number; windowStartedAt: Date | null; openedAt: Date | null; nextProbeAt: Date | null; probeSuccesses: number; probesStarted: number } | null): BreakerSnapshot {
-  return row ? { state: row.state, failuresInWindow: row.failuresInWindow, windowStartedAt: row.windowStartedAt, openedAt: row.openedAt, nextProbeAt: row.nextProbeAt, probeSuccesses: row.probeSuccesses, probesStarted: row.probesStarted } : { ...CLOSED };
+function snapshotOf(row: { state: BreakerSnapshot["state"]; failuresInWindow: number; windowStartedAt: Date | null; openedAt: Date | null; nextProbeAt: Date | null; probeSuccesses: number; probesStarted: number; trips: number; closedAt: Date | null } | null): BreakerSnapshot {
+  return row ? { state: row.state, failuresInWindow: row.failuresInWindow, windowStartedAt: row.windowStartedAt, openedAt: row.openedAt, nextProbeAt: row.nextProbeAt, probeSuccesses: row.probeSuccesses, probesStarted: row.probesStarted, trips: row.trips, closedAt: row.closedAt } : { ...CLOSED };
 }
 
 /** Lock (creating if needed) the breaker row so concurrent calls see one consistent state. */
@@ -70,7 +83,7 @@ async function lockHealth(tx: Tx, businessId: string, provider: ProviderName) {
 async function saveSnapshot(tx: Tx, businessId: string, provider: ProviderName, s: BreakerSnapshot, extra: Prisma.TelephonyProviderHealthUpdateInput = {}) {
   await tx.telephonyProviderHealth.update({
     where: { businessId_provider: { businessId, provider } },
-    data: { state: s.state, failuresInWindow: s.failuresInWindow, windowStartedAt: s.windowStartedAt, openedAt: s.openedAt, nextProbeAt: s.nextProbeAt, probeSuccesses: s.probeSuccesses, probesStarted: s.probesStarted, ...extra },
+    data: { state: s.state, failuresInWindow: s.failuresInWindow, windowStartedAt: s.windowStartedAt, openedAt: s.openedAt, nextProbeAt: s.nextProbeAt, probeSuccesses: s.probeSuccesses, probesStarted: s.probesStarted, trips: s.trips ?? 0, closedAt: s.closedAt ?? null, ...extra },
   });
 }
 
@@ -81,37 +94,53 @@ async function lastRoute(tx: Tx, businessId: string): Promise<ProviderName | nul
 
 export interface ProviderChoice { provider: ProviderName; probe: boolean; reason: string }
 
+/** Cost / usage guard for the backup: NEW calls through it since the start of the business day. */
+async function backupLimitReached(businessId: string, routing: Routing) {
+  if (!routing.backup || routing.backupDailyCallLimit == null) return false;
+  const business = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { timezone: true } });
+  const used = await prisma.call.count({ where: { businessId, provider: routing.backup, direction: "outbound", createdAt: { gte: businessDayStart(business.timezone) } } });
+  return used >= routing.backupDailyCallLimit;
+}
+
 export async function chooseProviderForNewCall(businessId: string): Promise<ProviderChoice> {
   if (!routingEnabled()) return { provider: platformDefaultProvider(), probe: false, reason: "routing_off" };
   const routing = await loadRouting(businessId);
   if (routing.mode === "primary_only" || !routing.backup) return { provider: routing.primary, probe: false, reason: routing.mode === "primary_only" ? "primary_only" : "no_backup" };
-  const backup = await providerEligibility(routing.backup);
+  let backup = await providerEligibility(routing.backup, businessId);
+  if (backup.eligible && await backupLimitReached(businessId, routing)) backup = { eligible: false, reason: "backup_daily_limit" };
   if (routing.mode === "manual_backup") {
     if (routing.manualActive === "backup" && backup.eligible) return { provider: routing.backup, probe: false, reason: "manual_backup" };
     return { provider: routing.primary, probe: false, reason: routing.manualActive === "backup" ? `backup_unavailable:${backup.reason}` : "manual_primary" };
   }
   // auto_failover: decide and reserve a probe slot atomically.
-  return prisma.$transaction(async (tx) => {
+  const logged: string[] = [];
+  const choice = await prisma.$transaction(async (tx) => {
     const now = new Date();
     const primaryRow = await lockHealth(tx, businessId, routing.primary);
     const p = tryAcquire(snapshotOf(primaryRow), routing.breaker, now);
     await saveSnapshot(tx, businessId, routing.primary, p.next);
     let choice: ProviderChoice;
+    const primaryWhy = `${primaryRow.lastFailureClass ?? "unknown"}${primaryRow.lastFailureDetail ? `: ${primaryRow.lastFailureDetail.slice(0, 150)}` : ""}`;
     if (p.allowed) choice = { provider: routing.primary, probe: p.probe, reason: p.probe ? "primary_probe" : "primary" };
     else if (backup.eligible) {
       const backupRow = await lockHealth(tx, businessId, routing.backup!);
       const b = tryAcquire(snapshotOf(backupRow), routing.breaker, now);
       await saveSnapshot(tx, businessId, routing.backup!, b.next);
-      choice = b.allowed ? { provider: routing.backup!, probe: b.probe, reason: "failover" } : { provider: routing.primary, probe: false, reason: "backup_breaker_open" };
+      // Both providers tripped: stop here with a clear message rather than sending a dial that will fail.
+      if (!b.allowed) throw new ApiError("שני ספקי הטלפוניה אינם זמינים כרגע – נסה שוב בעוד מספר דקות", 503, "telephony_unavailable", { primary: routing.primary, backup: routing.backup });
+      choice = { provider: routing.backup!, probe: b.probe, reason: primaryWhy };
     } else choice = { provider: routing.primary, probe: false, reason: `backup_unavailable:${backup.reason}` };
     // Log only real route changes (first failover, first recovery), not every call.
     const prev = await lastRoute(tx, businessId);
     const current = prev === undefined ? routing.primary : prev;
     if (current !== choice.provider) {
-      await tx.telephonySwitchLog.create({ data: { businessId, fromProvider: current, toProvider: choice.provider, kind: choice.provider === routing.primary ? "auto_recovery" : "auto_failover", reason: choice.reason } });
+      const row = await tx.telephonySwitchLog.create({ data: { businessId, fromProvider: current, toProvider: choice.provider, kind: choice.provider === routing.primary ? "auto_recovery" : "auto_failover", reason: choice.reason } });
+      logged.push(row.id);
     }
     return choice;
   });
+  for (const id of logged) await queueSwitchAlert(id);
+  return choice;
 }
 
 /** Which provider new calls would use now – read-only (no probe slot, no log). For the browser token. */
@@ -119,7 +148,7 @@ export async function peekProviderForNewCall(businessId: string): Promise<Provid
   if (!routingEnabled()) return platformDefaultProvider();
   const routing = await loadRouting(businessId);
   if (routing.mode === "primary_only" || !routing.backup) return routing.primary;
-  const backup = await providerEligibility(routing.backup);
+  const backup = await providerEligibility(routing.backup, businessId);
   if (routing.mode === "manual_backup") return routing.manualActive === "backup" && backup.eligible ? routing.backup : routing.primary;
   const row = await prisma.telephonyProviderHealth.findUnique({ where: { businessId_provider: { businessId, provider: routing.primary } } });
   const primaryOpen = advance(snapshotOf(row), new Date(), routing.breaker).state === "open";
@@ -130,6 +159,7 @@ export async function peekProviderForNewCall(businessId: string): Promise<Provid
 export async function recordProviderResult(businessId: string, provider: ProviderName, result: { ok: true } | { ok: false; failureClass: FailureClass; detail?: string }) {
   if (!routingEnabled()) return;
   const routing = await loadRouting(businessId);
+  const opened: string[] = [];
   await prisma.$transaction(async (tx) => {
     const row = await lockHealth(tx, businessId, provider);
     const now = new Date();
@@ -141,15 +171,19 @@ export async function recordProviderResult(businessId: string, provider: Provide
       return;
     }
     const failure = { lastFailureClass: result.failureClass, lastFailureDetail: result.detail?.slice(0, 300) ?? null, lastFailureAt: now };
-    if (!countsTowardBreaker(result.failureClass)) { await saveSnapshot(tx, businessId, provider, advance(before, now), failure); return; }
+    if (!countsTowardBreaker(result.failureClass, { failoverOnCapacity: routing.failoverOnCapacity })) { await saveSnapshot(tx, businessId, provider, advance(before, now), failure); return; }
     const next = onFailure(before, routing.breaker, now, result.failureClass);
     await saveSnapshot(tx, businessId, provider, next, failure);
-    if (before.state !== "open" && next.state === "open") await tx.telephonySwitchLog.create({ data: { businessId, fromProvider: provider, toProvider: null, kind: "breaker_open", reason: `${result.failureClass}${result.detail ? `: ${result.detail.slice(0, 200)}` : ""}` } });
+    if (before.state !== "open" && next.state === "open") {
+      const row = await tx.telephonySwitchLog.create({ data: { businessId, fromProvider: provider, toProvider: null, kind: "breaker_open", reason: `${result.failureClass}${result.detail ? `: ${result.detail.slice(0, 200)}` : ""}` } });
+      opened.push(row.id);
+    }
   });
+  for (const id of opened) await queueSwitchAlert(id);
 }
 
 /** Manager action: change policy / flip new calls. Logged; never touches calls already in progress. */
-export async function updateRouting(businessId: string, actorId: string, patch: { primaryProvider?: ProviderName | null; backupProvider?: ProviderName | null; mode?: TelephonyRoutingMode; manualActive?: "primary" | "backup"; failureThreshold?: number; windowSeconds?: number; cooldownSeconds?: number; probeCalls?: number }) {
+export async function updateRouting(businessId: string, actorId: string, patch: { primaryProvider?: ProviderName | null; backupProvider?: ProviderName | null; mode?: TelephonyRoutingMode; manualActive?: "primary" | "backup"; failureThreshold?: number; windowSeconds?: number; cooldownSeconds?: number; probeCalls?: number; backupDailyCallLimit?: number | null; failoverOnCapacity?: boolean }) {
   return prisma.$transaction(async (tx) => {
     const before = await loadRouting(businessId, tx);
     const saved = await tx.telephonyRouting.upsert({ where: { businessId }, create: { businessId, ...patch, updatedById: actorId }, update: { ...patch, updatedById: actorId } });

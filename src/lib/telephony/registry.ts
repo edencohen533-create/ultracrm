@@ -10,11 +10,12 @@ import type { TelephonyProvider as ProviderName } from "@/generated/prisma/enums
 import type { TelephonyAdapter } from "./types";
 import { telnyxAdapter, telnyxConfigStatus } from "./telnyx";
 import { mockAdapter } from "./mock";
+import { zadarmaAdapter } from "./zadarma";
 
-const BUILTIN: Record<ProviderName, TelephonyAdapter> = { telnyx: telnyxAdapter, mock: mockAdapter };
+const BUILTIN: Record<ProviderName, TelephonyAdapter> = { telnyx: telnyxAdapter, mock: mockAdapter, zadarma: zadarmaAdapter };
 
 /** Browser clients that exist in DialerProvider. A provider whose agent client is missing cannot carry real calls. */
-export const IMPLEMENTED_AGENT_CLIENTS = new Set<TelephonyAdapter["capabilities"]["agentClient"]>(["telnyx-webrtc", "simulation"]);
+export const IMPLEMENTED_AGENT_CLIENTS = new Set<TelephonyAdapter["capabilities"]["agentClient"]>(["telnyx-webrtc", "zadarma-widget", "simulation"]);
 
 let testAdapters: Partial<Record<ProviderName, TelephonyAdapter>> | null = null;
 

@@ -15,7 +15,7 @@ import { parsePhoneNumberFromString } from "libphonenumber-js";
 import { adapterFor } from "@/lib/telephony";
 import { chooseProviderForNewCall } from "@/lib/telephony/routing";
 import { dialWithAttempt, attemptLegSeen, attemptNeedsSettlement } from "@/lib/telephony/attempts";
-import { TelephonyRequestTimeout } from "@/lib/telephony/types";
+import { TelephonyRequestTimeout, TelephonyUnsupportedError } from "@/lib/telephony/types";
 import { dueMockEvents } from "@/lib/telephony/mock";
 import { afterCallFinalized, dialLeadLeg, processProviderEvent } from "@/lib/telephony/events";
 import { getBusinessSettings, isWithinDialWindow } from "@/lib/settings";
@@ -193,7 +193,15 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
       // Usage is counted in the same transaction as the call row: a rejected / duplicate dial never counts (no double charge).
       await consumeQuota(user.businessId, "calls_started", 1, tx);
       // Caller id is chosen under the number-pool lock, in the same transaction as the call row.
-      const selection = await selectOutboundNumber(tx, { businessId: user.businessId, userId: user.id, listId, phoneNumberId: input.phoneNumberId, toE164, simulation: telephony.simulation, provider: choice.provider });
+      // A per-business provider account (e.g. Zadarma) presents the caller ID its owner approved there; Telnyx numbers
+      // are never presented through another provider. Its plan's concurrent-call limit is enforced here.
+      let selection: { number: { id: string | null; e164: string }; reason: string };
+      if (telephony.businessReadiness) {
+        const cred = await tx.telephonyProviderCredential.findUnique({ where: { businessId_provider: { businessId: user.businessId, provider: choice.provider } } });
+        if (!cred?.callerIdE164 || !cred.callerIdApprovedAt) throw new ApiError("לספק הגיבוי אין מספר יוצא מאושר", 409, "backup_caller_id_missing");
+        if (cred.maxConcurrent && await tx.call.count({ where: { businessId: user.businessId, provider: choice.provider, endedAt: null } }) >= cred.maxConcurrent) throw new ApiError("כל הקווים אצל ספק הגיבוי תפוסים – נסה שוב בעוד רגע", 409, "backup_capacity");
+        selection = { number: { id: null, e164: cred.callerIdE164 }, reason: "provider_account_caller_id" };
+      } else selection = await selectOutboundNumber(tx, { businessId: user.businessId, userId: user.id, listId, phoneNumberId: input.phoneNumberId, toE164, simulation: telephony.simulation, provider: choice.provider });
       const from = selection.number;
       const created = await tx.call.create({
         data: {
@@ -250,7 +258,7 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
   // Dial the agent leg (browser). The lead leg is dialed once the agent leg answers.
   try {
     const r = await dialWithAttempt({ businessId: call.businessId, callId: call.id, leg: "agent", provider: choice.provider, commandKey: `${call.id}-agent`, fromE164: call.fromE164 },
-      () => telephony.dialAgent({ callId: call.id, sipUsername, fromE164: call.fromE164, timeoutSeconds: 20 }));
+      () => telephony.dialAgent({ callId: call.id, businessId: call.businessId, toE164: call.toE164, sipUsername, fromE164: call.fromE164, timeoutSeconds: 20 }));
     await prisma.call.updateMany({ where: { id: call.id, status: "created", endedAt: null }, data: { status: "dialing_agent" } });
     call = await prisma.call.update({
       where: { id: call.id },
@@ -276,6 +284,10 @@ const AGENT_LEG_TIMEOUT_MS = 30_000;
 const DIAL_PENDING_RETRY_MS = 12_000;
 /** After this long without proof either way, a timed-out dial is closed and left for settlement. */
 const SETTLEMENT_AFTER_MS = 45_000;
+/** Callback providers: first look-up after this long without events; settlement after the second; give up on a live call after the third. */
+const CALLBACK_EVENTS_MS = 60_000;
+const CALLBACK_SETTLE_MS = 180_000;
+const CALLBACK_NO_END_MS = 3 * 3600_000;
 const HANGUP_GRACE_MS = 15_000;
 
 /**
@@ -305,8 +317,11 @@ export async function reconcileCall(callId: string): Promise<CallWithRefs | null
     const leg: "agent" | "lead" = call.agentLegId ? "lead" : "agent";
     const found = telephony.capabilities.legLookupByReference ? await telephony.findLegByReference({ callId: call.id, leg }) : null;
     if (found && found !== "none") {
-      await prisma.call.update({ where: { id: call.id }, data: { ...(leg === "agent" ? { agentLegId: found.legId } : { leadLegId: found.legId, leadDialedAt: new Date() }), dialPendingSince: null } });
-      await attemptLegSeen(call.id, leg, call.provider, found.legId);
+      // Callback providers: what the lookup finds is the provider's outgoing (customer) call; the request itself was the agent leg.
+      const callback = telephony.capabilities.dialModel === "callback";
+      const data = callback ? { agentLegId: call.agentLegId ?? `cb-${call.id}`, leadLegId: found.legId, leadDialedAt: new Date() } : leg === "agent" ? { agentLegId: found.legId } : { leadLegId: found.legId, leadDialedAt: new Date() };
+      await prisma.call.update({ where: { id: call.id }, data: { ...data, dialPendingSince: null } });
+      await attemptLegSeen(call.id, callback ? "agent" : leg, call.provider, found.legId);
       return prisma.call.findUnique({ where: { id: call.id }, include: CALL_INCLUDE });
     }
     if (now - call.dialPendingSince.getTime() < SETTLEMENT_AFTER_MS) return call;
@@ -314,6 +329,24 @@ export async function reconcileCall(callId: string): Promise<CallWithRefs | null
     const detail = found === "none" ? "no live leg with our reference; creation unproven" : "provider could not be queried";
     await attemptNeedsSettlement(call.id, leg, detail);
     return finalizeLocally(call.id, "failed", "provider_unconfirmed");
+  }
+
+  // 1b. Callback providers (Zadarma): the request succeeded but the provider sends events only for the customer leg.
+  //     No event → look the call up in its statistics; still unknown → close for the agent and leave it for settlement.
+  if (telephony.capabilities.dialModel === "callback" && call.agentLegId && !call.leadLegId && now - call.createdAt.getTime() > CALLBACK_EVENTS_MS) {
+    const found = telephony.capabilities.legLookupByReference ? await telephony.findLegByReference({ callId: call.id, leg: "lead" }) : null;
+    if (found && found !== "none") {
+      await prisma.call.update({ where: { id: call.id }, data: { leadLegId: found.legId, leadDialedAt: new Date(), lastEventAt: new Date() } });
+      await attemptLegSeen(call.id, "agent", call.provider, found.legId);
+      return prisma.call.findUnique({ where: { id: call.id }, include: CALL_INCLUDE });
+    }
+    if (now - call.createdAt.getTime() < CALLBACK_SETTLE_MS) return call;
+    await prisma.callAttempt.updateMany({ where: { callId: call.id, status: { in: ["requested", "uncertain", "created"] } }, data: { status: "needs_settlement", failureDetail: "callback accepted, but no call events arrived from the provider" } });
+    return finalizeLocally(call.id, "failed", "provider_unconfirmed");
+  }
+  // A callback call whose end event never came: after a long silence it is closed (the provider cannot be asked).
+  if (telephony.capabilities.dialModel === "callback" && call.leadLegId && now - (call.lastEventAt?.getTime() ?? call.createdAt.getTime()) > CALLBACK_NO_END_MS) {
+    return finalizeLocally(call.id, "ended", "provider_no_end_event");
   }
 
   // 2. Agent leg never answered within the timeout → confirm with provider, then fail.
@@ -366,6 +399,8 @@ export async function hangupCall(user: SessionUser, callId: string) {
   if (!call) throw new ApiError("שיחה לא נמצאה", 404, "not_found");
   if (call.endedAt) return call;
   const telephony = adapterFor(call.provider);
+  // Callback providers (Zadarma) cannot end a live call from the server: say so instead of pretending it was done.
+  if (!telephony.capabilities.serverHangup) throw new TelephonyUnsupportedError("בגיבוי Zadarma מנתקים בחלון הטלפון של Zadarma שבצד המסך – המערכת תעודכן אוטומטית כשהשיחה תסתיים", "hangup");
   await prisma.call.updateMany({ where: { id: callId, hangupRequestedAt: null }, data: { hangupRequestedAt: new Date() } });
   const legs = [call.leadLegId, call.agentLegId].filter(Boolean) as string[];
   if (legs.length === 0) {
@@ -388,6 +423,7 @@ export async function sendDtmf(user: SessionUser, callId: string, digits: string
   if (!/^[0-9A-D*#wW]{1,32}$/.test(digits)) throw new ApiError("תווים לא חוקיים", 400, "invalid_dtmf");
   const call = await prisma.call.findFirst({ where: { id: callId, userId: user.id } });
   if (!call || call.endedAt || !call.answeredAt || !call.leadLegId) throw new ApiError("אין שיחה פעילה שנענתה", 409, "call_not_answered");
+  if (!adapterFor(call.provider).capabilities.dtmf) throw new TelephonyUnsupportedError("בגיבוי Zadarma מקישים מקשים בחלון הטלפון של Zadarma", "dtmf");
   await adapterFor(call.provider).sendDtmf(call.leadLegId, digits, `${callId}-dtmf-${Date.now()}`);
 }
 

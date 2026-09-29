@@ -1,6 +1,6 @@
 # Telephony providers – primary (Telnyx) and backup
 
-Status 2026-09-29. **There is no active backup provider.** The code is ready for one; the only adapters today are Telnyx (real) and the simulation (never used for real calls). Production runs in simulation because the `TELNYX_*` variables are not set, so **nothing below has been verified against a live Telnyx account.**
+Status 2026-09-29. **Backup candidate: Zadarma – partial, blocked until a live test passes; see `docs/TELEPHONY_ZADARMA.md`.** Before it: The code is ready for one; the only adapters today are Telnyx (real) and the simulation (never used for real calls). Production runs in simulation because the `TELNYX_*` variables are not set, so **nothing below has been verified against a live Telnyx account.**
 
 ## 1. Existing integration (before this change)
 

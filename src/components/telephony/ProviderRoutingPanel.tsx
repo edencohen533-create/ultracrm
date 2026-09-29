@@ -11,6 +11,7 @@ import { api, ApiClientError } from "@/lib/client/api";
 import { Badge, Button, Input, Panel, Select, Spinner } from "@/components/ui";
 import { formatDateTime } from "@/lib/client/format";
 import { useT } from "@/components/i18n/LangProvider";
+import { ZadarmaSection } from "./ZadarmaSection";
 
 type Mode = "primary_only" | "manual_backup" | "auto_failover";
 interface ProviderRow {
@@ -21,7 +22,7 @@ interface ProviderRow {
 }
 interface Overview {
   featureFlag: "on" | "off"; platformDefault: string; newCallsUse: string;
-  routing: { primary: string; backup: string | null; mode: Mode; manualActive: "primary" | "backup"; breaker: { failureThreshold: number; windowSeconds: number; cooldownSeconds: number; probeCalls: number } };
+  routing: { primary: string; backup: string | null; mode: Mode; manualActive: "primary" | "backup"; breaker: { failureThreshold: number; windowSeconds: number; cooldownSeconds: number; probeCalls: number }; backupDailyCallLimit: number | null; failoverOnCapacity: boolean };
   providers: ProviderRow[];
   health: Array<{ provider: string; state: "closed" | "open" | "half_open"; failuresInWindow: number; lastFailureClass: string | null; lastFailureAt: string | null; nextProbeAt: string | null; lastSuccessAt: string | null }>;
   log: Array<{ id: string; kind: string; fromProvider: string | null; toProvider: string | null; reason: string | null; createdAt: string; actorId: string | null }>;
@@ -33,10 +34,12 @@ const REASON: Record<string, [string, string]> = {
   not_verified: ["לא מאומת – הרץ בדיקת הגדרות", "Not verified – run a configuration check"], verification_expired: ["האימות פג – הרץ בדיקה שוב", "Verification expired – check again"],
   simulation: ["הדמיה – לא ספק אמיתי", "Simulation – not a real provider"], test_only: ["לבדיקות בלבד", "Tests only"],
   agent_client_missing: ["אין לקוח דפדפן לנציג", "No agent browser client"], no_outbound: ["לא תומך בחיוג יוצא", "No outbound dialing"],
+  caller_id_not_approved: ["מספר יוצא לא אושר", "Caller ID not approved"], no_agent_extensions: ["לא הוגדרו שלוחות לנציגים", "No agent extensions"],
+  live_test_required: ["נדרשת בדיקה חיה שעברה", "A passed live test is required"], backup_daily_limit: ["הגיע למגבלה היומית", "Daily limit reached"],
 };
 const BREAKER: Record<string, [string, string, "good" | "warn" | "bad"]> = { closed: ["תקין", "Healthy", "good"], half_open: ["בודק התאוששות", "Testing recovery", "warn"], open: ["מנותק זמנית", "Tripped", "bad"] };
 const KIND: Record<string, [string, string]> = { manual: ["החלפה ידנית", "Manual switch"], auto_failover: ["מעבר אוטומטי לגיבוי", "Automatic failover"], auto_recovery: ["חזרה לראשי", "Back to primary"], policy_change: ["שינוי מדיניות", "Policy change"], breaker_open: ["מפסק נפתח", "Breaker opened"], breaker_closed: ["מפסק נסגר", "Breaker closed"] };
-const PROVIDER_LABEL: Record<string, string> = { telnyx: "Telnyx", mock: "Simulation" };
+const PROVIDER_LABEL: Record<string, string> = { telnyx: "Telnyx", mock: "Simulation", zadarma: "Zadarma" };
 
 export function ProviderRoutingPanel() {
   const t = useT();
@@ -100,9 +103,11 @@ export function ProviderRoutingPanel() {
         <Input type="number" label={t("חלון ספירה (שניות)", "Counting window (s)")} value={String(form.breaker.windowSeconds)} onChange={(e) => setForm({ ...form, breaker: { ...form.breaker, windowSeconds: Number(e.target.value) } })} />
         <Input type="number" label={t("זמן התאוששות (שניות)", "Recovery period (s)")} value={String(form.breaker.cooldownSeconds)} onChange={(e) => setForm({ ...form, breaker: { ...form.breaker, cooldownSeconds: Number(e.target.value) } })} />
         <Input type="number" label={t("שיחות ניסיון לחזרה", "Trial calls before return")} value={String(form.breaker.probeCalls)} onChange={(e) => setForm({ ...form, breaker: { ...form.breaker, probeCalls: Number(e.target.value) } })} />
+        <Input type="number" label={t("מקסימום שיחות ביום דרך הגיבוי (ריק = ללא)", "Max calls per day via backup (empty = none)")} value={form.backupDailyCallLimit == null ? "" : String(form.backupDailyCallLimit)} onChange={(e) => setForm({ ...form, backupDailyCallLimit: e.target.value ? Number(e.target.value) : null })} />
+        <label className="flex items-center gap-2 text-sm mt-6"><input type="checkbox" checked={form.failoverOnCapacity} onChange={(e) => setForm({ ...form, failoverOnCapacity: e.target.checked })} />{t("מעבר לגיבוי גם כשכל הקווים תפוסים אצל הראשי", "Fail over also when the primary is out of lines")}</label>
       </div>
       <div className="flex flex-wrap gap-2 mt-3">
-        <Button loading={busy === "save"} onClick={() => run("save", () => api.patch("/api/telephony/routing", { primaryProvider: form.primary, backupProvider: form.backup, mode: form.mode, ...form.breaker }), t("נשמר", "Saved"))} data-testid="routing-save">{t("שמירת מדיניות", "Save policy")}</Button>
+        <Button loading={busy === "save"} onClick={() => run("save", () => api.patch("/api/telephony/routing", { primaryProvider: form.primary, backupProvider: form.backup, mode: form.mode, ...form.breaker, backupDailyCallLimit: form.backupDailyCallLimit, failoverOnCapacity: form.failoverOnCapacity }), t("נשמר", "Saved"))} data-testid="routing-save">{t("שמירת מדיניות", "Save policy")}</Button>
         {d.routing.mode === "manual_backup" && (d.routing.manualActive === "primary"
           ? <Button variant="secondary" loading={busy === "switch"} onClick={() => { if (confirm(t("להעביר שיחות חדשות לספק הגיבוי? שיחות פעילות יישארו בספק שלהן.", "Send new calls to the backup provider? Active calls stay on their provider."))) void run("switch", () => api.patch("/api/telephony/routing", { manualActive: "backup" }), t("שיחות חדשות עוברות לגיבוי", "New calls now use the backup")); }} data-testid="routing-to-backup">{t("העבר שיחות חדשות לגיבוי", "Send new calls to backup")}</Button>
           : <Button variant="secondary" loading={busy === "switch"} onClick={() => run("switch", () => api.patch("/api/telephony/routing", { manualActive: "primary" }), t("חזרה לספק הראשי", "Back to primary"))} data-testid="routing-to-primary">{t("חזור לספק הראשי", "Return to primary")}</Button>)}
@@ -118,6 +123,8 @@ export function ProviderRoutingPanel() {
             <Button size="sm" variant="ghost" loading={busy === a.id} onClick={() => run(a.id, () => api.post("/api/telephony/routing/settle", { attemptId: a.id, resolution: "call_happened" }))}>{t("השיחה התקיימה", "The call happened")}</Button></li>)}</ul>
         </div>
       )}
+
+      <ZadarmaSection />
 
       <div className="mt-4">
         <h4 className="text-sm font-semibold">{t("יומן מעברים", "Switch log")}</h4>

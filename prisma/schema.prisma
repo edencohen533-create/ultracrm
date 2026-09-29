@@ -162,6 +162,7 @@ enum OutcomeKey {
 enum TelephonyProvider {
   mock
   telnyx
+  zadarma
 }
 
 /// How new calls pick a provider. Calls that already exist always stay on the provider that created them.
@@ -193,6 +194,7 @@ enum TelephonyFailureClass {
   auth
   invalid_request
   timeout
+  capacity
   unknown
 }
 
@@ -364,6 +366,8 @@ model Business {
   telephonyRouting  TelephonyRouting?
   telephonyHealth   TelephonyProviderHealth[]
   telephonySwitches TelephonySwitchLog[]
+  telephonyCredentials TelephonyProviderCredential[]
+  telephonyAgentEndpoints TelephonyAgentEndpoint[]
   callAttempts      CallAttempt[]
   salesOffers SalesOffer[]
   salesQuotes SalesQuote[]
@@ -2902,6 +2906,10 @@ model TelephonyRouting {
   windowSeconds    Int                  @default(120) @map("window_seconds")
   cooldownSeconds  Int                  @default(300) @map("cooldown_seconds")
   probeCalls       Int                  @default(3) @map("probe_calls")
+  /// Cost / usage guard: at most this many NEW calls per day through the backup (null = no limit).
+  backupDailyCallLimit Int?             @map("backup_daily_call_limit")
+  /// Temporary capacity limits (line / channel limits) count toward failover only when this is on.
+  failoverOnCapacity   Boolean          @default(false) @map("failover_on_capacity")
   updatedById      String?              @map("updated_by_id")
   updatedAt        DateTime             @updatedAt @map("updated_at")
 
@@ -2922,6 +2930,9 @@ model TelephonyProviderHealth {
   nextProbeAt       DateTime?              @map("next_probe_at")
   probeSuccesses    Int                    @default(0) @map("probe_successes")
   probesStarted     Int                    @default(0) @map("probes_started")
+  /// Anti-flapping: consecutive trips and the last close (cooldown doubles on a quick re-trip).
+  trips             Int                    @default(0)
+  closedAt          DateTime?              @map("closed_at")
   lastFailureClass  TelephonyFailureClass? @map("last_failure_class")
   lastFailureDetail String?                @map("last_failure_detail")
   lastFailureAt     DateTime?              @map("last_failure_at")
@@ -2943,6 +2954,9 @@ model TelephonySwitchLog {
   kind         String
   reason       String?
   actorId      String?            @map("actor_id")
+  /// Manager alert for this switch (in-app = this row; WhatsApp to linked managers), sent once.
+  notifiedAt   DateTime?          @map("notified_at")
+  delivery     Json?
   createdAt    DateTime           @default(now()) @map("created_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -2996,4 +3010,56 @@ model TelephonyProviderAccount {
 
   @@unique([provider, accountRef])
   @@map("telephony_provider_accounts")
+}
+
+/// A business's own account at a telephony provider (e.g. Zadarma). Secrets are sealed (AES-GCM, ENCRYPTION_KEY) and
+/// never returned to the browser. The row id is the opaque account id in the provider's webhook URL.
+model TelephonyProviderCredential {
+  id                   String            @id @default(cuid())
+  businessId           String            @map("business_id")
+  provider             TelephonyProvider
+  /// Sealed JSON { apiKey, apiSecret }.
+  secrets              String
+  sandbox              Boolean           @default(false)
+  /// Outgoing caller ID shown to customers, and how it was approved (a number bought at this provider, or an external
+  /// number the provider verified). Never used before an owner approves it.
+  callerIdE164         String?           @map("caller_id_e164")
+  callerIdSource       String?           @map("caller_id_source")
+  callerIdApprovedAt   DateTime?         @map("caller_id_approved_at")
+  callerIdApprovedById String?           @map("caller_id_approved_by_id")
+  /// Numbers the owner approved for a live (paid) test call. Customers are never used for tests.
+  testNumbers          String[]          @default([]) @map("test_numbers")
+  /// Concurrent calls the account's plan allows (entered from the provider plan; enforced before dialing).
+  maxConcurrent        Int?              @map("max_concurrent")
+  lastCheckAt          DateTime?         @map("last_check_at")
+  lastCheckOk          Boolean?          @map("last_check_ok")
+  lastCheckDetail      Json?             @map("last_check_detail")
+  /// Set when a live test call produced the provider's call events end to end. Required before real traffic.
+  liveTestPassedAt     DateTime?         @map("live_test_passed_at")
+  liveTestCallId       String?           @map("live_test_call_id")
+  updatedById          String?           @map("updated_by_id")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, provider])
+  @@map("telephony_provider_credentials")
+}
+
+/// An agent's address at a provider that is not Telnyx (e.g. a Zadarma PBX extension "101").
+model TelephonyAgentEndpoint {
+  id         String            @id @default(cuid())
+  businessId String            @map("business_id")
+  userId     String            @map("user_id")
+  provider   TelephonyProvider
+  extension  String
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@unique([businessId, provider, extension])
+  @@map("telephony_agent_endpoints")
 }

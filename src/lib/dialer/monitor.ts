@@ -16,6 +16,7 @@ import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 import { adapterFor } from "@/lib/telephony";
 import { dialWithAttempt } from "@/lib/telephony/attempts";
+import { TelephonyUnsupportedError } from "@/lib/telephony/types";
 import { assertCanSeeUser, type SessionUser } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 
@@ -42,6 +43,8 @@ export async function startMonitor(user: SessionUser, callId: string) {
   if (!call.answeredAt) throw new ApiError("ניתן להצטרף רק אחרי שהלקוח ענה", 409, "call_not_answered");
   // The supervisor joins the conference of the provider that carries the call.
   const telephony = adapterFor(call.provider);
+  // Zadarma has no listen / whisper API (only the 007 code dialled from a supervisor's own phone).
+  if (!telephony.capabilities.supervisorMonitor) throw new TelephonyUnsupportedError("האזנה ולחישה אינן זמינות בשיחה שעוברת דרך ספק הגיבוי Zadarma", "supervisor");
   if (!telephony.simulation && !call.conferenceId) throw new ApiError("השיחה אינה ב-Conference – לא ניתן להצטרף", 409, "no_conference");
 
   const sipUsername = await telephony.agentAddress(user.id);

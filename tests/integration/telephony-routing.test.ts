@@ -16,6 +16,7 @@ import { __setTestAdapters } from "@/lib/telephony/registry";
 import { chooseProviderForNewCall } from "@/lib/telephony/routing";
 import { routingOverview, saveRouting, settleAttempt } from "@/server/services/telephony-admin-service";
 import { TelephonyProviderError, TelephonyRequestTimeout, type ProviderEvent, type TelephonyAdapter } from "@/lib/telephony/types";
+import type { TelephonyProvider } from "@/generated/prisma/enums";
 
 type FakeMode = "ok" | "down" | "timeout" | "auth" | "rate";
 interface Fake { adapter: TelephonyAdapter; mode: FakeMode; dials: string[]; hangups: string[]; lookup: "none" | "found" | null }
@@ -30,7 +31,7 @@ function fake(name: "telnyx" | "mock", agentClient: TelephonyAdapter["capabiliti
   };
   f.adapter = {
     name, simulation: false, testOnly: true,
-    capabilities: { outboundDial: true, inboundCalls: true, conference: true, supervisorMonitor: true, recording: true, answeringMachineDetection: true, dtmf: true, agentClient, legLookupByReference: true },
+    capabilities: { outboundDial: true, inboundCalls: true, conference: true, supervisorMonitor: true, recording: true, answeringMachineDetection: true, dtmf: true, agentClient, legLookupByReference: true, dialModel: "agent_then_lead", serverHangup: true },
     configStatus: () => ({ configured: true, missing: [], accountRef: `fake-${name}` }),
     verifyConfig: async () => [{ name: "fake", ok: true }],
     agentAddress: async (userId) => `${name}-sip-${userId.slice(-6)}`,
@@ -59,10 +60,10 @@ const run = <T,>(user: SessionUser, fn: () => Promise<T>) => withBusiness(user.b
 let seq = 0;
 const contact = async (businessId = a.business.id) => { seq++; return db.contact.create({ data: { businessId, fullName: `Lead ${seq}`, phoneE164: `+9725${String(40000000 + Date.now() % 1000000 * 10 + seq).slice(-8)}`, phoneRaw: "x" } }); };
 const dial = (user: SessionUser, contactId: string, extra: Partial<Parameters<typeof startCall>[1]> = {}) => run(user, () => startCall(user, { idempotencyKey: crypto.randomUUID(), mode: "manual", contactId, ...extra }));
-const ev = (call: { id: string; provider: "telnyx" | "mock" }, id: string, type: ProviderEvent["type"], leg: "agent" | "lead", extra: Partial<ProviderEvent> = {}): ProviderEvent => ({ provider: call.provider, eventId: `${call.id}:${id}`, type, legId: `${call.provider}-${leg}-${call.id}`, callId: call.id, leg, occurredAt: new Date(), raw: {}, ...extra });
+const ev = (call: { id: string; provider: TelephonyProvider }, id: string, type: ProviderEvent["type"], leg: "agent" | "lead", extra: Partial<ProviderEvent> = {}): ProviderEvent => ({ provider: call.provider, eventId: `${call.id}:${id}`, type, legId: `${call.provider}-${leg}-${call.id}`, callId: call.id, leg, occurredAt: new Date(), raw: {}, ...extra });
 const setRouting = (businessId: string, data: Record<string, unknown>) => db.telephonyRouting.upsert({ where: { businessId }, create: { businessId, ...data }, update: data });
 /** Close a call cleanly so the agent is free for the next test. */
-const finish = async (call: { id: string; provider: "telnyx" | "mock"; userId: string }) => {
+const finish = async (call: { id: string; provider: TelephonyProvider; userId: string }) => {
   await processProviderEvent(ev(call, `h-${crypto.randomUUID()}`, "leg.hangup", "agent", { hangupCause: "normal_clearing" }));
   await db.call.updateMany({ where: { id: call.id }, data: { outcomeSavedAt: new Date(), endedAt: new Date(), activeForUser: null } });
 };

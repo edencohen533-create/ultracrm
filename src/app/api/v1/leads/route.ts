@@ -1,3 +1,6 @@
+import { assertAccess } from "@/lib/access/engine";
+import { visibleUserIds } from "@/lib/auth";
+import { ownerScope } from "@/lib/crm/access";
 import { z } from "zod";
 import { ok, handleError, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
@@ -56,11 +59,15 @@ export async function GET(req: Request) {
     const a = await authenticateApiKey(req);
     const url = new URL(req.url);
     const since = url.searchParams.get("since"); const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 50));
-    const items = await withBusiness(a.business.id, () => prisma.lead.findMany({
-      where: { businessId: a.business.id, ...(since && !Number.isNaN(Date.parse(since)) ? { createdAt: { gt: new Date(since) } } : {}) },
+    // Listing leads is an export: the key's creator needs crm.export, and sees only the leads their role scope allows.
+    const items = await withBusiness(a.business.id, async () => {
+      await assertAccess(a.session, "crm.export");
+      const scope = ownerScope(await visibleUserIds(a.session));
+      return prisma.lead.findMany({
+      where: { businessId: a.business.id, ...scope, ...(since && !Number.isNaN(Date.parse(since)) ? { createdAt: { gt: new Date(since) } } : {}) },
       orderBy: { createdAt: "desc" }, take: limit,
       select: { id: true, status: true, source: true, title: true, createdAt: true, owner: { select: { id: true, fullName: true, email: true } }, contact: { select: { id: true, fullName: true, phoneE164: true, email: true } } },
-    }), a.session);
+    }); }, a.session);
     return ok({ items });
   } catch (e) { return handleError(e); }
 }

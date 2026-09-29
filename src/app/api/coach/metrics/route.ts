@@ -39,4 +39,4 @@ export const GET = withAuth(async ({ req, user }) => {
     dealOutcomesOfCoachedLeads: Object.fromEntries(deals.map((d) => [d.status, d._count._all])),
     note: "מדדי שימוש נמדדים בלבד. תוצאות העסקאות מוצגות ללא טענה סיבתית – אין קבוצת ביקורת.",
   });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

@@ -1,4 +1,4 @@
-import { sharesPool } from "@/lib/crm/access";
+import { ownerScope, sharesPool } from "@/lib/crm/access";
 import { withAuth } from "@/lib/api";
 import { ok } from "@/lib/response";
 import { prisma } from "@/lib/db";
@@ -53,9 +53,10 @@ export const GET = withAuth(async ({ user }) => {
       })()
     : null;
   const [recentLeads, myTasks, recentEvents] = await Promise.all([
-    prisma.lead.findMany({ where: { businessId, ...(userScope ? { OR: [{ ownerUserId: userScope }, { ownerUserId: null }] } : {}) }, orderBy: { createdAt: "desc" }, take: 6, include: { contact: { select: { id: true, fullName: true, phoneE164: true } }, owner: { select: { fullName: true } } } }),
+    prisma.lead.findMany({ where: { businessId, ...ownerScope(ids) }, orderBy: { createdAt: "desc" }, take: 6, include: { contact: { select: { id: true, fullName: true, phoneE164: true } }, owner: { select: { fullName: true } } } }),
     prisma.task.findMany({ where: { businessId, status: "open", ...(userScope ? { userId: userScope } : {}) }, orderBy: { dueAt: "asc" }, take: 8, include: { contact: { select: { id: true, fullName: true, phoneE164: true } }, user: { select: { fullName: true } } } }),
-    prisma.domainEvent.findMany({ where: { businessId }, orderBy: { occurredAt: "desc" }, take: 8, select: { id: true, type: true, occurredAt: true, status: true, source: true, contact: { select: { id: true, fullName: true } } } }),
+    // The business-wide activity feed is for users who see the whole business.
+    ids ? Promise.resolve([]) : prisma.domainEvent.findMany({ where: { businessId }, orderBy: { occurredAt: "desc" }, take: 8, select: { id: true, type: true, occurredAt: true, status: true, source: true, contact: { select: { id: true, fullName: true } } } }),
   ]);
   return ok({
     modules: ent.modules,

@@ -485,6 +485,9 @@ model Account {
   sessionVersion  Int       @default(0) @map("session_version")
   /// Platform (not business) administrator: manages packages and business entitlements. Never grantable from a business.
   isPlatformAdmin Boolean   @default(false) @map("is_platform_admin")
+  /// When the person set their own password (invite accepted / self change). Null = created by an invite nobody
+  /// accepted yet – its password is unusable, and whoever holds a valid invite link sets it.
+  claimedAt       DateTime? @map("claimed_at")
   lastLoginAt     DateTime? @map("last_login_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -506,6 +509,10 @@ model User {
   role          UserRole       @default(agent)
   teamId        String?        @map("team_id")
   isActive      Boolean        @default(true) @map("is_active")
+  /// Pending invitation: the membership stays inactive until the person accepts the one-time link.
+  inviteTokenHash String?      @unique @map("invite_token_hash")
+  inviteExpiresAt DateTime?    @map("invite_expires_at")
+  invitedAt       DateTime?    @map("invited_at")
   /// Personal mobile (E.164) – new-lead WhatsApp notifications are sent here.
   personalPhone String?        @map("personal_phone")
   crmSettings   Json?          @map("crm_settings")

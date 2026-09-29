@@ -5,6 +5,7 @@
  */
 import type { TelephonyProvider as ProviderName } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+import type { SessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 import { adapterFor, knownProviders, platformDefaultProvider, realCallBlocker } from "@/lib/telephony/registry";
@@ -63,10 +64,13 @@ export async function saveRouting(businessId: string, actorId: string, patch: Pa
 }
 
 /** Read-only account check (no calls, no purchases). The result is platform-level: one provider account. */
-export async function checkProvider(provider: ProviderName, businessId: string) {
+export async function checkProvider(provider: ProviderName, businessId: string, user?: SessionUser) {
   const a = adapterFor(provider);
   // Per-business accounts (Zadarma) are checked against the business's own credentials.
   if (a.businessReadiness) { const { checkZadarma } = await import("./zadarma-admin-service"); return { provider, ...(await checkZadarma(businessId)) }; }
+  // A platform-level account (Telnyx, shared by every business) is re-checked only by a platform admin: its stored
+  // result gates real calls for all businesses.
+  if (user && !a.testOnly) { const { requirePlatformAdmin } = await import("@/lib/access/manage"); await requirePlatformAdmin(user); }
   if (a.simulation && !a.testOnly) return { provider, ok: false, checks: [{ name: "simulation", ok: false, detail: "simulation adapter – never a real provider" }] };
   const checks = await a.verifyConfig();
   const ok = checks.length > 0 && checks.every((c) => c.ok);

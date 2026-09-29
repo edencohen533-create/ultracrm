@@ -1,3 +1,4 @@
+import type { SessionUser } from "@/lib/auth";
 /**
  * Lead queue: atomic claim (FOR UPDATE SKIP LOCKED), lock renewal, release,
  * skip and outcome application. All operations are business-scoped.
@@ -356,9 +357,15 @@ export async function listQueueStats(listId: string) {
 }
 
 /** Manager: move a held/pending lead to another agent (sets preference, releases any lock, audited). */
-export async function transferLead(businessId: string, actorId: string, leadId: string, toUserId: string | null, note?: string) {
+export async function transferLead(businessId: string, actorId: string, leadId: string, toUserId: string | null, note?: string, actor?: SessionUser) {
   const lead = await prisma.listLead.findFirst({ where: { id: leadId, businessId } });
   if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
+  // A team-scoped manager moves only leads held by / preferred for agents they see, and only to such agents.
+  if (actor) {
+    const { assertCanSeeUser } = await import("@/lib/auth");
+    for (const holder of [lead.lockedByUserId, lead.preferredUserId]) if (holder) await assertCanSeeUser(actor, holder);
+    if (toUserId) await assertCanSeeUser(actor, toUserId);
+  }
   if (lead.status === "in_call") throw new ApiError("לא ניתן להעביר ליד בזמן שיחה", 409, "call_active");
   if (toUserId) {
     const u = await prisma.user.findFirst({ where: { id: toUserId, businessId, isActive: true } });

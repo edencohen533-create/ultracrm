@@ -206,7 +206,13 @@ export async function createContact(user: SessionUser, input: ContactInput) {
 
 /** Agents may edit contacts they own, hold in a dial list or have called; managers/owners edit all. */
 export async function assertCanEditContact(user: SessionUser, contact: { id: string; ownerUserId: string | null }) {
-  if (user.role !== "agent" || contact.ownerUserId === user.id) return;
+  if (contact.ownerUserId === user.id) return;
+  if (user.role !== "agent") {
+    // Owners and business-scoped managers edit everything; a team-scoped manager only contacts their team can see.
+    const { canAccessContact } = await import("./lead-ops");
+    if (!(await canAccessContact(user, contact))) throw new ApiError("אין הרשאה לערוך איש קשר של צוות אחר", 403, "forbidden");
+    return;
+  }
   // An agent whose lead was transferred away (or whose contact belongs to another agent) cannot edit it any more.
   const { canAccessContact } = await import("./lead-ops");
   if (!(await canAccessContact(user, contact))) throw new ApiError("אין הרשאה לערוך איש קשר זה", 403, "forbidden");

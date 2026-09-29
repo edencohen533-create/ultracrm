@@ -12,6 +12,7 @@
  * events only for calls that are still live / recent.
  */
 import { prisma } from "@/lib/db";
+import { withBusiness } from "@/lib/tenant";
 import { processProviderEvent } from "./events";
 import { recordProviderResult } from "./routing";
 import { mapDisposition, verifyZadarmaWebhook, zadarmaAccount, zadarmaNumber } from "./zadarma";
@@ -44,7 +45,8 @@ export async function handleZadarmaWebhook(accountId: string, fields: Record<str
   const call = await findCall(cred.businessId, fields);
   if (!call) return { status: 200, body: { matched: false } };
   const pbx = fields.pbx_call_id ?? "";
-  const base = `${event}:${pbx}:${fields.call_start ?? ""}`;
+  // Event ids are global per provider: prefixing the account keeps one business from pre-empting another's ids.
+  const base = `${cred.id}:${event}:${pbx}:${fields.call_start ?? ""}`;
   const mk = (suffix: string, type: ProviderEvent["type"], leg: "agent" | "lead", extra: Partial<ProviderEvent> = {}): ProviderEvent => ({
     provider: "zadarma", eventId: `${base}:${suffix}`, type, leg, callId: call.id, legId: leg === "agent" ? call.agentLegId ?? `zd-cb-${call.id}` : pbx, raw: fields, occurredAt: new Date(), ...extra,
   });
@@ -60,10 +62,13 @@ export async function handleZadarmaWebhook(accountId: string, fields: Record<str
     events.push(mk("hangup", "leg.hangup", "lead", { hangupCause: d.hangupCause, hangupSource: "zadarma" }));
     if (d.failure) await recordProviderResult(cred.businessId, "zadarma", { ok: false, failureClass: d.failure, detail: `disposition ${fields.disposition}` });
   } else {
+    // A recording id already bound to another call (any business) is never re-bound.
+    if (fields.call_id_with_rec && await prisma.call.findFirst({ where: { provider: "zadarma", recordingId: fields.call_id_with_rec, id: { not: call.id } }, select: { id: true } })) return { status: 200, body: { ignored: "recording id in use" } };
     events.push(mk("record", "recording.saved", "lead", { recordingId: fields.call_id_with_rec }));
   }
   let duplicates = 0;
-  for (const ev of events) if ((await processProviderEvent(ev)).duplicate) duplicates++;
+  // Applied inside this business's scope: the database's row-level security covers everything the event touches.
+  await withBusiness(cred.businessId, async () => { for (const ev of events) if ((await processProviderEvent(ev)).duplicate) duplicates++; });
   // A live test call whose end event arrived proves the events reach us end to end.
   if (event === "NOTIFY_OUT_END" && call.routingNote === "zadarma_live_test") {
     await prisma.telephonyProviderCredential.update({ where: { id: cred.id }, data: { liveTestPassedAt: new Date(), liveTestCallId: call.id } });

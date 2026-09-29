@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const GET = withAuth(async () => {
   const items = await prisma.apiKey.findMany({ orderBy: { createdAt: "desc" }, select: { id: true, name: true, prefix: true, lastUsedAt: true, revokedAt: true, createdAt: true } });
   return ok({ items });
-}, { minRole: "manager" });
+}, { minRole: "owner" });
 
 /** Creates a key and returns it ONCE (only its hash is stored). */
 export const POST = withAuth(async ({ req, user }) => {
@@ -18,4 +18,4 @@ export const POST = withAuth(async ({ req, user }) => {
   const k = await createApiKey(user, b.name);
   await audit(user.businessId, user.id, "api_key", k.id, "api_key.created", { name: k.name, prefix: k.prefix });
   return ok(k, 201);
-}, { minRole: "manager" });
+}, { minRole: "owner" });

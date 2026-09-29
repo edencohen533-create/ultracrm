@@ -20,7 +20,7 @@ const schema = z.object({
 });
 
 /** Business knowledge the coach may rely on. Managers edit; agents never see the raw editor (the model uses it server-side). */
-export const GET = withAuth(async ({ user }) => ok(knowledgeView(await prisma.coachKnowledge.findUnique({ where: { businessId: user.businessId } }))), { minRole: "manager" });
+export const GET = withAuth(async ({ user }) => ok(knowledgeView(await prisma.coachKnowledge.findUnique({ where: { businessId: user.businessId } }))), { minRole: "manager", module: "telephony" });
 
 export const PUT = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, schema);
@@ -28,4 +28,4 @@ export const PUT = withAuth(async ({ req, user }) => {
   const row = await prisma.coachKnowledge.upsert({ where: { businessId: user.businessId }, update: data, create: { ...(b as unknown as Omit<Prisma.CoachKnowledgeUncheckedCreateInput, "businessId">), businessId: user.businessId, updatedById: user.id } });
   await audit(user.businessId, user.id, "coach", row.id, "coach.knowledge_updated", { fields: Object.keys(b) });
   return ok(knowledgeView(row));
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

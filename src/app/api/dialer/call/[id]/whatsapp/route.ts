@@ -1,3 +1,4 @@
+import { assertCanSeeUser } from "@/lib/auth";
 import crypto from "node:crypto";
 import { z } from "zod";
 import { withAuth, parseBody } from "@/lib/api";
@@ -22,7 +23,9 @@ const schema = z.object({
  */
 export const POST = withAuth(async ({ req, user, params }) => {
   const b = await parseBody(req, schema);
-  const call = await prisma.call.findFirst({ where: { id: params.id, businessId: user.businessId, ...(user.role === "agent" ? { userId: user.id } : {}) }, select: { id: true, contactId: true } });
+  const call = await prisma.call.findFirst({ where: { id: params.id, businessId: user.businessId, ...(user.role === "agent" ? { userId: user.id } : {}) }, select: { id: true, contactId: true, userId: true } });
+  // A team-scoped manager may act only on calls of agents they can see.
+  if (call && user.role !== "agent") await assertCanSeeUser(user, call.userId);
   if (!call?.contactId) throw new ApiError("השיחה לא נמצאה", 404, "not_found");
   const tpl = await prisma.template.findFirst({ where: { id: b.templateId, businessId: user.businessId, channel: "whatsapp", status: "APPROVED", internal: false }, select: { id: true, name: true } });
   if (!tpl) throw new ApiError("התבנית אינה מאושרת או לא נמצאה", 400, "template_not_approved");

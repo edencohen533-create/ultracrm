@@ -13,6 +13,7 @@ import { ExhaustionPreview } from "@/components/dialer/ExhaustionPreview";
 import { PlanOverview } from "@/components/access/PlanOverview";
 import { AccessMatrix } from "@/components/access/AccessMatrix";
 import { useT } from "@/components/i18n/LangProvider";
+import { ProviderRoutingPanel } from "@/components/telephony/ProviderRoutingPanel";
 
 type Tab = "account" | "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "coach" | "assistant" | "permissions" | "access";
 interface Prio { callbackDue: number; priority: number; newLeadPerHour: number; newLeadMaxHours: number; agingPerHour: number; agingMaxHours: number; attemptPenalty: number; ownerMatch: number; sourceWeights: Record<string, number>; interestedBefore: number }
@@ -384,6 +385,7 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
         </ul>
       </Panel>
       {modules.telephony && <TelephonyTab />}
+      {modules.telephony && <ProviderRoutingPanel />}
     </div>
   );
 }

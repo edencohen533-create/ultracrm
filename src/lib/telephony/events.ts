@@ -6,7 +6,8 @@ import { lockAgent } from "@/lib/dialer/locking";
 import { Prisma } from "@/generated/prisma/client";
 import type { CallStatus, TelephonyResult } from "@/generated/prisma/enums";
 import { prisma, dbSchema } from "@/lib/db";
-import { getTelephony } from "@/lib/telephony";
+import { adapterFor, knownProviders } from "@/lib/telephony/registry";
+import { attemptLegSeen, dialWithAttempt } from "@/lib/telephony/attempts";
 import { TelephonyRequestTimeout } from "@/lib/telephony/types";
 import type { ProviderEvent } from "@/lib/telephony/types";
 import { getBusinessSettings } from "@/lib/settings";
@@ -83,7 +84,7 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
       // A webhook may be the only evidence of the leg when the dial request times out.
       const fresh = await prisma.callMonitor.update({ where: { id: monitor.id }, data: { legId: ev.legId }, include: { call: { select: { endedAt: true } } } });
       if ((fresh.endedAt || fresh.call.endedAt) && ev.type !== "leg.hangup" && ev.type !== "conference.left") {
-        await getTelephony().hangupLeg(ev.legId, `${monitor.id}-hangup-supervisor`);
+        await adapterFor(ev.provider).hangupLeg(ev.legId, `${monitor.id}-hangup-supervisor`);
         await markMonitorEnded(monitor.id, "late_supervisor_leg");
       } else if (ev.type === "conference.joined") await markMonitorJoined(monitor.id);
       else if (ev.type === "leg.hangup" || ev.type === "conference.left") await markMonitorEnded(monitor.id, ev.hangupCause ?? "supervisor_left");
@@ -92,10 +93,15 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
     }
   }
 
-  // 2. Resolve the call – by echoed client state first, then by leg id.
-  const call =
-    (ev.callId ? await prisma.call.findUnique({ where: { id: ev.callId } }) : null) ??
-    (await prisma.call.findFirst({ where: { OR: [{ agentLegId: ev.legId }, { leadLegId: ev.legId }] } }));
+  // 2. Resolve the call – by echoed client state first, then by leg id. Only a call of THIS provider can match:
+  //    an event can never attach to (or be steered into) a call another provider created.
+  const byState = ev.callId ? await prisma.call.findUnique({ where: { id: ev.callId } }) : null;
+  if (byState && byState.provider !== ev.provider) {
+    console.warn("[events] event references a call of another provider – ignored", { provider: ev.provider, callId: ev.callId });
+    await prisma.telephonyEvent.update({ where: { provider_providerEventId: { provider: ev.provider, providerEventId: ev.eventId } }, data: { processedAt: new Date() } });
+    return { duplicate: false, callId: null };
+  }
+  const call = byState ?? (await prisma.call.findFirst({ where: { provider: ev.provider, OR: [{ agentLegId: ev.legId }, { leadLegId: ev.legId }] } }));
   if (!call) {
     // A brand-new incoming leg with no client_state = a customer calling one of our numbers.
     let routed: { id: string; businessId: string } | null = null;
@@ -149,7 +155,8 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
           data.status = forward(c.status, "answered");
         } else {
           data.status = forward(c.status, "agent_connected");
-          if (!c.leadLegId && !c.hangupRequestedAt) action = "dial_lead";
+          // Callback providers dial the customer themselves once the agent answers.
+          if (!c.leadLegId && !c.hangupRequestedAt && adapterFor(c.provider).capabilities.dialModel !== "callback") action = "dial_lead";
         }
       } else if (ev.type === "leg.hangup") {
         if (c.leadLegId && !c.endedAt) {
@@ -232,9 +239,11 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
   });
 
   if (!outcome) return { duplicate: false, callId: call.id };
+  // A webhook is proof the leg exists – this settles an attempt whose HTTP response timed out.
+  if (leg && ev.type !== "recording.saved") await attemptLegSeen(call.id, leg, ev.provider, ev.legId);
 
   // 4. Side effects outside the transaction.
-  const telephony = getTelephony();
+  const telephony = adapterFor(call.provider);
   if (outcome.action === "dial_lead") {
     await dialLeadLeg(outcome.c.id);
   } else if (outcome.action === "setup_inbound") {
@@ -263,8 +272,9 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
 export async function dialLeadLeg(callId: string) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: { business: { select: { settings: true } } } });
   if (!call || call.endedAt || call.leadLegId || !call.agentLegId || call.hangupRequestedAt) return;
+  const telephony = adapterFor(call.provider);
+  if (telephony.capabilities.dialModel === "callback") return; // the provider dials the customer itself
   const settings = await getBusinessSettings(call.businessId);
-  const telephony = getTelephony();
   try {
     // The answered agent leg becomes the first participant of a conference so supervisors can join later.
     let conferenceId = call.conferenceId;
@@ -272,16 +282,17 @@ export async function dialLeadLeg(callId: string) {
       conferenceId = await telephony.createConference(call.agentLegId, call.id, `${call.id}-conf`);
       await prisma.call.update({ where: { id: call.id }, data: { conferenceId } });
     }
-    const r = await telephony.dialLead({
+    const agentLegId = call.agentLegId;
+    const r = await dialWithAttempt({ businessId: call.businessId, callId: call.id, leg: "lead", provider: call.provider, commandKey: `${call.id}-lead`, fromE164: call.fromE164, toE164: call.toE164 }, () => telephony.dialLead({
       callId: call.id,
-      agentLegId: call.agentLegId,
+      agentLegId,
       conferenceId,
       toE164: call.toE164,
       fromE164: call.fromE164,
       timeoutSeconds: settings.ringTimeoutSeconds,
       record: settings.recordingEnabled,
       amd: settings.amdEnabled,
-    });
+    }));
     await prisma.call.updateMany({ where: { id: call.id, endedAt: null, status: { in: ["created", "dialing_agent", "agent_connected"] } }, data: { status: "dialing_lead" } });
     await prisma.call.update({
       where: { id: call.id },
@@ -295,8 +306,8 @@ export async function dialLeadLeg(callId: string) {
     });
   } catch (err) {
     if (err instanceof TelephonyRequestTimeout) {
-      // The provider may or may not have created the leg. Do NOT re-dial blindly:
-      // reconciliation waits for a webhook, then retries with the same command_id.
+      // The provider may or may not have created the leg (the customer may be ringing). Never re-dial:
+      // reconciliation waits for a webhook, then looks the leg up by reference, else stops for settlement.
       await prisma.call.update({ where: { id: call.id }, data: { dialPendingSince: new Date() } });
       return;
     }
@@ -314,13 +325,16 @@ export async function dialLeadLeg(callId: string) {
   }
 }
 
+/** Hold before a lead whose last dial was never confirmed by the provider can be dialed again. */
+export const UNCONFIRMED_HOLD_MINUTES = 60;
+
 /** Runs once a call reached a terminal state: tear down the agent leg, move the lead to wrap-up, update presence. */
 export async function afterCallFinalized(callId: string) {
   const call = await prisma.call.findUnique({ where: { id: callId } });
   if (!call) return;
   await endMonitorsForCall(callId, "call_ended");
-  const telephony = getTelephony();
-  if (!telephony.simulation) {
+  const telephony = adapterFor(call.provider);
+  if (!telephony.simulation && telephony.capabilities.serverHangup) {
     // Tear down whatever may still be alive at the provider (a leg that already ended returns 422 – ignored).
     for (const [leg, tag] of [[call.agentLegId, "agent"], [call.leadLegId, "lead"]] as const) {
       if (!leg) continue;
@@ -341,17 +355,19 @@ export async function afterCallFinalized(callId: string) {
     // the attempt is not counted and the lead returns to the queue after a short delay.
     const technicalFailure = currentCall.status === "failed" && !currentCall.ringingAt && !currentCall.answeredAt && !currentCall.outcomeSavedAt;
     if (technicalFailure) {
+      // A dial the provider never confirmed or denied is held longer: a redial must not overlap a leg that may exist.
+      const retryMinutes = currentCall.failureReason === "provider_unconfirmed" ? Math.max(settings.technicalFailureRetryMinutes, UNCONFIRMED_HOLD_MINUTES) : settings.technicalFailureRetryMinutes;
       await tx.call.update({ where: { id: currentCall.id }, data: { outcomeSavedAt: new Date(), outcomeNote: `כשל טכני: ${currentCall.failureReason ?? currentCall.hangupCause ?? "unknown"}` } });
       if (currentCall.leadId) {
         const retryLead = await tx.listLead.findUnique({ where: { id: currentCall.leadId }, select: { followUpAttempts: true } });
         await tx.listLead.updateMany({
           where: { id: currentCall.leadId, lockedByUserId: currentCall.userId },
-          data: { status: "pending", attempts: { decrement: 1 }, ...(retryLead?.followUpAttempts != null ? { followUpAttempts: Math.max(0, retryLead.followUpAttempts - 1) } : {}), nextAttemptAt: new Date(Date.now() + settings.technicalFailureRetryMinutes * 60_000), lockedByUserId: null, lockToken: null, lockExpiresAt: null },
+          data: { status: "pending", attempts: { decrement: 1 }, ...(retryLead?.followUpAttempts != null ? { followUpAttempts: Math.max(0, retryLead.followUpAttempts - 1) } : {}), nextAttemptAt: new Date(Date.now() + retryMinutes * 60_000), lockedByUserId: null, lockToken: null, lockExpiresAt: null },
         });
       }
       await tx.user.updateMany({ where: { id: currentCall.userId, presence: "in_call" }, data: { presence: "available", presenceAt: new Date() } });
       const { audit } = await import("@/lib/audit");
-      await audit(currentCall.businessId, null, "automation", currentCall.id, "automation.technical_failure_requeued", { trigger: "call.failed", leadId: currentCall.leadId, retryMinutes: settings.technicalFailureRetryMinutes, reason: currentCall.failureReason, result: "ok" }, tx);
+      await audit(currentCall.businessId, null, "automation", currentCall.id, "automation.technical_failure_requeued", { trigger: "call.failed", leadId: currentCall.leadId, retryMinutes, reason: currentCall.failureReason, result: "ok" }, tx);
       return;
     }
     if (currentCall.leadId) {
@@ -372,4 +388,22 @@ export async function afterCallFinalized(callId: string) {
     });
   });
   kickEventProcessing(call.businessId);
+}
+
+/**
+ * Safety net for webhook durability: an event stored but never finished (crash / timeout mid-processing) is applied
+ * again from its stored payload, even if the provider gave up retrying. Processing is idempotent and order-tolerant.
+ */
+export async function reprocessStuckTelephonyEvents(limit = 50, olderThanMs = 60_000) {
+  // Only providers that can rebuild an event from its stored payload (Zadarma's webhook fans out into several events
+  // and is re-sent by the provider instead).
+  const replayable = knownProviders().filter((p) => adapterFor(p).parseWebhook);
+  const stuck = await prisma.telephonyEvent.findMany({ where: { processedAt: null, provider: { in: replayable }, receivedAt: { lt: new Date(Date.now() - olderThanMs) } }, orderBy: { receivedAt: "asc" }, take: limit });
+  let applied = 0;
+  for (const row of stuck) {
+    const ev = adapterFor(row.provider).parseWebhook?.(row.payload);
+    if (!ev) { await prisma.telephonyEvent.update({ where: { id: row.id }, data: { processedAt: new Date() } }); continue; }
+    try { await processProviderEvent(ev); applied++; } catch (err) { console.error("[events] reprocess failed", row.id, (err as Error).message); }
+  }
+  return applied;
 }

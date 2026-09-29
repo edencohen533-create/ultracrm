@@ -9,7 +9,7 @@
  */
 import { prisma } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
-import { getTelephony } from "@/lib/telephony";
+import { adapterFor } from "@/lib/telephony";
 import type { ProviderEvent } from "@/lib/telephony/types";
 import { getBusinessSettings, isWithinDialWindow } from "@/lib/settings";
 import { audit } from "@/lib/audit";
@@ -21,7 +21,7 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
   const numbers = await prisma.phoneNumber.findMany({ where: { e164: toE164, isActive: true }, include: { business: { select: { id: true, name: true } } }, take: 2 });
   // Never pick an arbitrary tenant when legacy data contains an ambiguous number.
   if (numbers.length > 1) {
-    await getTelephony().hangupLeg(ev.legId, `ambiguous-number-${ev.legId}`);
+    await adapterFor(ev.provider).hangupLeg(ev.legId, `ambiguous-number-${ev.legId}`);
     return null;
   }
   const number = numbers[0];
@@ -30,7 +30,7 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
     return null;
   }
   const businessId = number.businessId;
-  const telephony = getTelephony();
+  const telephony = adapterFor(ev.provider);
   const settings = await getBusinessSettings(businessId);
   const fromE164 = normalizePhone(ev.from ?? "") ?? null;
   const idempotencyKey = `inbound-${ev.provider}-${ev.legId}`;
@@ -118,7 +118,7 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
 }
 
 async function missed(businessId: string, businessNumber: string, fromE164: string | null, contactId: string | null, ev: ProviderEvent, reason: string, createTask: boolean) {
-  const telephony = getTelephony();
+  const telephony = adapterFor(ev.provider);
   // Assign the record to the contact owner or the first manager so it is visible somewhere.
   const owner = contactId ? (await prisma.contact.findUnique({ where: { id: contactId }, select: { ownerUserId: true } }))?.ownerUserId : null;
   const fallback = owner ?? (await prisma.user.findFirst({ where: { businessId, isActive: true, role: { in: ["manager", "owner"] } }, select: { id: true } }))?.id;
@@ -165,11 +165,11 @@ async function missed(businessId: string, businessNumber: string, fromE164: stri
 export async function setupInboundBridge(callId: string) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: { user: { select: { sipUsername: true } }, contact: { select: { fullName: true } } } });
   if (!call || call.direction !== "inbound" || call.endedAt || call.agentLegId || !call.leadLegId) return;
-  const telephony = getTelephony();
+  const telephony = adapterFor(call.provider);
   try {
     const conferenceId = call.conferenceId ?? (await telephony.createConference(call.leadLegId, call.id, `${call.id}-conf`));
     if (!call.conferenceId) await prisma.call.update({ where: { id: call.id }, data: { conferenceId } });
-    const sipUsername = call.user.sipUsername ?? (telephony.simulation ? `mock-${call.userId.slice(-6)}` : null);
+    const sipUsername = await telephony.agentAddress(call.userId);
     if (!sipUsername) throw new Error("agent browser not registered");
     const r = await telephony.dialAgent({
       callId: call.id,
@@ -196,7 +196,7 @@ export async function setupInboundBridge(callId: string) {
 export async function acceptInbound(userId: string, callId: string) {
   const call = await prisma.call.findFirst({ where: { id: callId, userId, direction: "inbound" } });
   if (!call || call.endedAt) return call;
-  if (getTelephony().simulation && !call.agentAnsweredAt) {
+  if (adapterFor(call.provider).simulation && !call.agentAnsweredAt) {
     await prisma.call.update({ where: { id: callId }, data: { agentAnsweredAt: new Date(), status: "agent_connected" } });
   }
   await audit(call.businessId, userId, "call", callId, "inbound.accepted");

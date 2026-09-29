@@ -162,6 +162,40 @@ enum OutcomeKey {
 enum TelephonyProvider {
   mock
   telnyx
+  zadarma
+}
+
+/// How new calls pick a provider. Calls that already exist always stay on the provider that created them.
+enum TelephonyRoutingMode {
+  primary_only
+  manual_backup
+  auto_failover
+}
+
+enum TelephonyBreakerState {
+  closed
+  open
+  half_open
+}
+
+/// requested → created | failed | uncertain; uncertain → created (a webhook proved it) | failed (proved not created) | needs_settlement.
+enum TelephonyAttemptStatus {
+  requested
+  created
+  failed
+  uncertain
+  needs_settlement
+}
+
+enum TelephonyFailureClass {
+  provider_outage
+  account
+  rate_limit
+  auth
+  invalid_request
+  timeout
+  capacity
+  unknown
 }
 
 enum CallDirection {
@@ -329,6 +363,12 @@ model Plan {
 
 model Business {
   metaAdConnection MetaAdConnection?
+  telephonyRouting  TelephonyRouting?
+  telephonyHealth   TelephonyProviderHealth[]
+  telephonySwitches TelephonySwitchLog[]
+  telephonyCredentials TelephonyProviderCredential[]
+  telephonyAgentEndpoints TelephonyAgentEndpoint[]
+  callAttempts      CallAttempt[]
   salesOffers SalesOffer[]
   salesQuotes SalesQuote[]
   coachKnowledge       CoachKnowledge?
@@ -1133,6 +1173,7 @@ model Call {
   events      TelephonyEvent[]
   tasks       Task[]
   monitors    CallMonitor[]
+  attempts    CallAttempt[]
 
   @@index([businessId, createdAt])
   @@index([businessId, phoneNumberId, createdAt])
@@ -1186,6 +1227,7 @@ model TelephonyEvent {
   business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
   call     Call?     @relation(fields: [callId], references: [id])
 
+  @@index([processedAt, receivedAt])
   @@unique([provider, providerEventId])
   /// Under RLS the enum-led unique index is not usable (enum "=" is not leakproof) → lookups by event id use this one.
   @@index([providerEventId])
@@ -2849,4 +2891,175 @@ model MetaAdConnection {
   verifiedAt DateTime @map("verified_at")
   business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
   @@map("meta_ad_connections")
+}
+
+/// Per-business provider routing for NEW calls (feature flag TELEPHONY_ROUTING=on). No row = platform default, primary only.
+model TelephonyRouting {
+  businessId       String               @id @map("business_id")
+  primaryProvider  TelephonyProvider?   @map("primary_provider")
+  backupProvider   TelephonyProvider?   @map("backup_provider")
+  mode             TelephonyRoutingMode @default(primary_only)
+  /// manual_backup: which provider new calls use right now.
+  manualActive     String               @default("primary") @map("manual_active")
+  /// Circuit breaker: failures counted within windowSeconds; open for cooldownSeconds; then probeCalls trial calls.
+  failureThreshold Int                  @default(5) @map("failure_threshold")
+  windowSeconds    Int                  @default(120) @map("window_seconds")
+  cooldownSeconds  Int                  @default(300) @map("cooldown_seconds")
+  probeCalls       Int                  @default(3) @map("probe_calls")
+  /// Cost / usage guard: at most this many NEW calls per day through the backup (null = no limit).
+  backupDailyCallLimit Int?             @map("backup_daily_call_limit")
+  /// Temporary capacity limits (line / channel limits) count toward failover only when this is on.
+  failoverOnCapacity   Boolean          @default(false) @map("failover_on_capacity")
+  updatedById      String?              @map("updated_by_id")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("telephony_routing")
+}
+
+/// Circuit breaker state per business and provider (only provider/account/auth failures and timeouts count).
+model TelephonyProviderHealth {
+  id                String                 @id @default(cuid())
+  businessId        String                 @map("business_id")
+  provider          TelephonyProvider
+  state             TelephonyBreakerState  @default(closed)
+  failuresInWindow  Int                    @default(0) @map("failures_in_window")
+  windowStartedAt   DateTime?              @map("window_started_at")
+  openedAt          DateTime?              @map("opened_at")
+  nextProbeAt       DateTime?              @map("next_probe_at")
+  probeSuccesses    Int                    @default(0) @map("probe_successes")
+  probesStarted     Int                    @default(0) @map("probes_started")
+  /// Anti-flapping: consecutive trips and the last close (cooldown doubles on a quick re-trip).
+  trips             Int                    @default(0)
+  closedAt          DateTime?              @map("closed_at")
+  lastFailureClass  TelephonyFailureClass? @map("last_failure_class")
+  lastFailureDetail String?                @map("last_failure_detail")
+  lastFailureAt     DateTime?              @map("last_failure_at")
+  lastSuccessAt     DateTime?              @map("last_success_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, provider])
+  @@map("telephony_provider_health")
+}
+
+/// Every change of the provider used for new calls (manual, automatic failover, recovery, policy change).
+model TelephonySwitchLog {
+  id           String             @id @default(cuid())
+  businessId   String             @map("business_id")
+  fromProvider TelephonyProvider? @map("from_provider")
+  toProvider   TelephonyProvider? @map("to_provider")
+  kind         String
+  reason       String?
+  actorId      String?            @map("actor_id")
+  /// Manager alert for this switch (in-app = this row; WhatsApp to linked managers), sent once.
+  notifiedAt   DateTime?          @map("notified_at")
+  delivery     Json?
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@map("telephony_switch_log")
+}
+
+/// One provider request that may create a call leg. A business call (Call) has one provider for life; its attempts
+/// never move to another provider – a new provider means a new Call.
+model CallAttempt {
+  id                String                 @id @default(cuid())
+  businessId        String                 @map("business_id")
+  callId            String                 @map("call_id")
+  leg               String
+  provider          TelephonyProvider
+  /// Non-secret account reference (e.g. the Call Control App id), never a key.
+  providerAccount   String?                @map("provider_account")
+  /// Stable id sent to the provider as command_id; the same key is reused on a retry to the same provider only.
+  commandKey        String                 @unique @map("command_key")
+  providerLegId     String?                @map("provider_leg_id")
+  providerSessionId String?                @map("provider_session_id")
+  fromE164          String?                @map("from_e164")
+  toE164            String?                @map("to_e164")
+  status            TelephonyAttemptStatus @default(requested)
+  failureClass      TelephonyFailureClass? @map("failure_class")
+  failureDetail     String?                @map("failure_detail")
+  httpStatus        Int?                   @map("http_status")
+  requestedAt       DateTime               @default(now()) @map("requested_at")
+  respondedAt       DateTime?              @map("responded_at")
+  settledAt         DateTime?              @map("settled_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  call     Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([callId])
+  @@index([businessId, requestedAt])
+  @@index([providerLegId])
+  @@map("call_attempts")
+}
+
+/// Platform-level check of a provider account's configuration (read-only API calls, never a paid call).
+model TelephonyProviderAccount {
+  id         String            @id @default(cuid())
+  provider   TelephonyProvider
+  accountRef String            @map("account_ref")
+  ok         Boolean           @default(false)
+  verifiedAt DateTime?         @map("verified_at")
+  checkedAt  DateTime          @default(now()) @map("checked_at")
+  detail     Json?
+
+  @@unique([provider, accountRef])
+  @@map("telephony_provider_accounts")
+}
+
+/// A business's own account at a telephony provider (e.g. Zadarma). Secrets are sealed (AES-GCM, ENCRYPTION_KEY) and
+/// never returned to the browser. The row id is the opaque account id in the provider's webhook URL.
+model TelephonyProviderCredential {
+  id                   String            @id @default(cuid())
+  businessId           String            @map("business_id")
+  provider             TelephonyProvider
+  /// Sealed JSON { apiKey, apiSecret }.
+  secrets              String
+  sandbox              Boolean           @default(false)
+  /// Outgoing caller ID shown to customers, and how it was approved (a number bought at this provider, or an external
+  /// number the provider verified). Never used before an owner approves it.
+  callerIdE164         String?           @map("caller_id_e164")
+  callerIdSource       String?           @map("caller_id_source")
+  callerIdApprovedAt   DateTime?         @map("caller_id_approved_at")
+  callerIdApprovedById String?           @map("caller_id_approved_by_id")
+  /// Numbers the owner approved for a live (paid) test call. Customers are never used for tests.
+  testNumbers          String[]          @default([]) @map("test_numbers")
+  /// Concurrent calls the account's plan allows (entered from the provider plan; enforced before dialing).
+  maxConcurrent        Int?              @map("max_concurrent")
+  lastCheckAt          DateTime?         @map("last_check_at")
+  lastCheckOk          Boolean?          @map("last_check_ok")
+  lastCheckDetail      Json?             @map("last_check_detail")
+  /// Set when a live test call produced the provider's call events end to end. Required before real traffic.
+  liveTestPassedAt     DateTime?         @map("live_test_passed_at")
+  liveTestCallId       String?           @map("live_test_call_id")
+  updatedById          String?           @map("updated_by_id")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, provider])
+  @@map("telephony_provider_credentials")
+}
+
+/// An agent's address at a provider that is not Telnyx (e.g. a Zadarma PBX extension "101").
+model TelephonyAgentEndpoint {
+  id         String            @id @default(cuid())
+  businessId String            @map("business_id")
+  userId     String            @map("user_id")
+  provider   TelephonyProvider
+  extension  String
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@unique([businessId, provider, extension])
+  @@map("telephony_agent_endpoints")
 }

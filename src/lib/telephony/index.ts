@@ -1,18 +1,14 @@
 import type { TelephonyAdapter } from "./types";
-import { telnyxAdapter, telnyxConfigStatus } from "./telnyx";
-import { mockAdapter } from "./mock";
+import { telnyxConfigStatus } from "./telnyx";
+import { adapterFor, platformDefaultProvider } from "./registry";
+import { routingEnabled } from "./routing";
 
+/**
+ * The platform default adapter – for things that are not tied to a call (status screens, simulation checks).
+ * Actions on an existing call must use adapterFor(call.provider); new calls use chooseProviderForNewCall().
+ */
 export function getTelephony(): TelephonyAdapter {
-  const name = (process.env.TELEPHONY_PROVIDER ?? "mock").toLowerCase();
-  if (name === "telnyx") {
-    const status = telnyxConfigStatus();
-    if (!status.configured) {
-      console.warn(`[telephony] TELEPHONY_PROVIDER=telnyx but missing ${status.missing.join(", ")} – falling back to simulation`);
-      return mockAdapter;
-    }
-    return telnyxAdapter;
-  }
-  return mockAdapter;
+  return adapterFor(platformDefaultProvider());
 }
 
 export function telephonyStatus() {
@@ -23,7 +19,9 @@ export function telephonyStatus() {
     simulation: adapter.simulation,
     requested: (process.env.TELEPHONY_PROVIDER ?? "mock").toLowerCase(),
     telnyx: cfg,
+    routing: routingEnabled() ? "on" : "off",
   };
 }
 
+export { adapterFor } from "./registry";
 export type { TelephonyAdapter } from "./types";

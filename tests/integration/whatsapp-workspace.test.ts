@@ -146,6 +146,17 @@ describe("WhatsApp workspace", { timeout: 900_000 }, () => {
     expect(h).toBe(false);
   });
 
+  it("a verified internal user without the 'create leads' permission is refused – nothing is created", async () => {
+    const viewer = await member(A, "agent", "צופה בלבד");
+    await db.user.update({ where: { id: viewer.id }, data: { permissions: { template: "custom", scope: "own", modules: { crm: { enabled: true, actions: ["view"] } } } } });
+    const phone = `+97254${String(Date.now()).slice(-7)}`;
+    await db.assistantLink.create({ data: { businessId: A.business.id, userId: viewer.id, phoneE164: phone, status: "active", verifiedAt: new Date(), scope: "own", createdById: A.user.id } });
+    const lp = newPhone();
+    const r = await say(A, phone, `תוסיף ליד: ללא הרשאה, ${lp}, ויטמין D, מקור אתר`);
+    expect(r.reply).toContain("אין לך הרשאה ליצור לידים");
+    expect(await leadsFor(A, lp)).toHaveLength(0);
+  });
+
   it("customer file: lead, purchases, open opportunity, store order and documents – missing values null, no mixing between customers", async () => {
     const c1 = await db.contact.create({ data: { businessId: A.business.id, fullName: "לקוח ותיק", phoneE164: e164(newPhone()), phoneRaw: "x", ownerUserId: agent.id, customFields: { product: "מגנזיום ציטרט", campaign: "קיץ 2026" } } });
     const c2 = await db.contact.create({ data: { businessId: A.business.id, fullName: "לקוח אחר", phoneE164: e164(newPhone()), phoneRaw: "x", ownerUserId: agent.id } });

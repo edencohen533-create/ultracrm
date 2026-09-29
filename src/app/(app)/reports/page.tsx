@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getValidSession } from "@/lib/auth";
 import { getEntitlements } from "@/lib/modules";
-import { AgentPerformance } from "@/components/reports/AgentPerformance";
+import { ReportsOverview } from "@/components/reports/ReportsOverview";
 import { ReportsNav } from "@/components/reports/ReportsNav";
 
 export const dynamic = "force-dynamic";
@@ -12,5 +12,5 @@ export default async function ReportsPage() {
   if (session.role === "agent") redirect("/leads");
   const ent = await getEntitlements(session.businessId);
   if (!ent.modules.telephony) redirect(ent.modules.whatsapp || ent.modules.sms || ent.modules.email ? "/analytics" : "/leads");
-  return <><ReportsNav /><AgentPerformance /></>;
+  return <><ReportsNav /><ReportsOverview /></>;
 }

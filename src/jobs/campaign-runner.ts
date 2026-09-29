@@ -111,7 +111,7 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
       const contact = await prisma.contact.findUniqueOrThrow({ where: { id: recipient.contactId } });
       const marketing = template.category === "MARKETING" || campaign.channel === "whatsapp";
       // Global suppression (any channel) is re-checked in the worker right before sending.
-      const suppressed = await sendBlockReason(requireBusinessId(), contact.id, marketing ? "marketing" : "service");
+      const suppressed = await sendBlockReason(requireBusinessId(), contact.id, marketing ? "marketing" : "service", undefined, { automated: true });
       if (contact.isBlocked || (marketing && contact.consentStatus !== "OPTED_IN") || suppressed) {
         await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "SKIPPED", error: suppressed ?? "אין הסכמה פעילה לדיוור", completedAt: new Date() } });
         continue;

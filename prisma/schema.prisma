@@ -895,6 +895,8 @@ model Suppression {
   reviewedByUserId String?          @map("reviewed_by_user_id")
   /// Message that produced the request (inbound reply, bounce/complaint, unsubscribe link).
   messageId        String?          @map("message_id")
+  /// What was asked: unsubscribe | do_not_call | wrong_person | unclear | complaint | manual | import | unsubscribe_link.
+  kind             String?
 
   business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)

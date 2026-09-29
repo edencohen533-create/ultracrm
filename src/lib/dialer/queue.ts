@@ -103,8 +103,17 @@ export function queueFilter(q: QueueParams, opts: { timeAware: boolean }) {
             OR l.preferred_user_id = ${userId}
             OR l.next_attempt_at < timezone('UTC', now()) - (${CALLBACK_GRACE_MINUTES} || ' minutes')::interval
           )
+          -- Do-not-contact (the same checks as callBlockReason): DNC on the main or any additional phone, a blocked card,
+          -- and ANY active request on the contact's identifiers – including one still under review (automatic dialing
+          -- waits for a person). Re-imports, duplicate cards and list moves share the identifiers, so none of them escape.
+          AND c.is_blocked = false
           AND NOT EXISTS (
-            SELECT 1 FROM ${QT("dnc_entries")} d WHERE d.business_id = l.business_id AND d.phone_e164 = c.phone_e164
+            SELECT 1 FROM ${QT("dnc_entries")} d WHERE d.business_id = l.business_id
+              AND (d.phone_e164 = c.phone_e164 OR d.phone_e164 IN (SELECT cp.e164 FROM ${QT("contact_phones")} cp WHERE cp.contact_id = c.id))
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM ${QT("suppressions")} s WHERE s.business_id = l.business_id AND s.revoked_at IS NULL
+              AND (s.contact_id = c.id OR s.identifier = c.phone_e164 OR s.identifier IN (SELECT cp.e164 FROM ${QT("contact_phones")} cp WHERE cp.contact_id = c.id))
           )
           -- CRM ownership: a contact with open leads is dialed only by the owner of one of them (unassigned leads are
           -- never auto-dialed; a transferred lead leaves the previous agent's queue at once).
@@ -308,7 +317,8 @@ export async function addToDnc(businessId: string, userId: string | null, phoneE
     create: { businessId, phoneE164, reason, createdByUserId: userId },
     update: { reason },
   });
-  const contacts = await db.contact.findMany({ where: { businessId, phoneE164 }, select: { id: true } });
+  // Every card holding this number – as the main phone or an additional one (duplicate cards, re-imports).
+  const contacts = await db.contact.findMany({ where: { businessId, OR: [{ phoneE164 }, { phones: { some: { e164: phoneE164 } } }] }, select: { id: true } });
   await db.listLead.updateMany({
     where: { businessId, contactId: { in: contacts.map((c) => c.id) }, status: { notIn: ["in_call"] } },
     data: { status: "dnc", lockedByUserId: null, lockToken: null, lockExpiresAt: null, nextAttemptAt: null, preferredUserId: null },

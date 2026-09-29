@@ -114,7 +114,9 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
   catch (e) { if (leadId) await releaseLead(user.id, leadId, "dial_guard").catch(() => undefined); throw e; }
 
   // DNC / do-not-contact is checked again at the moment of dialing – for every mode.
-  const blocked = await callBlockReason(user.businessId, toE164);
+  // By the number AND every identifier of the contact (duplicate cards, other phones); a request under review stops
+  // automatic dialing only.
+  const blocked = await callBlockReason(user.businessId, toE164, undefined, { contactId, automated: input.mode !== "manual" });
   if (blocked) throw new ApiError(blocked, 403, "dnc_blocked");
 
   const settings = await getBusinessSettings(user.businessId);

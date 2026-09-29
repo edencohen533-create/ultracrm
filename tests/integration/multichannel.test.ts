@@ -164,7 +164,7 @@ describe("multi-channel marketing (simulated providers)", () => {
 
   it("unclear SMS reply holds marketing for review; dismissing (documented) releases it, confirming keeps it", async () => {
     const noEmail = await contact("+972501000003");
-    expect((await postSms({ eventId: "in-2", providerMessageId: "mock-in-2", inbound: { from: "+972501000003", to: "+972501110000", body: "תפסיקו לשלוח לי" } })).status).toBe(200);
+    expect((await postSms({ eventId: "in-2", providerMessageId: "mock-in-2", inbound: { from: "+972501000003", to: "+972501110000", body: "לא מעוניין" } })).status).toBe(200);
     expect(await run(a.session, () => sendBlockReason(a.business.id, noEmail.id, "marketing"))).toMatch(/ממתינה לבדיקת מנהל/);
     const pending = await db.suppression.findFirstOrThrow({ where: { contactId: noEmail.id, pendingReview: true } });
     expect((await db.contact.findUniqueOrThrow({ where: { id: noEmail.id } })).consentStatus).toBe("OPTED_IN"); // held, not yet opted out

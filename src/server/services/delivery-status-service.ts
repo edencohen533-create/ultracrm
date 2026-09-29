@@ -12,8 +12,7 @@ import { db, prisma, type Db } from "@/lib/db";
 import { withBusiness } from "@/lib/tenant";
 import { audit } from "@/lib/audit";
 import { emitEvent, kickEventProcessing } from "@/lib/events";
-import { suppressContact } from "@/lib/suppression";
-import { isAmbiguousUnsubscribe, isUnsubscribe } from "@/lib/message-policy";
+import { applyInboundContactRequest, suppressContact } from "@/lib/suppression";
 import { normalizePhone } from "@/lib/phone";
 import { publishMessageStatus } from "@/lib/realtime/publish";
 import type { ProviderEvent } from "@/server/channels/types";
@@ -60,7 +59,7 @@ async function applyStatus(credential: ProviderCredential, ev: Extract<ProviderE
   }
   if (ev.status === "COMPLAINED") {
     await tx.message.update({ where: { id: message.id }, data: { complainedAt: message.complainedAt ?? ev.at } });
-    await suppressContact({ businessId, contactId, identifier: message.toIdentifier ?? undefined, scope: "marketing", source: "email", reason: "תלונת ספאם מהספק", evidence: `message:${message.id}` }, tx);
+    await suppressContact({ businessId, contactId, identifier: message.toIdentifier ?? undefined, scope: "marketing", kind: "complaint", source: "email", reason: "תלונת ספאם מהספק", evidence: `message:${message.id}` }, tx);
     await tx.suppression.updateMany({ where: { businessId, contactId, revokedAt: null, messageId: null, source: "email" }, data: { messageId: message.id } });
     return "complaint";
   }
@@ -110,16 +109,8 @@ async function applyInbound(credential: ProviderCredential, ev: Extract<Provider
   await tx.conversation.updateMany({ where: { id: conversation.id, OR: [{ lastMessageAt: null }, { lastMessageAt: { lt: ev.at } }] }, data: { lastMessageAt: ev.at } });
   await tx.conversation.updateMany({ where: { id: conversation.id, OR: [{ lastInboundAt: null }, { lastInboundAt: { lt: ev.at } }] }, data: { lastInboundAt: ev.at } });
   await tx.conversation.update({ where: { id: conversation.id }, data: { unreadCount: { increment: 1 } } });
-  let unsubscribe: "clear" | "review" | null = null;
-  if (isUnsubscribe(ev.body)) {
-    unsubscribe = "clear";
-    await suppressContact({ businessId, contactId: contact.id, scope: "marketing", source: "sms", reason: `תשובת SMS: "${ev.body.trim().slice(0, 40)}"`, evidence: `message:${message.id}` }, tx);
-    const { applyUnsubscribeAutomation } = await import("@/lib/unsubscribe-automation");
-    await applyUnsubscribeAutomation(businessId, contact.id, tx);
-  } else if (isAmbiguousUnsubscribe(ev.body)) {
-    unsubscribe = "review";
-    await suppressContact({ businessId, contactId: contact.id, scope: "marketing", source: "sms", reason: `בקשה לא ברורה – ממתינה לבדיקה: "${ev.body.trim().slice(0, 60)}"`, evidence: `message:${message.id}`, pendingReview: true }, tx);
-  }
+  const req = await applyInboundContactRequest({ businessId, contactId: contact.id, channel: "sms", body: ev.body, messageRef: `message:${message.id}` }, tx);
+  const unsubscribe: "clear" | "review" | null = req.kind === "none" ? null : req.kind === "unclear" ? "review" : "clear";
   if (unsubscribe) await tx.suppression.updateMany({ where: { businessId, contactId: contact.id, revokedAt: null, messageId: null }, data: { messageId: message.id } });
   await emitEvent(tx, { businessId, type: "message.received", contactId: contact.id, source: "webhook", occurredAt: ev.at, dedupeKey: `message.received:${message.id}`, payload: { messageId: message.id, conversationId: conversation.id, channel: "sms", type: "TEXT", body: ev.body.slice(0, 200) } });
   return unsubscribe ? `inbound:${unsubscribe}` : "inbound";

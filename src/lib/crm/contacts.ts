@@ -200,7 +200,7 @@ export async function createContact(user: SessionUser, input: ContactInput) {
     await emitEvent(tx, { businessId, type: "contact.created", contactId: c.id, actorUserId: user.id, source: "user", dedupeKey: `contact.created:${c.id}`, payload: { source: c.source ?? null } });
     return c;
   });
-  if (input.consentStatus === "OPTED_OUT") await suppressContact({ businessId, contactId: contact.id, scope: "marketing", source: "manual", reason: input.consentEvidence ?? "created as opted out", actorId: user.id });
+  if (input.consentStatus === "OPTED_OUT") await suppressContact({ businessId, contactId: contact.id, scope: "marketing", kind: "manual", source: "manual", reason: input.consentEvidence ?? "created as opted out", actorId: user.id });
   return prisma.contact.findUniqueOrThrow({ where: { id: contact.id }, include: await contactCardInclude(user) });
 }
 
@@ -268,7 +268,7 @@ export async function updateContact(user: SessionUser, id: string, input: z.infe
       summary = await suppressionSummary(businessId, c.id, tx);
     }
     if (input.isBlocked === true) {
-      await suppressContact({ businessId, contactId: c.id, scope: "all", source: "manual", reason: input.consentEvidence || "חסימה מלאה על ידי נציג", actorId: user.id }, tx);
+      await suppressContact({ businessId, contactId: c.id, scope: "all", kind: "manual", source: "manual", reason: input.consentEvidence || "חסימה מלאה על ידי נציג", actorId: user.id }, tx);
     } else if (input.consentStatus === "OPTED_OUT") {
       await suppressContact({ businessId, contactId: c.id, scope: "marketing", source: "manual", reason: input.consentEvidence || "הסרה על ידי נציג", actorId: user.id }, tx);
     } else if (input.consentStatus === "OPTED_IN") {

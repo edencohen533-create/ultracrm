@@ -73,7 +73,7 @@ export function PaymentModal({ contactId, callId, onClose }: { contactId: string
   };
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-3" role="dialog" aria-modal="true" aria-label={t("תשלום", "Payment")} data-testid="payment-modal">
-      <div className="flex max-h-[95vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-panel shadow-xl">
+      <div className="flex max-h-[95dvh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-panel shadow-xl">
         <header className="flex items-center justify-between border-b border-line px-4 py-2">
           <h2 className="text-base font-semibold">{t("תשלום", "Payment")}{o?.connection.environment === "test" && <Badge tone="warn" className="ms-2">{t("סביבת בדיקה", "Test")}</Badge>}</h2>
           <button type="button" onClick={onClose} className="rounded px-2 py-1" aria-label={t("סגירה", "Close")} data-testid="payment-close">✕</button>

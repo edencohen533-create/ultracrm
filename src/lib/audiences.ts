@@ -31,4 +31,4 @@ export const MAX_AUDIENCE_SIZE = 10000;
 export function audienceRules(node: AudienceNode): AudienceRule[] {
   return "conditions" in node ? node.conditions.flatMap(audienceRules) : [node];
 }
-export const defaultAudience = (): AudienceNode => ({ operator: "AND", conditions: [{ field: "consent", operator: "is", value: "OPTED_IN" }] });
+export { defaultAudience } from "./audience-defaults";

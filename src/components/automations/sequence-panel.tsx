@@ -8,7 +8,7 @@ import { api } from "@/lib/client/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CHANNEL_LABELS } from "@/lib/campaigns";
+import { CHANNEL_LABELS } from "@/lib/campaign-shared";
 import { useT } from "@/components/i18n/LangProvider";
 
 interface TemplateOpt { id: string; name: string; channel: string }

@@ -88,7 +88,7 @@ export function EmailTemplateDialog({ existing, trigger }: { existing?: ChannelT
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant={existing ? "ghost" : "default"} size="sm" />}>{trigger ?? (existing ? t("עריכה", "Edit") : t("תבנית אימייל חדשה", "New email template"))}</DialogTrigger>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-auto">
+      <DialogContent className="max-w-5xl max-h-[90dvh] overflow-auto">
         <DialogHeader><DialogTitle>{existing ? t("עריכת תבנית אימייל", "Edit email template") : t("תבנית אימייל חדשה", "New email template")}</DialogTitle></DialogHeader>
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-3">

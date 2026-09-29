@@ -161,7 +161,7 @@ export function Modal({ open, onClose, title, children, footer, width = "max-w-l
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal className={cx("w-full bg-panel border border-line rounded-2xl shadow-2xl flex flex-col max-h-[90vh]", width)}>
+      <div role="dialog" aria-modal className={cx("w-full bg-panel border border-line rounded-2xl shadow-2xl flex flex-col max-h-[90dvh]", width)}>
         <header className="flex items-center justify-between px-5 h-12 border-b border-line">
           <h3 className="font-semibold">{title}</h3>
           <button onClick={onClose} className="text-muted hover:text-text text-xl leading-none px-1" aria-label={t("סגור", "Close")}>

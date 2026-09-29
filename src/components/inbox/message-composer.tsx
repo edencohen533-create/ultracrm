@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { MAX_UPLOAD_BYTES, MEDIA_TYPES } from "@/lib/media";
-import { renderTemplate, templateParameterKeys } from "@/lib/campaigns";
+import { renderTemplate, templateParameterKeys } from "@/lib/campaign-shared";
 import type { MessageItem } from "@/types/domain";
 import { useT } from "@/components/i18n/LangProvider";
 

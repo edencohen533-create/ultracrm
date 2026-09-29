@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlarmClock, CalendarClock, PhoneCall } from "lucide-react";
 import { api, qs, ApiClientError } from "@/lib/client/api";
@@ -136,13 +136,21 @@ export function WaitingCard({ agent, users, active, onPick, onAgent, version }: 
   const [w, setW] = useState<Waiting | null>(null);
   const [failed, setFailed] = useState(false);
   const tr = useT();
+  const alive = useRef(true);
+  const get = useEffectEvent(() => api.get<Waiting>(`/api/leads/waiting${qs({ agent: agent || undefined })}`).then((r) => { if (alive.current) { setW(r); setFailed(false); } }).catch(() => { if (alive.current) setFailed(true); }));
+  // Fetch on mount + poll; afterwards every list reload (version) refreshes the counts – including an agent change,
+  // which reloads the list too. The list's first load right after mount is skipped (the mount fetch covers it).
   useEffect(() => {
-    let alive = true;
-    const get = () => api.get<Waiting>(`/api/leads/waiting${qs({ agent: agent || undefined })}`).then((r) => { if (alive) { setW(r); setFailed(false); } }).catch(() => { if (alive) setFailed(true); });
-    void get();
+    alive.current = true; void get();
     const t = setInterval(() => { if (document.visibilityState === "visible") void get(); }, 30_000);
-    return () => { alive = false; clearInterval(t); };
-  }, [agent, version]);
+    return () => { alive.current = false; clearInterval(t); };
+  }, []);
+  const skipFirst = useRef(true);
+  useEffect(() => {
+    if (version === null || version === undefined) return;
+    if (skipFirst.current) { skipFirst.current = false; return; }
+    void get();
+  }, [version]);
   const cat = (k: WaitingKey, label: string, n: number | undefined, tone = "") => <button type="button" className={`waiting-cat ${tone}${active === k ? " active" : ""}`} onClick={() => onPick(active === k ? "" : k)} data-testid={`waiting-${k}`}><b>{n ?? "…"}</b><span>{label}</span></button>;
   return (
     <article className="lead-stat waiting-card" data-testid="waiting-card">

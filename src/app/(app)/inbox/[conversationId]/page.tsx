@@ -76,7 +76,8 @@ export default organizationRequest(async function ConversationPage({
   return (
     <div className="flex h-full">
     <div className="flex min-w-0 flex-1 flex-col">
-      <Link href="/inbox" className="border-b p-2 text-sm underline md:hidden">{t("חזרה לרשימת השיחות", "Back to conversations")}</Link>
+      <div className="chat-chrome-extra">
+      <Link href="/inbox" className="block border-b p-2 text-sm underline md:hidden">{t("חזרה לרשימת השיחות", "Back to conversations")}</Link>
       <ConversationActions
         conversationId={conversation.id}
         status={conversation.status}
@@ -85,11 +86,14 @@ export default organizationRequest(async function ConversationPage({
         isSpam={conversation.isSpam}
       />
       {(aiEnabledHere || conversation.aiMode) && <AiHandlingBar conversationId={conversation.id} aiMode={conversation.aiMode} enabledHere={aiEnabledHere} reason={conversation.aiHandoffReason} summary={conversation.aiHandoffSummary} />}
+      </div>
       <div className="flex items-center justify-between gap-2 border-b px-3 py-2 text-sm"><span className="min-w-0 truncate" dir="auto">{conversation.contact.fullName}</span><div className="flex shrink-0 items-center gap-2"><CustomerFileDrawerButton key={`drawer:${conversation.id}`} {...fileProps} /><Link className="underline" href={`/contacts/${conversation.contactId}`}>{t("כרטיס לקוח והסרה מדיוור", "Contact profile & unsubscribe")}</Link></div></div>
-      <div className="border-b px-3 py-1 text-xs text-muted-foreground">{t("מספר השיחה:", "Conversation number:")} {conversation.providerCredential ? `${conversation.providerCredential.label || "WhatsApp"} · ${conversation.providerCredential.displayPhoneNumber || t("מספר עסקי", "Business number")}` : t("הדגמה בלבד", "Demo only")}</div>
+      <div className="chat-chrome-extra border-b px-3 py-1 text-xs text-muted-foreground">{t("מספר השיחה:", "Conversation number:")} {conversation.providerCredential ? `${conversation.providerCredential.label || "WhatsApp"} · ${conversation.providerCredential.displayPhoneNumber || t("מספר עסקי", "Business number")}` : t("הדגמה בלבד", "Demo only")}</div>
       {(block.doNotContact || block.fullyBlocked || block.pendingReview) && <div className="border-b px-3 py-2"><ContactBlockNotice summary={JSON.parse(JSON.stringify(block))} /></div>}
+      <div className="chat-chrome-extra">
       <Tasks key={`tasks:${conversation.id}`} contactId={conversation.contactId} conversationId={conversation.id} userId={session.user.id} />
       <InternalNotes key={conversation.id} conversationId={conversation.id} notes={conversation.notes.map((note) => ({ id: note.id, body: note.body, createdAt: note.createdAt.toISOString(), author: { name: note.author.fullName } }))} />
+      </div>
       <div className="flex min-h-0 flex-1">
       <ChatPanel
         key={conversation.id}

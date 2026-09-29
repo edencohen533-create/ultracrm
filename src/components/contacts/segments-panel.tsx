@@ -4,8 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Search, Trash2, X } from "lucide-react";
 import { api } from "@/lib/client/api";
-import { AudienceEditor, type AudienceOptions } from "@/components/campaigns/audience-editor";
-import { defaultAudience, type AudienceNode } from "@/lib/audiences";
+import dynamic from "next/dynamic";
+import type { AudienceOptions } from "@/components/campaigns/audience-editor";
+// The rule editor (and its validation) loads only when a segment is being edited.
+const AudienceEditor = dynamic(() => import("@/components/campaigns/audience-editor").then((m) => m.AudienceEditor), { ssr: false });
+import { defaultAudience } from "@/lib/audience-defaults";
+import type { AudienceNode } from "@/lib/audiences";
 import { useT } from "@/components/i18n/LangProvider";
 
 type Seg = { id: string; name: string; dynamic: boolean; count: number | null };

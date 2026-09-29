@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Pencil, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, Button } from "@/components/ui";
-import { TEMPLATE_LANGUAGES } from "@/lib/validation/template";
+import { TEMPLATE_LANGUAGES } from "@/lib/template-languages";
 import { TemplateBuilder } from "./TemplateBuilder";
 import { WhatsAppPreview, type PreviewButton } from "./WhatsAppPreview";
 import { useT } from "@/components/i18n/LangProvider";
@@ -41,7 +41,7 @@ export function WhatsAppTemplatesScreen({ templates, canEdit, businessName, acti
     <div data-testid="wa-templates">
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <label className="cmp-search"><Search size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("חיפוש לפי שם או תוכן", "Search by name or content")} aria-label={t("חיפוש תבניות", "Search templates")} /></label>
-        <div className="ms-auto flex gap-2">{actions}{canEdit && <Button onClick={() => setBuilder(true)} data-testid="tb-open">{t("+ יצירת תבנית", "+ New template")}</Button>}</div>
+        <div className="ms-auto flex flex-wrap gap-2">{actions}{canEdit && <Button onClick={() => setBuilder(true)} data-testid="tb-open">{t("+ יצירת תבנית", "+ New template")}</Button>}</div>
       </div>
       <div className="tpl-list">
         <div className="overflow-auto rounded-md border bg-white"><table className="w-full text-sm"><thead className="text-xs text-muted"><tr><th className="text-start p-2">{t("שם התבנית", "Template name")}</th><th className="text-start">{t("קטגוריה", "Category")}</th><th className="text-start">{t("שפה", "Language")}</th><th className="text-start">{t("סטטוס", "Status")}</th><th className="text-start">{t("רכיבים", "Components")}</th><th className="text-start">{t("עודכנה", "Updated")}</th></tr></thead>

@@ -11,6 +11,8 @@ const b = await chromium.launch({ args: ["--use-fake-ui-for-media-stream", "--us
 const ctx = await b.newContext({ locale: "he-IL", viewport: { width: 1400, height: 950 }, permissions: ["microphone"] }); const page = await ctx.newPage(); page.setDefaultTimeout(60000);
 const api = async (p, m = "GET", d) => { const r = await page.request.fetch(`${BASE}${p}`, { method: m, data: d, headers: { "Content-Type": "application/json" } }); return { status: r.status(), json: await r.json().catch(() => null) }; };
 const stateOf = async () => (await api("/api/dialer/state")).json?.data;
+// Poll from node: waitForFunction with an async predicate resolves at once (a Promise is truthy).
+const until = async (ok, ms, what) => { const end = Date.now() + ms; while (Date.now() < end) { if (ok(await stateOf())) return; await page.waitForTimeout(800); } throw new Error(`timeout: ${what}`); };
 await page.goto(`${BASE}/login`); await page.fill('input[type="email"]', EMAIL); await page.fill('input[type="password"]', "Demo1234!"); await page.click('button[type="submit"]'); await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 const before = (await api("/api/settings/payments")).json?.data;
 const stamp = Date.now(); let leadId, name;
@@ -30,7 +32,7 @@ await step("P1 call from the lead list → answered (simulation)", async () => {
   const res = page.waitForResponse((r) => r.url().includes("/api/dialer/call") && r.request().method() === "POST");
   await page.getByTestId(`lead-row-${leadId}`).locator(".lead-call").click();
   if ((await res).status() >= 300) throw new Error("dial refused");
-  await page.waitForFunction(async () => (await (await fetch("/api/dialer/state")).json()).data.activeCall?.status === "answered", null, { polling: 1000, timeout: 45000 });
+  await until((st) => st?.activeCall?.status === "answered", 45000, "answered");
 });
 
 let reqId;
@@ -77,7 +79,7 @@ await step("P5 a declined payment shows 'נכשל'", async () => {
 await step("D1 hang up without choosing a result: no 'waiting to be logged' bar; the next call is not blocked", async () => {
   const st = await stateOf();
   await api(`/api/dialer/call/${st.activeCall.id}/hangup`, "POST", {});
-  await page.waitForFunction(async () => !(await (await fetch("/api/dialer/state")).json()).data.activeCall, null, { polling: 1000, timeout: 30000 });
+  await until((st) => !st?.activeCall, 30000, "call ended");
   await page.goto(`${BASE}/contacts`); await page.waitForLoadState("networkidle");
   if (await page.getByText("ממתינה לתיעוד").count()) throw new Error("the bar is still shown");
   const s2 = await api("/api/dialer/session", "POST", { mode: "manual", browserSessionId: `qa-${stamp}` });

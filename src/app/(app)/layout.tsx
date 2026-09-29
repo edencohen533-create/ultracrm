@@ -42,7 +42,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           platformAdmin={Boolean(account?.isPlatformAdmin)}
           planName={entitlements.planName}
         />
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="app-main-col flex-1 min-w-0 flex flex-col">
           {dialer && <CallBar />}
           {dialer && <HotLeadsBanner />}
           <OpsAgentRequests />

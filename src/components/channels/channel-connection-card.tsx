@@ -99,7 +99,7 @@ export function ChannelConnectionCard({ channel, initial, templates, isOwner }: 
             <div className="flex gap-2"><dt className="text-muted-foreground">{t("בדיקת שליחה אחרונה:", "Last test send:")}</dt><dd>{fmt(c.lastOutboundTestAt)}</dd></div>
             {channel === "sms" && <div className="flex gap-2 sm:col-span-2"><dt className="text-muted-foreground">{t("שולחים מאושרים:", "Approved senders:")}</dt><dd>{c.senders?.length ? c.senders.map((s) => <span key={s.value} className="me-2"><Ltr>{s.value}</Ltr>{s.inbound ? t(" (קולט תשובות)", " (receives replies)") : t(" (ללא תשובות)", " (no replies)")}</span>) : t("אין – שייך מספר לפרופיל או הוסף שולח אלפאנומרי מאושר", "None – assign a number to the profile or add an approved alphanumeric sender")}</dd></div>}
             {channel === "email" && <div className="flex gap-2 sm:col-span-2"><dt className="text-muted-foreground">{t("שולח:", "Sender:")}</dt><dd>{c.senderName} &lt;<Ltr>{c.senderEmail ?? ""}</Ltr>&gt;{c.replyTo ? ` · Reply-To: ${c.replyTo}` : ""}</dd></div>}
-            <div className="flex gap-2 sm:col-span-2"><dt className="text-muted-foreground">{t("Webhook URL להגדרה אצל הספק:", "Webhook URL to configure at the provider:")}</dt><dd><Ltr><code className="text-xs">{c.webhookUrl}</code></Ltr></dd></div>
+            <div className="flex flex-wrap gap-x-2 sm:col-span-2"><dt className="text-muted-foreground">{t("Webhook URL להגדרה אצל הספק:", "Webhook URL to configure at the provider:")}</dt><dd className="min-w-0 max-w-full"><Ltr className="max-w-full break-all"><code className="text-xs">{c.webhookUrl}</code></Ltr></dd></div>
           </dl>
         )}
         {c?.lastConnectionError && <p className="mt-2 text-sm text-destructive" data-testid={`${channel}-error`}>{c.lastConnectionError}</p>}
@@ -117,7 +117,7 @@ export function ChannelConnectionCard({ channel, initial, templates, isOwner }: 
           <h3 className="font-semibold">{t("דומיין שולח ואימות (SPF / DKIM / DMARC)", "Sending domain & authentication (SPF / DKIM / DMARC)")}</h3>
           <p className="mt-1 text-sm text-muted-foreground">{t("הרשומות מוצגות מהספק; יש להוסיף אותן ב-DNS של הדומיין ידנית. המערכת אינה משנה DNS. שליחה אמיתית נחסמת עד שהדומיין מאומת.", "Records are shown from the provider; add them to your domain's DNS manually. The system never changes DNS. Real sending is blocked until the domain is verified.")}</p>
           <div className="mt-3 flex flex-wrap items-end gap-2">
-            <div><Label htmlFor="domain">{t("דומיין", "Domain")}</Label><Input id="domain" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.com" dir="ltr" className="w-64" disabled={!isOwner} /></div>
+            <div className="min-w-0 max-w-full"><Label htmlFor="domain">{t("דומיין", "Domain")}</Label><Input id="domain" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.com" dir="ltr" className="w-full sm:w-64" disabled={!isOwner} /></div>
             {isOwner && <Button size="sm" onClick={() => act("connect_domain")} disabled={busy !== null || !domain}>{c.domainId ? t("רענן רשומות", "Refresh records") : t("חבר דומיין", "Connect domain")}</Button>}
             {c.domainId && <Button size="sm" variant="outline" onClick={() => act("verify_domain")} disabled={busy !== null}>{busy === "verify_domain" ? t("מאמת…", "Verifying…") : t("אמת עכשיו", "Verify now")}</Button>}
             {c.domainName && <Badge variant={c.domainStatus === "verified" ? "default" : "outline"} className={c.domainStatus === "verified" ? "bg-emerald-600 text-white" : ""}>{c.domainName}: {c.domainStatus ?? "—"}</Badge>}
@@ -132,7 +132,7 @@ export function ChannelConnectionCard({ channel, initial, templates, isOwner }: 
       {isOwner && (
         <section className="rounded-xl border bg-card p-5 shadow-sm space-y-3">
           <h3 className="font-semibold">{c ? t("עדכון פרטי החיבור", "Update connection details") : t("חיבור ספק", "Connect provider")}</h3>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><Label>{t("ספק", "Provider")}</Label><select className="mt-1 w-full rounded-md border bg-background p-2 text-sm" value={provider} onChange={(e) => setProvider(e.target.value)}>{channel === "sms" ? <><option value="telnyx_sms">Telnyx Messaging</option><option value="mock_sms">{t("הדמיה (ללא שליחה)", "Simulation (no sending)")}</option></> : <><option value="resend">Resend</option><option value="mock_email">{t("הדמיה (ללא שליחה)", "Simulation (no sending)")}</option></>}</select></div>
             <div><Label>{t("תווית", "Label")}</Label><Input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} /></div>
             {!provider.startsWith("mock") && <div><Label>API Key {c?.config.apiKeyMasked ? <span className="text-muted-foreground">({t("שמור:", "saved:")} {c.config.apiKeyMasked})</span> : null}</Label><Input type="password" value={f.apiKey} onChange={(e) => setF({ ...f, apiKey: e.target.value })} dir="ltr" placeholder={c?.config.apiKeyMasked ? t("השאר ריק כדי לא לשנות", "Leave blank to keep unchanged") : ""} autoComplete="off" /></div>}
@@ -162,7 +162,7 @@ export function ChannelConnectionCard({ channel, initial, templates, isOwner }: 
           <p className="text-xs text-muted-foreground">{t("רק לנמעני הבדיקה שהוגדרו למעלה:", "Only to the test recipients defined above:")} {(c.testRecipients ?? []).length ? c.testRecipients!.map((rcpt) => <Ltr key={rcpt}><code className="me-1">{rcpt}</code></Ltr>) : t("לא הוגדרו", "none defined")}</p>
           <div className="flex flex-wrap items-end gap-2">
             <div><Label>{t("תבנית", "Template")}</Label><select className="mt-1 rounded-md border bg-background p-2 text-sm" value={testTemplate} onChange={(e) => setTestTemplate(e.target.value)}>{templates.map((tpl) => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}</select></div>
-            <div><Label>{t("נמען בדיקה", "Test recipient")}</Label><Input value={testTo} onChange={(e) => setTestTo(e.target.value)} dir="ltr" className="w-56" /></div>
+            <div className="min-w-0 max-w-full"><Label>{t("נמען בדיקה", "Test recipient")}</Label><Input value={testTo} onChange={(e) => setTestTo(e.target.value)} dir="ltr" className="w-full sm:w-56" /></div>
             <Button variant="secondary" onClick={test} disabled={busy !== null || !testTo || !testTemplate} data-testid={`${channel}-test`}>{busy === "test" ? t("שולח…", "Sending…") : t("שלח בדיקה", "Send test")}</Button>
           </div>
           {!templates.length && <p className="text-xs text-amber-700">{t(`אין תבניות ${channel === "sms" ? "SMS" : "אימייל"} עדיין – צור תבנית במסך התבניות.`, `No ${channel === "sms" ? "SMS" : "email"} templates yet – create one on the templates screen.`)}</p>}

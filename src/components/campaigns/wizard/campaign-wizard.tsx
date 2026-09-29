@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Check, ChevronDown, ChevronUp, Search, X } from "lucide-react";
-import { CHANNEL_LABELS, templateParameterKeys, renderTemplate, throttleLabel, type Throttle } from "@/lib/campaigns";
+import { CHANNEL_LABELS, templateParameterKeys, renderTemplate, throttleLabel, type Throttle } from "@/lib/campaign-shared";
 import { emailDesignSchema, renderEmailHtml, type EmailDesign } from "@/lib/email/blocks";
 import { EMAIL_STARTERS } from "@/lib/email/starters";
 import { smsMetrics } from "@/lib/sms";

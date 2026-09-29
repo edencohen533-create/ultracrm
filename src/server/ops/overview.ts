@@ -40,7 +40,10 @@ export async function opsOverview(user: SessionUser) {
     team.push({ ...a, assessment: momentum ? assessMomentum(a, momentum.config) : null, capacity: cap, shift: s.aiOps.shifts[a.id] ?? null });
   }
 
-  // Impact: descriptive only (no causal claim), per finished allocation.
+  // Impact: descriptive only (no causal claim). Per approved allocation ("momentum"): what happened to the leads it
+  // allocated (observed), next to a comparison with the SAME unit – the leads the same agent received in the 14 days
+  // before, and how many of those closed before the allocation started. No control group → never an "AI lift".
+  const BASELINE_DAYS = 14, MIN_SAMPLE = 20;
   const impact = [];
   for (const r of recs.filter((x) => x.kind === "momentum" && ["active", "completed"].includes(x.status)).slice(0, 20)) {
     const leads = byRec.get(r.id) ?? [];
@@ -50,8 +53,18 @@ export async function opsOverview(user: SessionUser) {
       if (await prisma.call.findFirst({ where: { businessId, contactId: l.contactId, direction: "outbound", leadDialedAt: { not: null }, createdAt: { gte: r.createdAt } }, select: { id: true } })) dialed++;
       if (await prisma.deal.findFirst({ where: { businessId, contactId: l.contactId, status: "won", closedAt: { gte: r.createdAt } }, select: { id: true } })) won++;
     }
-    const ev = r.evidence as { agent?: { baseline?: { rate: number | null } } };
-    impact.push({ id: r.id, agentName: r.agentId ? agentNames.get(r.agentId) ?? null : null, at: r.createdAt, approved: r.agentApprovedCount ?? r.managerApprovedCount, allocated: leads.length, dialed, won, baselineRate: ev.agent?.baseline?.rate ?? null, smallSample: leads.length < 20 });
+    let compare: { leads: number; won: number; from: Date; to: Date } | null = null;
+    if (r.agentId) {
+      const from = new Date(r.createdAt.getTime() - BASELINE_DAYS * 86400_000);
+      const before = await prisma.lead.findMany({ where: { businessId, ownerUserId: r.agentId, createdAt: { gte: from, lt: r.createdAt } }, select: { contactId: true, createdAt: true } });
+      const deals = before.length ? await prisma.deal.findMany({ where: { businessId, status: "won", contactId: { in: before.map((b) => b.contactId) }, closedAt: { lt: r.createdAt } }, select: { contactId: true, closedAt: true } }) : [];
+      const bWon = before.filter((b) => deals.some((d) => d.contactId === b.contactId && d.closedAt && d.closedAt >= b.createdAt)).length;
+      compare = { leads: before.length, won: bWon, from, to: r.createdAt };
+    }
+    const until = (r.proposal as { until?: string | null } | null)?.until ?? null;
+    impact.push({ id: r.id, agentName: r.agentId ? agentNames.get(r.agentId) ?? null : null, at: r.createdAt, until: r.status === "completed" ? r.updatedAt : until ? new Date(until) : null, status: r.status,
+      approved: r.agentApprovedCount ?? r.managerApprovedCount, allocated: leads.length, dialed, won, compare, minSample: MIN_SAMPLE,
+      smallSample: leads.length < MIN_SAMPLE, compareSmall: !compare || compare.leads < MIN_SAMPLE });
   }
 
   const log = await prisma.auditLog.findMany({ where: { businessId, OR: [{ entityType: "ai_ops" }, { action: "ai_ops.lead_allocated" }, { action: { startsWith: "ops_rule." } }] }, orderBy: { createdAt: "desc" }, take: 100, select: { id: true, action: true, entityId: true, payload: true, createdAt: true, actor: { select: { fullName: true } } } });

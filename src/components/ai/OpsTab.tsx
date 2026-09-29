@@ -5,7 +5,9 @@ import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Badge, Button, EmptyState, ErrorState, Panel, Spinner, Textarea, cx } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
+import { HelpTip } from "./HelpTip";
 
+interface Impact { id: string; agentName: string | null; at: string; until: string | null; status: string; approved: number | null; allocated: number; dialed: number; won: number; compare: { leads: number; won: number; from: string; to: string } | null; minSample: number; smallSample: boolean; compareSmall: boolean }
 type Rate = { handled: number; answered: number; wins: number; rate: number | null };
 interface Cap { known: boolean; reason: string | null; shift: { start: string; end: string } | null; shiftEnd: string | null; remainingMinutes: number; pacePerHour: number | null; paceBasis: string | null; untouched: number; followUpsBeforeEnd: number; load: number; capacityLeads: number; spare: number }
 interface Agent { id: string; name: string; today: Rate; baseline: Rate & { days: number }; peers: Rate; sources: string[]; avgLeadAgeDays: number | null; untouched: number; online: boolean; inCall: boolean; inPool: boolean; assessment: { state: string; reasons: string[]; lowerBound: number | null; lift: number | null } | null; capacity: Cap; shift: { start: string; end: string; days: number[] } | null }
@@ -13,7 +15,7 @@ interface Proposal { leadId?: string; mode: "extra" | "priority" | "share"; coun
 interface Rec { id: string; kind: string; status: string; statusLabel: string; code: string; title: string; explanation: string; agentId: string | null; agentName: string | null; evidence: { agent?: Agent; capacity?: Cap; interpretation?: string | null; lowerBound?: number | null; thresholds?: Record<string, unknown> }; proposal: Proposal; requestedCount: number | null; managerApprovedCount: number | null; agentApprovedCount: number | null; agentReply: string | null; expiresAt: string; createdAt: string; result: { responseSeconds?: number; reason?: string; agentRequest?: { delivery: string; detail: string | null }; approved?: number; assignedNow?: number } | null; override: { assigned: number; total: number; leadLimit: number; status: string; expiresAt: string; mode: string } | null; allocated: number }
 interface Rule { id: string; kind: string; kindLabel: string; name: string; sourceText: string | null; config: Record<string, unknown>; autonomy: string; autonomyLabel: string; allowedAutonomy: string[]; status: string; priority: number; expired: boolean; summary: Record<string, string> | null }
 interface Interp { allowedAutonomy?: string[]; kind: string | null; name: string; config: Record<string, unknown>; autonomy: string; questions: Array<{ field: string; question: string; proposed: number | string | boolean }>; summary: Record<string, string> | null; analyzer: string; note: string | null }
-interface Data { settings: { enabled: boolean; notifyWhatsApp: boolean; maxAlertsPerDay: number; cooldownMinutes: number }; timezone: string; aiConnected: boolean; rules: Rule[]; recommendations: Rec[]; team: Agent[]; impact: Array<{ id: string; agentName: string | null; at: string; approved: number | null; allocated: number; dialed: number; won: number; baselineRate: number | null; smallSample: boolean }>; log: Array<{ id: string; action: string; createdAt: string; payload: Record<string, unknown> | null; actor: { fullName: string } | null }>; lists: Array<{ id: string; name: string }>; sources: string[]; whatsappLinked: string[] }
+interface Data { settings: { enabled: boolean; notifyWhatsApp: boolean; maxAlertsPerDay: number; cooldownMinutes: number }; timezone: string; aiConnected: boolean; rules: Rule[]; recommendations: Rec[]; team: Agent[]; impact: Impact[]; log: Array<{ id: string; action: string; createdAt: string; payload: Record<string, unknown> | null; actor: { fullName: string } | null }>; lists: Array<{ id: string; name: string }>; sources: string[]; whatsappLinked: string[] }
 
 const pct = (x: number | null | undefined) => (x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`);
 const time = (s: string | null | undefined, locale = "he-IL") => (s ? new Date(s).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : "—");
@@ -196,7 +198,8 @@ export function OpsTab() {
   useEffect(() => { void load(); const iv = setInterval(() => void load(), 20_000); return () => clearInterval(iv); }, [load]);
   if (err) return <ErrorState message={err} retry={load} />;
   if (!d) return <div className="py-16 flex justify-center"><Spinner /></div>;
-  const open = d.recommendations.filter((r) => ["pending_manager", "pending_agent", "waiting_connection", "needs_attention", "active", "needs_adjustment"].includes(r.status));
+  const recsOpen = d.recommendations.filter((r) => ["pending_manager", "needs_adjustment"].includes(r.status));
+  const requestsOpen = d.recommendations.filter((r) => ["pending_agent", "waiting_connection", "needs_attention", "active"].includes(r.status));
   const insights = d.recommendations.filter((r) => r.status === "insight").slice(0, 8);
   const history = d.recommendations.filter((r) => ["completed", "rejected", "expired", "cancelled", "failed"].includes(r.status)).slice(0, 15);
   const setting = async (patch: Record<string, unknown>) => { try { await api.patch("/api/ops/settings", patch); await load(); } catch (e) { toast.error((e as Error).message); } };
@@ -204,15 +207,21 @@ export function OpsTab() {
   return (
     <div className="space-y-4" data-testid="ops-tab">
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <label className="flex items-center gap-1"><input type="checkbox" checked={d.settings.enabled} onChange={(e) => setting({ enabled: e.target.checked })} /> {t("מנהל AI פעיל", "AI Manager active")}</label>
-        <label className="flex items-center gap-1"><input type="checkbox" checked={d.settings.notifyWhatsApp} onChange={(e) => setting({ notifyWhatsApp: e.target.checked })} /> {t("התראות ואישורים בוואטסאפ (למספרים מאומתים)", "Alerts and approvals on WhatsApp (verified numbers)")}</label>
+        <OpsToggle field="enabled" value={d.settings.enabled} label={t("מנהל AI פעיל", "AI Manager active")} onSaved={load} help={
+          <HelpTip label={t("מנהל AI פעיל", "AI Manager active")} testId="help-enabled">{t("כשהמתג פעיל, המערכת בודקת את הכללים הפעילים (למטה) בערך כל 2 דקות ויוצרת המלצות, בקשות והתראות לפיהם. ״בדוק עכשיו״ מריץ בדיקה מיד. כשהמתג כבוי לא נוצרות המלצות ובקשות חדשות ולא נשלחות התראות. הקצאות שכבר אושרו אינן מבוטלות אוטומטית – אפשר לבטל אותן מ״בקשות פתוחות״.", "When on, the system checks the active rules (below) about every 2 minutes and creates recommendations, requests and alerts from them. “Check now” runs a check immediately. When off, no new recommendations or requests are created and no alerts are sent. Allocations already approved are not cancelled automatically – you can cancel them under “Open requests”.")}</HelpTip>} />
+        <OpsToggle field="notifyWhatsApp" value={d.settings.notifyWhatsApp} label={t("התראות ואישורים בוואטסאפ (למספרים מאומתים)", "Alerts and approvals on WhatsApp (verified numbers)")} onSaved={load} help={
+          <HelpTip label={t("התראות ואישורים בוואטסאפ", "WhatsApp alerts and approvals")} testId="help-whatsapp">{t(`כשהמתג פעיל, המלצות ובקשות נשלחות גם בוואטסאפ למנהלים ולנציגים שחיברו ואימתו מספר אצל העוזר האישי בוואטסאפ, ואפשר לאשר או לדחות בתשובה עם מספר הבקשה (למשל ״אשר 4821״). נדרש שהעוזר בוואטסאפ יהיה פעיל. יש מגבלה של עד ${d.settings.maxAlertsPerDay} התראות ביום ו-${d.settings.cooldownMinutes} דקות צינון בין התראות מאותו סוג לאותו נציג. כשהמתג כבוי הכול ממשיך לפעול בעמוד הזה בלבד.`, `When on, recommendations and requests are also sent on WhatsApp to managers and agents who linked and verified a number with the WhatsApp assistant, and they can approve or reject by replying with the request number (e.g. “approve 4821”). The WhatsApp assistant must be enabled. Up to ${d.settings.maxAlertsPerDay} alerts a day and a ${d.settings.cooldownMinutes}-minute cooldown between alerts of the same kind for the same agent. When off, everything keeps working on this page only.`)}</HelpTip>} />
         <span className="text-xs text-muted">{t(`עד ${d.settings.maxAlertsPerDay} התראות ביום · צינון ${d.settings.cooldownMinutes} דק׳`, `Up to ${d.settings.maxAlertsPerDay} alerts/day · ${d.settings.cooldownMinutes} min cooldown`)}</span>
-        {!d.aiConnected && <Badge tone="warn">{t("ללא מודל: המספרים והטקסטים מחושבים בקוד; פענוח כללים לפי תבניות", "No model: numbers and texts are computed in code; rules interpreted by patterns")}</Badge>}
+        {!d.aiConnected && <span className="rounded-md bg-warn/15 px-2 py-0.5 text-xs font-medium text-warn" data-testid="ops-no-model">{t("ללא מודל: המספרים והטקסטים מחושבים בקוד; פענוח כללים לפי תבניות", "No model: numbers and texts are computed in code; rules interpreted by patterns")}</span>}
         <Button size="sm" variant="secondary" className="ms-auto" loading={checking} onClick={async () => { setChecking(true); try { await api.post("/api/ops/evaluate", {}); await load(); } finally { setChecking(false); } }} data-testid="ops-evaluate">{t("בדוק עכשיו", "Check now")}</Button>
       </div>
 
-      <Panel title={t(`המלצות ובקשות פתוחות (${open.length})`, `Open recommendations & requests (${open.length})`)}>
-        {open.length ? <div className="space-y-3">{open.map((r) => <RecCard key={r.id} r={r} data={d} onDone={load} />)}</div> : <EmptyState title={t("אין המלצות פתוחות", "No open recommendations")} hint={t("המערכת בודקת את הכללים הפעילים כל 2 דקות. בקשות והתראות יופיעו כאן כשיתקיימו תנאי הכלל.", "The system checks the active rules every 2 minutes. Requests and alerts appear here when a rule's conditions are met.")} />}
+      <Panel title={<>{t(`המלצות (${recsOpen.length})`, `Recommendations (${recsOpen.length})`)}<HelpTip label={t("המלצות", "Recommendations")} testId="help-recommendations">{t("הצעות שהמערכת יצרה לפי הכללים הפעילים וממתינות להחלטה שלך – למשל להקצות לידים נוספים לנציג שמצליח היום (״נציג במומנטום״). בכל המלצה מוצגים המספרים שעליהם היא מבוססת. אפשר לשנות את הכמות ולאשר, או לדחות. אישור של הקצאת לידים שולח בקשה לנציג, וההקצאה מתחילה רק אחרי אישורו. דחייה סוגרת את ההמלצה בלי שינוי. המלצה שלא נענתה פגה ולא מבוצעת.", "Suggestions the system created from the active rules that wait for your decision – e.g. allocating extra leads to an agent who is doing well today (“Agent on a roll”). Each shows the numbers it is based on. You can change the count and approve, or reject. Approving a lead allocation sends a request to the agent, and the allocation starts only after they approve. Rejecting closes it with no change. An unanswered recommendation expires and is never carried out.")}</HelpTip></>}>
+        {recsOpen.length ? <div className="space-y-3">{recsOpen.map((r) => <RecCard key={r.id} r={r} data={d} onDone={load} />)}</div> : <EmptyState title={t("אין המלצות שממתינות להחלטה", "No recommendations waiting for a decision")} hint={t("כשמנהל AI פעיל, הכללים נבדקים בערך כל 2 דקות. המלצה תופיע כאן כשיתקיימו תנאי כלל.", "When the AI Manager is on, the rules are checked about every 2 minutes. A recommendation appears here when a rule's conditions are met.")} />}
+      </Panel>
+
+      <Panel title={<>{t(`בקשות פתוחות (${requestsOpen.length})`, `Open requests (${requestsOpen.length})`)}<HelpTip label={t("בקשות פתוחות", "Open requests")} testId="help-requests">{t("פריטים שכבר בתהליך ואינם ממתינים להחלטה שלך: בקשה שנשלחה לנציג וממתינה לתשובתו, הקצאה שמחכה שהנציג יתחבר לחייגן, הקצאה פעילה (לידים חדשים עוברים לנציג עד הכמות או המועד שאושרו), וחריגה מיעד הזמן לחיוג ראשון. אפשר לבטל בקשה או הקצאה פעילה. בסיום או בביטול, החלוקה חוזרת להיות הרגילה. לידים שכבר הוקצו נשארים אצל הנציג.", "Items already in progress that are not waiting for your decision: a request sent to an agent waiting for their answer, an allocation waiting for the agent to connect to the dialer, an active allocation (new leads go to the agent up to the approved count or time), and a missed first-dial deadline. You can cancel a request or an active allocation. When it ends or is cancelled, distribution goes back to normal. Leads already allocated stay with the agent.")}</HelpTip></>}>
+        {requestsOpen.length ? <div className="space-y-3">{requestsOpen.map((r) => <RecCard key={r.id} r={r} data={d} onDone={load} />)}</div> : <EmptyState title={t("אין בקשות פתוחות", "No open requests")} hint={t("בקשות שנשלחו לנציגים והקצאות פעילות יופיעו כאן.", "Requests sent to agents and active allocations appear here.")} />}
       </Panel>
 
       <Panel title={t("הצוות היום – הנתונים שמאחורי ההמלצות", "Team today – the data behind the recommendations")}>
@@ -243,16 +252,92 @@ export function OpsTab() {
 
       {insights.length > 0 && <Panel title={t("תובנות (ללא פעולה)", "Insights (no action)")}><ul className="text-xs space-y-1">{insights.map((r) => <li key={r.id}><b>{r.title}</b> – {r.explanation}</li>)}</ul></Panel>}
 
-      <Panel title={t("השפעה נמדדת", "Measured impact")}>
-        <p className="text-xs text-muted mb-2">{t("השוואה תיאורית בלבד של הלידים שהוקצו במסגרת אישורים – לא הוכחה שהמערכת גרמה לשינוי (אין קבוצת ביקורת). מדגם קטן מסומן.", "A descriptive comparison only of leads allocated under approvals – not proof that the system caused the change (no control group). Small samples are marked.")}</p>
-        {d.impact.length ? <table className="w-full text-xs" data-testid="ops-impact"><thead className="text-muted"><tr><th className="text-start">{t("נציג", "Agent")}</th><th className="text-start">{t("מתי", "When")}</th><th className="text-start">{t("אושרו", "Approved")}</th><th className="text-start">{t("הוקצו", "Allocated")}</th><th className="text-start">{t("חויגו", "Dialed")}</th><th className="text-start">{t("נסגרו", "Closed")}</th><th className="text-start">{t("ממוצע אישי לפני", "Personal avg before")}</th></tr></thead>
-          <tbody>{d.impact.map((i) => <tr key={i.id} className="border-t border-line"><td>{i.agentName}</td><td>{new Date(i.at).toLocaleDateString(loc)}</td><td>{i.approved ?? "—"}</td><td>{i.allocated}</td><td>{i.dialed}</td><td>{i.won}{i.smallSample && <Badge tone="neutral" className="ms-1">{t("מדגם קטן", "Small sample")}</Badge>}</td><td>{pct(i.baselineRate)}</td></tr>)}</tbody></table> : <p className="text-xs text-muted">{t("עדיין אין הקצאות שהסתיימו.", "No completed allocations yet.")}</p>}
+      <Panel title={<>{t("השפעה נמדדת", "Measured impact")}<HelpTip label={t("השפעה נמדדת", "Measured impact")} testId="help-impact">{t("מה קרה ללידים שהוקצו לנציג במסגרת הקצאה שאושרה: כמה חויגו וכמה נסגרו לעסקה מאז תחילת ההקצאה. לצד זה מוצגת השוואה ליחידה זהה: הלידים שאותו נציג קיבל ב-14 הימים שלפני ההקצאה, וכמה מהם נסגרו עד תחילתה. זה נתון תיאורי בלבד – אין קבוצת ביקורת, ולכן ההבדל אינו מוכיח שהמערכת גרמה לשינוי. אחוזים מוצגים רק מ-20 לידים ומעלה.", "What happened to the leads allocated to an agent under an approved allocation: how many were dialed and how many closed since the allocation started. Next to it, a comparison with the same unit: the leads the same agent received in the 14 days before, and how many of them closed before it started. This is descriptive only – there is no control group, so a difference does not prove the system caused a change. Percentages are shown only from 20 leads.")}</HelpTip></>}>
+        <ImpactView rows={d.impact} loc={loc} />
       </Panel>
 
       <Panel title={t("היסטוריה ויומן", "History & log")}>
         {history.length > 0 && <ul className="text-xs space-y-1 mb-3">{history.map((r) => <li key={r.id}><Badge tone={TERMINAL[r.status] ?? "good"}>{r.statusLabel}</Badge> {r.title} {r.result?.reason ? `– ${r.result.reason}` : ""}{typeof r.result?.responseSeconds === "number" ? t(` (${Math.floor(r.result.responseSeconds / 60)} דק׳ ו-${r.result.responseSeconds % 60} שנ׳)`, ` (${Math.floor(r.result.responseSeconds / 60)} min ${r.result.responseSeconds % 60} s)`) : ""}</li>)}</ul>}
         <ul className="text-xs space-y-0.5 max-h-72 overflow-auto" data-testid="ops-log">{d.log.map((l) => <li key={l.id}><span className="text-muted">{new Date(l.createdAt).toLocaleString(loc)}</span> · {ACTION[l.action] ? t(ACTION[l.action][0], ACTION[l.action][1]) : l.action}{l.actor ? ` · ${l.actor.fullName}` : ` · ${t("מערכת", "System")}`}{l.payload && "via" in l.payload ? ` · ${t("דרך", "via")} ${l.payload.via === "whatsapp" ? t("וואטסאפ", "WhatsApp") : l.payload.via === "app" ? t("המערכת", "the app") : String(l.payload.via)}` : ""}</li>)}</ul>
       </Panel>
+    </div>
+  );
+}
+
+/** A settings switch that changes on the first click, saves, and goes back (with an error) if saving fails. */
+export function OpsToggle({ field, value, label, help, onSaved }: { field: "enabled" | "notifyWhatsApp"; value: boolean; label: string; help: React.ReactNode; onSaved: () => void }) {
+  const t = useT();
+  const [checked, setChecked] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Follow the server when ITS value changes (reload / 20s refresh) – never while our own save is in flight, and
+  // never "back" to a value the server sent before our save (the reload after saving brings the new one).
+  const [lastServer, setLastServer] = useState(value);
+  if (!saving && value !== lastServer) { setLastServer(value); setChecked(value); }
+  async function change(next: boolean) {
+    if (saving) return; // a second click during the save is ignored, not queued
+    const before = checked;
+    setChecked(next); setSaving(true); setError(null);
+    try {
+      const saved = await api.patch<Record<string, boolean>>("/api/ops/settings", { [field]: next });
+      setChecked(typeof saved?.[field] === "boolean" ? saved[field] : next);
+      onSaved();
+    } catch (e) {
+      setChecked(before);
+      const msg = (e as Error).message || t("השמירה נכשלה", "Saving failed");
+      setError(msg); toast.error(t(`השינוי לא נשמר: ${msg}`, `The change was not saved: ${msg}`));
+    } finally { setSaving(false); }
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" data-testid={`ops-toggle-${field}`}>
+      <label className={cx("inline-flex cursor-pointer items-center gap-1.5", saving && "opacity-70")}>
+        <input type="checkbox" checked={checked} aria-disabled={saving} aria-busy={saving} onClick={(e) => { if (saving) e.preventDefault(); /* a click during the save does not toggle */ }} onChange={(e) => void change(e.target.checked)} data-testid={`ops-${field}`} />
+        {label}
+      </label>
+      {help}
+      {saving && <span className="text-[11px] text-muted" role="status">{t("שומר…", "Saving…")}</span>}
+      {error && <span className="text-[11px] text-bad" role="alert" data-testid={`ops-${field}-error`}>{t("לא נשמר", "Not saved")}</span>}
+    </span>
+  );
+}
+
+/** "השפעה נמדדת": observed numbers vs. a comparison with the same unit; no percentages from tiny samples, no causal claim. */
+export function ImpactView({ rows, loc }: { rows: Impact[]; loc: string }) {
+  const t = useT();
+  const date = (s: string | null) => (s ? new Date(s).toLocaleDateString(loc) : null);
+  const pctOf = (a: number, b: number) => `${Math.round((a / b) * 100)}%`;
+  if (!rows.length) return (
+    <div className="py-4 text-sm" data-testid="ops-impact-empty">
+      <p className="font-medium">{t("עדיין אין מה למדוד", "Nothing to measure yet")}</p>
+      <p className="mt-1 text-xs text-muted">{t("הנתונים יופיעו אחרי שהקצאת לידים תאושר ותתחיל (המלצת ״נציג במומנטום״ שאושרה על ידי מנהל ונציג). לא מוצגים מספרים עד אז.", "Data appears after a lead allocation is approved and starts (an “Agent on a roll” recommendation approved by a manager and the agent). No numbers are shown until then.")}</p>
+    </div>
+  );
+  return (
+    <div className="space-y-3" data-testid="ops-impact">
+      <p className="text-xs text-muted">{t("נתון נצפה = מה שקרה בפועל ללידים שהוקצו. השוואה = לידים שאותו נציג קיבל ב-14 הימים שלפני ההקצאה. אין קבוצת ביקורת – ההבדל אינו הוכחה להשפעה של ה-AI.", "Observed = what actually happened to the allocated leads. Comparison = leads the same agent received in the 14 days before the allocation. No control group – a difference is not proof of an AI effect.")}</p>
+      {rows.map((i) => (
+        <article key={i.id} className="rounded-md border border-line p-3 text-xs" data-testid="ops-impact-row">
+          <div className="flex flex-wrap items-center gap-2"><b className="text-sm">{i.agentName ?? "—"}</b>
+            <span className="text-muted">{t("תקופה:", "Period:")} {date(i.at)} – {i.until ? date(i.until) : t("היום (פעילה)", "today (active)")}</span>
+            {i.approved != null && <span className="text-muted">· {t(`אושרו ${i.approved} לידים`, `${i.approved} leads approved`)}</span>}
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div className="rounded bg-panel-2 p-2">
+              <p className="font-semibold">{t("נתון נצפה – הלידים שהוקצו", "Observed – the allocated leads")}</p>
+              <p className="mt-1">{t(`הוקצו ${i.allocated} · חויגו ${i.dialed} · נסגרו לעסקה ${i.won}`, `Allocated ${i.allocated} · dialed ${i.dialed} · closed ${i.won}`)}</p>
+              <p className="mt-1">{i.smallSample ? <span className="text-muted">{t(`מדגם קטן (פחות מ-${i.minSample} לידים) – לא מוצג אחוז`, `Small sample (under ${i.minSample} leads) – no percentage shown`)}</span> : t(`אחוז סגירה: ${pctOf(i.won, i.allocated)} (עסקאות מתוך הלידים שהוקצו)`, `Close rate: ${pctOf(i.won, i.allocated)} (deals out of allocated leads)`)}</p>
+            </div>
+            <div className="rounded bg-panel-2 p-2">
+              <p className="font-semibold">{t("השוואה – 14 הימים שלפני", "Comparison – the 14 days before")}</p>
+              {i.compare ? <>
+                <p className="mt-1">{t(`${i.compare.leads} לידים שקיבל הנציג (${date(i.compare.from)}–${date(i.compare.to)}) · נסגרו ${i.compare.won}`, `${i.compare.leads} leads the agent received (${date(i.compare.from)}–${date(i.compare.to)}) · closed ${i.compare.won}`)}</p>
+                <p className="mt-1">{i.compareSmall ? <span className="text-muted">{t("אין מספיק נתוני השוואה – לא מוצג אחוז", "Not enough comparison data – no percentage shown")}</span> : t(`אחוז סגירה: ${pctOf(i.compare.won, i.compare.leads)}`, `Close rate: ${pctOf(i.compare.won, i.compare.leads)}`)}</p>
+              </> : <p className="mt-1 text-muted">{t("אין נתוני השוואה", "No comparison data")}</p>}
+            </div>
+          </div>
+          {!i.until && <p className="mt-2 text-muted">{t("ההקצאה עדיין פעילה – לידים עשויים עוד להיסגר, ולכן המספרים הנצפים חלקיים.", "The allocation is still active – leads may still close, so the observed numbers are partial.")}</p>}
+        </article>
+      ))}
     </div>
   );
 }

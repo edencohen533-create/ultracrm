@@ -94,7 +94,7 @@ it("another agent cannot answer the owner's request",async()=>{
 it("natural-language rule supported; unavailable features explicitly require development and save nothing",async()=>{
  const supported=await interpretRule("כשמגיע זמן פולואפ והנציג לא מחובר לחייגן תשאל אותו בוואטסאפ אם הוא עולה או להעביר לנציג אחר");expect(supported.kind).toBe("followup_checkin");expect(supported.questions).toHaveLength(2);
  const unsupported=await interpretRule("אם לקוח מסכים תחייב אותו באשראי ותשלח חשבונית");expect(unsupported.kind).toBeNull();expect(unsupported.note).toContain("דורשת פיתוח");
- const result=await as(owner,()=>chatTurn(owner,{text:"תציג לי את המודעה מפייסבוק שהביאה את הליד"}));expect(result.message.text).toContain("דורשת פיתוח");expect(result.message.actions).toHaveLength(0);
+ const result=await as(owner,()=>chatTurn(owner,{text:"תשנה את תקציב המודעה בפייסבוק"}));expect(result.message.text).toContain("דורשת פיתוח");expect(result.message.actions).toHaveLength(0);
  const {ctx}=await as(owner,()=>buildCtx(owner,"app",null));const tool=await as(owner,()=>runAiTool(ctx,"report_unsupported_request",{missingCapability:"חיבור למערכת שאינה נתמכת"}));expect(tool.result).toMatchObject({supported:false,executed:false});
 });
 it("negation is never parsed as consent",()=>{expect(parseFollowupAnswer("לא מתחבר אל תעבירו")).toBe("unclear");});

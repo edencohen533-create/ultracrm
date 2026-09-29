@@ -9,7 +9,7 @@ export const GET = withAuth(async ({ user, params }) => ok(await monitorState(us
 
 /** Explicit mode switch: { mode: "listen" | "whisper" }. Whisper is never the default. */
 export const PATCH = withAuth(async ({ req, user, params }) => {
-  const b = await parseBody(req, z.object({ mode: z.enum(["listen", "whisper"]) }));
+  const b = await parseBody(req, z.object({ mode: z.enum(["listen", "whisper", "barge"]) }));
   return ok(await switchMode(user, params.id, b.mode));
 }, { minRole: "manager", module: "telephony" });
 

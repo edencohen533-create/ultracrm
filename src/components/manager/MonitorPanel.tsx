@@ -31,14 +31,15 @@ export function MonitorPanel({ onClose, agentName, contactName, callAnsweredAt, 
   const serverStatus = monitor?.status ?? "connecting";
   const ended = Boolean(monitor?.endedAt) || callEnded || media === "ended";
   // Derived display state: never claim "listening" before media is confirmed (or simulation, which has no media).
-  const display: "connecting" | "listening" | "whispering" | "ended" | "error" =
+  const display: "connecting" | "listening" | "whispering" | "speaking" | "ended" | "error" =
     monitor?.status === "failed" ? "error"
     : ended ? "ended"
     : serverStatus === "connecting" || (!simulation && media !== "active") ? "connecting"
+    : serverStatus === "speaking" ? "speaking"
     : serverStatus === "whispering" ? "whispering"
     : "listening";
-  const label: Record<typeof display, string> = { connecting: t("מתחבר…", "Connecting…"), listening: t("האזנה בלבד", "Listen only"), whispering: t("לחישה לנציג", "Whispering to agent"), ended: t("השיחה / ההאזנה הסתיימה", "Call / monitoring ended"), error: t("שגיאה", "Error") };
-  const tone = display === "whispering" ? "warn" : display === "listening" ? "good" : display === "error" ? "bad" : "neutral";
+  const label: Record<typeof display, string> = { speaking: t("משתתף בשיחה — הלקוח והנציג שומעים אותך", "In conversation — customer and agent hear you"), connecting: t("מתחבר…", "Connecting…"), listening: t("האזנה בלבד", "Listen only"), whispering: t("לחישה לנציג", "Whispering to agent"), ended: t("השיחה / ההאזנה הסתיימה", "Call / monitoring ended"), error: t("שגיאה", "Error") };
+  const tone = display === "speaking" || display === "whispering" ? "warn" : display === "listening" ? "good" : display === "error" ? "bad" : "neutral";
 
   async function pressStart() {
     if (display !== "listening") return;
@@ -123,7 +124,9 @@ export function MonitorPanel({ onClose, agentName, contactName, callAnsweredAt, 
           </label>
         </div>
 
-        <div className="border-t border-line pt-3">
+        <div className="border-t border-line pt-3 space-y-2">
+          <p className="text-xs text-muted">הצטרפות כמומחה פותחת שיחה עם הלקוח והנציג יחד. אובדן מיקוד משתיק את המיקרופון.</p>
+          <Button disabled={display !== "listening" && display !== "speaking"} onClick={async () => { try { setErr(null); if (display === "speaking") await supervisor.whisperOff(); else await supervisor.joinConversation(); } catch (e) { setErr((e as Error).message); } }}>{display === "speaking" ? "חזרה להאזנה בלבד" : "הצטרף לשיחה עם הלקוח והנציג"}</Button>
           <p className="text-xs text-muted mb-2">{t("לחישה: רק הנציג שומע אותך. לחץ והחזק (או החזק רווח). שחרור, אובדן פוקוס או ניתוק מפסיקים את השידור.", "Whisper: only the agent hears you. Press and hold (or hold Space). Releasing, losing focus or disconnecting stops transmitting.")}</p>
           <button
             type="button"

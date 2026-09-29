@@ -38,6 +38,7 @@ const ITEMS: Item[] = [
   { href: "/campaigns/whatsapp", label: "הודעות תפוצה", en: "Broadcasts", roles: ALL, need: ["whatsapp.campaign_draft", "whatsapp.campaign_send", "sms.view", "email.view"], Icon: Megaphone, testid: "nav-campaigns", match: (p) => p.startsWith("/campaigns") },
   { href: "/automations", label: "אוטומציות", en: "Automations", roles: MGMT, need: ["whatsapp.automations", "sms.send", "email.send"], Icon: Zap, testid: "nav-automations", match: (p) => p.startsWith("/automations") || p.startsWith("/carts") },
   { href: "/ai", label: "עוזר AI", en: "AI assistant", roles: ALL, Icon: Bot, testid: "nav-ai", match: (p) => p.startsWith("/ai") },
+  { href: "/sales", label: "הצעות וסגירה", en: "Sales", roles: ALL, need: ["crm.view"], Icon: Star, testid: "nav-sales", match: (p) => p.startsWith("/sales") },
   { href: "/reports", label: "דוחות", en: "Reports", roles: MGMT, Icon: BarChart3, testid: "nav-reports", match: (p) => p.startsWith("/reports") || p.startsWith("/analytics") || p.startsWith("/manager") },
 ];
 

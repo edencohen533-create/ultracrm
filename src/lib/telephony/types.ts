@@ -78,7 +78,7 @@ export interface TelephonyAdapter {
   /** Dial a supervisor's browser leg straight into the conference as a listen-only participant able to whisper to `whisperToLegId`. */
   dialSupervisor(input: { monitorId: string; callId: string; sipUsername: string; fromE164: string; conferenceId: string; whisperToLegId: string; timeoutSeconds: number }): Promise<DialResult>;
   /** Switch the supervisor leg between listen-only and whisper (enforced at the provider). */
-  switchSupervisorRole(legId: string, role: "monitor" | "whisper"): Promise<void>;
+  switchSupervisorRole(legId: string, role: "monitor" | "whisper" | "barge"): Promise<void>;
   sendDtmf(legId: string, digits: string, commandId: string): Promise<void>;
   /** Is the leg still alive at the provider? `null` = unknown (provider unreachable). */
   isLegAlive(legId: string): Promise<boolean | null>;

@@ -234,7 +234,7 @@ export function LiveFloor() {
                           {c?.contact && <Link href={`/contacts/${c.contact.id}`}><Button size="sm" variant="ghost">{t("פתיחת לקוח", "Open customer")}</Button></Link>}
                           {c && <Button size="sm" variant="ghost" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{t("פרטי שיחה", "Call details")}</Button>}
                         </div>
-                        {c && c.monitors.length > 0 && <p className="text-[11px] text-warn mt-0.5">{c.monitors.map((m) => `${m.manager.fullName} (${m.status === "whispering" ? t("לוחש", "whispering") : m.status === "listening" ? t("מאזין", "listening") : t("מתחבר", "connecting")})`).join(", ")}</p>}
+                        {c && c.monitors.length > 0 && <p className="text-[11px] text-warn mt-0.5">{c.monitors.map((m) => `${m.manager.fullName} (${m.status === "speaking" ? t("משתתף בשיחה", "speaking to both") : m.status === "whispering" ? t("לוחש", "whispering") : m.status === "listening" ? t("מאזין", "listening") : t("מתחבר", "connecting")})`).join(", ")}</p>}
                       </td>
                     </tr>
                     {expanded === r.id && c && (

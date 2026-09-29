@@ -172,12 +172,14 @@ enum CallDirection {
 enum MonitorMode {
   listen
   whisper
+  barge
 }
 
 enum MonitorStatus {
   connecting
   listening
   whispering
+  speaking
   ended
   failed
 }
@@ -326,6 +328,9 @@ model Plan {
 }
 
 model Business {
+  metaAdConnection MetaAdConnection?
+  salesOffers SalesOffer[]
+  salesQuotes SalesQuote[]
   coachKnowledge       CoachKnowledge?
   coachSessions        CoachSession[]
   coachExamples        CoachExample[]
@@ -678,11 +683,13 @@ model ContactTag {
 
 /// A sales opportunity at its earliest stage. A contact can have many leads over time.
 model Lead {
+  salesQuotes SalesQuote[]
   id          String     @id @default(cuid())
   businessId  String     @map("business_id")
   contactId   String     @map("contact_id")
   title       String?
   status      LeadStatus @default(new)
+  sourceAttribution Json @default("{}") @map("source_attribution")
   source      String?
   ownerUserId String?    @map("owner_user_id")
   priority    Int        @default(0)
@@ -2777,4 +2784,69 @@ model SupportRequest {
 
   @@index([createdAt])
   @@map("support_requests")
+}
+
+/// Approved commercial catalog. Money is stored in minor units; taxes/discounts in basis points.
+model SalesOffer {
+  id String @id @default(cuid())
+  businessId String @map("business_id")
+  name String
+  description String @default("")
+  currency String @default("ILS")
+  unitAmount Int @map("unit_amount")
+  unitCost Int? @map("unit_cost")
+  taxBps Int @default(0) @map("tax_bps")
+  maxDiscountBps Int @default(0) @map("max_discount_bps")
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  @@index([businessId, active])
+  @@map("sales_offers")
+}
+
+/// Each row is one immutable quote revision. Sharing a new revision revokes the previous link.
+model SalesQuote {
+  id String @id @default(cuid())
+  businessId String @map("business_id")
+  leadId String @map("lead_id")
+  createdById String @map("created_by_id")
+  familyId String @map("family_id")
+  revision Int @default(1)
+  title String
+  currency String
+  lines Json
+  costTotal Int? @map("cost_total")
+  subtotal Int
+  tax Int
+  total Int
+  terms String @default("")
+  status String @default("approved")
+  expiresAt DateTime @map("expires_at")
+  approvedById String? @map("approved_by_id")
+  approvedAt DateTime? @map("approved_at")
+  tokenHash String? @unique @map("token_hash")
+  sharedAt DateTime? @map("shared_at")
+  viewedAt DateTime? @map("viewed_at")
+  acceptedAt DateTime? @map("accepted_at")
+  acceptedName String? @map("accepted_name")
+  participants Json @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  @@unique([businessId, familyId, revision])
+  @@index([businessId, leadId, createdAt])
+  @@index([businessId, status])
+  @@map("sales_quotes")
+}
+
+model MetaAdConnection {
+  id String @id @default(cuid())
+  businessId String @unique @map("business_id")
+  accountId String @map("account_id")
+  accountName String @map("account_name")
+  tokenSealed String @map("token_sealed")
+  verifiedAt DateTime @map("verified_at")
+  business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
+  @@map("meta_ad_connections")
 }

@@ -1,4 +1,5 @@
 /** Opt-in, clock-time SLA for an actual first dial. Status edits never count as a dial. */
+import {slaDeadline} from "./sla-time";
 import crypto from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma, dbSchema } from "@/lib/db";
@@ -31,11 +32,12 @@ export async function runLeadResponseSla(businessId: string, now = new Date()) {
       const rows = await prisma.lead.findMany({ where: { businessId, id: { in: pending.map(p => p.id) }, contact: { isBlocked: false, consentStatus: { not: "OPTED_OUT" } } }, include: { contact: true } });
       for (const lead of rows) {
         const startedAt = lead.createdAt;
+        const deadline = slaDeadline(startedAt,rule.config.minutes,rule.config.businessHoursOnly?settings.dialWindow:undefined);
         const dedupeKey = `sla:${rule.id}:${lead.id}`;
         if (await prisma.opsRecommendation.findUnique({ where: { businessId_dedupeKey: { businessId, dedupeKey } } })) continue;
         if (await prisma.dncEntry.findFirst({ where: { businessId, phoneE164: lead.contact.phoneE164 } })) continue;
         try {
-          await prisma.opsRecommendation.create({ data: { businessId, ruleId: rule.id, kind: KIND, agentId: lead.ownerUserId, status: "monitoring", code: String(crypto.randomInt(1000, 10000)), title: `יעד חיוג ראשון: ${lead.contact.fullName}`, explanation: `יעד: ניסיון חיוג ראשון בתוך ${rule.config.minutes} דקות מקבלת הליד.`, evidence: {}, proposal: json({ leadId: lead.id, startedAt: startedAt.toISOString(), ruleVersion: rule.updatedAt.toISOString(), minutes: rule.config.minutes }), dedupeKey, expiresAt: new Date(startedAt.getTime() + rule.config.minutes * 60000) } });
+          await prisma.opsRecommendation.create({ data: { businessId, ruleId: rule.id, kind: KIND, agentId: lead.ownerUserId, status: deadline ? "monitoring" : "needs_adjustment", result: deadline ? undefined : {reason:"חלון העבודה אינו מאפשר לחשב יעד בטווח שנה; יש לעדכן את שעות הפעילות או הכלל."}, code: String(crypto.randomInt(1000, 10000)), title: `יעד חיוג ראשון: ${lead.contact.fullName}`, explanation: `יעד: ניסיון חיוג ראשון בתוך ${rule.config.minutes} דקות מקבלת הליד.`, evidence: {}, proposal: json({ leadId: lead.id, startedAt: startedAt.toISOString(), ruleVersion: rule.updatedAt.toISOString(), minutes: rule.config.minutes, businessHoursOnly: rule.config.businessHoursOnly }), dedupeKey, expiresAt: deadline ?? startedAt } });
         } catch (e) { if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e; }
       }
       if (pending.length < 100) break;
@@ -66,7 +68,8 @@ export async function runLeadResponseSla(businessId: string, now = new Date()) {
     processed++;
     await audit(businessId, null, "ai_ops", rec.id, "ai_ops.sla_" + status, result ?? {});
     if (status === "needs_attention") {
-      const text = `${rec.title}\n${result!.reason} יעד: ${p.minutes} דקות.\nהליד נשאר בתור הקיים שלך; לא בוצעה העברה.`;
+      const moved=rule?.autonomy==="auto"&&rule.config.onBreach==="transfer_to_available"?await escalateSla({...rec,status:"needs_attention",agentId:lead?.ownerUserId??null}):false;
+      const text = `${rec.title}\n${result!.reason} יעד: ${p.minutes} דקות.\n${moved?"הליד הועבר לנציג זמין לפי הכלל המאושר.":"הליד נשאר בתור הקיים שלך; לא בוצעה העברה."}`;
       const sentToday = lead?.ownerUserId ? await prisma.auditLog.count({ where: { businessId, action: "ai_ops.sla_delivery", createdAt: { gte: new Date(now.getTime() - 86400000) }, payload: { path: ["agentId"], equals: lead.ownerUserId } } }) : 0;
       const delivery = sentToday >= settings.aiOps.maxAlertsPerDay ? { status: "skipped", detail: "מכסת התראות יומית" } : lead?.ownerUserId ? await send(businessId, lead.ownerUserId, text, "ליד ממתין לחיוג ראשון") : { status: "skipped", detail: "ליד ללא שיוך" };
       // Preserve a concurrent completion result while recording delivery separately in audit.
@@ -75,4 +78,16 @@ export async function runLeadResponseSla(businessId: string, now = new Date()) {
     }
   }
   return processed;
+}
+
+async function escalateSla(rec:import("@/generated/prisma/client").OpsRecommendation){
+ const {requiresManager}=await import("./rules");if(await requiresManager(rec.businessId,"ownership"))return false;
+ const owner=await prisma.user.findFirst({where:{businessId:rec.businessId,role:"owner",isActive:true}});if(!owner)return false;
+ const {agents}=await (await import("./metrics")).agentSnapshots(rec.businessId);
+ const candidates=agents.filter(a=>a.id!==rec.agentId&&a.online&&!a.inCall&&a.inPool&&a.capOk).sort((a,b)=>a.openLeads-b.openLeads);
+ const {effectiveAccess,can}=await import("@/lib/access/engine");
+ for(const target of candidates){const access=await effectiveAccess(rec.businessId,target.id);if(!can(access,"telephony.use")||!can(access,"crm.view"))continue;
+  if(await (await import("@/lib/crm/lead-ops")).transferSlaFromRule(owner,target.id,rec)){await audit(rec.businessId,owner.id,"ai_ops",rec.id,"ai_ops.sla_transferred",{toAgentId:target.id});return true;}
+ }
+ return false;
 }

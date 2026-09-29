@@ -109,6 +109,7 @@ interface Ctx {
     start: (callId: string) => Promise<MonitorDto | null>;
     stop: () => Promise<void>;
     whisperOn: () => Promise<void>;
+    joinConversation: () => Promise<void>;
     whisperOff: () => Promise<void>;
     refresh: () => Promise<MonitorDto | null>;
     setVolume: (v: number) => void;
@@ -166,6 +167,8 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
   const [volume, setVolumeState] = useState(1);
   const monitorRef = useRef<MonitorDto | null>(null);
   const whisperingRef = useRef(false);
+  const speakingGeneration = useRef(0);
+  const modeQueue = useRef<Promise<unknown>>(Promise.resolve());
   const browserSessionId = useMemo(() => getBrowserSessionId(), []);
   const router = useRouter();
 
@@ -854,25 +857,35 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     setSupMedia("ended");
     sdkCallRef.current = null;
   }, []);
-  const supWhisperOn = useCallback(async () => {
+  const supSpeak = useCallback(async (mode: "whisper" | "barge") => {
     const m = monitorRef.current;
     if (!m || m.endedAt || m.status === "connecting" || whisperingRef.current) return;
     whisperingRef.current = true;
-    let upd: MonitorDto;
-    try { upd = await api.patch<MonitorDto>(`/api/manager/monitor/${m.id}`, { mode: "whisper" }); }
-    catch (err) { whisperingRef.current = false; throw err; }
-    monitorRef.current = upd; setMonitor(upd);
-    if (whisperingRef.current) { try { sdkCallRef.current?.unmuteAudio(); } catch { /* ignore */ } }
+    const generation = ++speakingGeneration.current;
+    const request = modeQueue.current.catch(() => {}).then(() => api.patch<MonitorDto>(`/api/manager/monitor/${m.id}`, { mode }));
+    modeQueue.current = request;
+    try {
+      const upd = await request;
+      if (generation !== speakingGeneration.current || monitorRef.current?.id !== m.id || monitorRef.current.endedAt) return;
+      monitorRef.current = upd; setMonitor(upd);
+      if (whisperingRef.current) sdkCallRef.current?.unmuteAudio();
+    } catch (err) {
+      if (generation === speakingGeneration.current) { whisperingRef.current = false; try { sdkCallRef.current?.muteAudio(); } catch {} }
+      throw err;
+    }
   }, []);
+  const supWhisperOn = useCallback(() => supSpeak("whisper"), [supSpeak]);
+  const supJoinConversation = useCallback(() => supSpeak("barge"), [supSpeak]);
   const supWhisperOff = useCallback(async () => {
     const m = monitorRef.current;
-    try { sdkCallRef.current?.muteAudio(); } catch { /* ignore */ } // mic off immediately
-    if (!m || m.endedAt || !whisperingRef.current) return;
+    try { sdkCallRef.current?.muteAudio(); } catch {} // Stop local audio before any network wait.
+    if (!m || m.endedAt) return;
     whisperingRef.current = false;
-    try {
-      const upd = await api.patch<MonitorDto>(`/api/manager/monitor/${m.id}`, { mode: "listen" });
-      monitorRef.current = upd; setMonitor(upd);
-    } catch { /* refresh will resync */ }
+    const generation = ++speakingGeneration.current;
+    const request = modeQueue.current.catch(() => {}).then(() => api.patch<MonitorDto>(`/api/manager/monitor/${m.id}`, { mode: "listen" }));
+    modeQueue.current = request;
+    const upd = await request;
+    if (generation === speakingGeneration.current && monitorRef.current?.id === m.id && !monitorRef.current.endedAt) { monitorRef.current = upd; setMonitor(upd); }
   }, []);
   const setVolume = useCallback((v: number) => {
     setVolumeState(v);
@@ -881,7 +894,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
   }, []);
   // Any loss of focus / page hide ends a whisper (mic must never stay open by accident).
   useEffect(() => {
-    const off = () => { if (whisperingRef.current) supWhisperOff(); };
+    const off = () => { if (whisperingRef.current) void supWhisperOff().catch(() => {}); };
     window.addEventListener("blur", off);
     document.addEventListener("visibilitychange", off);
     window.addEventListener("pagehide", off);
@@ -933,7 +946,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     refreshEmptyState,
     switchCampaign,
     dismissSummary: () => setSessionSummary(null),
-    supervisor: { monitor, media: supMedia, start: supStart, stop: supStop, whisperOn: supWhisperOn, whisperOff: supWhisperOff, refresh: supRefresh, setVolume, volume },
+    supervisor: { monitor, media: supMedia, start: supStart, stop: supStop, whisperOn: supWhisperOn, joinConversation: supJoinConversation, whisperOff: supWhisperOff, refresh: supRefresh, setVolume, volume },
   };
 
   return (

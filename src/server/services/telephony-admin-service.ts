@@ -18,7 +18,11 @@ export async function routingOverview(businessId: string) {
   const providers = await Promise.all(knownProviders().map(async (name) => {
     const a = adapterFor(name);
     const cfg = a.configStatus();
-    const account = await prisma.telephonyProviderAccount.findUnique({ where: { provider_accountRef: { provider: name, accountRef: cfg.accountRef ?? "default" } } });
+    // Per-business accounts (Zadarma) keep their check on the business's own credential row.
+    const own = a.businessReadiness ? await prisma.telephonyProviderCredential.findUnique({ where: { businessId_provider: { businessId, provider: name } } }) : null;
+    const account = a.businessReadiness
+      ? (own?.lastCheckAt ? { ok: Boolean(own.lastCheckOk), checkedAt: own.lastCheckAt, verifiedAt: own.lastCheckOk ? own.lastCheckAt : null, detail: own.lastCheckDetail } : null)
+      : await prisma.telephonyProviderAccount.findUnique({ where: { provider_accountRef: { provider: name, accountRef: cfg.accountRef ?? "default" } } });
     const eligibility = await providerEligibility(name, businessId);
     const checks = Array.isArray(account?.detail) ? (account!.detail as Array<{ name: string; ok: boolean; detail?: string }>).map((c) => (PLATFORM_ONLY_CHECKS.has(c.name) ? { name: c.name, ok: c.ok } : c)) : [];
     return {

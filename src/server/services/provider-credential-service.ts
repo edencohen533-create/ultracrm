@@ -44,6 +44,10 @@ export async function activateMetaProvider(input: MetaProviderConfigInput, actor
   for (const user of users) {
     if (await bcrypt.compare(DEMO_PASSWORD, user.account.passwordHash)) throw new MetaConnectionError("לפני חיבור Meta יש להחליף את סיסמאות הדמו או להשבית את חשבונות ההדגמה בהגדרות המשתמשים");
   }
+  const { assetsTakenElsewhere } = await import("./embedded-signup-service");
+  const taken = await assetsTakenElsewhere(requireBusinessId(), { phoneNumberId: input.phoneNumberId, wabaId: input.businessAccountId });
+  if (taken === "phone") throw new MetaConnectionError("המספר הזה כבר מחובר לעסק אחר במערכת. יש לנתק אותו שם לפני חיבור כאן");
+  if (taken === "waba") throw new MetaConnectionError("חשבון ה-WhatsApp Business הזה כבר מחובר לעסק אחר במערכת. חיבור לעסק נוסף אפשרי רק אחרי ניתוק שם על ידי בעל העסק");
   const report = await checkMetaConnection(input);
   const credential = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requireBusinessId()}, 774291))`;

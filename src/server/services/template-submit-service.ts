@@ -10,10 +10,8 @@ export class TemplateSubmissionError extends Error {}
 
 const MEDIA_LIMIT = { IMAGE: 5 * 1024 * 1024, VIDEO: 16 * 1024 * 1024, DOCUMENT: 100 * 1024 * 1024 } as const;
 
-/** Meta requires a sample of the header media as an upload handle (Resumable Upload API of the app). */
-async function uploadSampleMedia(url: string, format: "IMAGE" | "VIDEO" | "DOCUMENT", token: string, version: string) {
-  const appId = process.env.META_APP_ID?.trim();
-  if (!appId) throw new TemplateSubmissionError("חסר META_APP_ID – נדרש להעלאת קובץ הדוגמה לכותרת");
+/** Download a public sample link (older / video / document headers) with the format and size checks. */
+async function sampleFromUrl(url: string, format: "IMAGE" | "VIDEO" | "DOCUMENT") {
   let res: Response;
   try { res = await safeFetch(url, { timeoutMs: 20_000 }); } catch { throw new TemplateSubmissionError("לא ניתן להוריד את קובץ הדוגמה (קישור https ציבורי)"); }
   if (!res.ok) throw new TemplateSubmissionError(`קובץ הדוגמה לא זמין (HTTP ${res.status})`);
@@ -22,10 +20,21 @@ async function uploadSampleMedia(url: string, format: "IMAGE" | "VIDEO" | "DOCUM
   if (!ok) throw new TemplateSubmissionError(format === "IMAGE" ? "תמונת דוגמה חייבת להיות JPG או PNG" : format === "VIDEO" ? "וידאו לדוגמה חייב להיות MP4" : "מסמך לדוגמה חייב להיות PDF");
   const bytes = Buffer.from(await res.arrayBuffer());
   if (bytes.length > MEDIA_LIMIT[format]) throw new TemplateSubmissionError("קובץ הדוגמה גדול מדי");
-  const start = await fetch(`https://graph.facebook.com/${version}/${appId}/uploads?file_length=${bytes.length}&file_type=${encodeURIComponent(type)}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000), redirect: "error" });
+  return { bytes, type, fileName: "sample" };
+}
+
+/**
+ * Meta requires a sample of the header media as an upload handle: Resumable Upload API of the app
+ * (POST /{app-id}/uploads → upload session; POST /{session} with the bytes, file_offset 0 → { h }).
+ */
+export async function uploadSampleHandle(file: { bytes: Buffer; type: string; fileName: string }, token: string, version: string) {
+  const appId = process.env.META_APP_ID?.trim();
+  if (!appId) throw new TemplateSubmissionError("חסר META_APP_ID – נדרש להעלאת קובץ הדוגמה לכותרת");
+  const q = new URLSearchParams({ file_name: file.fileName, file_length: String(file.bytes.length), file_type: file.type });
+  const start = await fetch(`https://graph.facebook.com/${version}/${appId}/uploads?${q}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000), redirect: "error" });
   const session = (await start.json().catch(() => null)) as { id?: string } | null;
   if (!start.ok || !session?.id?.startsWith("upload:")) throw new TemplateSubmissionError("Meta לא אפשרה להעלות את קובץ הדוגמה (בדוק META_APP_ID והרשאות)");
-  const put = await fetch(`https://graph.facebook.com/${version}/${session.id}`, { method: "POST", headers: { Authorization: `OAuth ${token}`, file_offset: "0" }, body: bytes, signal: AbortSignal.timeout(60000), redirect: "error" });
+  const put = await fetch(`https://graph.facebook.com/${version}/${session.id}`, { method: "POST", headers: { Authorization: `OAuth ${token}`, file_offset: "0" }, body: new Uint8Array(file.bytes), signal: AbortSignal.timeout(60000), redirect: "error" });
   const handle = (await put.json().catch(() => null)) as { h?: string } | null;
   if (!put.ok || !handle?.h) throw new TemplateSubmissionError("העלאת קובץ הדוגמה ל-Meta נכשלה");
   return handle.h;
@@ -75,16 +84,23 @@ export async function submitMetaTemplate(input: unknown) {
   const body = data.category === "AUTHENTICATION" ? "{{1}} הוא קוד האימות שלך." : data.body;
   const variables = [...templateParameterKeys(body), ...(data.category !== "AUTHENTICATION" && data.header.format === "TEXT" && /\{\{1\}\}/.test(data.header.text ?? "") ? ["h1"] : [])];
   const headerFormat = data.category === "AUTHENTICATION" || data.header.format === "NONE" ? null : data.header.format;
+  const asset = data.header.mediaAssetId && headerFormat === "IMAGE" ? await prisma.mediaAsset.findFirst({ where: { id: data.header.mediaAssetId, businessId: requireBusinessId(), status: "ready" } }) : null;
+  if (data.header.mediaAssetId && headerFormat === "IMAGE" && !asset) throw new TemplateSubmissionError("התמונה שהועלתה לא נמצאה – יש להעלות אותה שוב");
   // Reserve the unique name before the external call, preventing concurrent submissions.
   let local;
   try {
-    local = await prisma.template.create({ data: { businessId: requireBusinessId(), name: data.name, language: data.language, category: data.category, body, variables, status: "DRAFT", providerAccountId: config.businessAccountId, headerFormat, buttons: localButtons(data) as unknown as Prisma.InputJsonValue } });
+    local = await prisma.template.create({ data: { businessId: requireBusinessId(), name: data.name, language: data.language, category: data.category, body, variables, status: "DRAFT", providerAccountId: config.businessAccountId, headerFormat, headerMediaAssetId: asset?.id ?? null, buttons: localButtons(data) as unknown as Prisma.InputJsonValue } });
   } catch (error) {
     if ((error as { code?: string }).code === "P2002") throw new TemplateSubmissionError("כבר קיימת תבנית בשם ובשפה אלה. יש לסנכרן או לבחור שם חדש");
     throw error;
   }
   try {
-    const handle = headerFormat && ["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat) ? await uploadSampleMedia(data.header.mediaUrl!, headerFormat as "IMAGE" | "VIDEO" | "DOCUMENT", config.accessToken, version) : undefined;
+    let handle: string | undefined;
+    if (headerFormat && ["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat)) {
+      // An uploaded image of this business (preferred) or, for older / video / document headers, a public link.
+      const sample = asset ? { bytes: Buffer.from(asset.data), type: asset.mimeType, fileName: asset.fileName } : await sampleFromUrl(data.header.mediaUrl!, headerFormat as "IMAGE" | "VIDEO" | "DOCUMENT");
+      handle = await uploadSampleHandle(sample, config.accessToken, version);
+    }
     const components = buildComponents(data, handle);
     await prisma.template.update({ where: { id: local.id }, data: { components: components as unknown as Prisma.InputJsonValue } });
     const response = await fetch(`https://graph.facebook.com/${version}/${config.businessAccountId}/message_templates`, {

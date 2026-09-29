@@ -13,10 +13,13 @@ export default organizationRequest(async function WhatsAppSettingsPage() {
   const session = await auth();
   const t = await serverT();
 
-  // Owner or manager only – enforced again on every API route.
-  if (!hasRole(session, ROLES_ADMIN_MANAGER)) {
+  // Owner, or a manager allowed to connect WhatsApp ("whatsapp.connect") – enforced again on every API route.
+  if (!hasRole(session, ROLES_ADMIN_MANAGER) || !session) {
     return <AccessDenied />;
   }
+  const { effectiveAccess, can } = await import("@/lib/access/engine");
+  const access = await effectiveAccess(session.user.businessId ?? "", session.user.id).catch(() => null);
+  if (!access || !can(access, "whatsapp.connect")) return <AccessDenied />;
   const isOwner = session?.user?.role === "owner";
 
   const [summary, numbers, teams, overview] = await Promise.all([getActiveProviderSummary(), listProviderSummaries(), prisma.team.findMany({ select: { id: true, name: true } }), connectionOverview()]);

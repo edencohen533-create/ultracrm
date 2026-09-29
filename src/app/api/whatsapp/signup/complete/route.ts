@@ -18,4 +18,4 @@ const schema = z.object({
 });
 
 /** Exchange the code server-side, verify the granted assets, subscribe + register, persist. */
-export const POST = withAuth(async ({ req, user }) => ok(await completeSignup(user, await parseBody(req, schema))), { minRole: "manager", module: "whatsapp" });
+export const POST = withAuth(async ({ req, user }) => ok(await completeSignup(user, await parseBody(req, schema))), { minRole: "manager", perm: "whatsapp.connect" });

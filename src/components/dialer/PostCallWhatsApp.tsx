@@ -7,7 +7,7 @@ import { api } from "@/lib/client/api";
 import { Button } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
 
-interface Tpl { id: string; name: string; body: string; variables: string[]; headerFormat: string | null; internal?: boolean }
+interface Tpl { id: string; name: string; body: string; variables: string[]; headerFormat: string | null; headerMediaAssetId?: string | null; internal?: boolean }
 const LAST = "dialer.postCallTemplate";
 
 /** After the call: send an approved WhatsApp template to the customer (the last one used is remembered). */
@@ -26,7 +26,8 @@ export function PostCallWhatsApp({ callId }: { callId: string }) {
     fetch("/api/templates").then((r) => r.json()).then((j: { templates?: Tpl[] }) => { const list = (j.templates ?? []).filter((t) => !t.internal); setTemplates(list); let last = ""; try { last = localStorage.getItem(LAST) ?? ""; } catch { /* ignore */ } setTemplateId(list.some((t) => t.id === last) ? last : list[0]?.id ?? ""); }).catch(() => setTemplates([]));
   }, [open, templates]);
   const tpl = useMemo(() => templates?.find((t) => t.id === templateId) ?? null, [templates, templateId]);
-  const needsMedia = ["IMAGE", "VIDEO", "DOCUMENT"].includes((tpl?.headerFormat ?? "").toUpperCase());
+  // A template with its own uploaded image needs no link.
+  const needsMedia = ["IMAGE", "VIDEO", "DOCUMENT"].includes((tpl?.headerFormat ?? "").toUpperCase()) && !((tpl?.headerFormat ?? "").toUpperCase() === "IMAGE" && tpl?.headerMediaAssetId);
   const ready = tpl && tpl.variables.every((k) => vars[k]?.trim()) && (!needsMedia || /^https:\/\//.test(media));
   async function send() {
     if (!tpl) return; setBusy(true);

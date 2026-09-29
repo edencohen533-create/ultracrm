@@ -26,8 +26,10 @@ export const submitTemplateSchema = z.object({
     format: z.enum(["NONE", "TEXT", "IMAGE", "VIDEO", "DOCUMENT", "LOCATION"]),
     text: z.string().trim().max(60).optional(),
     example: z.string().trim().max(60).optional(),
-    /** Sample media (public https link) – uploaded to Meta for review. */
+    /** Sample media (public https link) – uploaded to Meta for review. Kept for compatibility (video / document). */
     mediaUrl: z.string().trim().max(2000).optional(),
+    /** An uploaded image (MediaAsset of this business) – the review sample and the default header when sending. */
+    mediaAssetId: z.string().trim().min(1).max(64).optional(),
   }).default({ format: "NONE" }),
   body: z.string().trim().max(1024).default(""),
   examples: z.record(z.string(), z.string().trim().min(1).max(200)).default({}),
@@ -49,7 +51,9 @@ export const submitTemplateSchema = z.object({
     if (hk.length > 1 || (hk.length === 1 && hk[0] !== "1")) issue("header", "בכותרת מותר משתנה אחד בלבד: {{1}}");
     if (hk.length === 1 && !v.header.example) issue("header", "יש למלא דוגמה למשתנה בכותרת");
   }
-  if (["IMAGE", "VIDEO", "DOCUMENT"].includes(v.header.format) && !v.header.mediaUrl) issue("header", "יש לצרף קובץ לדוגמה (קישור https) – Meta בודקת אותו");
+  if (v.header.format === "IMAGE" && !v.header.mediaAssetId && !v.header.mediaUrl) issue("header", "יש להעלות תמונה לכותרת – Meta בודקת אותה");
+  if (["VIDEO", "DOCUMENT"].includes(v.header.format) && !v.header.mediaUrl) issue("header", "יש לצרף קובץ לדוגמה (קישור https) – Meta בודקת אותו");
+  if (v.header.mediaAssetId && v.header.format !== "IMAGE") issue("header", "קובץ מועלה נתמך כרגע רק לכותרת תמונה");
   const count = (t: string) => v.buttons.filter((b) => b.type === t).length;
   if (count("URL") > 2) issue("buttons", "עד 2 כפתורי קישור");
   if (count("PHONE_NUMBER") > 1) issue("buttons", "כפתור טלפון אחד בלבד");

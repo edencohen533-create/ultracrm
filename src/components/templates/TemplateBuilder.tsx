@@ -8,6 +8,7 @@ import { Button, Input, Modal, Select, Textarea } from "@/components/ui";
 import { templateParameterKeys } from "@/lib/campaigns";
 import { TEMPLATE_LANGUAGES, type TemplateButtonInput } from "@/lib/validation/template";
 import { WhatsAppPreview } from "./WhatsAppPreview";
+import { TemplateImageUpload, type UploadedImage } from "./TemplateImageUpload";
 import { useT } from "@/components/i18n/LangProvider";
 
 type Category = "MARKETING" | "UTILITY" | "AUTHENTICATION";
@@ -32,6 +33,7 @@ export function TemplateBuilder({ businessName, onClose }: { businessName?: stri
   const [headerText, setHeaderText] = useState("");
   const [headerExample, setHeaderExample] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
+  const [image, setImage] = useState<UploadedImage | null>(null);
   const [body, setBody] = useState("");
   const [examples, setExamples] = useState<Record<string, string>>({});
   const [footer, setFooter] = useState("");
@@ -49,12 +51,12 @@ export function TemplateBuilder({ businessName, onClose }: { businessName?: stri
 
   const preview = isAuth
     ? { body: t(`*123456* הוא קוד האימות שלך.${auth.addSecurityRecommendation ? " מטעמי אבטחה, אין לשתף את הקוד." : ""}`, `*123456* is your verification code.${auth.addSecurityRecommendation ? " For your security, do not share this code." : ""}`), footer: auth.codeExpirationMinutes ? t(`תוקף הקוד: ${auth.codeExpirationMinutes} דקות.`, `This code expires in ${auth.codeExpirationMinutes} minutes.`) : null, buttons: [{ type: "OTP", text: auth.otpType === "ONE_TAP" ? t("מילוי אוטומטי", "Autofill") : t("העתק קוד", "Copy code") }] }
-    : { headerFormat: headerFormat === "NONE" ? null : headerFormat, headerText, body: body || t("תוכן ההודעה יופיע כאן", "Your message content will appear here"), footer, values: { ...examples, h1: headerExample }, buttons: buttons.map((b) => ({ type: b.type, text: b.type === "COPY_CODE" ? t("העתק קוד", "Copy code") : b.text })) };
+    : { headerFormat: headerFormat === "NONE" ? null : headerFormat, headerText, headerImageUrl: headerFormat === "IMAGE" ? image?.previewUrl ?? null : null, body: body || t("תוכן ההודעה יופיע כאן", "Your message content will appear here"), footer, values: { ...examples, h1: headerExample }, buttons: buttons.map((b) => ({ type: b.type, text: b.type === "COPY_CODE" ? t("העתק קוד", "Copy code") : b.text })) };
 
   async function submit() {
     setBusy(true);
     try {
-      const payload = { name, language, category, header: isAuth ? { format: "NONE" } : { format: headerFormat, ...(headerFormat === "TEXT" ? { text: headerText, ...(headerHasVar ? { example: headerExample } : {}) } : {}), ...(["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat) ? { mediaUrl } : {}) }, body: isAuth ? "" : body, examples: Object.fromEntries(keys.map((k) => [k, examples[k] ?? ""])), footer: isAuth ? undefined : footer || undefined, buttons: isAuth ? [] : buttons, ...(isAuth ? { auth } : {}) };
+      const payload = { name, language, category, header: isAuth ? { format: "NONE" } : { format: headerFormat, ...(headerFormat === "TEXT" ? { text: headerText, ...(headerHasVar ? { example: headerExample } : {}) } : {}), ...(headerFormat === "IMAGE" && image ? { mediaAssetId: image.id } : ["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat) ? { mediaUrl } : {}) }, body: isAuth ? "" : body, examples: Object.fromEntries(keys.map((k) => [k, examples[k] ?? ""])), footer: isAuth ? undefined : footer || undefined, buttons: isAuth ? [] : buttons, ...(isAuth ? { auth } : {}) };
       const res = await fetch("/api/templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(data.error || t("ההגשה נכשלה", "Submission failed")); router.refresh(); return; }
@@ -79,7 +81,8 @@ export function TemplateBuilder({ businessName, onClose }: { businessName?: stri
             <section className="tb-section"><h3>{t("כותרת", "Header")} <span className="text-xs text-muted">{t("(לא חובה)", "(optional)")}</span></h3>
               <div className="tb-seg">{HEADERS.map(([k, l, lEn]) => <button key={k} type="button" aria-pressed={headerFormat === k} onClick={() => setHeaderFormat(k)} data-testid={`tb-header-${k}`}>{t(l, lEn)}</button>)}</div>
               {headerFormat === "TEXT" && <div className="grid sm:grid-cols-2 gap-2 mt-2"><Input label={t(`טקסט הכותרת (${headerText.length}/60)`, `Header text (${headerText.length}/60)`)} maxLength={60} value={headerText} onChange={(e) => setHeaderText(e.target.value)} data-testid="tb-header-text" />{headerHasVar ? <Input label={t("דוגמה למשתנה {{1}} בכותרת", "Sample for header variable {{1}}")} value={headerExample} onChange={(e) => setHeaderExample(e.target.value)} /> : <div className="text-xs text-muted self-end pb-2"><button type="button" className="lead-link" onClick={() => setHeaderText((h) => `${h}{{1}}`)}>{t("+ הוסף משתנה", "+ Add variable")}</button> {t("(משתנה אחד)", "(one variable)")}</div>}</div>}
-              {["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat) && <div className="mt-2"><Input label={t(`קישור לקובץ לדוגמה (${headerFormat === "IMAGE" ? "JPG/PNG עד 5MB" : headerFormat === "VIDEO" ? "MP4 עד 16MB" : "PDF"}) – Meta בודקת אותו`, `Sample file link (${headerFormat === "IMAGE" ? "JPG/PNG up to 5MB" : headerFormat === "VIDEO" ? "MP4 up to 16MB" : "PDF"}) – reviewed by Meta`)} value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} placeholder="https://…" ltr data-testid="tb-media" /><p className="text-xs text-muted mt-1">{t("בכל שליחה מצרפים את הקובץ עצמו (קישור) – הדוגמה רק לאישור.", "The actual file (link) is attached on each send – the sample is only for review.")}</p></div>}
+              {headerFormat === "IMAGE" && <><TemplateImageUpload value={image} onChange={setImage} />{!image && <details className="mt-2 text-xs"><summary className="cursor-pointer text-muted">{t("לחלופין: קישור ציבורי לתמונה (מתקדם)", "Alternatively: a public image link (advanced)")}</summary><Input label={t("קישור https לתמונת JPG/PNG עד 5MB", "https link to a JPG/PNG image up to 5MB")} value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} placeholder="https://…" ltr data-testid="tb-media" /></details>}</>}
+              {["VIDEO", "DOCUMENT"].includes(headerFormat) && <div className="mt-2"><Input label={t(`קישור לקובץ לדוגמה (${headerFormat === "IMAGE" ? "JPG/PNG עד 5MB" : headerFormat === "VIDEO" ? "MP4 עד 16MB" : "PDF"}) – Meta בודקת אותו`, `Sample file link (${headerFormat === "IMAGE" ? "JPG/PNG up to 5MB" : headerFormat === "VIDEO" ? "MP4 up to 16MB" : "PDF"}) – reviewed by Meta`)} value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} placeholder="https://…" ltr data-testid="tb-media" /><p className="text-xs text-muted mt-1">{t("בכל שליחה מצרפים את הקובץ עצמו (קישור) – הדוגמה רק לאישור.", "The actual file (link) is attached on each send – the sample is only for review.")}</p></div>}
               {headerFormat === "LOCATION" && <p className="text-xs text-muted mt-2">{t("המיקום נקבע בכל שליחה (קו רוחב/אורך, שם וכתובת).", "The location is set on each send (latitude/longitude, name and address).")}</p>}
             </section>
             <section className="tb-section"><h3>{t("גוף ההודעה", "Body")}</h3><p>{t("עד 1024 תווים. *מודגש* _נטוי_ ~קו חוצה~. משתנים ממוספרים ברצף – אסור שההודעה תתחיל או תסתיים במשתנה.", "Up to 1024 characters. *bold* _italic_ ~strikethrough~. Variables are numbered in sequence – the message may not start or end with a variable.")}</p>

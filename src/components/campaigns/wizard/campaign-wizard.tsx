@@ -211,7 +211,7 @@ function AudienceStep({ draft, patch, problems }: { draft: Draft; patch: (d: Rec
 
 // ───────────────────────── תבנית ─────────────────────────
 type EmailTpl = { id: string; name: string; subject: string | null; preheader: string | null; design: unknown; updatedAt?: string };
-type WaTpl = { id: string; name: string; language: string; status: string; category: string; body: string; headerFormat: string | null; buttons: Array<{ type: string; text: string; url?: string; dynamic?: boolean }> | null };
+type WaTpl = { id: string; name: string; language: string; status: string; category: string; body: string; headerFormat: string | null; headerMediaAssetId?: string | null; buttons: Array<{ type: string; text: string; url?: string; dynamic?: boolean }> | null };
 function TemplateStep({ draft, patch, problems }: { draft: Draft; patch: (d: Record<string, unknown>) => void; problems: Problem[] }) {
   const t = useT();
   const [mine, setMine] = useState<EmailTpl[] | null>(null);
@@ -296,7 +296,7 @@ function WhatsAppContent({ draft, patch, problems, testBar }: { draft: Draft; pa
   useEffect(() => { api<{ templates: WaTpl[] }>("/api/templates").then((r) => setTpl(r.templates.find((t) => t.id === draft.data.templateId) ?? null)).catch(() => undefined); }, [draft.data.templateId]);
   if (!tpl) return <div className="wz-content" data-testid="wz-content"><p className="wz-hint">{draft.data.templateId ? t("טוען תבנית…", "Loading template…") : t("בחר תבנית בשלב הקודם.", "Choose a template in the previous step.")}</p></div>;
   const keys = templateParameterKeys(tpl.body); const vars = draft.data.variables ?? {};
-  const header = (tpl.headerFormat ?? "").toUpperCase(); const needsMedia = ["IMAGE", "VIDEO", "DOCUMENT"].includes(header);
+  const header = (tpl.headerFormat ?? "").toUpperCase(); const ownImage = header === "IMAGE" && tpl.headerMediaAssetId ? `/api/media/${tpl.headerMediaAssetId}` : null; const needsMedia = ["IMAGE", "VIDEO", "DOCUMENT"].includes(header) && !ownImage;
   const dyn = (tpl.buttons ?? []).map((b, i) => ({ ...b, index: i })).filter((b) => b.type === "URL" && b.dynamic);
   return <div className="wz-content" data-testid="wz-content">{problems.map((p) => <p key={p.message} className="wz-err">{p.message}</p>)}{testBar}
     <div className="wz-sms">
@@ -306,7 +306,7 @@ function WhatsAppContent({ draft, patch, problems, testBar }: { draft: Draft; pa
         {dyn.map((b) => <label key={b.index} className="wz-field"><span className="wz-label">{t(`כפתור "${b.text}" – סיומת הקישור (${b.url})`, `Button "${b.text}" – link suffix (${b.url})`)}</span><input dir="ltr" value={draft.data.buttonParams?.[String(b.index)] ?? ""} onChange={(e) => patch({ buttonParams: { ...(draft.data.buttonParams ?? {}), [String(b.index)]: e.target.value } })} /></label>)}
         {!keys.length && !needsMedia && !dyn.length && <p className="wz-hint">{t("לתבנית זו אין משתנים – אפשר להמשיך לבקרה.", "This template has no variables – you can continue to review.")}</p>}
       </div>
-      <div className="wz-phone wa" aria-label={t("תצוגת הודעה", "Message preview")}><div className="wz-phone-screen">{needsMedia && <div className="wz-media">{draft.data.mediaUrl ? (header === "IMAGE" ? <img src={draft.data.mediaUrl} alt="" /> : <span>{header}</span>) : <span>{t("מדיה", "Media")}</span>}</div>}<div className="wz-bubble">{renderTemplate(tpl.body, Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, v.replaceAll("{name}", "ישראל")])))}</div>{(tpl.buttons ?? []).map((b, i) => <div key={i} className="wz-wa-btn">{b.text}</div>)}</div></div>
+      <div className="wz-phone wa" aria-label={t("תצוגת הודעה", "Message preview")}><div className="wz-phone-screen">{ownImage && <div className="wz-media"><img src={ownImage} alt="" /></div>}{needsMedia && <div className="wz-media">{draft.data.mediaUrl ? (header === "IMAGE" ? <img src={draft.data.mediaUrl} alt="" /> : <span>{header}</span>) : <span>{t("מדיה", "Media")}</span>}</div>}<div className="wz-bubble">{renderTemplate(tpl.body, Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, v.replaceAll("{name}", "ישראל")])))}</div>{(tpl.buttons ?? []).map((b, i) => <div key={i} className="wz-wa-btn">{b.text}</div>)}</div></div>
     </div>
   </div>;
 }

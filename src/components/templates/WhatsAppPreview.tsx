@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { useT } from "@/components/i18n/LangProvider";
 
 export interface PreviewButton { type: string; text: string; url?: string | null; phone?: string | null }
-export interface PreviewModel { headerFormat?: string | null; headerText?: string | null; body: string; footer?: string | null; buttons?: PreviewButton[]; values?: Record<string, string> }
+export interface PreviewModel { headerFormat?: string | null; headerText?: string | null; headerImageUrl?: string | null; body: string; footer?: string | null; buttons?: PreviewButton[]; values?: Record<string, string> }
 
 /** WhatsApp inline formatting: *bold*, _italic_, ~strike~, ```mono```. */
 function fmt(text: string): ReactNode[] {
@@ -36,7 +36,8 @@ export function WhatsAppPreview({ model, businessName: businessNameProp }: { mod
       <div className="wa-chat">
         <div className="wa-bubble">
           {f === "TEXT" && model.headerText && <div className="wa-header-text">{fmt(fill(model.headerText, values, "h"))}</div>}
-          {["IMAGE", "VIDEO", "DOCUMENT", "LOCATION"].includes(f) && <div className={`wa-media wa-${f.toLowerCase()}`}>{f === "IMAGE" ? <ImageIcon size={34} /> : f === "VIDEO" ? <Video size={34} /> : f === "DOCUMENT" ? <FileText size={34} /> : <MapPin size={34} />}<span>{f === "IMAGE" ? t("תמונה", "Image") : f === "VIDEO" ? t("וידאו", "Video") : f === "DOCUMENT" ? t("מסמך", "Document") : t("מיקום", "Location")}</span></div>}
+          {f === "IMAGE" && model.headerImageUrl && <img src={model.headerImageUrl} alt="" className="wa-media-img" style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 6, marginBottom: 4 }} data-testid="wa-preview-image" />}
+          {["IMAGE", "VIDEO", "DOCUMENT", "LOCATION"].includes(f) && !(f === "IMAGE" && model.headerImageUrl) && <div className={`wa-media wa-${f.toLowerCase()}`}>{f === "IMAGE" ? <ImageIcon size={34} /> : f === "VIDEO" ? <Video size={34} /> : f === "DOCUMENT" ? <FileText size={34} /> : <MapPin size={34} />}<span>{f === "IMAGE" ? t("תמונה", "Image") : f === "VIDEO" ? t("וידאו", "Video") : f === "DOCUMENT" ? t("מסמך", "Document") : t("מיקום", "Location")}</span></div>}
           <div className="wa-body" dir="auto">{fmt(fill(model.body, values)) }</div>
           {model.footer && <div className="wa-footer">{model.footer}</div>}
           <div className="wa-time">12:34</div>

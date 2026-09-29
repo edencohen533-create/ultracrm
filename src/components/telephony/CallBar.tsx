@@ -1,6 +1,7 @@
 "use client";
 
 /** Persistent call strip shown on every page while a call is alive or waiting for an outcome. */
+import {RequestExpert} from "@/components/sales/ExpertAssistance";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -46,7 +47,7 @@ export function CallBar() {
         {answered && <span className="tabular font-mono text-sm">{formatDuration(callElapsed(call))}</span>}
         {state?.telephony.simulation && <Badge tone="warn">{t("הדמיה", "Simulation")}</Badge>}
         {call.direction === "inbound" && !call.answeredAt && <Badge tone="info">{t("שיחה נכנסת", "Incoming call")}</Badge>}
-        <div className="ms-auto flex flex-wrap items-center gap-2">
+        <div className="ms-auto flex flex-wrap items-center gap-2">{answered&&<RequestExpert callId={call.id}/>}
           {call.direction === "inbound" && !call.answeredAt && (
             <>
               <Button size="sm" variant="good" onClick={acceptInbound} loading={busy === "accept"}>{t("קבל", "Accept")}</Button>

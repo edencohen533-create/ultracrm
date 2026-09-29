@@ -485,3 +485,33 @@ export async function transferFollowupFromRule(actor: SessionUser, toUserId: str
   if (result) await audit(rec.businessId, actor.id, "ai_ops", rec.id, "ai_ops.transfer_executed", { leadId: p.leadId, to: toUserId, source: "followup_checkin", via });
   return Boolean(result);
 }
+
+/** One automatic escalation per SLA occurrence, atomically guarded with the ownership change. */
+export async function transferSlaFromRule(actor:SessionUser,toUserId:string,rec:import("@/generated/prisma/client").OpsRecommendation){
+ if(actor.businessId!==rec.businessId||actor.role!=="owner"||!(await canTransferLeads(actor)))return false;
+ const p=rec.proposal as {leadId:string;startedAt:string;ruleVersion:string};
+ const result=await applyTransfer(rec.businessId,p.leadId,toUserId,actor.id,false,async tx=>{
+  const now=new Date();
+  await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${"sla-target:"+toUserId},0))`);
+  const settings=await getBusinessSettings(rec.businessId,tx);if(!settings.aiOps.enabled)return false;
+  const rule=await tx.opsRule.findFirst({where:{id:rec.ruleId!,businessId:rec.businessId,kind:"lead_response_sla",status:"active",autonomy:"auto",updatedAt:new Date(p.ruleVersion),OR:[{expiresAt:null},{expiresAt:{gt:now}}]}});
+  if(!rule||(rule.config as {onBreach?:string}).onBreach!=="transfer_to_available")return false;
+  const policy=await tx.opsRule.findFirst({where:{businessId:rec.businessId,kind:"approval_policy",status:"active",OR:[{expiresAt:null},{expiresAt:{gt:now}}]},orderBy:[{priority:"asc"},{createdAt:"asc"}]});
+  const actions=(policy?.config as {actions?:string[]}|null)?.actions;if(!actions||actions.includes("ownership"))return false;
+  const lead=await tx.lead.findFirst({where:{id:p.leadId,businessId:rec.businessId,ownerUserId:rec.agentId,pendingTransferToUserId:null,status:{in:[...OPEN_LEAD_STATUSES]}},include:{contact:true}});
+  if(!lead||(lead.reopenedAt??lead.createdAt).toISOString()!==p.startedAt||lead.contact.isBlocked||lead.contact.consentStatus==="OPTED_OUT")return false;
+  if(await tx.dncEntry.findFirst({where:{businessId:rec.businessId,phoneE164:lead.contact.phoneE164}})||await activeCallOn(tx,rec.businessId,lead.contactId))return false;
+  // Conservative: any real dial since this occurrence prevents automatic reassignment.
+  if(await tx.call.findFirst({where:{businessId:rec.businessId,contactId:lead.contactId,direction:"outbound",leadDialedAt:{gte:new Date(p.startedAt)}}}))return false;
+  if(toUserId===lead.ownerUserId||!await tx.dialerSession.findFirst({where:{businessId:rec.businessId,userId:toUserId,status:"active",lastHeartbeatAt:{gte:new Date(now.getTime()-180000)},user:{isActive:true}}}))return false;
+  if(await tx.call.findFirst({where:{businessId:rec.businessId,userId:toUserId,endedAt:null}}))return false;
+  const pool=settings.leadAssignment;if(pool.agentIds.length&&!pool.agentIds.includes(toUserId))return false;
+  const cap=pool.perAgentMax[toUserId]??pool.maxOpenLeadsPerAgent;
+  if(cap&&await tx.lead.count({where:{businessId:rec.businessId,ownerUserId:toUserId,status:{in:[...OPEN_LEAD_STATUSES]}}})>=cap)return false;
+  const latest=await tx.opsRecommendation.findFirst({where:{id:rec.id,businessId:rec.businessId,status:"needs_attention",expiresAt:{lte:now}}});
+  if(!latest||(latest.result as {transferred?:boolean}|null)?.transferred)return false;
+  const changed=await tx.opsRecommendation.updateMany({where:{id:rec.id,businessId:rec.businessId,status:"needs_attention",expiresAt:{lte:now}},data:{agentId:toUserId,result:{transferred:true,toAgentId:toUserId,reason:"חריגה מיעד החיוג: הליד הועבר פעם אחת לנציג מחובר לפי הכלל המאושר"}}});
+  return changed.count===1;
+ });
+ return Boolean(result);
+}

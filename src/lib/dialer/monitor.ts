@@ -11,6 +11,7 @@
  * "listening" is only set after the provider confirms the supervisor leg joined
  * the conference (conference.participant.joined) – an API 200 is not enough.
  */
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 import { getTelephony } from "@/lib/telephony";
@@ -97,6 +98,7 @@ export async function markMonitorJoined(monitorId: string) {
   if (!m || m.endedAt) return;
   if (m.status === "connecting") {
     const changed = await prisma.callMonitor.updateMany({ where: { id: monitorId, endedAt: null, status: "connecting" }, data: { status: "listening", joinedAt: new Date(), lastEventAt: new Date() } });
+    if(changed.count)await prisma.opsRecommendation.updateMany({where:{businessId:m.businessId,kind:"expert_assistance",status:"pending_expert",expiresAt:{gt:new Date()},AND:[{proposal:{path:["callId"],equals:m.callId}},{proposal:{path:["expertId"],equals:m.managerId}}]},data:{status:"completed",result:{reason:"המומחה התחבר לשיחה במצב האזנה; דיבור דורש בחירה מפורשת"}}});
     if (changed.count) await audit(m.businessId, m.managerId, "monitor", monitorId, "monitor.joined", { callId: m.callId });
   }
 }
@@ -125,20 +127,21 @@ export async function endMonitorsForCall(callId: string, reason: string) {
   }
 }
 
-export async function switchMode(user: SessionUser, monitorId: string, mode: "listen" | "whisper") {
-  const m = await prisma.callMonitor.findFirst({ where: { id: monitorId, managerId: user.id, businessId: user.businessId } });
-  if (!m) throw new ApiError("האזנה לא נמצאה", 404, "not_found");
-  const call = await authorize(user, m.callId); // re-checked on every switch
-  if (m.endedAt || call.endedAt) throw new ApiError("השיחה או ההאזנה הסתיימו", 409, "monitor_ended");
-  if (m.status === "connecting") throw new ApiError("עדיין לא מחובר לשיחה", 409, "not_joined");
-  if (!m.legId) throw new ApiError("אין leg למנהל", 409, "not_joined");
-  const telephony = getTelephony();
-  await telephony.switchSupervisorRole(m.legId, mode === "whisper" ? "whisper" : "monitor");
-  const changed = await prisma.callMonitor.updateMany({ where: { id: m.id, endedAt: null, call: { endedAt: null } }, data: { mode, status: mode === "whisper" ? "whispering" : "listening", lastEventAt: new Date() } });
-  if (!changed.count) throw new ApiError("השיחה או ההאזנה הסתיימו", 409, "monitor_ended");
-  const updated = await prisma.callMonitor.findUniqueOrThrow({ where: { id: m.id } });
-  await audit(user.businessId, user.id, "monitor", m.id, mode === "whisper" ? "monitor.whisper_on" : "monitor.whisper_off", { callId: m.callId, agentId: call.userId });
-  return updated;
+export async function switchMode(user: SessionUser, monitorId: string, mode: "listen" | "whisper" | "barge") {
+  return prisma.$transaction(async tx => {
+    // Serialize provider mode changes too; a late whisper request must not undo listen-only.
+    await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${"monitor-mode:" + monitorId}))`);
+    const m = await tx.callMonitor.findFirst({ where: { id: monitorId, managerId: user.id, businessId: user.businessId } });
+    if (!m) throw new ApiError("האזנה לא נמצאה", 404, "not_found");
+    const call = await authorize(user, m.callId);
+    if (m.endedAt || call.endedAt) throw new ApiError("השיחה או ההאזנה הסתיימו", 409, "monitor_ended");
+    if (m.status === "connecting" || !m.legId) throw new ApiError("עדיין לא מחובר לשיחה", 409, "not_joined");
+    await getTelephony().switchSupervisorRole(m.legId, mode === "listen" ? "monitor" : mode);
+    const changed = await tx.callMonitor.updateMany({ where: { id: m.id, endedAt: null, call: { endedAt: null } }, data: { mode, status: mode === "barge" ? "speaking" : mode === "whisper" ? "whispering" : "listening", lastEventAt: new Date() } });
+    if (!changed.count) throw new ApiError("השיחה או ההאזנה הסתיימו", 409, "monitor_ended");
+    await audit(user.businessId, user.id, "monitor", m.id, "monitor.mode_changed", { callId: m.callId, agentId: call.userId, mode }, tx);
+    return tx.callMonitor.findUniqueOrThrow({ where: { id: m.id } });
+  }, { timeout: 25000 });
 }
 
 export async function stopMonitor(user: SessionUser, monitorId: string) {

@@ -38,7 +38,7 @@ export const availabilityConfig = z.object({
   fallback: z.enum(["alert_manager", "transfer_to_available", "none"]).default("alert_manager"),
   unattendedAfterMinutes: z.number().int().min(1).max(60).default(3),
 });
-export const leadResponseSlaConfig = z.object({ minutes: z.number().int().min(1).max(1440).default(5) });
+export const leadResponseSlaConfig = z.object({ minutes: z.number().int().min(1).max(1440).default(5), businessHoursOnly: z.boolean().default(false), onBreach: z.enum(["alert","transfer_to_available"]).default("alert") });
 export const followupCheckinConfig = z.object({
   requestMinutes: z.number().int().min(2).max(120).default(10),
   connectMinutes: z.number().int().min(1).max(60).default(5),
@@ -53,7 +53,7 @@ export const KIND_LABEL: Record<RuleKind, string> = { momentum: "נציג במו
 export const AUTONOMY_LABEL: Record<Autonomy, string> = { insight: "תובנה בלבד", recommend: "המלצה באישור", auto: "ביצוע אוטומטי בגבולות" };
 const DEFAULT_AUTONOMY: Record<RuleKind, Autonomy> = { momentum: "recommend", extra_leads_policy: "auto", availability: "auto", lead_response_sla: "insight", followup_checkin: "recommend", load_cap: "auto", approval_policy: "auto" };
 /** Which autonomy levels make sense per kind. */
-export const ALLOWED_AUTONOMY: Record<RuleKind, Autonomy[]> = { momentum: ["insight", "recommend", "auto"], extra_leads_policy: ["auto"], availability: ["recommend", "auto"], lead_response_sla: ["insight"], followup_checkin: ["recommend", "auto"], load_cap: ["insight", "auto"], approval_policy: ["auto"] };
+export const ALLOWED_AUTONOMY: Record<RuleKind, Autonomy[]> = { momentum: ["insight", "recommend", "auto"], extra_leads_policy: ["auto"], availability: ["recommend", "auto"], lead_response_sla: ["insight", "auto"], followup_checkin: ["recommend", "auto"], load_cap: ["insight", "auto"], approval_policy: ["auto"] };
 
 export function parseConfig<K extends RuleKind>(kind: K, raw: unknown): RuleConfig<K> {
   const r = CONFIG_SCHEMAS[kind].safeParse(raw ?? {});
@@ -93,7 +93,7 @@ export function describeRule(kind: RuleKind, config: unknown, autonomy: Autonomy
   const a = AUTONOMY_LABEL[autonomy];
   if (kind === "lead_response_sla") {
     const c = parseConfig("lead_response_sla", config);
-    return { trigger: "ליד חדש שנכנס אחרי יצירת הכלל או עדכונו; בדיקה כל 2 דקות", conditions: "ליד פתוח, ללא חסימה או הסרה", action: `יעד לחיוג ראשון: ${c.minutes} דקות מקבלת הליד. בחריגה: התראה לנציג ולמנהל ומעקב עד ניסיון חיוג בפועל.`, scope: "כל הלידים החדשים בעסק", validity: "דקות שעון, כולל מחוץ לשעות העבודה; הכלל פועל רק כשמנהל AI פעיל", limits: "נמדד ניסיון חיוג ולא מענה או מכירה. שינוי סטטוס אינו חיוג. אין העברת בעלות אוטומטית. משלוח וואטסאפ כפוף לחיבור ולמכסות התראות.", approval: "התראה ומדידה בלבד" };
+    return { trigger: "ליד חדש שנכנס אחרי יצירת הכלל או עדכונו; בדיקה כל 2 דקות", conditions: "ליד פתוח, ללא חסימה או הסרה", action: `יעד לחיוג ראשון: ${c.minutes} דקות מקבלת הליד. בחריגה: התראה לנציג ולמנהל ומעקב עד ניסיון חיוג בפועל.`, scope: "כל הלידים החדשים בעסק", validity: c.businessHoursOnly ? "זמן עבודה בלבד, לפי חלון החיוג של העסק כפי שהיה בעת כניסת הליד" : "דקות שעון, כולל מחוץ לשעות העבודה; הכלל פועל רק כשמנהל AI פעיל", limits: "נמדד ניסיון חיוג ולא מענה או מכירה. שינוי סטטוס אינו חיוג. העברה, אם נבחרה, אפשרית פעם אחת בלבד לנציג מחובר ופנוי עם קיבולת ובהתאם למדיניות אישור בעלות. אחרת נשלחת התראה.", approval: c.onBreach === "transfer_to_available" ? "נבחרה העברה: נדרש מצב אוטומטי והיתר במדיניות הבעלות; אחרת טיפול מנהל" : "התראה ומדידה בלבד" };
   }
   if (kind === "momentum") {
     const c = parseConfig("momentum", config);
@@ -139,9 +139,11 @@ export function parseRuleBasic(text: string): Omit<Interpretation, "summary" | "
   const W = `(\\d+|${Object.keys(words).sort((a, b) => b.length - a.length).join("|")})`;
 
   if (/(ליד|לידים)/.test(t) && /(חיוג ראשון|תגובה ראשונה|זמן תגובה|לא חייג|לא טופל|בלי טיפול)/.test(t)) {
-    if (/(תעביר|העבר|להעביר|תחייג אוטומטית)/.test(t)) return { kind: null, name: "", config: {}, autonomy: "insight", questions: [], note: "כלל זמן תגובה תומך כרגע במדידה ובהתראות בלבד; העברה או חיוג אוטומטיים דורשים פיתוח." };
+    if (/(תחייג אוטומטית)/.test(t)) return { kind: null, name: "", config: {}, autonomy: "insight", questions: [], note: "חיוג אוטומטי מתוך כלל זמן תגובה אינו נתמך. אפשר להגדיר התראה או העברה מוגבלת לפי מדיניות הבעלות." };
+    const transferRequested=/(תעביר|העבר|להעביר)/.test(t)&&!/(?:לא|אל)\s+(?:תעביר|העבר|להעביר)|בלי העברה/.test(t);
+    if(transferRequested&&/(רק אם|בתנאי|למעט|חוץ מ|לצוות|לנציג בשם)/.test(t))return {kind:null,name:"",config:{},autonomy:"insight",questions:[],note:"תנאי ההעברה הנוספים אינם נתמכים בכלל זה. אין להפעיל העברה בלי התנאים שביקשת."};
     if (!minutes) q.push({ field: "minutes", question: "כמה דקות מקבלת הליד עד לחיוג ראשון?", proposed: 5 });
-    return { kind: "lead_response_sla", name: "יעד זמן לחיוג ראשון", config: { minutes: minutes ?? 5 }, autonomy: "insight", questions: q, note: "המדידה היא בדקות שעון, כולל מחוץ לשעות העבודה, ועל ניסיון חיוג אמיתי בלבד." };
+    return { kind: "lead_response_sla", name: "יעד זמן לחיוג ראשון", config: { minutes: minutes ?? 5, businessHoursOnly: /(בשעות העבודה|שעות פעילות|שעות עבודה בלבד)/.test(t), onBreach: transferRequested?"transfer_to_available":"alert" }, autonomy: transferRequested?"auto":"insight", questions: q, note: "נמדד ניסיון חיוג אמיתי בלבד. אפשר לבקש מדידה בשעות העבודה בלבד." };
   }
   if (/(פולואפ|פולו.?אפ|follow.?up|חזרה מתוזמנת)/i.test(t) && /(לא מחובר|אינו מחובר|מנותק|לא עולה)/.test(t)) {
     q.push({ field: "requestMinutes", question: "כמה דקות להמתין לתשובת הנציג?", proposed: 10 }, { field: "connectMinutes", question: "כמה דקות להמתין אם הנציג אומר שהוא מתחבר?", proposed: 5 });
@@ -183,7 +185,7 @@ async function parseRuleAi(text: string): Promise<Omit<Interpretation, "summary"
     "momentum: {minHandled,minWins,liftFactor,confidence(0.8|0.9|0.95),compareToPeers,maxUntouched,mode(extra|priority|share),count,sharePct,source}",
     "extra_leads_policy: {askAgent,requestMinutes}",
     "availability: {ttlMinutes,fallback(alert_manager|transfer_to_available|none),unattendedAfterMinutes}",
-    "lead_response_sla: {minutes(1..1440)} – התראה ומדידה בלבד על זמן מקבלת ליד חדש לחיוג ראשון. autonomy insight בלבד. אם מבקשים העברה או חיוג אוטומטי החזר kind null והסבר שהיכולת דורשת פיתוח.",
+    "lead_response_sla: {minutes(1..1440),businessHoursOnly(boolean=false),onBreach(alert|transfer_to_available)} – מדידת חיוג ראשון. insight להתראה, auto רק אם ביקשו במפורש העברה בחריגה. העברה כפופה למדיניות אישור בעלות ולנציג מחובר עם קיבולת. חיוג אוטומטי לא נתמך בכלי זה.",
     "followup_checkin: {requestMinutes(2..120),connectMinutes(1..60)} – פולואפ מתוזמן שהגיע כשהנציג אינו מחובר; שואלים אותו אם מתחבר או להעביר. אין תשובה אינה אישור העברה.",
     "load_cap: {maxUntouched}",
     "approval_policy: {actions:[assignment|ownership]}",

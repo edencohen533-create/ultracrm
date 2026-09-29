@@ -1,3 +1,4 @@
+import {adAttribution} from "./ad-attribution";
 /**
  * Leads, deals, tasks and notes of the CRM core.
  */
@@ -99,13 +100,13 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
 }
 
 export async function createLead(user: SessionUser, input: z.infer<typeof leadInputSchema>, source: "user" | "import" | "webhook" = "user") {
-  const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true, ownerUserId: true, source: true } });
+  const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true, ownerUserId: true, source: true, customFields: true } });
   if (!contact || !(await canAccessContact(user, contact))) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
   if (input.ownerUserId) await assertCanSeeUser(user, input.ownerUserId);
   if (input.ownerUserId) await assertTenantReferences(user.businessId, { userIds: [input.ownerUserId] });
   const lead = await prisma.$transaction(async (tx) => {
     const l = await tx.lead.create({
-      data: { businessId: user.businessId, contactId: contact.id, title: input.title || null, status: input.status ?? "new", source: input.source ?? contact.source ?? null, ownerUserId: input.ownerUserId === undefined ? null : input.ownerUserId, priority: input.priority ?? 0, notes: input.notes || null },
+      data: { sourceAttribution:adAttribution(contact.customFields), businessId: user.businessId, contactId: contact.id, title: input.title || null, status: input.status ?? "new", source: input.source ?? contact.source ?? null, ownerUserId: input.ownerUserId === undefined ? null : input.ownerUserId, priority: input.priority ?? 0, notes: input.notes || null },
       include: LEAD_INCLUDE,
     });
     await audit(user.businessId, user.id, "lead", l.id, "lead.created", { contactId: contact.id, ownerUserId: l.ownerUserId }, tx);

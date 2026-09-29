@@ -92,8 +92,8 @@ export interface MonitorDto {
   id: string;
   callId: string;
   managerId: string;
-  mode: "listen" | "whisper";
-  status: "connecting" | "listening" | "whispering" | "ended" | "failed";
+  mode: "listen" | "whisper" | "barge";
+  status: "connecting" | "listening" | "whispering" | "speaking" | "ended" | "failed";
   legId: string | null;
   error: string | null;
   startedAt: string;

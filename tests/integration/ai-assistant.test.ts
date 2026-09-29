@@ -270,4 +270,15 @@ describe("AI assistant", { timeout: 1_800_000 }, () => {
     const os = JSON.parse((((calls[1].messages as Array<{ content: unknown }>).at(-1)!.content) as Array<{ content: string }>)[0].content);
     expect(os.found).toBe(false);
   });
+  it("presales AI saves quoted answers and hands off with structured context",async()=>{
+    const c=await db.contact.create({data:{businessId:a.business.id,fullName:"Presales QA",phoneE164:"+972529990008",phoneRaw:"qa"}});
+    const biz=await db.business.findUniqueOrThrow({where:{id:a.business.id}});
+    await db.business.update({where:{id:a.business.id},data:{settings:{...(biz.settings as object),ai:{service:{enabled:true,credentialIds:["demo"],hours:{start:"00:00",end:"23:59",days:[0,1,2,3,4,5,6]},qualificationQuestions:["מה התקציב?"]}}}}});
+    const incoming=await run(owner,()=>createInboundMessage({contactId:c.id,providerCredentialId:null,body:"התקציב שלי 500",source:"MOCK" as never}));
+    stubLLM([[tool("save_qualification",{question:"מה התקציב?",answer:"500"})]]);
+    expect(await run(owner,()=>handleServiceInbound(a.business.id,{messageId:incoming.message.id,channel:"whatsapp"}))).toMatchObject({status:"handoff",reason:"סינון מקדים הושלם"});
+    const conv=await db.conversation.findUniqueOrThrow({where:{id:incoming.message.conversationId}});expect(conv.aiMode).toBe("handoff");expect(conv.aiHandoffSummary).toContain("מה התקציב?: 500");
+    expect(await db.aiAction.count({where:{businessId:a.business.id,channel:"qualification",status:"executed"}})).toBe(1);
+  });
+
 });

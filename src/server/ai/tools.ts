@@ -26,7 +26,7 @@ export interface AiCtx { user: SessionUser; read: ToolCtx; ai: AiSettings; tz: s
  */
 const TOOL_NEEDS: Record<string, string[]> = {
   business_snapshot: ["crm.view", "telephony.use"], sales_summary: ["crm.view"], leads_summary: ["crm.view"], agents_performance: ["crm.view", "telephony.team_settings"],
-  prepare_ops_rule: ["crm.view"],
+  prepare_ops_rule: ["crm.view"], sales_catalog: ["crm.view"], lead_advertisement: ["crm.view"], sales_diagnostics: ["telephony.team_settings"],
   calls_summary: ["telephony.use"], untreated_leads: ["crm.view"], overdue_tasks: ["crm.view", "telephony.use"], compare_periods: ["crm.view"],
   find_contact: ["crm.view", "telephony.use", "whatsapp.view"], contact_summary: ["crm.view", "telephony.use", "whatsapp.view"], focus_today: ["crm.view", "telephony.use"],
   my_queue_today: ["crm.view", "telephony.use"], agents_online: ["telephony.use", "crm.view"], find_lead: ["crm.view", "telephony.use"], create_task: ["crm.edit", "telephony.use"], set_follow_up: ["crm.edit"],
@@ -59,6 +59,9 @@ const ACTION_KINDS = ["create_task", "set_follow_up", "change_lead_status", "tra
 // ─── tool definitions ────────────────────────────────────────────────────────────────────────────────────────────
 const READ_DEFS: ToolDef[] = Object.entries(READ_TOOLS).map(([name, t]) => ({ name, description: t.description, input_schema: t.input as Json }));
 const CRM_DEFS: ToolDef[] = [
+  {name:"sales_catalog",description:"קטלוג מחירים מאושר והצעות קיימות בהרשאות המשתמש. אין להמציא מחיר או להציג אישור הצעה כתשלום. יצירת הצעה ושיתוף זמינים במסך הצעות וסגירה.",input_schema:{type:"object",properties:{leadId:{type:"string"}}}},
+  {name:"lead_advertisement",description:"הצגת פרטי מודעת Facebook לפי מזהה הליד. אם חסר חיבור, הרשאה או מזהה מודעה — מסבירים מה חסר; אין להמציא ייחוס. אין אפשרות לשנות מודעות או תקציבים.",input_schema:{type:"object",properties:{leadId:{type:"string"}},required:["leadId"]}},
+  {name:"sales_diagnostics",description:"למנהלים: השוואת מענה לפי מספר יוצא, מקור ושעה, ועמידה ביעד חיוג. מציג עובדות וסף דגימה; לא קובע סיבת ירידה או סימון כספאם.",input_schema:{type:"object",properties:{}}},
   { name: "report_unsupported_request", description: "כאשר בקשת המשתמש דורשת יכולת שאינה בקטלוג הכלים או הכללים: להציג במפורש שהפעולה אינה נתמכת ודורשת פיתוח. אין פעולה עסקית. לא להשתמש כשחסרה הרשאה, הגדרה או פרט לבקשה נתמכת.", input_schema: { type: "object", properties: { missingCapability: { type: "string" } }, required: ["missingCapability"] } },
   { name: "prepare_ops_rule", description: "פענוח חוק קבוע למנהל AI, כולל פולואפ לנציג שאינו מחובר. מחזיר פירוש לבדיקה בלבד; אינו שומר או מפעיל. להפעלה המשתמש עובר למנהל AI > כללים, בודק ומאשר שם.", input_schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } },
   { name: "my_queue_today", description: "כמה לידים ממתינים לשיחה היום אצל המשתמש (או אצל נציג/כל העסק למנהל): חדשים שטרם חויגו, פולואפים להיום, פולואפים באיחור. כל ליד נספר פעם אחת.", input_schema: { type: "object", properties: { agentName: { type: "string", description: "רק למנהל" } } } },
@@ -110,6 +113,9 @@ export async function runAiTool(ctx: AiCtx, name: string, args: Json): Promise<T
     const auto = AUTOMATION_TOOL_DEFS.find((t) => t.name === name); if (auto) { if (auto.managerOnly && !canManage(ctx.user, ctx.ai)) throw new ApiError("ניהול אוטומציות דורש הרשאת ניהול", 403, "forbidden"); const r = await runAutomationTool(ctx, name, args); return { ok: true, result: r.result, actionIds: r.actionIds, ms: Date.now() - t0 }; }
     const diag = DIAGNOSE_TOOL_DEFS.find((t) => t.name === name); if (diag) { const r = await runDiagnoseTool(ctx, name, args); return { ok: true, result: r.result, actionIds: r.actionIds, ms: Date.now() - t0 }; }
     switch (name) {
+      case "sales_catalog": return {ok:true,result:await (await import("@/server/sales/quotes")).listSales(ctx.user,args.leadId?String(args.leadId):undefined),ms:Date.now()-t0};
+      case "lead_advertisement": return {ok:true,result:await (await import("@/server/sales/meta-ads")).leadAdvertisement(ctx.user,String(args.leadId??"")),ms:Date.now()-t0};
+      case "sales_diagnostics": return {ok:true,result:await (await import("@/server/sales/diagnostics")).salesDiagnostics(ctx.user),ms:Date.now()-t0};
       case "report_unsupported_request": return { ok: true, result: { supported: false, code: "unsupported_capability", message: UNSUPPORTED_REQUEST, missingCapability: String(args.missingCapability ?? "יכולת שאינה בקטלוג").slice(0, 300), executed: false }, ms: Date.now() - t0 };
       case "prepare_ops_rule": {
         if (ctx.user.role === "agent") throw new ApiError("הגדרת כללים דורשת הרשאת מנהל", 403, "forbidden");

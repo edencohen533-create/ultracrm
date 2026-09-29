@@ -47,9 +47,9 @@ it("unassigned leads alert managers; opted-out leads are excluded",async()=>{
  await db.lead.update({where:{id:leadId},data:{ownerUserId:null}});await run(new Date(now.getTime()+120000));expect(await record()).toMatchObject({agentId:null,status:"needs_attention"});expect(send).toHaveBeenCalled();
  await db.contact.update({where:{id:contactId},data:{consentStatus:"OPTED_OUT"}});await run(new Date(now.getTime()+120000));expect((await record()).status).toBe("cancelled");
 });
-it("plain-language rule exposes minutes and explicitly refuses unsupported auto-transfer",async()=>{
- expect(await interpretRule("תתריע על ליד ללא חיוג ראשון אחרי 7 דקות")).toMatchObject({kind:"lead_response_sla",config:{minutes:7},autonomy:"insight",allowedAutonomy:["insight"]});
- expect(await interpretRule("תעביר ליד ללא חיוג ראשון אחרי 7 דקות")).toMatchObject({kind:null});
+it("plain-language rule distinguishes alert, transfer and working hours",async()=>{
+ expect(await interpretRule("תתריע על ליד ללא חיוג ראשון אחרי 7 דקות")).toMatchObject({kind:"lead_response_sla",config:{minutes:7},autonomy:"insight",allowedAutonomy:["insight","auto"]});
+ expect(await interpretRule("תעביר ליד ללא חיוג ראשון אחרי 7 דקות בשעות העבודה")).toMatchObject({kind:"lead_response_sla",config:{minutes:7,onBreach:"transfer_to_available",businessHoursOnly:true},autonomy:"auto"});
 });
 it("a call attributed to a newer CRM lead does not satisfy the older lead's SLA",async()=>{
  await db.lead.create({data:{businessId:a.business.id,contactId,ownerUserId:a.user.id,createdAt:new Date(now.getTime()-120000)}});
@@ -57,4 +57,23 @@ it("a call attributed to a newer CRM lead does not satisfy the older lead's SLA"
  const rows=await db.opsRecommendation.findMany({where:{businessId:a.business.id,kind:"lead_response_sla"}});
  expect(rows.find(r=>(r.proposal as {leadId:string}).leadId===leadId)?.status).toBe("needs_attention");
  expect(rows.filter(r=>r.status==="completed")).toHaveLength(1);
+});
+it("automatic escalation requires ownership policy, a fresh available recipient and executes once",async()=>{
+ const acc=await db.account.create({data:{email:crypto.randomUUID()+"@test.local",fullName:"SLA target",passwordHash:"x"}});
+ try{
+ const target=await db.user.create({data:{businessId:a.business.id,accountId:acc.id,email:acc.email,fullName:acc.fullName,role:"agent"}});
+ await db.dialerSession.create({data:{businessId:a.business.id,userId:target.id,mode:"power",browserSessionId:crypto.randomUUID()}});
+ await db.opsRule.update({where:{id:ruleId},data:{autonomy:"auto",config:{minutes:1,onBreach:"transfer_to_available"},updatedAt:new Date(now.getTime()-3600000)}});
+ await db.opsRule.create({data:{businessId:a.business.id,kind:"approval_policy",name:"allowed",config:{actions:["assignment"]},autonomy:"auto"}});
+ await Promise.all([run(),run()]);expect((await db.lead.findUniqueOrThrow({where:{id:leadId}})).ownerUserId).toBe(target.id);
+ expect(await record()).toMatchObject({status:"needs_attention",agentId:target.id,result:{transferred:true}});await run();expect(await db.auditLog.count({where:{businessId:a.business.id,action:"lead.transferred",entityId:leadId}})).toBe(1);
+ }finally{await db.dialerSession.deleteMany({where:{user:{accountId:acc.id}}});await db.lead.updateMany({where:{id:leadId},data:{ownerUserId:a.user.id}});await db.user.deleteMany({where:{accountId:acc.id}});await db.account.delete({where:{id:acc.id}});}
+});
+it("ownership approval policy prevents automatic reassignment",async()=>{
+ await db.opsRule.update({where:{id:ruleId},data:{autonomy:"auto",config:{minutes:1,onBreach:"transfer_to_available"},updatedAt:new Date(now.getTime()-3600000)}});await run();expect((await db.lead.findUniqueOrThrow({where:{id:leadId}})).ownerUserId).toBe(a.user.id);expect(await record()).toMatchObject({status:"needs_attention"});
+});
+
+it("negative transfer instructions do not create an automatic reassignment rule",async()=>{
+ expect(await interpretRule("תתריע על ליד ללא חיוג ראשון אחרי 7 דקות, אל תעביר אותו")).toMatchObject({config:{onBreach:"alert"},autonomy:"insight"});
+ expect(await interpretRule("תעביר ליד ללא חיוג ראשון אחרי 7 דקות רק אם יש לו תקציב גבוה")).toMatchObject({kind:null});
 });

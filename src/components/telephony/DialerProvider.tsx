@@ -151,6 +151,20 @@ function getBrowserSessionId() {
 }
 
 /** `enabled=false` (telephony module off): no WebRTC registration and no state polling; the context still renders. */
+/** Zadarma's official widget scripts (zadarma.com/en/support/instructions/crm-zadarma/, checked 2026-09-29). */
+const ZADARMA_WIDGET_SCRIPTS = ["https://my.zadarma.com/webphoneWebRTCWidget/v8/js/loader-phone-lib.js?v=17", "https://my.zadarma.com/webphoneWebRTCWidget/v8/js/loader-phone-fn.js?v=17"];
+let zadarmaScripts: Promise<void> | null = null;
+function loadZadarmaWidget(): Promise<void> {
+  if (!zadarmaScripts) zadarmaScripts = ZADARMA_WIDGET_SCRIPTS.reduce((prev, src) => prev.then(() => new Promise<void>((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = src; el.async = false;
+    el.onload = () => resolve();
+    el.onerror = () => { zadarmaScripts = null; reject(new Error("script blocked or unreachable")); };
+    document.body.appendChild(el);
+  })), Promise.resolve());
+  return zadarmaScripts;
+}
+
 export function DialerProvider({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
   const t = useT();
   const [state, setState] = useState<DialerStateDto | null>(null);
@@ -196,6 +210,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
   const connectPhoneRef = useRef<() => Promise<void>>(async () => undefined);
   /** Provider this browser is registered with – sent with every dial so the server can ask for a reconnect after a switch. */
   const agentProviderRef = useRef<string | null>(null);
+  const zadarmaLoadedRef = useRef(false);
   const canSelectSpeaker = typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 
   useEffect(() => {
@@ -328,8 +343,30 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       return;
     }
     if (generation !== connectionGeneration.current) return;
+    const previousProvider = agentProviderRef.current;
     agentProviderRef.current = tok.provider;
-    // Only the Telnyx WebRTC client exists. Another provider needs its own client – never fall back to Telnyx silently.
+    // The Zadarma widget cannot be unloaded from a page: going back to Telnyx needs a clean page.
+    if (zadarmaLoadedRef.current && tok.agentClient !== "zadarma-widget") { window.location.reload(); return; }
+    if (!tok.simulation && tok.agentClient === "zadarma-widget") {
+      // Backup provider (Zadarma): its official WebRTC widget registers this browser on the agent's PBX extension.
+      // Zadarma rings the extension first; the agent answers and hangs up in the widget (no server-side control).
+      try {
+        if (clientRef.current) { try { const prev = clientRef.current; clientRef.current = null; await prev.disconnect(); } catch { /* ignore */ } }
+        await loadZadarmaWidget();
+        if (generation !== connectionGeneration.current) return;
+        (window as unknown as { zadarmaWidgetFn: (...a: unknown[]) => void }).zadarmaWidgetFn(tok.token, tok.sipUsername, "square", "en", true, "{right:'10px',bottom:'5px'}");
+        zadarmaLoadedRef.current = true;
+        await requestMic();
+        setPhoneStatus("ready");
+        setPhoneError(null);
+        if (previousProvider !== tok.provider) toast.warning(t("הטלפוניה עברה לספק הגיבוי Zadarma: עונים ומנתקים בחלון הטלפון של Zadarma בפינת המסך. אין האזנת מנהל ואין ניתוק מהמערכת.", "Telephony moved to the backup provider Zadarma: answer and hang up in the Zadarma phone in the corner. No supervisor listening and no hang-up from the app."), { duration: 15000 });
+      } catch (err) {
+        setPhoneStatus("error");
+        setPhoneError(t(`טעינת הטלפון של Zadarma נכשלה: ${(err as Error).message}`, `Loading the Zadarma phone failed: ${(err as Error).message}`));
+      }
+      return;
+    }
+    // Only the Telnyx WebRTC and Zadarma widget clients exist. Another provider needs its own client – never fall back to Telnyx silently.
     if (!tok.simulation && tok.agentClient && tok.agentClient !== "telnyx-webrtc") {
       setPhoneStatus("error");
       setPhoneError(t(`ספק הטלפוניה "${tok.provider}" דורש לקוח דפדפן (${tok.agentClient}) שעדיין לא מומש – לא ניתן לשמוע שיחות דרכו`, `Telephony provider "${tok.provider}" needs a browser client (${tok.agentClient}) that is not implemented yet – calls cannot be heard through it`));

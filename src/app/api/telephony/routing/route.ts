@@ -5,7 +5,7 @@ import { routingOverview, saveRouting } from "@/server/services/telephony-admin-
 
 export const dynamic = "force-dynamic";
 
-const provider = z.enum(["telnyx", "mock"]);
+const provider = z.enum(["telnyx", "mock", "zadarma"]);
 const patch = z.object({
   primaryProvider: provider.nullable().optional(),
   backupProvider: provider.nullable().optional(),
@@ -15,6 +15,8 @@ const patch = z.object({
   windowSeconds: z.number().int().min(10).max(3600).optional(),
   cooldownSeconds: z.number().int().min(30).max(86400).optional(),
   probeCalls: z.number().int().min(1).max(20).optional(),
+  backupDailyCallLimit: z.number().int().min(1).max(100000).nullable().optional(),
+  failoverOnCapacity: z.boolean().optional(),
 });
 
 /** Provider routing for new calls – business owner only. */

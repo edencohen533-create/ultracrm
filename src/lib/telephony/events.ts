@@ -6,7 +6,7 @@ import { lockAgent } from "@/lib/dialer/locking";
 import { Prisma } from "@/generated/prisma/client";
 import type { CallStatus, TelephonyResult } from "@/generated/prisma/enums";
 import { prisma, dbSchema } from "@/lib/db";
-import { adapterFor } from "@/lib/telephony/registry";
+import { adapterFor, knownProviders } from "@/lib/telephony/registry";
 import { attemptLegSeen, dialWithAttempt } from "@/lib/telephony/attempts";
 import { TelephonyRequestTimeout } from "@/lib/telephony/types";
 import type { ProviderEvent } from "@/lib/telephony/types";
@@ -155,7 +155,8 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
           data.status = forward(c.status, "answered");
         } else {
           data.status = forward(c.status, "agent_connected");
-          if (!c.leadLegId && !c.hangupRequestedAt) action = "dial_lead";
+          // Callback providers dial the customer themselves once the agent answers.
+          if (!c.leadLegId && !c.hangupRequestedAt && adapterFor(c.provider).capabilities.dialModel !== "callback") action = "dial_lead";
         }
       } else if (ev.type === "leg.hangup") {
         if (c.leadLegId && !c.endedAt) {
@@ -271,8 +272,9 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
 export async function dialLeadLeg(callId: string) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: { business: { select: { settings: true } } } });
   if (!call || call.endedAt || call.leadLegId || !call.agentLegId || call.hangupRequestedAt) return;
-  const settings = await getBusinessSettings(call.businessId);
   const telephony = adapterFor(call.provider);
+  if (telephony.capabilities.dialModel === "callback") return; // the provider dials the customer itself
+  const settings = await getBusinessSettings(call.businessId);
   try {
     // The answered agent leg becomes the first participant of a conference so supervisors can join later.
     let conferenceId = call.conferenceId;
@@ -332,7 +334,7 @@ export async function afterCallFinalized(callId: string) {
   if (!call) return;
   await endMonitorsForCall(callId, "call_ended");
   const telephony = adapterFor(call.provider);
-  if (!telephony.simulation) {
+  if (!telephony.simulation && telephony.capabilities.serverHangup) {
     // Tear down whatever may still be alive at the provider (a leg that already ended returns 422 – ignored).
     for (const [leg, tag] of [[call.agentLegId, "agent"], [call.leadLegId, "lead"]] as const) {
       if (!leg) continue;
@@ -393,7 +395,10 @@ export async function afterCallFinalized(callId: string) {
  * again from its stored payload, even if the provider gave up retrying. Processing is idempotent and order-tolerant.
  */
 export async function reprocessStuckTelephonyEvents(limit = 50, olderThanMs = 60_000) {
-  const stuck = await prisma.telephonyEvent.findMany({ where: { processedAt: null, receivedAt: { lt: new Date(Date.now() - olderThanMs) } }, orderBy: { receivedAt: "asc" }, take: limit });
+  // Only providers that can rebuild an event from its stored payload (Zadarma's webhook fans out into several events
+  // and is re-sent by the provider instead).
+  const replayable = knownProviders().filter((p) => adapterFor(p).parseWebhook);
+  const stuck = await prisma.telephonyEvent.findMany({ where: { processedAt: null, provider: { in: replayable }, receivedAt: { lt: new Date(Date.now() - olderThanMs) } }, orderBy: { receivedAt: "asc" }, take: limit });
   let applied = 0;
   for (const row of stuck) {
     const ev = adapterFor(row.provider).parseWebhook?.(row.payload);

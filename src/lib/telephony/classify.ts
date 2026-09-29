@@ -12,7 +12,7 @@ export function classifyHttpFailure(status: number, detail: string): FailureClas
   if (status === 429 || /\b(10011|90103)\b/.test(detail)) return "rate_limit";
   if (status === 401) return "auth";
   if (status === 402 || /\b20100\b|insufficient funds|balance/i.test(detail)) return "account";
-  if (status === 403) return /\bD(1|2|3|22)\b/.test(detail) ? "rate_limit" : "account";
+  if (status === 403) return /\bD(1|2|3|22)\b/.test(detail) ? "capacity" : "account";
   if (status >= 500) return "provider_outage";
   if (status === 408) return "timeout";
   if (status >= 400) return "invalid_request";
@@ -27,9 +27,12 @@ export function classifyError(err: unknown): FailureClass {
   return "unknown";
 }
 
-/** Failures that count toward opening the breaker. Rate limits back off instead; request errors are ours. */
-export function countsTowardBreaker(c: FailureClass): boolean {
-  return c === "provider_outage" || c === "account" || c === "auth" || c === "timeout";
+/**
+ * Failures that count toward opening the breaker. Rate limits back off instead; request errors are ours.
+ * Temporary capacity limits (all lines busy) count only when the business's policy says so.
+ */
+export function countsTowardBreaker(c: FailureClass, opts: { failoverOnCapacity?: boolean } = {}): boolean {
+  return c === "provider_outage" || c === "account" || c === "auth" || c === "timeout" || (c === "capacity" && Boolean(opts.failoverOnCapacity));
 }
 
 /** A bad key or a blocked account will not heal by itself within a window – open at once. */

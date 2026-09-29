@@ -38,6 +38,9 @@ export interface ProviderEvent {
 
 export interface DialAgentInput {
   callId: string;
+  businessId?: string;
+  /** Callback providers need the customer's number in the first (and only) request. */
+  toE164?: string;
   sipUsername: string;
   fromE164: string;
   timeoutSeconds: number;
@@ -76,7 +79,15 @@ export interface ProviderCapabilities {
   answeringMachineDetection: boolean;
   dtmf: boolean;
   /** How the agent's browser gets audio. A provider whose client is not implemented cannot carry real calls. */
-  agentClient: "telnyx-webrtc" | "sip-websocket" | "simulation" | "none";
+  agentClient: "telnyx-webrtc" | "zadarma-widget" | "sip-websocket" | "simulation" | "none";
+  /**
+   * agent_then_lead: we dial the agent leg, then (on answer) the customer into a conference – full server control.
+   * callback: ONE provider request rings the agent's extension, then the provider dials the customer itself; no
+   * conference, and the server cannot act on the live call.
+   */
+  dialModel: "agent_then_lead" | "callback";
+  /** Can the server hang up a live call? If not, the agent hangs up in the provider's phone. */
+  serverHangup: boolean;
   /** Can we find a leg by our own reference after a dial request timed out (reconciliation)? */
   legLookupByReference: boolean;
 }
@@ -99,7 +110,9 @@ export interface TelephonyAdapter {
   capabilities: ProviderCapabilities;
   configStatus(): ProviderConfigStatus;
   /** Read-only configuration check against the provider account (no paid actions). */
-  verifyConfig(): Promise<ProviderCheck[]>;
+  verifyConfig(businessId?: string): Promise<ProviderCheck[]>;
+  /** Per-business account (credentials, caller ID, extensions, live test). Absent = platform-level account. */
+  businessReadiness?(businessId: string): Promise<{ ready: boolean; reason: string }>;
   /** The agent's address at this provider (SIP username), or null when the agent never registered with it. */
   agentAddress(userId: string): Promise<string | null>;
   /** After a timed-out dial: find a live leg carrying our reference. `null` = could not check. */
@@ -136,7 +149,15 @@ export class TelephonyRequestTimeout extends Error {
   }
 }
 
-export type FailureClass = "provider_outage" | "account" | "rate_limit" | "auth" | "invalid_request" | "timeout" | "unknown";
+export type FailureClass = "provider_outage" | "account" | "rate_limit" | "auth" | "invalid_request" | "timeout" | "capacity" | "unknown";
+
+/** The provider cannot do this at all – the action is refused with a reason, never reported as done. */
+export class TelephonyUnsupportedError extends ApiError {
+  constructor(message: string, readonly capability: string) {
+    super(message, 409, "provider_capability_missing", { capability });
+    this.name = "TelephonyUnsupportedError";
+  }
+}
 
 /** A provider API error with its classification (status stays 502 for API callers, as before). */
 export class TelephonyProviderError extends ApiError {

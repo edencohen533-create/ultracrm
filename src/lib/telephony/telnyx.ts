@@ -94,6 +94,7 @@ export const telnyxAdapter: TelephonyAdapter = {
   capabilities: {
     outboundDial: true, inboundCalls: true, conference: true, supervisorMonitor: true, recording: true,
     answeringMachineDetection: true, dtmf: true, agentClient: "telnyx-webrtc", legLookupByReference: true,
+    dialModel: "agent_then_lead", serverHangup: true,
   },
   configStatus: telnyxConfigStatus,
 

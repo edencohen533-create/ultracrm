@@ -30,6 +30,7 @@ export const mockAdapter: TelephonyAdapter = {
   capabilities: {
     outboundDial: true, inboundCalls: true, conference: true, supervisorMonitor: true, recording: false,
     answeringMachineDetection: false, dtmf: true, agentClient: "simulation", legLookupByReference: false,
+    dialModel: "agent_then_lead", serverHangup: true,
   },
   configStatus: () => ({ configured: true, missing: [], accountRef: "simulation" }),
   async verifyConfig() { return [{ name: "simulation", ok: true, detail: "no real calls" }]; },

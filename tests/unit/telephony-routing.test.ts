@@ -17,7 +17,7 @@ describe("failure classification", () => {
     expect(classifyHttpFailure(402, "")).toBe("account");
     expect(classifyHttpFailure(400, "20100 Insufficient Funds")).toBe("account");
     expect(classifyHttpFailure(403, "D38 no outbound voice profile")).toBe("account");
-    expect(classifyHttpFailure(403, "D2 profile channel limit exceeded")).toBe("rate_limit");
+    expect(classifyHttpFailure(403, "D2 profile channel limit exceeded")).toBe("capacity");
     expect(classifyHttpFailure(429, "90103")).toBe("rate_limit");
     expect(classifyHttpFailure(422, "invalid destination")).toBe("invalid_request");
     expect(classifyError(new TelephonyRequestTimeout())).toBe("timeout");

@@ -194,6 +194,8 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
   const refreshSeq = useRef(0);
   const appliedSeq = useRef(0);
   const connectPhoneRef = useRef<() => Promise<void>>(async () => undefined);
+  /** Provider this browser is registered with – sent with every dial so the server can ask for a reconnect after a switch. */
+  const agentProviderRef = useRef<string | null>(null);
   const canSelectSpeaker = typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 
   useEffect(() => {
@@ -317,7 +319,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     if (tokenRefreshTimer.current) clearTimeout(tokenRefreshTimer.current);
     setPhoneError(null);
     setPhoneStatus("connecting");
-    let tok: { provider: string; simulation: boolean; token: string; sipUsername: string };
+    let tok: { provider: string; agentClient?: string; simulation: boolean; token: string; sipUsername: string };
     try {
       tok = await api.post("/api/telephony/token");
     } catch (err) {
@@ -326,6 +328,13 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       return;
     }
     if (generation !== connectionGeneration.current) return;
+    agentProviderRef.current = tok.provider;
+    // Only the Telnyx WebRTC client exists. Another provider needs its own client – never fall back to Telnyx silently.
+    if (!tok.simulation && tok.agentClient && tok.agentClient !== "telnyx-webrtc") {
+      setPhoneStatus("error");
+      setPhoneError(t(`ספק הטלפוניה "${tok.provider}" דורש לקוח דפדפן (${tok.agentClient}) שעדיין לא מומש – לא ניתן לשמוע שיחות דרכו`, `Telephony provider "${tok.provider}" needs a browser client (${tok.agentClient}) that is not implemented yet – calls cannot be heard through it`));
+      return;
+    }
     if (tok.simulation) {
       setPhoneStatus("simulation");
       await requestMic();
@@ -501,6 +510,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
           ...input,
           sessionId: s?.session && s.session.status !== "ended" ? s.session.id : undefined,
           browserSessionId,
+          agentProvider: agentProviderRef.current ?? undefined,
         });
         ownsCallRef.current.clear();
         ownsCallRef.current.add(call.id);
@@ -510,6 +520,8 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
       } catch (err) {
         const e = handleErr(err, t("שגיאה בחיוג", "Dial error"));
         if (e.code === "call_active") await refresh();
+        // New calls moved to another provider: re-register this browser there, then the agent dials again.
+        if (e.code === "agent_reregister_required") void connectPhoneRef.current();
         return null;
       } finally {
         setBusy(null);

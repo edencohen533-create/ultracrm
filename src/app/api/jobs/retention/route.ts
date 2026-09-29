@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getBusinessSettings } from "@/lib/settings";
-import { getTelephony } from "@/lib/telephony";
+import { adapterFor } from "@/lib/telephony";
 import { audit } from "@/lib/audit";
 import { withBusiness } from "@/lib/tenant";
 
@@ -18,7 +18,6 @@ export async function GET(req: NextRequest) {
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const telephony = getTelephony();
   const businesses = await prisma.business.findMany({ select: { id: true } });
   const report: Record<string, { recordingsDeleted: number; staleSessionsEnded: number; messagesPurged: number; auditPurged: number }> = {};
   for (const b of businesses) {
@@ -26,17 +25,10 @@ export async function GET(req: NextRequest) {
     let recordingsDeleted = 0;
     if (settings.recordingRetentionDays > 0) {
       const cutoff = new Date(Date.now() - settings.recordingRetentionDays * 86400_000);
-      const calls = await prisma.call.findMany({ where: { businessId: b.id, recordingStatus: "saved", recordingId: { not: null }, createdAt: { lt: cutoff } }, select: { id: true, recordingId: true }, take: 200 });
+      const calls = await prisma.call.findMany({ where: { businessId: b.id, recordingStatus: "saved", recordingId: { not: null }, createdAt: { lt: cutoff } }, select: { id: true, recordingId: true, provider: true }, take: 200 });
       for (const c of calls) {
-        let deleted = telephony.simulation;
-        if (!telephony.simulation && c.recordingId) {
-          try {
-            const res = await fetch(`https://api.telnyx.com/v2/recordings/${encodeURIComponent(c.recordingId)}`, { method: "DELETE", headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } });
-            deleted = res.ok || res.status === 404;
-          } catch {
-            deleted = false;
-          }
-        }
+        // Deleted at the provider that stored it (a recording never moves between providers).
+        const deleted = c.recordingId ? await adapterFor(c.provider).deleteRecording(c.recordingId).catch(() => false) : true;
         if (deleted) {
           await prisma.call.update({ where: { id: c.id }, data: { recordingStatus: "none", recordingId: null } });
           recordingsDeleted++;

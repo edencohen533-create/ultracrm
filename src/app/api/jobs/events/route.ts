@@ -22,7 +22,9 @@ export async function GET(request: Request) {
     const stale = await db.callbackSignal.findMany({ where: { status: "active", expiresAt: { lte: new Date() } }, distinct: ["businessId"], select: { businessId: true }, take: 50 });
     let expired = 0;
     for (const { businessId } of stale) expired += (await withBusiness(businessId, () => expireSignals(businessId)).catch(() => ({ expired: 0 }))).expired;
-    return Response.json({ ...events, webhooks, expired });
+    const { reprocessStuckTelephonyEvents } = await import("@/lib/telephony/events");
+    const telephonyReplayed = await reprocessStuckTelephonyEvents().catch((e: Error) => { console.error("telephony replay", e.message); return 0; });
+    return Response.json({ ...events, webhooks, expired, telephonyReplayed });
   } catch (err) {
     return handleError(err);
   }

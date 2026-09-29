@@ -15,6 +15,7 @@ const schema = z.object({
   contactId: z.string().optional(),
   phone: z.string().optional(),
   phoneNumberId: z.string().optional(),
+  agentProvider: z.string().max(40).optional(),
 });
 
 export const POST = withAuth(async ({ req, user }) => {

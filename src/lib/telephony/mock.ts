@@ -27,6 +27,14 @@ export const MOCK_TIMELINE = {
 export const mockAdapter: TelephonyAdapter = {
   name: "mock",
   simulation: true,
+  capabilities: {
+    outboundDial: true, inboundCalls: true, conference: true, supervisorMonitor: true, recording: false,
+    answeringMachineDetection: false, dtmf: true, agentClient: "simulation", legLookupByReference: false,
+  },
+  configStatus: () => ({ configured: true, missing: [], accountRef: "simulation" }),
+  async verifyConfig() { return [{ name: "simulation", ok: true, detail: "no real calls" }]; },
+  async agentAddress(userId) { return `mock-${userId.slice(-6)}`; },
+  async findLegByReference() { return null; },
 
   async dialAgent(input: DialAgentInput): Promise<DialResult> {
     // Fault injection for load tests only (never set in production): a slow provider that sometimes times out.
@@ -74,6 +82,9 @@ export const mockAdapter: TelephonyAdapter = {
   },
   async getRecordingDownloadUrl() {
     return null;
+  },
+  async deleteRecording() {
+    return true;
   },
 };
 

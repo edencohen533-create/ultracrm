@@ -78,7 +78,8 @@ export async function processProviderEvent(ev: ProviderEvent): Promise<ProcessRe
   }
 
   // 1b. Supervisor (manager) leg events never touch the call's own state machine.
-  if (ev.leg === "supervisor" || ev.legId.startsWith("mock-supervisor-")) {
+  // The leg-id prefix fallback is the simulation's only; a real provider's event is a supervisor leg only by its own client_state.
+  if (ev.leg === "supervisor" || (ev.provider === "mock" && ev.legId.startsWith("mock-supervisor-"))) {
     const monitor = ev.monitorId ? await prisma.callMonitor.findUnique({ where: { id: ev.monitorId } }) : await prisma.callMonitor.findFirst({ where: { legId: ev.legId } });
     if (monitor) {
       // A webhook may be the only evidence of the leg when the dial request times out.

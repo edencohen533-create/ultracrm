@@ -1,3 +1,4 @@
+import { visibleUserIds } from "@/lib/auth";
 import { z } from "zod";
 import { withAuth, parseQuery } from "@/lib/api";
 import { ok } from "@/lib/response";
@@ -7,8 +8,10 @@ export const dynamic = "force-dynamic";
 
 /** Calls in which the coach was active: who, when, how many recommendations, feedback, cost, latency, outcome. */
 export const GET = withAuth(async ({ req, user }) => {
+  // Transcripts of agents outside a team-scoped manager's view are not listed.
+  const visible = await visibleUserIds(user);
   const f = parseQuery(req, z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) }));
-  const sessions = await prisma.coachSession.findMany({ where: { businessId: user.businessId }, orderBy: { createdAt: "desc" }, take: f.limit,
+  const sessions = await prisma.coachSession.findMany({ where: { businessId: user.businessId, ...(visible ? { call: { userId: { in: visible } } } : {}) }, orderBy: { createdAt: "desc" }, take: f.limit,
     include: { call: { select: { id: true, createdAt: true, answeredAt: true, talkSeconds: true, outcome: true, toE164: true, user: { select: { id: true, fullName: true } }, contact: { select: { id: true, fullName: true } }, leadId: true } }, recommendations: { select: { id: true, feedback: true, basis: true, latencyMs: true } } } });
   const items = sessions.map((s) => ({
     id: s.id, callId: s.callId, status: s.status, createdAt: s.createdAt, stage: s.stage, lastObjection: s.lastObjection, segmentsCount: s.segmentsCount,
@@ -17,4 +20,4 @@ export const GET = withAuth(async ({ req, user }) => {
     costUsd: Number(s.costUsd), sttSeconds: s.sttSeconds, avgLatencyMs: s.latencySamples ? Math.round(s.latencyMsTotal / s.latencySamples) : null,
   }));
   return ok({ items });
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

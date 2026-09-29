@@ -1,3 +1,4 @@
+import { assertCanSeeUser } from "@/lib/auth";
 import { z } from "zod";
 import { withAuth, parseBody } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
@@ -13,6 +14,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   const b = await parseBody(req, z.object({ status: z.enum(["pending", "approved", "rejected"]).optional(), editedResponse: z.string().trim().max(600).nullable().optional(), objection: z.string().trim().min(1).max(300).optional() }));
   const ex = await prisma.coachExample.findUnique({ where: { id: params.id } });
   if (!ex) throw new ApiError("דוגמה לא נמצאה", 404, "not_found");
+  if (ex.userId) await assertCanSeeUser(user, ex.userId);
   let embedding: Prisma.InputJsonValue | undefined;
   const objection = b.objection ?? ex.objection;
   if ((b.status === "approved" || b.objection) && (!Array.isArray(ex.embedding) || b.objection)) {
@@ -22,4 +24,4 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   const row = await prisma.coachExample.update({ where: { id: ex.id }, data: { status: b.status, editedResponse: b.editedResponse, objection: b.objection, embedding, reviewedById: user.id, reviewedAt: new Date() } });
   await audit(user.businessId, user.id, "coach", row.id, "coach.example_reviewed", { status: row.status, edited: Boolean(b.editedResponse) });
   return ok(row);
-}, { minRole: "manager" });
+}, { minRole: "manager", module: "telephony" });

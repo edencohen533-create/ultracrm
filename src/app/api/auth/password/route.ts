@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const passwordHash = await bcrypt.hash(newPassword, 12);
     const updated = await withoutBusiness(() => db.account.update({
       where: { id: account.id },
-      data: { passwordHash, sessionVersion: { increment: 1 } },
+      data: { passwordHash, sessionVersion: { increment: 1 }, claimedAt: new Date() },
       select: { sessionVersion: true },
     }));
     await audit(user.businessId, user.id, "account", account.id, "account.password_changed", { sessionsInvalidated: true });

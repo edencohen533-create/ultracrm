@@ -10,5 +10,5 @@ const schema = z.object({ toUserId: z.string().nullable(), note: z.string().max(
 /** Manager: hand a lead to another agent (or back to the pool with null). Audited. */
 export const POST = withAuth(async ({ req, user, params }) => {
   const b = await parseBody(req, schema);
-  return ok(await transferLead(user.businessId, user.id, params.id, b.toUserId, b.note));
+  return ok(await transferLead(user.businessId, user.id, params.id, b.toUserId, b.note, user));
 }, { minRole: "manager", perm: "telephony.team_settings" });

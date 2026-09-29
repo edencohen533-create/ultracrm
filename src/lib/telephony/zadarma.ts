@@ -128,6 +128,14 @@ export async function zadarmaRequest<T>(acc: ZadarmaAccount, httpMethod: "GET" |
   } finally { clearTimeout(timer); }
 }
 
+/** The single call holding this recording id. Ids come from business-signed webhooks, so an id bound to more than one
+ *  call (any business) is refused rather than resolved to an arbitrary one – a recording is only ever handled with the
+ *  account of the business whose call it is. */
+async function callOfRecording(recordingId: string) {
+  const calls = await prisma.call.findMany({ where: { provider: "zadarma", recordingId }, select: { businessId: true }, take: 2 });
+  return calls.length === 1 ? calls[0] : null;
+}
+
 const unsupported = (what: string, capability: string) => new TelephonyUnsupportedError(`${what} אינו נתמך בספק Zadarma דרך ה-API – ${capability === "hangup" ? "יש לנתק בחלון הטלפון של Zadarma" : "הפעולה זמינה רק מהטלפון של הנציג (קודי מרכזייה)"}`, capability);
 
 async function callOfLeg(legId: string) {
@@ -242,7 +250,7 @@ export const zadarmaAdapter: TelephonyAdapter = {
   },
 
   async getRecordingDownloadUrl(recordingId) {
-    const call = await prisma.call.findFirst({ where: { provider: "zadarma", recordingId }, select: { businessId: true } });
+    const call = await callOfRecording(recordingId);
     const acc = call ? await zadarmaAccount(call.businessId) : null;
     if (!acc) return null;
     const r = await zadarmaRequest<{ link?: string; links?: string[] }>(acc, "GET", "/v1/pbx/record/request/", { call_id: recordingId, lifetime: 180 });
@@ -251,7 +259,7 @@ export const zadarmaAdapter: TelephonyAdapter = {
   },
 
   async deleteRecording(recordingId) {
-    const call = await prisma.call.findFirst({ where: { provider: "zadarma", recordingId }, select: { businessId: true } });
+    const call = await callOfRecording(recordingId);
     const acc = call ? await zadarmaAccount(call.businessId) : null;
     if (!acc) return false;
     try { await zadarmaRequest(acc, "DELETE", "/v1/pbx/record/request/", { call_id: recordingId }); return true; } catch { return false; }

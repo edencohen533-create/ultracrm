@@ -11,4 +11,4 @@ export const DELETE = withAuth(async ({ user, params }) => {
   if (!r.count) throw new ApiError("המפתח לא נמצא", 404, "not_found");
   await audit(user.businessId, user.id, "api_key", params.id, "api_key.revoked");
   return ok({ revoked: true });
-}, { minRole: "manager" });
+}, { minRole: "owner" });

@@ -6,6 +6,7 @@ import { audit } from "@/lib/audit";
 import { withBusiness } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * Scheduled job (Vercel Cron, see vercel.json): enforce each business's recording
@@ -18,52 +19,65 @@ export async function GET(req: NextRequest) {
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const businesses = await prisma.business.findMany({ select: { id: true } });
-  const report: Record<string, { recordingsDeleted: number; staleSessionsEnded: number; messagesPurged: number; auditPurged: number }> = {};
+  const deadline = Date.now() + 45_000;
+  // Businesses whose owner asked to delete everything come first: that obligation must not wait behind the others.
+  const { purgeDueBusinesses } = await import("@/server/services/account-deletion-service");
+  const businessesDeleted = await purgeDueBusinesses().catch((e: Error) => { console.error("business purge failed", e.message); return 0; });
+  const all = await prisma.business.findMany({ select: { id: true }, orderBy: { id: "asc" } });
+  // Rotate the starting point every run so the same businesses are never the ones left when time runs out.
+  const start = all.length ? Math.floor(Date.now() / 3_600_000) % all.length : 0;
+  const businesses = [...all.slice(start), ...all.slice(0, start)];
+  const report: Record<string, { recordingsDeleted: number; staleSessionsEnded: number; messagesPurged: number; auditPurged: number } | { error: string }> = {};
+  let skipped = 0;
   for (const b of businesses) {
-    const settings = await getBusinessSettings(b.id);
-    let recordingsDeleted = 0;
-    if (settings.recordingRetentionDays > 0) {
-      const cutoff = new Date(Date.now() - settings.recordingRetentionDays * 86400_000);
-      const calls = await prisma.call.findMany({ where: { businessId: b.id, recordingStatus: "saved", recordingId: { not: null }, createdAt: { lt: cutoff } }, select: { id: true, recordingId: true, provider: true }, take: 200 });
-      for (const c of calls) {
-        // Deleted at the provider that stored it (a recording never moves between providers).
-        const deleted = c.recordingId ? await adapterFor(c.provider).deleteRecording(c.recordingId).catch(() => false) : true;
-        if (deleted) {
-          await prisma.call.update({ where: { id: c.id }, data: { recordingStatus: "none", recordingId: null } });
-          recordingsDeleted++;
-        }
-      }
-      if (recordingsDeleted) await audit(b.id, null, "automation", b.id, "automation.recordings_purged", { trigger: "cron", count: recordingsDeleted, retentionDays: settings.recordingRetentionDays, result: "ok" });
-    }
-    // Messaging retention: bodies + attachments of old messages are purged, the message rows and counts remain (audit-safe).
-    let messagesPurged = 0, auditPurged = 0;
-    // Message rows are tenant-strict: run the purge inside the business context (RLS-style scoping).
-    if (settings.retention.messagesDays > 0) await withBusiness(b.id, async () => {
-      const cutoff = new Date(Date.now() - settings.retention.messagesDays * 86400_000);
-      // Scrub historic event copies even if the corresponding message was already purged.
-      await prisma.$executeRaw`UPDATE domain_events SET payload = payload - 'body' WHERE business_id = ${b.id} AND type = 'message.received' AND occurred_at < ${cutoff} AND payload ? 'body'`;
-      const old = await prisma.message.findMany({ where: { businessId: b.id, createdAt: { lt: cutoff }, OR: [{ body: { not: null } }, { attachments: { some: {} } }] }, select: { id: true }, take: 2000 });
-      if (old.length) {
-        const ids = old.map((m) => m.id);
-        await prisma.messageAttachment.deleteMany({ where: { messageId: { in: ids } } });
-        const r = await prisma.message.updateMany({ where: { id: { in: ids } }, data: { body: null, subject: null } });
-        messagesPurged = r.count;
-        await audit(b.id, null, "automation", b.id, "automation.messages_purged", { trigger: "cron", count: r.count, retentionDays: settings.retention.messagesDays, result: "ok" });
-      }
-    });
-    if (settings.retention.auditDays > 0) {
-      const r = await prisma.auditLog.deleteMany({ where: { businessId: b.id, createdAt: { lt: new Date(Date.now() - settings.retention.auditDays * 86400_000) }, action: { not: "automation.messages_purged" } } });
-      auditPurged = r.count;
-    }
-    const stale = await prisma.dialerSession.updateMany({ where: { businessId: b.id, status: { in: ["active", "paused"] }, lastHeartbeatAt: { lt: new Date(Date.now() - 6 * 3600_000) } }, data: { status: "ended", endedAt: new Date() } });
-    report[b.id] = { recordingsDeleted, staleSessionsEnded: stale.count, messagesPurged, auditPurged };
+    if (Date.now() > deadline) { skipped++; continue; }
+    // One business's failure (bad settings, provider error) never stops retention for the others.
+    try { report[b.id] = await retainBusiness(b.id); }
+    catch (e) { console.error("[retention] business failed", b.id, (e as Error).message); report[b.id] = { error: (e as Error).message.slice(0, 200) }; }
   }
   // Keep public confirmation receipts for 90 days; expired signup attempts contain asset identifiers.
   await prisma.metaDeletionRequest.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 90 * 86400_000) } } });
   await db.whatsAppSignupSession.deleteMany({ where: { expiresAt: { lt: new Date(Date.now() - 30 * 86400_000) } } });
-  // Businesses whose owner asked to delete everything and whose 14-day grace ended.
-  const { purgeDueBusinesses } = await import("@/server/services/account-deletion-service");
-  const businessesDeleted = await purgeDueBusinesses().catch((e: Error) => { console.error("business purge failed", e.message); return 0; });
-  return NextResponse.json({ ok: true, report, businessesDeleted });
+  return NextResponse.json({ ok: true, report, businessesDeleted, skipped });
+}
+
+async function retainBusiness(businessId: string) {
+  const b = { id: businessId };
+  const settings = await getBusinessSettings(b.id);
+  let recordingsDeleted = 0;
+  if (settings.recordingRetentionDays > 0) {
+    const cutoff = new Date(Date.now() - settings.recordingRetentionDays * 86400_000);
+    const calls = await prisma.call.findMany({ where: { businessId: b.id, recordingStatus: "saved", recordingId: { not: null }, createdAt: { lt: cutoff } }, select: { id: true, recordingId: true, provider: true }, take: 200 });
+    for (const c of calls) {
+      // Deleted at the provider that stored it (a recording never moves between providers).
+      const deleted = c.recordingId ? await adapterFor(c.provider).deleteRecording(c.recordingId).catch(() => false) : true;
+      if (deleted) {
+        await prisma.call.update({ where: { id: c.id }, data: { recordingStatus: "none", recordingId: null } });
+        recordingsDeleted++;
+      }
+    }
+    if (recordingsDeleted) await audit(b.id, null, "automation", b.id, "automation.recordings_purged", { trigger: "cron", count: recordingsDeleted, retentionDays: settings.recordingRetentionDays, result: "ok" });
+  }
+  // Messaging retention: bodies + attachments of old messages are purged, the message rows and counts remain (audit-safe).
+  let messagesPurged = 0, auditPurged = 0;
+  // Message rows are tenant-strict: run the purge inside the business context (RLS-style scoping).
+  if (settings.retention.messagesDays > 0) await withBusiness(b.id, async () => {
+    const cutoff = new Date(Date.now() - settings.retention.messagesDays * 86400_000);
+    // Scrub historic event copies even if the corresponding message was already purged.
+    await prisma.$executeRaw`UPDATE domain_events SET payload = payload - 'body' WHERE business_id = ${b.id} AND type = 'message.received' AND occurred_at < ${cutoff} AND payload ? 'body'`;
+    const old = await prisma.message.findMany({ where: { businessId: b.id, createdAt: { lt: cutoff }, OR: [{ body: { not: null } }, { attachments: { some: {} } }] }, select: { id: true }, take: 2000 });
+    if (old.length) {
+      const ids = old.map((m) => m.id);
+      await prisma.messageAttachment.deleteMany({ where: { messageId: { in: ids } } });
+      const r = await prisma.message.updateMany({ where: { id: { in: ids } }, data: { body: null, subject: null } });
+      messagesPurged = r.count;
+      await audit(b.id, null, "automation", b.id, "automation.messages_purged", { trigger: "cron", count: r.count, retentionDays: settings.retention.messagesDays, result: "ok" });
+    }
+  });
+  if (settings.retention.auditDays > 0) {
+    const r = await prisma.auditLog.deleteMany({ where: { businessId: b.id, createdAt: { lt: new Date(Date.now() - settings.retention.auditDays * 86400_000) }, action: { not: "automation.messages_purged" } } });
+    auditPurged = r.count;
+  }
+  const stale = await prisma.dialerSession.updateMany({ where: { businessId: b.id, status: { in: ["active", "paused"] }, lastHeartbeatAt: { lt: new Date(Date.now() - 6 * 3600_000) } }, data: { status: "ended", endedAt: new Date() } });
+  return { recordingsDeleted, staleSessionsEnded: stale.count, messagesPurged, auditPurged };
 }

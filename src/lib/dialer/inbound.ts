@@ -18,7 +18,9 @@ const AGENT_RING_SECONDS = 25;
 
 export async function handleInboundInitiated(ev: ProviderEvent) {
   const toE164 = normalizePhone(ev.to ?? "") ?? ev.to ?? "";
-  const numbers = await prisma.phoneNumber.findMany({ where: { e164: toE164, isActive: true }, include: { business: { select: { id: true, name: true } } }, take: 2 });
+  // Only a number this provider holds and whose ownership was verified routes inbound calls (simulation excepted).
+  const real = !adapterFor(ev.provider).simulation;
+  const numbers = await prisma.phoneNumber.findMany({ where: { e164: toE164, isActive: true, ...(real ? { provider: ev.provider, verificationStatus: "verified" } : {}) }, include: { business: { select: { id: true, name: true } } }, take: 2 });
   // Never pick an arbitrary tenant when legacy data contains an ambiguous number.
   if (numbers.length > 1) {
     await adapterFor(ev.provider).hangupLeg(ev.legId, `ambiguous-number-${ev.legId}`);

@@ -22,6 +22,8 @@ export interface Session {
     teamId: string | null;
     name: string;
     email: string;
+    /** Inbox channels this user may see (module active in the plan + `<channel>.view`). Unset = not restricted here. */
+    channels?: Array<"whatsapp" | "sms" | "email">;
   };
 }
 
@@ -32,7 +34,14 @@ export function toSession(u: SessionUser): Session {
 /** The session of the request that opened the current business scope (null outside a request). */
 export async function auth(): Promise<Session | null> {
   const u = currentSessionUser();
-  return u ? toSession(u) : null;
+  if (!u) return null;
+  const s = toSession(u);
+  // The shared inbox holds WhatsApp, SMS and email threads: each channel needs its own module + view permission,
+  // enforced in the data query (buildConversationScope), not only by hiding a filter in the UI.
+  const { effectiveAccess, can } = await import("@/lib/access/engine");
+  const access = await effectiveAccess(u.businessId, u.id);
+  s.user.channels = (["whatsapp", "sms", "email"] as const).filter((ch) => can(access, `${ch}.view`));
+  return s;
 }
 
 type Wrapped<A extends unknown[], R> = (...args: A) => Promise<R>;

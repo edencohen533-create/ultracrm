@@ -1,3 +1,5 @@
+import { canAccessContact } from "@/lib/crm/lead-ops";
+import { currentSessionUser } from "@/lib/tenant";
 import { resolveSender, ProviderUnavailableError } from "@/server/providers/provider-registry";
 import { prisma } from "@/lib/db";
 import { requireBusinessId } from "@/lib/tenant";
@@ -30,6 +32,7 @@ export function buildConversationScope(session: Session, filter: ConversationLis
     clauses.push({ OR: [{ providerCredentialId: null }, { providerCredential: { teamId: null } }, ...(session.user.teamId ? [{ providerCredential: { teamId: session.user.teamId } }] : [])] });
   }
 
+  if (session.user.channels) clauses.push({ channel: { in: session.user.channels } });
   if (filter.providerCredentialId) clauses.push({ providerCredentialId: filter.providerCredentialId });
   if (filter.tagId) clauses.push({ tags: { some: { tagId: filter.tagId } } });
   if (filter.teamId) clauses.push({ OR: [{ providerCredential: { teamId: filter.teamId } }, { assignedAgent: { teamId: filter.teamId } }] });
@@ -147,6 +150,10 @@ export async function startConversation(session: Session, contactId: string, age
     await tx.$queryRaw`SELECT id FROM "contacts" WHERE id = ${contactId} FOR UPDATE`;
     const contact = await tx.contact.findFirst({ where: { id: contactId, ...buildContactScope(session) } });
     if (!contact) throw new ConversationStartError("איש הקשר לא נמצא או משויך לנציג אחר");
+    // An agent (or a team-scoped manager) may open a thread only with a contact the CRM lets them see – a contact
+    // with no conversation yet is not free for anyone to take.
+    const current = currentSessionUser();
+    if (current && !(await canAccessContact(current, contact))) throw new ConversationStartError("איש הקשר משויך לנציג אחר");
     // Opening/assigning a thread sends nothing. Outbound service/marketing eligibility is enforced at send time.
     const previous = await tx.conversation.findFirst({ where: { contactId, providerCredentialId }, orderBy: { createdAt: "desc" } });
     if (session.user.role === "agent" && previous?.assignedAgentId && previous.assignedAgentId !== session.user.id) throw new ConversationStartError("הליד משויך לנציג אחר");

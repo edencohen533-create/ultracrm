@@ -28,6 +28,8 @@ export const POST = withAuth(async ({ req, user, params }) => {
     case "retry_setup":
       return ok(await runSetupSteps(user, params.id, undefined, b.pin));
     case "disconnect":
+      // Disconnecting a number stops it at Meta for the whole business (every team) – the owner's decision.
+      if (user.role !== "owner") throw new ApiError("רק בעל העסק יכול לנתק מספר WhatsApp", 403, "forbidden");
       if (!b.confirm) throw new ApiError("ניתוק דורש אישור מפורש", 400, "confirm_required");
       return ok(await disconnectConnection(user, params.id, b.reason));
     case "test_send": {

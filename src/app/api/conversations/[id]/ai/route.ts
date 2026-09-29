@@ -15,4 +15,4 @@ export const POST = withAuth(async ({ req, user, params }) => {
   const c = await setConversationAiMode(user.businessId, user.id, params.id, mode);
   if (!c) throw new ApiError("השיחה לא נמצאה", 404, "not_found");
   return ok({ aiMode: c.aiMode });
-});
+}, { perm: "whatsapp.reply" });

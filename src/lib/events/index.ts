@@ -110,24 +110,31 @@ export interface ProcessOptions {
 export async function processDomainEvents(opts: ProcessOptions = {}) {
   const deadline = opts.deadline ?? Date.now() + 40_000;
   const now = new Date();
-  const candidates = await db.domainEvent.findMany({
-    where: {
-      ...(opts.businessId ? { businessId: opts.businessId } : {}),
-      OR: [
-        { status: "pending", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
-        { status: "processing", lockedAt: { lt: new Date(now.getTime() - LOCK_TTL_MS) } },
-      ],
-    },
-    orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
-    take: opts.limit ?? 25,
-    select: { id: true, status: true },
-  });
+  const limit = opts.limit ?? 25;
+  const due: Prisma.DomainEventWhereInput = {
+    OR: [
+      { status: "pending", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
+      { status: "processing", lockedAt: { lt: new Date(now.getTime() - LOCK_TTL_MS) } },
+    ],
+  };
+  const pick = (businessId: string, take: number) => db.domainEvent.findMany({ where: { ...due, businessId }, orderBy: [{ occurredAt: "asc" }, { id: "asc" }], take, select: { id: true, status: true } });
+  let candidates: Array<{ id: string; status: string }>;
+  if (opts.businessId) candidates = await pick(opts.businessId, limit);
+  else {
+    // Fair share across businesses: the businesses with the oldest due events, an equal slice each, interleaved –
+    // one business's import or campaign backlog cannot hold back everybody else's events.
+    const groups = await db.domainEvent.groupBy({ by: ["businessId"], where: due, _min: { occurredAt: true }, orderBy: { _min: { occurredAt: "asc" } }, take: limit });
+    const per = Math.max(1, Math.ceil(limit / Math.max(1, groups.length)));
+    const lists = await Promise.all(groups.map((g) => pick(g.businessId, per)));
+    candidates = [];
+    for (let i = 0; candidates.length < limit && lists.some((l) => l.length > i); i++) for (const l of lists) if (l[i] && candidates.length < limit) candidates.push(l[i]);
+  }
   let processed = 0;
   let failed = 0;
   for (const c of candidates) {
     if (Date.now() >= deadline) break;
     const claimed = await db.domainEvent.updateMany({
-      where: { id: c.id, status: c.status, ...(c.status === "processing" ? { lockedAt: { lt: new Date(Date.now() - LOCK_TTL_MS) } } : {}) },
+      where: { id: c.id, status: c.status as "pending" | "processing", ...(c.status === "processing" ? { lockedAt: { lt: new Date(Date.now() - LOCK_TTL_MS) } } : {}) },
       data: { status: "processing", lockedAt: new Date(), attempts: { increment: 1 } },
     });
     if (!claimed.count) continue;

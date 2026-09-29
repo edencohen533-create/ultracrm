@@ -77,6 +77,8 @@ export async function purgeDueBusinesses(now = new Date()) {
     const due = await db.business.findMany({ where: { deletionScheduledFor: { lte: now } }, select: { id: true, users: { select: { accountId: true } } } });
     let deleted = 0;
     for (const b of due) {
+      // Each business on its own: one failure must not keep every other due business from being purged.
+      try {
       const accountIds = [...new Set(b.users.map((u) => u.accountId))];
       await db.campaignRecipient.deleteMany({ where: { campaign: { businessId: b.id } } });
       await db.campaign.deleteMany({ where: { businessId: b.id } });
@@ -88,6 +90,7 @@ export async function purgeDueBusinesses(now = new Date()) {
       // Accounts that belonged only to this business go too (personal data).
       for (const accountId of accountIds) if (!(await db.user.count({ where: { accountId } }))) await db.account.delete({ where: { id: accountId } }).catch(() => undefined);
       deleted++;
+      } catch (e) { console.error("[purge] business failed", b.id, (e as Error).message); }
     }
     return deleted;
   });

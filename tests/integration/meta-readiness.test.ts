@@ -45,9 +45,15 @@ describe("Meta review readiness", { timeout: 600_000 }, () => {
     const mk = (businessId: string, uid: string, phone: string) => db.providerCredential.create({ data: { businessId, channel: "whatsapp", provider: "meta_whatsapp_cloud_api", isActive: true, wabaId: `w${phone}`, phoneNumberId: phone, displayPhoneNumber: `+972 5${phone}`, config: { accessToken: "sealed:x" }, metaUserIds: [uid] } });
     const mine = await mk(a.business.id, "fb-111", String(Date.now()).slice(-9));
     const other = await mk(b.business.id, "fb-222", String(Date.now() + 1).slice(-9));
+    await db.whatsAppSignupSession.create({data:{businessId:a.business.id,userId:a.user.id,state:`erase-${Date.now()}`,expiresAt:new Date(),credentialId:mine.id,wabaId:"sensitive-waba",phoneNumberId:"sensitive-phone"}});
     const res = await deletionPOST(form(signed({ user_id: "fb-111", algorithm: "HMAC-SHA256" })));
     expect(res.status).toBe(200);
     const j = await res.json() as { url: string; confirmation_code: string };
+    expect(j.confirmation_code).toMatch(/^[A-Z0-9]+$/);
+    expect(await db.whatsAppSignupSession.count({where:{credentialId:mine.id}})).toBe(0);
+    expect((await db.metaDeletionRequest.findUniqueOrThrow({where:{confirmationCode:j.confirmation_code}})).metaUserId).not.toBe("fb-111");
+    const retry = await deletionPOST(form(signed({user_id:"fb-111"})));
+    expect((await retry.json()).confirmation_code).toBe(j.confirmation_code);
     expect(j.url).toContain(`/data-deletion?code=${j.confirmation_code}`);
     expect(await db.providerCredential.findUniqueOrThrow({ where: { id: mine.id } })).toMatchObject({ isActive: false, status: "revoked", config: {}, metaUserIds: [] });
     expect(await db.providerCredential.findUniqueOrThrow({ where: { id: other.id } })).toMatchObject({ isActive: true });

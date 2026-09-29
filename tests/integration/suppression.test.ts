@@ -25,6 +25,22 @@ describe("global suppression", () => {
     expect(await db.contact.findUnique({ where: { id: c.id } })).not.toBeNull();
   });
 
+  it("new opt-in requires evidence, including imports", async () => {
+    await expect(run(() => createContact(t.session,{fullName:"No consent proof",phone:"0502220098",consentStatus:"OPTED_IN"}))).rejects.toMatchObject({code:"consent_evidence_required"});
+    const result = await run(() => importContacts(t.session,[{fullName:"No consent proof",phone:"0502220098",consentStatus:"OPTED_IN"}]));
+    expect(result.created).toBe(0); expect(result.invalid).toBe(1);
+  });
+
+  it("free-form WhatsApp removal holds marketing until documented re-consent", async () => {
+    await run(async () => {
+      const c = await createContact(t.session, { fullName: "Free form opt out", phone: "0502220099", consentStatus: "OPTED_IN", consentEvidence: "test" });
+      await createInboundMessage({ contactId: c.id, body: "בבקשה אל תשלחו לי יותר הודעות", providerMessageId: `free-${Date.now()}` });
+      expect(await sendBlockReason(t.business.id, c.id, "marketing")).not.toBeNull();
+      expect(await prisma.suppression.count({ where: { contactId: c.id, pendingReview: true, revokedAt: null } })).toBeGreaterThan(0);
+      await expect(revokeSuppressions(t.business.id, c.id, t.user.id, "")).rejects.toThrow();
+    });
+  });
+
   it("re-import with OPTED_IN and a provider switch do not resubscribe; revoking requires evidence", async () => {
     const c = await db.contact.findFirstOrThrow({ where: { businessId: t.business.id, phoneE164: "+972502220001" } });
     await run(() => importContacts(t.session, [{ fullName: "Opt out", phone: "0502220001", consentStatus: "OPTED_IN" }]));

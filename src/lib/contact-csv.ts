@@ -25,16 +25,17 @@ export function parseCsv(text: string, delimiter: "," | "\t" = ","): string[][] 
   return rows;
 }
 
-export function parseContactCsv(text: string, mapping?: { name: string; phone: string; consentStatus?: string }, preview = false) {
+export function parseContactCsv(text: string, mapping?: { name: string; phone: string; consentStatus?: string; consentEvidence?: string }, preview = false) {
   if (text.length > 1_000_000) throw new Error("הקובץ גדול מדי (עד 1MB)");
   const [headers, ...rows] = parseCsv(text);
   if (!headers || !rows.length || rows.length > 10000) throw new Error("יש לייבא בין 1 ל־10,000 שורות");
   const keys = headers.map((h) => h.trim().toLowerCase());
   const nameIndex = mapping ? headers.indexOf(mapping.name) : keys.findIndex((h) => ["name", "שם"].includes(h));
   const phoneIndex = mapping ? headers.indexOf(mapping.phone) : keys.findIndex((h) => ["phone", "טלפון"].includes(h));
+  const evidenceIndex = mapping?.consentEvidence ? headers.indexOf(mapping.consentEvidence) : keys.indexOf("consentevidence");
   const consentIndex = mapping ? headers.indexOf(mapping.consentStatus ?? "") : keys.indexOf("consentstatus");
   if (nameIndex < 0 || phoneIndex < 0) throw new Error("נדרשות כותרות name,phone (או שם,טלפון)");
-  const contacts = new Map<string, { name: string; phone: string; consentStatus: "UNKNOWN" | "OPTED_IN" | "OPTED_OUT" }>();
+  const contacts = new Map<string, { name: string; phone: string; consentStatus: "UNKNOWN" | "OPTED_IN" | "OPTED_OUT"; consentEvidence?: string }>();
   const errors: { row: number; error: string }[] = [];
   let validRows = 0;
   for (const [index, row] of rows.entries()) {
@@ -45,10 +46,12 @@ export function parseContactCsv(text: string, mapping?: { name: string; phone: s
     const consent = consentIndex < 0 ? "UNKNOWN" : row[consentIndex]?.trim() || "UNKNOWN";
     if (!name || name.length > 120 || !phone) throw new Error(`שם או מספר טלפון לא תקין בשורה ${index + 2}`);
     if (!["UNKNOWN", "OPTED_IN", "OPTED_OUT"].includes(consent)) throw new Error(`ערך consentStatus לא תקין בשורה ${index + 2}`);
+    const consentEvidence = evidenceIndex < 0 ? undefined : row[evidenceIndex]?.trim();
+    if (consent === "OPTED_IN" && !consentEvidence) throw new Error(`נדרשת אסמכתה בעמודת consentEvidence בשורה ${index + 2}`);
     const existing = contacts.get(phone);
     // Conflicting consent in duplicates is resolved conservatively.
     const consentStatus = existing ? existing.consentStatus === "OPTED_OUT" || consent === "OPTED_OUT" ? "OPTED_OUT" : existing.consentStatus === "UNKNOWN" || consent === "UNKNOWN" ? "UNKNOWN" : "OPTED_IN" : consent as "UNKNOWN" | "OPTED_IN" | "OPTED_OUT";
-    contacts.set(phone, { name, phone, consentStatus });
+    contacts.set(phone, { name, phone, consentStatus, ...(consentEvidence ? {consentEvidence} : {}) });
     validRows++;
     } catch (error) { if (!preview) throw error; errors.push({ row: index + 2, error: (error as Error).message }); }
   }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma, db } from "@/lib/db";
 import { getBusinessSettings } from "@/lib/settings";
 import { getTelephony } from "@/lib/telephony";
 import { audit } from "@/lib/audit";
@@ -49,6 +49,8 @@ export async function GET(req: NextRequest) {
     // Message rows are tenant-strict: run the purge inside the business context (RLS-style scoping).
     if (settings.retention.messagesDays > 0) await withBusiness(b.id, async () => {
       const cutoff = new Date(Date.now() - settings.retention.messagesDays * 86400_000);
+      // Scrub historic event copies even if the corresponding message was already purged.
+      await prisma.$executeRaw`UPDATE domain_events SET payload = payload - 'body' WHERE business_id = ${b.id} AND type = 'message.received' AND occurred_at < ${cutoff} AND payload ? 'body'`;
       const old = await prisma.message.findMany({ where: { businessId: b.id, createdAt: { lt: cutoff }, OR: [{ body: { not: null } }, { attachments: { some: {} } }] }, select: { id: true }, take: 2000 });
       if (old.length) {
         const ids = old.map((m) => m.id);
@@ -65,6 +67,9 @@ export async function GET(req: NextRequest) {
     const stale = await prisma.dialerSession.updateMany({ where: { businessId: b.id, status: { in: ["active", "paused"] }, lastHeartbeatAt: { lt: new Date(Date.now() - 6 * 3600_000) } }, data: { status: "ended", endedAt: new Date() } });
     report[b.id] = { recordingsDeleted, staleSessionsEnded: stale.count, messagesPurged, auditPurged };
   }
+  // Keep public confirmation receipts for 90 days; expired signup attempts contain asset identifiers.
+  await prisma.metaDeletionRequest.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 90 * 86400_000) } } });
+  await db.whatsAppSignupSession.deleteMany({ where: { expiresAt: { lt: new Date(Date.now() - 30 * 86400_000) } } });
   // Businesses whose owner asked to delete everything and whose 14-day grace ended.
   const { purgeDueBusinesses } = await import("@/server/services/account-deletion-service");
   const businessesDeleted = await purgeDueBusinesses().catch((e: Error) => { console.error("business purge failed", e.message); return 0; });

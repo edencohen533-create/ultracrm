@@ -88,7 +88,7 @@ it('R09: merging two contacts with same-agent drafts must succeed', async () => 
 });
 it('R10: updateContact must return the saved consent state', async () => {
     const d = await db.contact.create({ data: { businessId: a.business.id, fullName: 'Fresh', phoneE164: '+972501234504', phoneRaw: '0501234504' } });
-    const updated = await run(a.session, () => updateContact(a.session, d.id, { consentStatus: 'OPTED_IN' }));
+    const updated = await run(a.session, () => updateContact(a.session, d.id, { consentStatus: 'OPTED_IN', consentEvidence: 'test consent record' }));
     const saved = await db.contact.findUniqueOrThrow({ where: { id: d.id } });
     expect(saved.consentStatus).toBe('OPTED_IN');
     expect(updated.consentStatus).toBe(saved.consentStatus);

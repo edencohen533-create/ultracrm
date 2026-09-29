@@ -41,6 +41,8 @@ export async function deleteMyUser(user: SessionUser) {
 async function eraseConnections(businessId: string) {
   const creds = await db.providerCredential.findMany({ where: { businessId }, select: { id: true } });
   await db.providerCredential.updateMany({ where: { businessId }, data: { isActive: false, isDefault: false, sendingBlocked: true, config: {}, metaUserIds: [], lastConnectionError: "העסק ממתין למחיקה" } });
+  await db.metaAdConnection.deleteMany({ where: { businessId } });
+  await db.whatsAppSignupSession.deleteMany({ where: { businessId } });
   return creds.length;
 }
 

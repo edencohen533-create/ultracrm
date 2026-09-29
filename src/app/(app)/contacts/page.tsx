@@ -93,12 +93,13 @@ export default function ContactsPage() {
       const iName = idx(["name", "fullname", "שם", "שם מלא"]);
       const iPhone = idx(["phone", "טלפון", "mobile", "נייד"]);
       if (iName < 0 || iPhone < 0) return toast.error(t("נדרשות עמודות שם וטלפון בשורה הראשונה", "Name and phone columns are required in the first row"));
+      const iEvidence = idx(["consentevidence", "evidence", "אסמכתה"]);
       const iEmail = idx(["email", "אימייל"]), iCompany = idx(["company", "חברה"]), iCity = idx(["city", "עיר"]), iSource = idx(["source", "מקור"]), iConsent = idx(["consent", "consentstatus", "הסכמה"]);
       const rowsIn = lines.map((line, index) => {
         if (line.length !== columns.length) throw new Error(t(`מספר עמודות לא תקין בשורה ${index + 2}`, `Invalid number of columns in row ${index + 2}`));
         const c = line.map((x) => x.trim());
         const consent = iConsent >= 0 ? c[iConsent]?.toUpperCase() : undefined;
-        return { fullName: c[iName] ?? "", phone: c[iPhone] ?? "", email: iEmail >= 0 ? c[iEmail] : undefined, company: iCompany >= 0 ? c[iCompany] : undefined, city: iCity >= 0 ? c[iCity] : undefined, source: iSource >= 0 ? c[iSource] : undefined, consentStatus: consent && ["OPTED_IN", "OPTED_OUT", "UNKNOWN"].includes(consent) ? consent : undefined };
+        return { consentEvidence: iEvidence >= 0 ? c[iEvidence] : undefined, fullName: c[iName] ?? "", phone: c[iPhone] ?? "", email: iEmail >= 0 ? c[iEmail] : undefined, company: iCompany >= 0 ? c[iCompany] : undefined, city: iCity >= 0 ? c[iCity] : undefined, source: iSource >= 0 ? c[iSource] : undefined, consentStatus: consent && ["OPTED_IN", "OPTED_OUT", "UNKNOWN"].includes(consent) ? consent : undefined };
       });
       const r = await api.post<{ created: number; updated: number; invalid: number; errors: Array<{ row: number; phone: string; reason: string }> }>("/api/contacts/import", { rows: rowsIn, source: "csv" });
       toast.success(t(`נוצרו ${r.created}, עודכנו ${r.updated}, לא תקינים ${r.invalid}`, `Created ${r.created}, updated ${r.updated}, invalid ${r.invalid}`));
@@ -223,8 +224,8 @@ export default function ContactsPage() {
         </div>
       </Modal>
       <Modal open={importOpen} onClose={() => setImportOpen(false)} title={t("ייבוא אנשי קשר מ-CSV", "Import contacts from CSV")} footer={<><Button variant="ghost" onClick={() => setImportOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={importCsv} disabled={!csv.trim()}>{t("ייבא", "Import")}</Button></>} width="max-w-2xl">
-        <p className="text-xs text-muted mb-2">{t("שורה ראשונה = כותרות (name/שם, phone/טלפון, email, company, city, source, consent). מספרים מנורמלים; כפילויות לפי מספר מעודכנות ולא נוצרות שוב; ייבוא לעולם לא מחזיר איש קשר שהוסר לדיוור.", "First row = headers (name, phone, email, company, city, source, consent). Numbers are normalized; duplicates by number are updated, not recreated; an import never resubscribes a contact who opted out.")}</p>
-        <Textarea rows={12} value={csv} onChange={(e) => setCsv(e.target.value)} className="ltr font-mono text-xs" placeholder={t("name,phone,email,source,consent\nישראל ישראלי,0501234567,israel@example.com,facebook,OPTED_IN", "name,phone,email,source,consent\nJohn Smith,0501234567,john@example.com,facebook,OPTED_IN")} />
+        <p className="text-xs text-muted mb-2">{t("שורה ראשונה = כותרות (name/שם, phone/טלפון, email, company, city, source, consent, consentEvidence). מספרים מנורמלים; כפילויות לפי מספר מעודכנות ולא נוצרות שוב; ייבוא לעולם לא מחזיר איש קשר שהוסר לדיוור.", "First row = headers (name, phone, email, company, city, source, consent, consentEvidence). Numbers are normalized; duplicates by number are updated, not recreated; an import never resubscribes a contact who opted out.")}</p>
+        <Textarea rows={12} value={csv} onChange={(e) => setCsv(e.target.value)} className="ltr font-mono text-xs" placeholder={t("name,phone,email,source,consent,consentEvidence\nישראל ישראלי,0501234567,israel@example.com,facebook,UNKNOWN,", "name,phone,email,source,consent,consentEvidence\nJohn Smith,0501234567,john@example.com,facebook,UNKNOWN,")} />
       </Modal>
       <Modal open={listOpen} onClose={() => setListOpen(false)} title={t("רשימת חיוג מהסינון הנוכחי", "Dial list from current filter")} footer={<><Button variant="ghost" onClick={() => setListOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={createListFromFilter} disabled={!listName}>{t("צור רשימה", "Create list")}</Button></>}>
         <Input label={t("שם הרשימה", "List name")} value={listName} onChange={(e) => setListName(e.target.value)} />

@@ -1,7 +1,7 @@
 # הגשה ל-Meta – מדריך צעד אחר צעד (בעברית)
 
 המסמך המלא באנגלית, כולל נוסחים להעתקה ותסריטי הסרטונים: `docs/META_APP_REVIEW.md`.
-כל הערכים כאן מוכנים להעתקה. הקוד והשרת מוכנים – נשארו רק הפעולות אצל Meta.
+כל הערכים כאן מוכנים להעתקה. המצב המאומת והחסמים מפורטים ב־META_READINESS_RELEASE.md. אין להגיש הדמיה כאילו היא שליחה אמיתית.
 
 ## הפרטים שלך (להזין בדיוק כך בכל מקום)
 | שדה | ערך |
@@ -54,9 +54,9 @@ developers.facebook.com → My Apps → **Create app**
 
 ## שלב 6 – להעביר לי ולהגדיר
 - **לשלוח לי**: App ID ו-Configuration ID.
-- **להגדיר בעצמך** (הסוד לא עובר דרך הצ׳אט) – בטרמינל של Claude Code:
+- **להגדיר בעצמך** (הסוד לא עובר דרך הצ׳אט) – בטרמינל מקומי מאובטח:
   ```
-  ! npx vercel env add META_APP_SECRET production
+  npx vercel env add META_APP_SECRET production
   ```
   (מדביקים את ה-App Secret כשמתבקש.)
 - אני אפרוס ואריץ `scripts/meta-go-live-check.mjs` – בודק את מחיקת הנתונים, הניתוק וה-webhook בפרודקשן.
@@ -66,7 +66,7 @@ WhatsApp → **Configuration** → Webhook → Edit:
 - Callback URL: `https://ultracrm-eta.vercel.app/api/webhooks/whatsapp`
 - Verify token – להציג אותו אצלך:
   ```
-  ! npx vercel env pull --environment=production /tmp/p.env && grep META_WEBHOOK_VERIFY_TOKEN /tmp/p.env && rm /tmp/p.env
+  npx vercel env pull --environment=production /tmp/p.env && grep META_WEBHOOK_VERIFY_TOKEN /tmp/p.env && rm /tmp/p.env
   ```
 - Verify and save (כבר נבדק – עובר), ואז Subscribe לשדות: **messages**, **message_template_status_update**, **phone_number_quality_update**, **account_update**.
 

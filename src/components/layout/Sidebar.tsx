@@ -75,7 +75,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
     <>
     <div className="mobile-topbar bg-panel border-b border-line" data-testid="mobile-topbar">
       <button type="button" className="mobile-menu-btn" onClick={() => setOpenAt(pathname)} aria-label={t("פתיחת תפריט", "Open menu")} aria-expanded={mobileOpen} aria-controls="app-side-nav" data-testid="mobile-menu"><Menu size={22} aria-hidden /></button>
-      <Link href="/leads" className="min-w-0 flex-1 truncate font-bold text-accent">{activeName}</Link>
+      <Link href="/leads" className="min-w-0 flex-1 truncate font-bold text-accent leading-[44px]">{activeName}</Link>
       {access.telephony?.state === "active" && <Badge tone={presenceTone} dot>{t(...(PRESENCE_PAIR[presence] ?? [presence, presence]))}</Badge>}
     </div>
     {mobileOpen && <div className="mobile-nav-backdrop" onClick={() => setOpenAt(null)} aria-hidden data-testid="mobile-nav-backdrop" />}

@@ -39,7 +39,7 @@ export function HelpTip({ label, children, testId }: { label: string; children: 
     <span ref={box} className="relative inline-flex align-middle">
       <button ref={btn} type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((o) => !o); }} aria-expanded={open} aria-controls={id}
         aria-label={t(`הסבר: ${label}`, `Help: ${label}`)} data-testid={testId}
-        className="ms-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-line text-[11px] font-semibold text-muted hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">?</button>
+        className="relative ms-1 inline-flex h-5 w-5 items-center before:absolute before:-inset-3 before:content-[''] justify-center rounded-full border border-line text-[11px] font-semibold text-muted hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">?</button>
       {open && (
         <span id={id} role="note" className="fixed z-50 rounded-lg border border-line bg-panel p-3 text-start text-xs font-normal leading-relaxed text-text shadow-lg" style={pos ? { top: pos.top, left: pos.left, width: pos.width } : { visibility: "hidden" }} data-testid={testId ? `${testId}-text` : undefined}>
           {children}

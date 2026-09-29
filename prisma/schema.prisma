@@ -3133,6 +3133,8 @@ model MediaProviderUpload {
 
   @@unique([assetId, credentialId])
   @@map("media_provider_uploads")
+}
+
 /// A card-payment provider connected by the business (PayPlus, or the built-in sandbox for tests). Secrets sealed.
 /// UltraCRM never sees card numbers: payments happen on the provider's hosted page (embedded or sent as a link).
 model PaymentProviderConnection {

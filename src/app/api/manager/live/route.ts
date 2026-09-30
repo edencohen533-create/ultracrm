@@ -8,6 +8,7 @@ import { activeMonitorFor } from "@/lib/dialer/monitor";
 import { reapStaleSessions } from "@/lib/dialer/session";
 import { telephonyStatus } from "@/lib/telephony";
 import { getBusinessSettings } from "@/lib/settings";
+import { can, effectiveAccess } from "@/lib/access/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,7 @@ export const GET = withAuth(async ({ user }) => {
   const settings = await getBusinessSettings(user.businessId);
   const startOfToday = businessDayStart(settings.timezone, now);
 
-  const [agents, liveCalls, sessions, metrics, monitor, todayFailed] = await Promise.all([
+  const [agents, liveCalls, sessions, metrics, monitor, todayFailed, access] = await Promise.all([
     prisma.user.findMany({
       where: { businessId: user.businessId, isActive: true, ...(visible ? { id: { in: visible } } : {}) },
       select: { id: true, fullName: true, role: true, presence: true, presenceAt: true, lastSeenAt: true, team: { select: { id: true, name: true } } },
@@ -51,7 +52,10 @@ export const GET = withAuth(async ({ user }) => {
     cachedMetrics(`${user.businessId}:${startOfToday.toISOString()}:${visible ? visible.join(",") : "*"}`, { businessId: user.businessId, userIds: visible, from: startOfToday }),
     activeMonitorFor(user.id),
     prisma.call.count({ where: { businessId: user.businessId, direction: "outbound", agentLegId: null, status: "failed", createdAt: { gte: startOfToday }, ...(visible ? { userId: { in: visible } } : {}) } }),
+    effectiveAccess(user.businessId, user.id),
   ]);
+  // Listen / whisper only with the explicit permission (settings → users and permissions → "האזנה ולחישה").
+  const mayMonitor = can(access, "telephony.monitor");
   const callBy = Object.fromEntries(liveCalls.map((c) => [c.userId, c]));
   const sessBy = Object.fromEntries(sessions.map((s) => [s.userId, s]));
 
@@ -97,7 +101,7 @@ export const GET = withAuth(async ({ user }) => {
       sinceAt,
       session: sess ? { mode: sess.mode, status: sess.status, list: sess.list } : null,
       call: call
-        ? { id: call.id, status: call.status, direction: call.direction, toE164: call.toE164, contact: call.contact ? { id: call.contact.id, fullName: call.contact.fullName } : null, campaign: typeof (call.contact?.customFields as Record<string, unknown> | null)?.campaign === "string" ? (call.contact!.customFields as Record<string, string>).campaign : null, list: call.list, createdAt: call.createdAt, ringingAt: call.ringingAt, answeredAt: call.answeredAt, canMonitor: Boolean(call.answeredAt) && (Boolean(call.conferenceId) || telephonyStatus().simulation) && call.userId !== user.id, monitors: call.monitors }
+        ? { id: call.id, status: call.status, direction: call.direction, toE164: call.toE164, contact: call.contact ? { id: call.contact.id, fullName: call.contact.fullName } : null, campaign: typeof (call.contact?.customFields as Record<string, unknown> | null)?.campaign === "string" ? (call.contact!.customFields as Record<string, string>).campaign : null, list: call.list, createdAt: call.createdAt, ringingAt: call.ringingAt, answeredAt: call.answeredAt, canMonitor: mayMonitor && Boolean(call.answeredAt) && (Boolean(call.conferenceId) || telephonyStatus().simulation) && call.userId !== user.id, monitors: call.monitors }
         : null,
       today: m ?? null,
     };
@@ -116,6 +120,7 @@ export const GET = withAuth(async ({ user }) => {
     counts,
     today: { ...metrics.totals, failedBeforeProvider: todayFailed },
     monitor,
+    mayMonitor,
     dialingPaused: settings.dialingPaused,
     telephony: telephonyStatus(),
     teams: [...new Map(agents.filter((a) => a.team).map((a) => [a.team!.id, a.team!])).values()],

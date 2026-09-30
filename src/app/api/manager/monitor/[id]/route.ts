@@ -11,7 +11,7 @@ export const GET = withAuth(async ({ user, params }) => ok(await monitorState(us
 export const PATCH = withAuth(async ({ req, user, params }) => {
   const b = await parseBody(req, z.object({ mode: z.enum(["listen", "whisper", "barge"]) }));
   return ok(await switchMode(user, params.id, b.mode));
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", perm: "telephony.monitor" });
 
 /** Leave: only the supervisor leg is hung up; agent and customer stay connected. */
 export const DELETE = withAuth(async ({ user, params }) => ok(await stopMonitor(user, params.id)), { minRole: "manager", module: "telephony" });

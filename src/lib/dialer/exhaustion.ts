@@ -214,7 +214,7 @@ export async function notifyQueueEmpty(businessId: string, alertId: string) {
     `לנציג ${agent.fullName} אין כרגע לידים זמינים לחיוג בקמפיין ${list.name}.`,
     `לידים שמוצו ניסיונות החיוג שלהם: ${alert.exhaustedCount}`,
     alert.nextAt ? `יש עבודה עתידית – החיוג הבא צפוי ב-${fmt(alert.nextAt, settings.timezone)}` : "אין פולואפים או ניסיונות חוזרים עתידיים בקמפיין.",
-    `קמפיין: ${base}/lists/${list.id}`, `נציג: ${base}/reports?agent=${agent.id}`,
+    `רשימת חיוג: ${base}/calling/lists/${list.id}`, `נציג: ${base}/reports?agent=${agent.id}`,
   ].join("\n");
   // Recipients: owner + managers whose scope includes the agent – never another business.
   const managers = await prisma.user.findMany({ where: { businessId, isActive: true, role: { in: ["owner", "manager"] } }, select: { id: true, role: true, teamId: true, fullName: true, email: true, accountId: true } });

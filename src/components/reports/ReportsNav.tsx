@@ -12,7 +12,6 @@ export function ReportsNav() {
   const me = useMe();
   const items = [
     { href: "/reports", label: t("ביצועי נציגים", "Agent performance"), show: me?.modules.telephony !== false },
-    { href: "/manager/calls", label: t("שיחות", "Calls"), show: me?.modules.telephony !== false },
     { href: "/analytics", label: t("אנליטיקה", "Analytics"), show: me?.modules.messaging !== false },
   ].filter((i) => i.show);
   return (

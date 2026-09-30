@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { LeadsWorkspace } from "@/components/leads/LeadsWorkspace";
 import { toast } from "sonner";
@@ -90,7 +91,7 @@ export function ListQueuePanel({ id }: { id: string }) {
     try { await api.post(`/api/queue/${leadId}/transfer`, { toUserId: toUserId.trim() ? match?.id ?? toUserId.trim() : null }); toast.success(t("הליד הועבר", "Lead transferred")); load(); } catch (e) { toast.error((e as Error).message); }
   }
   async function saveAgents() {
-    try { await api.put(`/api/lists/${id}/agents`, { mode: agentMode, agentIds: agentMode === "all" ? [] : agentIds }); toast.success(agentMode === "all" ? t("הקמפיין פתוח לכל הנציגים", "The campaign is open to all agents") : t(`הקמפיין פתוח ל-${agentIds.length} נציגים`, `The campaign is open to ${agentIds.length} agents`)); setAgentsOpen(false); load(); } catch (e) { toast.error((e as Error).message); }
+    try { await api.put(`/api/lists/${id}/agents`, { mode: agentMode, agentIds: agentMode === "all" ? [] : agentIds }); toast.success(agentMode === "all" ? t("רשימת החיוג פתוחה לכל הנציגים", "The dial list is open to all agents") : t(`רשימת החיוג פתוחה ל-${agentIds.length} נציגים`, `The dial list is open to ${agentIds.length} agents`)); setAgentsOpen(false); load(); } catch (e) { toast.error((e as Error).message); }
   }
 
   if (!list) return <div className="flex justify-center p-10"><Spinner /></div>;
@@ -99,6 +100,10 @@ export function ListQueuePanel({ id }: { id: string }) {
   return (
     <div className="p-5 space-y-4">
       {moveLists && <MoveLeadsDialog from={{ id: list.id, name: list.name, isActive: list.isActive }} lists={moveLists} leadIds={[...sel]} onClose={() => setMoveLists(null)} onDone={() => { setSel(new Set()); load(); }} />}
+      <div className="flex flex-wrap items-center gap-3 text-xs">
+        <Link href="/calling/lists" className="text-muted hover:text-text" data-testid="back-to-lists">{t("→ כל רשימות החיוג", "← All dial lists")}</Link>
+        <Link href={`/calling/history?listId=${encodeURIComponent(list.id)}`} className="text-muted hover:text-text underline" data-testid="list-call-history">{t("השיחות ברשימה הזו", "Calls in this list")}</Link>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold">{list.name}</h1>
         <Badge tone={list.isActive ? "good" : "neutral"}>{list.isActive ? t("פעילה", "Active") : t("לא פעילה", "Inactive")}</Badge>
@@ -112,7 +117,7 @@ export function ListQueuePanel({ id }: { id: string }) {
             <Button size="sm" variant="secondary" onClick={duplicate}>{t("שכפל", "Duplicate")}</Button>
             <Button size="sm" variant="secondary" onClick={() => patchList({ isPaused: !list.isPaused }, list.isPaused ? t("החיוג ברשימה חודש", "Dialing resumed for the list") : t("החיוג ברשימה הושהה", "Dialing paused for the list"))}>{list.isPaused ? t("חדש חיוג", "Resume dialing") : t("השהה חיוג", "Pause dialing")}</Button>
             <Button size="sm" variant="secondary" onClick={() => patchList({ archived: !list.archivedAt }, list.archivedAt ? t("הוצא מארכיון", "Unarchived") : t("הועבר לארכיון", "Archived"))}>{list.archivedAt ? t("הוצא מארכיון", "Unarchive") : t("ארכב", "Archive")}</Button>
-            <Button size="sm" variant="secondary" onClick={() => setAgentsOpen(true)} data-testid="campaign-access-open">{t("למי הקמפיין פתוח", "Who the campaign is open to")} ({list.agents.length || t("כולם", "All")})</Button>
+            <Button size="sm" variant="secondary" onClick={() => setAgentsOpen(true)} data-testid="campaign-access-open">{t("למי רשימת החיוג פתוחה", "Who the dial list is open to")} ({list.agents.length || t("כולם", "All")})</Button>
             <Button size="sm" variant="secondary" onClick={() => setLimitOpen(true)} data-testid="campaign-limit-open">{t("מכסת ניסיונות ללא מענה", "Unanswered attempts limit")} ({list.unansweredLimit === null || list.unansweredLimit === undefined ? t("לפי העסק", "Business default") : list.unansweredLimit || t("כבוי", "Off")})</Button>
             <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>{t("+ הוסף לידים מסינון", "+ Add leads from filter")}</Button>
             <Button size="sm" variant={list.isActive ? "danger" : "good"} onClick={toggleActive}>{list.isActive ? t("השבת רשימה", "Deactivate list") : t("הפעל רשימה", "Activate list")}</Button>
@@ -196,7 +201,7 @@ export function ListQueuePanel({ id }: { id: string }) {
           <p className="text-xs text-muted">{t("אנשי קשר שכבר ברשימה, ומספרים חסומים, לא יתווספו.", "Contacts already in the list, and blocked numbers, won't be added.")}</p>
         </div>
       </Modal>
-      <Modal open={agentsOpen} onClose={() => setAgentsOpen(false)} title={t("למי הקמפיין פתוח", "Who the campaign is open to")} footer={<><Button variant="ghost" onClick={() => setAgentsOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={saveAgents} disabled={agentMode === "selected" && !agentIds.length} data-testid="campaign-access-save">{t("שמור", "Save")}</Button></>}>
+      <Modal open={agentsOpen} onClose={() => setAgentsOpen(false)} title={t("למי רשימת החיוג פתוחה", "Who the dial list is open to")} footer={<><Button variant="ghost" onClick={() => setAgentsOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={saveAgents} disabled={agentMode === "selected" && !agentIds.length} data-testid="campaign-access-save">{t("שמור", "Save")}</Button></>}>
         <div className="space-y-2 text-sm" data-testid="campaign-access">
           <label className="flex items-center gap-2"><input type="radio" name="access" checked={agentMode === "all"} onChange={() => setAgentMode("all")} data-testid="campaign-access-all" /> {t("כל הנציגים בעסק", "All agents in the business")}</label>
           <label className="flex items-center gap-2"><input type="radio" name="access" checked={agentMode === "selected"} onChange={() => setAgentMode("selected")} data-testid="campaign-access-selected" /> {t("נציגים מסוימים", "Specific agents")}</label>
@@ -206,13 +211,13 @@ export function ListQueuePanel({ id }: { id: string }) {
             ))}
           </div>}
           {agentMode === "selected" && !agentIds.length && <p className="text-xs text-bad">{t("יש לבחור לפחות נציג אחד.", "Select at least one agent.")}</p>}
-          <p className="text-xs text-muted">{t("ההרשאה נאכפת בשרת בהצגת הקמפיינים, בספירת הלידים, בכניסה לקמפיין ובהפעלת החייגן. היא אינה נותנת גישה ללידים פרטיים של נציגים אחרים.", "Access is enforced on the server when listing campaigns, counting leads, entering a campaign and starting the dialer. It doesn't grant access to other agents' private leads.")}</p>
+          <p className="text-xs text-muted">{t("ההרשאה נאכפת בשרת בהצגת רשימות החיוג, בספירת הלידים, בכניסה לרשימה ובהפעלת החייגן. היא אינה נותנת גישה ללידים פרטיים של נציגים אחרים.", "Access is enforced on the server when listing dial lists, counting leads, entering a list and starting the dialer. It doesn't grant access to other agents' private leads.")}</p>
         </div>
       </Modal>
-      <Modal open={limitOpen} onClose={() => setLimitOpen(false)} title={t("מכסת ניסיונות ללא מענה בקמפיין", "Campaign unanswered attempts limit")} footer={<><Button variant="ghost" onClick={() => setLimitOpen(false)}>{t("סגור", "Close")}</Button><Button data-testid="campaign-limit-save" onClick={async () => { await patchList({ unansweredLimit: limitDraft === "" ? null : Number(limitDraft) }, t("המכסה נשמרה", "Limit saved")); setLimitOpen(false); }}>{t("שמור", "Save")}</Button></>}>
+      <Modal open={limitOpen} onClose={() => setLimitOpen(false)} title={t("מכסת ניסיונות ללא מענה ברשימת החיוג", "Dial list unanswered attempts limit")} footer={<><Button variant="ghost" onClick={() => setLimitOpen(false)}>{t("סגור", "Close")}</Button><Button data-testid="campaign-limit-save" onClick={async () => { await patchList({ unansweredLimit: limitDraft === "" ? null : Number(limitDraft) }, t("המכסה נשמרה", "Limit saved")); setLimitOpen(false); }}>{t("שמור", "Save")}</Button></>}>
         <div className="space-y-3 text-sm">
           <Select label={t("מספר ניסיונות חיוג ללא מענה לפני העברה ללא רלוונטי", "Unanswered dial attempts before moving to Not relevant")} value={limitDraft} onChange={(e) => setLimitDraft(e.target.value)} data-testid="campaign-limit">
-            <option value="">{t("לפי הגדרת העסק", "Per business setting")}</option><option value="0">{t("כבוי בקמפיין הזה", "Off for this campaign")}</option>
+            <option value="">{t("לפי הגדרת העסק", "Per business setting")}</option><option value="0">{t("כבוי ברשימה הזו", "Off for this list")}</option>
             {Array.from({ length: 30 }, (_, i) => <option key={i} value={i + 1}>{i + 1}</option>)}
           </Select>
           <p className="text-xs text-muted">{t("נציג שהגדיר מכסה אישית – המכסה האישית קובעת. נספרים רק חיוגים שיצאו בפועל.", "If an agent set a personal limit – the personal limit applies. Only dials actually placed are counted.")}</p>

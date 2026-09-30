@@ -58,7 +58,7 @@ export function NoLeadsPanel() {
             ))}
           </ul>
         )}
-        <p className="text-xs text-muted mt-2">{t("המעבר רק טוען את הקמפיין – החיוג יתחיל רק בלחיצה על ״הפעל חייגן״. פולואפים שנקבעו לא משתנים.", "Switching only loads the campaign – dialing starts only when you click \"Start dialer\". Scheduled follow-ups are unchanged.")} <Link href="/lists" className="underline">{t("כל הקמפיינים", "All campaigns")}</Link></p>
+        <p className="text-xs text-muted mt-2">{t("המעבר רק טוען את הקמפיין – החיוג יתחיל רק בלחיצה על ״הפעל חייגן״. פולואפים שנקבעו לא משתנים.", "Switching only loads the campaign – dialing starts only when you click \"Start dialer\". Scheduled follow-ups are unchanged.")} <Link href="/calling/lists" className="underline">{t("כל רשימות החיוג", "All dial lists")}</Link></p>
       </div>
     </div>
   );

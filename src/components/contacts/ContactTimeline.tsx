@@ -1,5 +1,6 @@
 "use client";
 
+import { RecordingDownload } from "@/components/calling/RecordingDownload";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
@@ -30,7 +31,7 @@ export function ContactTimeline({ contactId, refreshKey = 0, limit }: { contactI
           <div className="min-w-0 flex-1">
             <p className="font-medium"><span className="text-[10px] uppercase text-muted me-2">{t(...KIND_LABEL[it.kind])}</span>{it.href ? <Link href={it.href} className="hover:underline">{it.title}</Link> : it.title}</p>
             {it.body && <p className="text-xs text-muted whitespace-pre-wrap">{it.body}</p>}
-            {it.kind === "call" && it.meta?.recording ? <audio controls preload="none" src={String(it.meta.recording)} className="h-7 w-56 mt-1" /> : null}
+            {it.kind === "call" && it.meta?.recording ? <span className="mt-1 inline-flex flex-wrap items-center gap-2"><audio controls preload="none" src={String(it.meta.recording)} className="h-7 w-56" /><RecordingDownload href={String(it.meta.recording)} /></span> : it.kind === "call" && it.meta?.recordingPurged ? <RecordingDownload href="#" status="none" purgedAt={String(it.meta.recordingPurged)} /> : null}
             {it.kind === "call" && typeof it.meta?.talkSeconds === "number" && it.meta.talkSeconds > 0 ? <p className="text-[11px] text-muted">{t("משך:", "Duration:")} {formatDuration(it.meta.talkSeconds as number)}</p> : null}
           </div>
           <div className="text-xs text-muted text-end shrink-0 tabular"><p>{formatDateTime(it.at)}</p>{it.actor && <p>{it.actor}</p>}</div>

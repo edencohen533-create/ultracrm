@@ -48,7 +48,7 @@ export async function getAiSettings(businessId: string) {
 
 export const canManage = (user: SessionUser, s: AiSettings) => user.role === "owner" || (user.role === "manager" && (!s.managerIds.length || s.managerIds.includes(user.id)));
 export function assertCanChat(user: SessionUser, s: AiSettings) {
-  if (user.role === "agent" && !s.agentsCanChat) throw new ApiError("העוזר זמין כרגע למנהלים בלבד (הגדרות → עוזר AI)", 403, "forbidden");
+  if (user.role === "agent" && !s.agentsCanChat) throw new ApiError("העוזר זמין כרגע למנהלים בלבד (מרכז ה־AI → הגדרות והרשאות)", 403, "forbidden");
 }
 export function assertCanManage(user: SessionUser, s: AiSettings) {
   if (!canManage(user, s)) throw new ApiError("נדרשת הרשאת ניהול של העוזר", 403, "forbidden");

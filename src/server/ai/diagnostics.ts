@@ -347,7 +347,7 @@ export async function runDiagnoseTool(ctx: AiCtx, name: string, args: Record<str
     case "escalate_to_manager": {
       const inc = await prisma.aiIncident.findFirst({ where: { id: String(args.incidentId), businessId: ctx.user.businessId, requestedById: ctx.user.id } }); if (!inc) throw new ApiError("האבחון לא נמצא", 404, "not_found");
       await prisma.aiIncident.update({ where: { id: inc.id }, data: { status: "escalated", verification: { escalatedBy: ctx.user.id, note: String(args.note ?? "").slice(0, 500), at: new Date().toISOString() } } });
-      return { result: { status: INCIDENT_STATUS.escalated, note: "הבקשה מופיעה למנהלים בהיסטוריית התקלות של עוזר ה-AI" } };
+      return { result: { status: INCIDENT_STATUS.escalated, note: "הבקשה מופיעה למנהלים בהיסטוריית התקלות של מרכז ה־AI" } };
     }
     case "list_incidents": {
       const rows = await prisma.aiIncident.findMany({ where: { businessId: ctx.user.businessId, ...(ctx.user.role === "agent" ? { requestedById: ctx.user.id } : {}) }, orderBy: { createdAt: "desc" }, take: 10, select: { id: true, module: true, question: true, status: true, createdAt: true } });

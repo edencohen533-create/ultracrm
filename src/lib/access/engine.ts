@@ -70,7 +70,7 @@ export function subscriptionModules(status: string, items: Array<{ module: strin
 /** What the owner may do in a module WITHOUT holding a license there (manage, view, bill) – agent work needs one. */
 export const OWNER_UNLICENSED_ACTIONS: Record<ModuleKey, string[]> = {
   crm: ["view", "export", "marketing_view", "marketing_connect"],
-  telephony: ["team_settings", "recordings"],
+  telephony: ["team_settings", "recordings", "recordings_download"],
   whatsapp: ["view", "assign", "automations", "campaign_draft", "campaign_send", "connect"],
   sms: ["view", "draft", "send"], email: ["view", "draft", "send"],
 };

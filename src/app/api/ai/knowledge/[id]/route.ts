@@ -27,6 +27,8 @@ const schema = z.object({
   audience: z.enum(["internal", "customer"]).optional(),
   status: z.enum(["draft", "approved", "retired"]).optional(),
   acknowledgeConflicts: z.boolean().optional(),
+  /** Explicit sharing with the sales coach (only approved sources). */
+  salesShared: z.boolean().optional(),
   content: z.string().max(400_000).optional(),
 });
 
@@ -41,16 +43,17 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
     await approveLearned(user, s.id, Boolean(b.acknowledgeConflicts));
     return ok(await load(user, s.id));
   }
+  if (b.salesShared === true && (b.status ?? s.status) !== "approved") throw new ApiError("אפשר לשתף עם מאמן המכירות רק ידע מאושר", 409, "not_approved");
   const contentChanged = b.content !== undefined && s.kind === "text" && b.content !== s.content;
   if (b.status === "approved" && s.processing !== "ready" && !contentChanged) throw new ApiError("אפשר לאשר רק מקור שעיבודו הסתיים בהצלחה", 409, "not_ready");
   const approve = b.status === "approved" && !contentChanged;
   await prisma.knowledgeSource.update({ where: { id: s.id }, data: {
-    ...(b.title ? { title: b.title } : {}), ...(b.category ? { category: b.category } : {}), ...(b.audience ? { audience: b.audience } : {}),
+    ...(b.title ? { title: b.title } : {}), ...(b.category ? { category: b.category } : {}), ...(b.audience ? { audience: b.audience } : {}), ...(b.salesShared !== undefined ? { salesShared: b.salesShared } : {}),
     ...(contentChanged ? { content: b.content, status: "draft", approvedById: null, approvedAt: null } : {}),
     ...(approve ? { status: "approved", approvedById: user.id, approvedAt: new Date() } : b.status === "draft" ? { status: "draft", approvedById: null, approvedAt: null } : b.status === "retired" ? { status: "retired" } : {}),
   } });
   if (contentChanged) await processSource(s.id);
-  await audit(user.businessId, user.id, "knowledge", s.id, "knowledge.updated", { fields: Object.keys(b), approved: approve, audience: b.audience });
+  await audit(user.businessId, user.id, "knowledge", s.id, "knowledge.updated", { fields: Object.keys(b), approved: approve, audience: b.audience, salesShared: b.salesShared });
   return ok(await load(user, s.id));
 });
 

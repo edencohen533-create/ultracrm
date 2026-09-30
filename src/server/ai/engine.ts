@@ -138,7 +138,7 @@ export async function chatTurn(user: SessionUser, input: { conversationId?: stri
   else if (/(כלל|חוק|כשמגיע|כשיש|אם .*נציג)/.test(text) && /(פולואפ|פולו.?אפ|חיוג ראשון|זמן תגובה)/.test(text)) {
     const r = await runAiTool(ctx, "prepare_ops_rule", { text });
     const v = r.result as { kind?: string; summary?: { action: string }; note?: string } | undefined;
-    out = { text: r.ok ? (v?.kind ? "החוק הזה נתמך. " + v.summary?.action + "\nהחוק עדיין לא נשמר או הופעל. פתח עוזר AI → מנהל AI → כללים, הדבק את ההוראה ובדוק את הפירוש לפני ההפעלה." : v?.note ?? UNSUPPORTED_REQUEST) : r.error ?? "לא ניתן לבדוק את הכלל כרגע", log: [{ name: "prepare_ops_rule", ok: r.ok, ms: r.ms }], actionIds: [], model: "capability-check" };
+    out = { text: r.ok ? (v?.kind ? "החוק הזה נתמך. " + v.summary?.action + "\nהחוק עדיין לא נשמר או הופעל. פתח מרכז ה־AI → מנהל AI → כללים, הדבק את ההוראה ובדוק את הפירוש לפני ההפעלה." : v?.note ?? UNSUPPORTED_REQUEST) : r.error ?? "לא ניתן לבדוק את הכלל כרגע", log: [{ name: "prepare_ops_rule", ok: r.ok, ms: r.ms }], actionIds: [], model: "capability-check" };
   }
   else if (aiConnected()) {
     try { out = await llmTurn(ctx, businessName, history, text); }

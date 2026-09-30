@@ -299,7 +299,7 @@ const sequences: EventHandler = {
 /** Real-time sales coach: extract reviewable examples after a call, label them when the deal closes. Never blocks the call. */
 const coachLearning: EventHandler = {
   name: "coach.learning",
-  types: ["call.ended", "deal.won", "deal.lost"],
+  types: ["call.ended", "deal.won", "deal.lost", "deal.reopened"],
   async run(event) {
     const { learnFromCall, attachDealOutcome } = await import("@/server/coach/learning");
     if (event.type === "call.ended") {
@@ -309,7 +309,11 @@ const coachLearning: EventHandler = {
     }
     const { dealId } = payload<{ dealId?: string }>(event);
     if (!dealId) return { skipped: "no dealId" };
-    return attachDealOutcome(dealId, event.type === "deal.won" ? "won" : "lost");
+    // Sales coach: a closed deal queues its own recordings; a deal that leaves "won" sends what it taught back to review.
+    const sales = await import("@/server/coach/sales");
+    if (event.type === "deal.won") return { examples: await attachDealOutcome(dealId, "won"), sales: await sales.learnFromClosedDeal(event.businessId, dealId) };
+    const changed = await sales.dealOutcomeChanged(event.businessId, dealId, event.type === "deal.lost" ? "העסקה סומנה כלא נסגרה / בוטלה" : "העסקה נפתחה מחדש");
+    return event.type === "deal.lost" ? { examples: await attachDealOutcome(dealId, "lost"), sales: changed } : { sales: changed };
   },
 };
 

@@ -24,7 +24,7 @@ export const GET = withAuth(async ({ user, params }) => {
       where: { contactId: c.id, ...byUser },
       orderBy: { createdAt: "desc" },
       take: 50,
-      select: { id: true, createdAt: true, direction: true, answeredAt: true, endedAt: true, talkSeconds: true, status: true, telephonyResult: true, outcome: true, statusDef: { select: { label: true } }, outcomeNote: true, callbackAt: true, recordingStatus: true, mode: true, fromE164: true, user: { select: { id: true, fullName: true } }, coachSession: { select: { documentation: true, documentedAt: true, documentationStatus: true, documentationError: true } } },
+      select: { id: true, createdAt: true, direction: true, answeredAt: true, endedAt: true, talkSeconds: true, status: true, telephonyResult: true, outcome: true, statusDef: { select: { label: true } }, outcomeNote: true, callbackAt: true, recordingStatus: true, recordingPurgedAt: true, mode: true, fromE164: true, user: { select: { id: true, fullName: true } }, coachSession: { select: { documentation: true, documentedAt: true, documentationStatus: true, documentationError: true } } },
     }),
     prisma.conversation.findMany({
       where: { contactId: c.id, ...conversationScope(user) },

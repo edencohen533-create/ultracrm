@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { RecordingDownload } from "@/components/calling/RecordingDownload";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -146,7 +147,7 @@ export function CallHistory() {
                     <td className="px-3 tabular">{r.answeredAt ? formatDuration(r.talkSeconds) : "—"}</td>
                     <td className="px-3">{r.statusDef?.label ?? OUTCOMES.find((o) => o.key === r.outcome)?.label ?? "—"}{r.outcomeNote && <p className="text-muted truncate max-w-56" title={r.outcomeNote}>{r.outcomeNote}</p>}</td>
                     <td className="px-3 text-muted">{r.list?.name ?? "—"}</td>
-                    <td className="px-3">{r.recordingStatus === "saved" && canRecordings ? <audio controls preload="none" src={`/api/recordings/${r.id}`} className="h-7 w-40" /> : r.recordingStatus === "saved" ? <span className="text-muted">{t("אין הרשאה", "No permission")}</span> : "—"}</td>
+                    <td className="px-3">{r.recordingStatus === "saved" && canRecordings ? <span className="inline-flex items-center gap-2"><audio controls preload="none" src={`/api/recordings/${r.id}`} className="h-7 w-40" /><RecordingDownload callId={r.id} status={r.recordingStatus} /></span> : r.recordingStatus === "saved" ? <span className="text-muted">{t("אין הרשאה", "No permission")}</span> : <RecordingDownload callId={r.id} status={r.recordingStatus} purgedAt={(r as { recordingPurgedAt?: string | null }).recordingPurgedAt} /> }</td>
                   </tr>
                 ))}
               </tbody>
@@ -201,7 +202,7 @@ function CallDrawer({ id, canRecordings, onClose, onCustomerCalls }: { id: strin
               {d.outcomeNote && <div><p className="text-xs text-muted mb-1">{t("סיכום הנציג", "Agent summary")}</p><p className="text-sm whitespace-pre-wrap">{d.outcomeNote}</p></div>}
               <div>
                 <p className="text-xs text-muted mb-1">{t("הקלטה", "Recording")}</p>
-                {d.recordingStatus !== "saved" ? <p className="text-sm text-muted">{t("אין הקלטה לשיחה זו", "No recording for this call")}</p> : d.canPlayRecording && canRecordings ? <audio controls preload="none" src={`/api/recordings/${d.id}`} className="w-full" data-testid="drawer-recording" onError={() => toast.error(t("ההקלטה אינה זמינה כרגע", "The recording is unavailable right now"))} /> : <p className="text-sm text-muted">{t("אין לך הרשאה להקלטות", "You don't have permission for recordings")}</p>}
+                {d.recordingStatus !== "saved" ? (d.recordingStatus === "recording" || (d as { recordingPurgedAt?: string | null }).recordingPurgedAt || d.recordingStatus === "failed" ? <RecordingDownload callId={d.id} status={d.recordingStatus} purgedAt={(d as { recordingPurgedAt?: string | null }).recordingPurgedAt} /> : <p className="text-sm text-muted">{t("אין הקלטה לשיחה זו", "No recording for this call")}</p>) : d.canPlayRecording && canRecordings ? <div className="space-y-1"><audio controls preload="none" src={`/api/recordings/${d.id}`} className="w-full" data-testid="drawer-recording" onError={() => toast.error(t("ההקלטה אינה זמינה כרגע", "The recording is unavailable right now"))} /><RecordingDownload callId={d.id} status={d.recordingStatus} /></div> : <p className="text-sm text-muted">{t("אין לך הרשאה להקלטות", "You don't have permission for recordings")}</p>}
               </div>
               {d.coachSession?.documentation ? <CallDocView doc={d.coachSession.documentation} /> : d.answeredAt && d.endedAt ? <DocStatus callId={d.id} status={d.coachSession?.documentationStatus ?? null} error={d.coachSession?.documentationError ?? null} /> : null}
             </div>

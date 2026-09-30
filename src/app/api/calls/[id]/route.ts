@@ -16,7 +16,7 @@ export const GET = withAuth(async ({ user, params }) => {
     where: { id: params.id, businessId: user.businessId },
     select: {
       id: true, userId: true, createdAt: true, ringingAt: true, answeredAt: true, endedAt: true, talkSeconds: true, status: true, direction: true, mode: true,
-      telephonyResult: true, hangupCause: true, outcome: true, statusDef: { select: { label: true } }, outcomeNote: true, callbackAt: true, toE164: true, fromE164: true, recordingStatus: true,
+      telephonyResult: true, hangupCause: true, outcome: true, statusDef: { select: { label: true } }, outcomeNote: true, callbackAt: true, toE164: true, fromE164: true, recordingStatus: true, recordingPurgedAt: true,
       user: { select: { id: true, fullName: true } }, contact: { select: { id: true, fullName: true, phoneE164: true } }, list: { select: { id: true, name: true } },
       coachSession: { select: { documentation: true, documentationStatus: true, documentationError: true } },
     },

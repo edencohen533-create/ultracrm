@@ -9,20 +9,22 @@ import { KnowledgeTab } from "./KnowledgeTab";
 import { AutomationsTab } from "./AutomationsTab";
 import { SettingsTab } from "./SettingsTab";
 import { OpsTab } from "./OpsTab";
+import { SalesCoach } from "@/components/coach/SalesCoach";
 import { useT } from "@/components/i18n/LangProvider";
 
-export interface Overview { connected: boolean; businessName: string; role: "owner" | "manager" | "agent"; canManage: boolean; canChat: boolean; pendingApprovals: number; service: { enabled: boolean; channels: Array<{ id: string; label: string; status: string; active: boolean; simulated: boolean; enabled: boolean }> }; knowledge: Record<string, number> }
+export interface Overview { connected: boolean; businessName: string; role: "owner" | "manager" | "agent"; canManage: boolean; canChat: boolean; salesCoach?: boolean; pendingApprovals: number; service: { enabled: boolean; channels: Array<{ id: string; label: string; status: string; active: boolean; simulated: boolean; enabled: boolean }> }; knowledge: Record<string, number> }
 
 const TABS = [
   { key: "chat", label: "צ׳אט", en: "Chat" },
   { key: "ops", label: "מנהל AI", en: "AI Manager", manage: true },
-  { key: "knowledge", label: "ידע על העסק", en: "Business knowledge", manage: true },
+  { key: "knowledge", label: "שירות לקוחות", en: "Customer service", manage: true },
+  { key: "sales", label: "מאמן מכירות", en: "Sales coach", manage: true },
   { key: "automations", label: "אוטומציות", en: "Automations", manage: true },
   { key: "settings", label: "הגדרות והרשאות", en: "Settings & permissions", manage: true },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
-/** "עוזר AI": one menu item, four tabs. What a tab can do is decided by the server (the tabs only hide what would be refused). */
+/** "מרכז ה־AI": one menu item, several tabs (old links such as ?tab=knowledge keep working). What a tab can do is decided by the server (the tabs only hide what would be refused). */
 export function AiAssistant() {
   const t = useT();
   const router = useRouter(); const sp = useSearchParams();
@@ -32,11 +34,11 @@ export function AiAssistant() {
   const tab = (TABS.find((x) => x.key === sp.get("tab"))?.key ?? "chat") as TabKey;
   if (err) return <div className="p-6"><ErrorState message={err} retry={load} /></div>;
   if (!o) return <div className="py-16 flex justify-center"><Spinner /></div>;
-  const tabs = TABS.filter((x) => !("manage" in x) || o.canManage);
+  const tabs = TABS.filter((x) => (!("manage" in x) || o.canManage) && (x.key !== "sales" || o.salesCoach !== false));
   return (
     <div className="p-4 md:p-6 space-y-4 min-w-0 max-w-6xl mx-auto" data-testid="ai-page">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-bold">{t("עוזר AI", "AI Assistant")}</h1>
+        <h1 className="text-xl font-bold">{t("מרכז ה־AI", "AI Center")}</h1>
         {o.connected ? <Badge tone="good" dot>{t("מחובר למודל", "Model connected")}</Badge> : <Badge tone="warn" dot data-testid="ai-needs-connection">{t("נדרש חיבור", "Connection required")}</Badge>}
         {o.pendingApprovals > 0 && <Badge tone="info">{t(`${o.pendingApprovals} ממתינות לאישור`, `${o.pendingApprovals} awaiting approval`)}</Badge>}
         <Badge tone={o.service.enabled ? "accent" : "neutral"}>{t("נציג שירות ב-WhatsApp:", "WhatsApp service agent:")} {o.service.enabled ? t("פעיל", "On") : t("כבוי", "Off")}</Badge>
@@ -48,6 +50,7 @@ export function AiAssistant() {
       {tab === "chat" && (o.canChat ? <ChatTab overview={o} /> : <ErrorState message={t("העוזר זמין כרגע למנהלים בלבד", "The assistant is currently available to managers only")} />)}
       {tab === "ops" && o.canManage && <OpsTab />}
       {tab === "knowledge" && o.canManage && <KnowledgeTab />}
+      {tab === "sales" && o.canManage && o.salesCoach !== false && <SalesCoach isOwner={o.role === "owner"} />}
       {tab === "automations" && o.canManage && <AutomationsTab />}
       {tab === "settings" && o.canManage && <SettingsTab overview={o} onSaved={load} />}
     </div>

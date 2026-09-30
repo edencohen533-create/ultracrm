@@ -120,7 +120,7 @@ export async function runAiTool(ctx: AiCtx, name: string, args: Json): Promise<T
       case "prepare_ops_rule": {
         if (ctx.user.role === "agent") throw new ApiError("הגדרת כללים דורשת הרשאת מנהל", 403, "forbidden");
         const r = await (await import("@/server/ops/rules")).interpretRule(String(args.text ?? "").slice(0, 1000));
-        return { ok: true, result: { ...r, supported: Boolean(r.kind), saved: false, executed: false, nextStep: "עוזר AI → מנהל AI → כללים → בדיקת הפירוש → אשר והפעל" }, ms: Date.now() - t0 };
+        return { ok: true, result: { ...r, supported: Boolean(r.kind), saved: false, executed: false, nextStep: "מרכז ה־AI → מנהל AI → כללים → בדיקת הפירוש → אשר והפעל" }, ms: Date.now() - t0 };
       }
       case "my_queue_today": {
         const { waitingToday } = await import("@/lib/crm/lead-ops");

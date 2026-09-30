@@ -158,7 +158,7 @@ export async function evaluateMomentum(businessId: string, now = new Date()) {
       await managerDecision(null, rec.id, { action: "approve", via: "rule" });
       continue;
     }
-    if (status === "pending_manager") await notifyManagers(rec, `🤖 ${text.title}\n${text.explanation}\n\nלאישור השב: אשר ${rec.code}\nלדחייה: דחה ${rec.code}\n(או במערכת: עוזר AI → מנהל AI)`);
+    if (status === "pending_manager") await notifyManagers(rec, `🤖 ${text.title}\n${text.explanation}\n\nלאישור השב: אשר ${rec.code}\nלדחייה: דחה ${rec.code}\n(או במערכת: מרכז ה־AI → מנהל AI)`);
   }
   return { created };
 }

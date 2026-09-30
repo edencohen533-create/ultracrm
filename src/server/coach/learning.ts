@@ -1,7 +1,7 @@
 /**
  * Learning from finished calls and deal outcomes.
  *
- *   call.ended  → transcript (live segments, or the saved recording transcribed when the business allows it)
+ *   call.ended  → live transcript segments (recordings are handled by the sales coach, see ./sales.ts)
  *              → LLM extraction of objection/response moments with verbatim quotes → CoachExample rows (pending review)
  *   deal.won / deal.lost → examples of the deal's calls get the outcome label (won/lost); nothing is ranked as a
  *              "winning line" – reviewers see the outcome next to the quote and decide what to approve.
@@ -25,10 +25,10 @@ async function outcomeForCall(call: { contactId: string | null; createdAt: Date 
   return deal ? { outcome: deal.status === "won" ? "won" : "lost", dealId: deal.id } : { outcome: "unknown", dealId: null };
 }
 
-/** Transcribe a saved recording into segments (speaker unknown – single channel) when allowed and possible. */
+/** Call documentation: transcribe a saved recording into segments when the business allows it (documentFromRecordings). */
 export async function transcriptFromRecording(callId: string, businessId: string) {
   const settings = await getBusinessSettings(businessId);
-  if (!settings.coach.learnFromRecordings || providerStatus().stt === "missing") return 0;
+  if (!settings.coach.documentFromRecordings || providerStatus().stt === "missing") return 0;
   const call = await prisma.call.findUnique({ where: { id: callId }, select: { recordingStatus: true, recordingId: true, talkSeconds: true, provider: true } });
   if (!call || call.recordingStatus !== "saved" || !call.recordingId) return 0;
   const { adapterFor } = await import("@/lib/telephony");
@@ -54,7 +54,7 @@ export async function learnFromCall(callId: string) {
   if (providerStatus().llm === "missing") return { skipped: "no llm" };
   await endSession(callId);
   let segments = await prisma.coachSegment.findMany({ where: { callId }, orderBy: { createdAt: "asc" } });
-  if (segments.length === 0) { await transcriptFromRecording(callId, call.businessId); segments = await prisma.coachSegment.findMany({ where: { callId }, orderBy: { createdAt: "asc" } }); }
+  // Live transcript only. Recordings are learned from through the sales coach (closed deals / manager uploads).
   if (segments.length === 0) return { skipped: "no transcript" };
   if (await prisma.coachExample.count({ where: { callId } })) return { skipped: "already extracted" };
   const session = await ensureSession(callId);

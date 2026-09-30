@@ -39,6 +39,11 @@ export async function askCoach(callId: string, question: string): Promise<{ ques
   const cf = (contact?.customFields ?? {}) as Record<string, unknown>;
   const product = typeof cf.product === "string" ? cf.product : null;
   const { examples, usage: embUsage } = await retrieveExamples(session.businessId, q, 3);
+  // Sales coach sources: approved insights (how to say it) + approved service knowledge the business shared (facts).
+  const { retrieveInsights } = await import("./sales");
+  const { searchKnowledge } = await import("@/server/ai/knowledge");
+  const insights = await retrieveInsights(session.businessId, q, 3);
+  const facts = (await searchKnowledge(session.businessId, q, { audience: "sales", limit: 3 }).catch(() => [])).map((f) => ({ title: f.title, text: f.text, sourceId: f.sourceId }));
   const matched = matchKnowledgeObjections(ctx.knowledge, q, 3);
   const knowledge: KnowledgeView = { ...ctx.knowledge, objections: matched.length ? matched : ctx.knowledge.objections.slice(0, 5) };
   const outcomes = ctx.calls.map((c) => `${c.outcome ?? ""}${c.outcomeNote ? ` – ${c.outcomeNote}` : ""}`.trim()).filter(Boolean);
@@ -49,19 +54,21 @@ export async function askCoach(callId: string, question: string): Promise<{ ques
     summary: ctx.session.summary,
     lead: { name: ctx.contact?.fullName ?? "לקוח", leadTitle: ctx.lead?.title, leadStatus: ctx.lead?.status, notes: [ctx.lead?.notes, ctx.contact?.notes].filter(Boolean).join(" | ") || null, lastOutcomes: outcomes, promisesSoFar: [], product, source: contact?.source ?? null },
     whatsapp: ctx.messages.map((m) => ({ direction: m.direction === "INBOUND" ? "customer" : "agent", text: m.body ?? "" })),
-    outcomes, knowledge, examples,
-  }), { maxTokens: 350, temperature: 0.4 });
+    outcomes, knowledge, examples, insights, facts,
+  }), { maxTokens: 450, temperature: 0.4 });
   const parsed = parseChat(llm.text);
   const usage: Usage = { inputTokens: llm.usage.inputTokens + embUsage.inputTokens, outputTokens: llm.usage.outputTokens, embeddingTokens: embUsage.embeddingTokens };
   const sources: ChatSources = { transcriptLines: transcript.length, lead: Boolean(ctx.lead || ctx.contact), product: Boolean(product), whatsapp: ctx.messages.length, outcomes: outcomes.length, examples: examples.length, knowledgeObjections: matched.length, model: llm.model, latencyMs: Date.now() - t0, mock: llm.model === "mock" };
-  const basis = examples.length ? "examples" : matched.length || ctx.knowledge.products.length || ctx.knowledge.faqs.length ? "knowledge_only" : "general";
+  // A fact is shown only with an approved source it came from (0 = the coach's approved knowledge); others are dropped.
+  const shownFacts = (parsed?.facts ?? []).flatMap((f) => f.source === 0 ? [{ text: f.text, source: "ידע מכירה מאושר" }] : facts[f.source - 1] ? [{ text: f.text, source: facts[f.source - 1].title, sourceId: facts[f.source - 1].sourceId }] : []);
+  const basis = insights.length ? "insights" : examples.length ? "examples" : matched.length || ctx.knowledge.products.length || ctx.knowledge.faqs.length ? "knowledge_only" : "general";
   const answer = await prisma.$transaction(async (tx) => {
     await tx.coachSession.update({ where: { id: session.id }, data: { tokensIn: { increment: usage.inputTokens }, tokensOut: { increment: usage.outputTokens }, costUsd: { increment: usageCostUsd(usage) } } });
     return tx.coachChatMessage.create({ data: {
       businessId: session.businessId, sessionId: session.id, callId, role: "assistant",
       text: parsed?.say_now ?? "לא הצלחתי לנסח תשובה מהמידע שיש. נסה לתאר במשפט מה הלקוח אמר בדיוק.",
       followUp: parsed?.follow_up ?? null, why: parsed?.why ?? null, basis: parsed ? basis : "unparsed",
-      sources: { ...sources, exampleIds: examples.map((e) => e.id), exampleCalls: examples.map((e) => e.callId).filter(Boolean), confidence: parsed?.confidence ?? 0 },
+      sources: { ...sources, insights: insights.length, insightIds: insights.map((x) => x.id), sharedFacts: facts.length, facts: shownFacts, exampleIds: examples.map((e) => e.id), exampleCalls: examples.map((e) => e.callId).filter(Boolean), confidence: parsed?.confidence ?? 0 },
     } });
   });
   return { question: view(asked), answer: view(answer) };

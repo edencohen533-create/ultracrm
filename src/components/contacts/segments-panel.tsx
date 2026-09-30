@@ -1,5 +1,6 @@
 "use client";
 
+import { AiSegmentAssistant } from "@/components/campaigns/ai-segment-assistant";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Search, Trash2, X } from "lucide-react";
@@ -24,6 +25,7 @@ export function SegmentsPanel({ selected, onSelect, total }: { selected: string 
   const [builder, setBuilder] = useState(false);
   const [name, setName] = useState(""); const [seg, setSeg] = useState<AudienceNode>(defaultAudience());
   const [opts, setOpts] = useState<AudienceOptions>({ tags: [], agents: [], campaigns: [] });
+  const [draftVersion, setDraftVersion] = useState(0);
   const [preview, setPreview] = useState<number | null>(null); const [busy, setBusy] = useState(false);
   const load = useCallback(() => j<{ lists: Seg[] }>("/api/distribution-lists?counts=1").then((r) => setSegs(r.lists)).catch(() => setSegs([])), []);
   useEffect(() => { load(); }, [load]);
@@ -52,7 +54,8 @@ export function SegmentsPanel({ selected, onSelect, total }: { selected: string 
         <div className="seg-builder-body">
           <label className="wz-field"><span className="wz-label">{t("שם הסגמנט", "Segment name")}</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("למשל: לא רכשו ב-30 יום", "e.g. No purchase in 30 days")} data-testid="segment-name" /></label>
           <p className="seg-hint">{t("הסגמנט דינמי: הוא מחושב מחדש בכל פעם (אנשי קשר חדשים שעומדים בתנאים נכנסים אליו אוטומטית), ואפשר להשתמש בו גם כקהל בקמפיינים.", "The segment is dynamic: it's recalculated each time (new contacts that match the conditions join automatically), and it can also be used as a campaign audience.")}</p>
-          <AudienceEditor value={seg} onChange={setSeg} options={opts} />
+          <AiSegmentAssistant onDraft={(d) => { setSeg(d.segment); setDraftVersion((v) => v + 1); if (!name.trim()) setName(d.name); }} />
+          <AudienceEditor key={draftVersion} value={seg} onChange={setSeg} options={opts} />
           <p className="seg-count" data-testid="segment-preview">{preview === null ? t("מחשב…", "Calculating…") : t(`${preview.toLocaleString(loc)} אנשי קשר עומדים בתנאים כרגע`, `${preview.toLocaleString(loc)} contacts currently match`)}</p>
         </div>
         <div className="wz-modal-actions"><button className="wz-btn ghost" onClick={() => setBuilder(false)}>{t("ביטול", "Cancel")}</button><button className="wz-btn primary" disabled={busy || !name.trim()} onClick={save} data-testid="segment-save">{t("שמירת סגמנט", "Save segment")}</button></div>

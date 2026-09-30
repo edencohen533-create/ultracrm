@@ -10,6 +10,7 @@ const selectClass = "min-w-0 w-full rounded border bg-background p-2 text-sm";
 const fields: { value: AudienceRule["field"]; label: string; en: string }[] = [
   { value: "tag", label: "תגית", en: "Tag" }, { value: "source", label: "מקור ליד", en: "Lead source" }, { value: "custom", label: "שדה מותאם", en: "Custom field" }, { value: "agent", label: "נציג משויך בשיחה", en: "Agent assigned to conversation" }, { value: "owner", label: "אחראי CRM", en: "CRM owner" }, { value: "leadStatus", label: "שלב ליד", en: "Lead stage" },
   { value: "consent", label: "הסכמה לדיוור", en: "Marketing consent" }, { value: "blocked", label: "חסימה מלאה", en: "Fully blocked" }, { value: "marketingEligible", label: "זכאות שיווקית כעת", en: "Currently marketing-eligible" },
+  { value: "purchase", label: "רכישה", en: "Purchase" }, { value: "purchaseSequence", label: "רכישה ואחריה רכישה נוספת", en: "Purchase followed by another purchase" },
   { value: "lastMessage", label: "הודעה אחרונה", en: "Last message" }, { value: "lastInbound", label: "תגובה אחרונה מהלקוח", en: "Last reply from customer" }, { value: "lastOutbound", label: "הודעה אחרונה ללקוח", en: "Last message to customer" }, { value: "campaign", label: "השתתפות בקמפיין", en: "Campaign participation" },
 ];
 function freshRule(field: AudienceRule["field"]): AudienceRule {
@@ -21,8 +22,16 @@ function freshRule(field: AudienceRule["field"]): AudienceRule {
   if (field === "tag" || field === "agent") return { field, operator: "is", value: "" };
   if (field === "owner") return { field, operator: "is", value: null };
   if (field === "leadStatus") return { field, operator: "is", value: "new" };
+  if (field === "purchase") return { field, operator: "did", products: [], withinDays: 30 };
+  if (field === "purchaseSequence") return { field, first: { products: [], withinDays: 30 }, then: { products: [], otherThanFirst: true, minDaysAfter: 7 } };
   return { field, operator: "never" };
 }
+/** Product name fragments, comma separated (kept as typed; the rule gets the parsed list). */
+function TermsInput({ value, onChange, label, placeholder }: { value: string[]; onChange: (v: string[]) => void; label: string; placeholder: string }) {
+  const [raw, setRaw] = useState(value.join(", "));
+  return <Input maxLength={400} aria-label={label} placeholder={placeholder} value={raw} onChange={(e) => { setRaw(e.target.value); onChange(e.target.value.split(/[,،]/).map((x) => x.trim()).filter((x) => x.length >= 2).slice(0, 10)); }} />;
+}
+const numOrUndef = (v: string) => (v.trim() === "" ? undefined : Math.max(0, Math.round(Number(v))));
 function dateValue(value?: string) { if (!value) return ""; const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 function RuleEditor({ rule, onChange, options, path }: { rule: AudienceRule; onChange: (rule: AudienceRule) => void; options: AudienceOptions; path: string }) {
   const t = useT();
@@ -40,6 +49,19 @@ function RuleEditor({ rule, onChange, options, path }: { rule: AudienceRule; onC
     {rule.field === "campaign" && <select className={selectClass} aria-label={t(`תוצאת קמפיין ${path}`, `Campaign result ${path}`)} value={rule.result} onChange={(event) => onChange({ ...rule, result: event.target.value as typeof rule.result })}>{Object.entries({ ANY: t("כל משתתף", "Any participant"), QUEUED: t("ממתין", "Queued"), PROCESSING: t("בטיפול", "Processing"), SENT: t("התקבל אצל הספק", "Accepted by provider"), DELIVERED: t("נמסר (לפי הספק)", "Delivered (per provider)"), READ: t("נקרא (לפי הספק)", "Read (per provider)"), REPLIED: t("השיב אחרי הקמפיין", "Replied after campaign"), NOT_DELIVERED: t("לא נמסר / נכשל", "Not delivered / failed"), FAILED: t("נכשל", "Failed"), SKIPPED: t("דולג או הוחרג", "Skipped or excluded"), UNKNOWN: t("תוצאה לא ודאית", "Uncertain result") }).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>}
     {rule.field === "consent" && <select className={selectClass} aria-label={t(`ערך תנאי ${path}`, `Condition value ${path}`)} value={rule.value} onChange={(event) => onChange({ ...rule, value: event.target.value as typeof rule.value })}><option value="OPTED_IN">{t("מסכים לדיוור", "Opted in")}</option><option value="OPTED_OUT">{t("הוסר מדיוור", "Opted out")}</option><option value="UNKNOWN">{t("לא תועדה הסכמה", "No consent recorded")}</option></select>}
     {(rule.field === "blocked" || rule.field === "marketingEligible") && <select className={selectClass} aria-label={t(`ערך תנאי ${path}`, `Condition value ${path}`)} value={String(rule.value)} onChange={(event) => onChange({ ...rule, value: event.target.value === "true" })}><option value="true">{t("כן", "Yes")}</option><option value="false">{t("לא", "No")}</option></select>}
+    {rule.field === "purchase" && <>
+      <select className={selectClass} aria-label={t(`השוואה ${path}`, `Comparison ${path}`)} value={rule.operator} onChange={(e) => onChange({ ...rule, operator: e.target.value as "did" | "did_not" })}><option value="did">{t("רכש", "Bought")}</option><option value="did_not">{t("לא רכש", "Did not buy")}</option></select>
+      <TermsInput label={t(`מוצרים ${path}`, `Products ${path}`)} placeholder={t("מוצר (ריק = כל מוצר), מופרד בפסיקים", "Product (empty = any), comma separated")} value={rule.products} onChange={(products) => onChange({ ...rule, products })} />
+      <label className="text-xs">{t("בתוך מספר הימים האחרונים (ריק = אי פעם)", "Within the last N days (empty = ever)")}<Input type="number" min={1} aria-label={t(`ימים ${path}`, `Days ${path}`)} value={rule.withinDays ?? ""} onChange={(e) => onChange({ ...rule, withinDays: numOrUndef(e.target.value) || undefined })} /></label>
+    </>}
+    {rule.field === "purchaseSequence" && <>
+      <TermsInput label={t(`מוצר ראשון ${path}`, `First product ${path}`)} placeholder={t("רכש קודם את…", "First bought…")} value={rule.first.products} onChange={(products) => onChange({ ...rule, first: { ...rule.first, products } })} />
+      <label className="text-xs">{t("הרכישה הראשונה בתוך הימים האחרונים", "First purchase within the last days")}<Input type="number" min={1} aria-label={t(`ימים לרכישה הראשונה ${path}`, `Days for first purchase ${path}`)} value={rule.first.withinDays} onChange={(e) => onChange({ ...rule, first: { ...rule.first, withinDays: Math.max(1, numOrUndef(e.target.value) ?? 1) } })} /></label>
+      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={rule.then.otherThanFirst} onChange={(e) => onChange({ ...rule, then: { ...rule.then, otherThanFirst: e.target.checked } })} />{t("ואז רכש מוצר אחר (לא את הראשון)", "Then bought a different product")}</label>
+      <TermsInput label={t(`מוצר שני ${path}`, `Second product ${path}`)} placeholder={t("מוצר שני (ריק = כל מוצר)", "Second product (empty = any)")} value={rule.then.products} onChange={(products) => onChange({ ...rule, then: { ...rule.then, products } })} />
+      <label className="text-xs">{t("לפחות ימים אחרי הרכישה הראשונה", "At least days after the first")}<Input type="number" min={0} aria-label={t(`מינימום ימים ${path}`, `Min days ${path}`)} value={rule.then.minDaysAfter} onChange={(e) => onChange({ ...rule, then: { ...rule.then, minDaysAfter: numOrUndef(e.target.value) ?? 0 } })} /></label>
+      <label className="text-xs">{t("לכל היותר ימים אחרי (ריק = ללא הגבלה)", "At most days after (empty = no limit)")}<Input type="number" min={0} aria-label={t(`מקסימום ימים ${path}`, `Max days ${path}`)} value={rule.then.maxDaysAfter ?? ""} onChange={(e) => onChange({ ...rule, then: { ...rule.then, maxDaysAfter: numOrUndef(e.target.value) } })} /></label>
+    </>}
     {["lastMessage", "lastInbound", "lastOutbound"].includes(rule.field) && "operator" in rule && (rule.field === "lastMessage" || rule.field === "lastInbound" || rule.field === "lastOutbound") && <>
       <select className={selectClass} aria-label={t(`השוואה ${path}`, `Comparison ${path}`)} value={rule.operator} onChange={(event) => onChange({ ...rule, operator: event.target.value as "before" | "after" | "never" })}><option value="never">{t("אין הודעה כזו", "No such message")}</option><option value="before">{t("לפני התאריך", "Before date")}</option><option value="after">{t("בתאריך או אחריו", "On or after date")}</option></select>
       {rule.operator !== "never" && <label className="text-xs">{t("תאריך באזור הזמן המקומי", "Date in local time zone")}<Input aria-label={t(`תאריך תנאי ${path}`, `Condition date ${path}`)} type="date" value={dateValue(rule.value)} onChange={(event) => onChange({ ...rule, value: event.target.value ? new Date(`${event.target.value}T00:00:00`).toISOString() : undefined })} /></label>}

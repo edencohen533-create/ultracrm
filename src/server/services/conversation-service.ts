@@ -14,6 +14,8 @@ export interface ConversationListFilter {
   providerCredentialId?: string;
   tagId?: string;
   teamId?: string;
+  /** One agent's conversations (inside the caller's scope – narrows, never widens). */
+  assignedAgentId?: string;
   channel?: "whatsapp" | "sms" | "email";
 }
 
@@ -35,6 +37,7 @@ export function buildConversationScope(session: Session, filter: ConversationLis
   if (session.user.channels) clauses.push({ channel: { in: session.user.channels } });
   if (filter.providerCredentialId) clauses.push({ providerCredentialId: filter.providerCredentialId });
   if (filter.tagId) clauses.push({ tags: { some: { tagId: filter.tagId } } });
+  if (filter.assignedAgentId) clauses.push({ assignedAgentId: filter.assignedAgentId });
   if (filter.teamId) clauses.push({ OR: [{ providerCredential: { teamId: filter.teamId } }, { assignedAgent: { teamId: filter.teamId } }] });
   if (filter.channel) clauses.push({ channel: filter.channel });
 

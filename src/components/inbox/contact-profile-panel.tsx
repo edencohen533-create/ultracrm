@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useT } from "@/components/i18n/LangProvider";
 import { Badge } from "@/components/ui/badge";
 import { Ltr } from "@/components/shared/ltr";
@@ -195,7 +194,6 @@ function FileBody({ file, extra }: { file: CustomerFile; extra: Extra }) {
         </div>
       </Section>
 
-      <div className="border-t border-line px-4 py-3"><Link href={`/contacts/${c.id}`} className="text-sm underline">{t("לכרטיס הלקוח המלא", "Open the full customer card")}</Link></div>
     </div>
   );
 }

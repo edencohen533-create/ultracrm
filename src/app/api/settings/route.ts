@@ -54,7 +54,7 @@ const schema = z.object({
       }).partial().optional(),
       dialWindow: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)), timezone: z.string().optional() }).optional(),
       retention: z.object({ messagesDays: z.number().int().min(0).max(3650).optional(), auditDays: z.number().int().min(0).max(3650).optional() }).optional(),
-      coach: z.object({ enabled: z.boolean().optional(), learnFromRecordings: z.boolean().optional() }).optional(),
+      coach: z.object({ enabled: z.boolean().optional(), learnFromRecordings: z.boolean().optional(), documentFromRecordings: z.boolean().optional(), learnDealCondition: z.enum(["won", "paid"]).optional(), autoPublish: z.object({ enabled: z.boolean(), kinds: z.array(z.enum(["opening", "discovery", "objection", "offer", "closing", "improvement"])).max(6) }).optional() }).optional(),
       leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional() }).optional(),
       permissions: z.object({ managerScope: z.enum(["business", "team"]), agentSeesUnassigned: z.boolean(), agentTransfer: z.enum(["none", "all", "selected"]), agentTransferUserIds: z.array(z.string()).max(500) }).partial().optional(),
       marketing: z.object({

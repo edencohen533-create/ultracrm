@@ -52,10 +52,19 @@ export interface RetentionSettings {
 export interface CoachSettings {
   /** Real-time sales coach for this business (agents can be switched off individually via User.coachEnabled). */
   enabled: boolean;
-  /** Transcribe saved recordings after the call for learning (costs STT minutes). */
+  /**
+   * "ללמוד אוטומטית מהקלטות של עסקאות שנסגרו": when a deal closes (see learnDealCondition), the recorded calls that
+   * belong to that deal are transcribed and turned into CANDIDATE insights for review (costs STT minutes).
+   */
   learnFromRecordings: boolean;
+  /** won = the deal is marked won; paid = won AND a confirmed payment is linked to the deal or to one of its calls. */
+  learnDealCondition?: "won" | "paid";
+  /** Explicit auto-publish policy (off by default): only these kinds, only without risk flags, always audited + revertible. */
+  autoPublish?: { enabled: boolean; kinds: string[] };
   /** AI documentation of every answered call (summary + timeline) – on by default. */
   documentCalls?: boolean;
+  /** Documentation of a call without a live transcript may transcribe its saved recording (costs STT minutes). */
+  documentFromRecordings?: boolean;
 }
 
 export { DEFAULT_LEAD_STATUSES, mergeLeadStatuses, type LeadStatusKey, type LeadStatusConfig, type LeadAssignmentSettings } from "@/lib/lead-statuses";
@@ -193,7 +202,7 @@ export const DEFAULT_PRIORITIZATION: PrioritizationWeights = {
 };
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
-  coach: { enabled: false, learnFromRecordings: false, documentCalls: true },
+  coach: { enabled: false, learnFromRecordings: false, documentCalls: true, learnDealCondition: "won", autoPublish: { enabled: false, kinds: [] } },
   leadStatuses: DEFAULT_LEAD_STATUSES,
   leadAssignment: { mode: "least_loaded", maxOpenLeadsPerAgent: 0, agentIds: [], perAgentMax: {}, lastAssignedUserId: null, requireOnline: false, whenNoneOnline: "unassigned", notifyWhatsApp: { enabled: false, templateId: null } },
   assistant: DEFAULT_ASSISTANT,

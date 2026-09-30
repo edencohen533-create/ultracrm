@@ -364,52 +364,55 @@ model Plan {
 }
 
 model Business {
-  crmConnections CrmConnection[]
-  metaAdAccounts MetaAdAccount[]
-  leadTouchpoints LeadTouchpoint[]
-  metaAdConnection MetaAdConnection?
-  telephonyRouting  TelephonyRouting?
-  telephonyHealth   TelephonyProviderHealth[]
-  telephonySwitches TelephonySwitchLog[]
-  telephonyCredentials TelephonyProviderCredential[]
+  crmConnections          CrmConnection[]
+  metaAdAccounts          MetaAdAccount[]
+  leadTouchpoints         LeadTouchpoint[]
+  metaAdConnection        MetaAdConnection?
+  telephonyRouting        TelephonyRouting?
+  telephonyHealth         TelephonyProviderHealth[]
+  telephonySwitches       TelephonySwitchLog[]
+  telephonyCredentials    TelephonyProviderCredential[]
   telephonyAgentEndpoints TelephonyAgentEndpoint[]
-  callAttempts      CallAttempt[]
-  salesOffers SalesOffer[]
-  salesQuotes SalesQuote[]
-  coachKnowledge       CoachKnowledge?
-  coachSessions        CoachSession[]
-  coachExamples        CoachExample[]
-  id                   String          @id @default(cuid())
-  name                 String
-  slug                 String          @unique
-  timezone             String          @default("Asia/Jerusalem")
-  isActive             Boolean         @default(true) @map("is_active")
-  planId               String?         @map("plan_id")
+  callAttempts            CallAttempt[]
+  salesOffers             SalesOffer[]
+  salesQuotes             SalesQuote[]
+  coachKnowledge          CoachKnowledge?
+  coachSessions           CoachSession[]
+  coachExamples           CoachExample[]
+  salesRecordings         SalesRecording[]
+  salesInsights           SalesInsight[]
+  salesDealLearnings      SalesDealLearning[]
+  id                      String                        @id @default(cuid())
+  name                    String
+  slug                    String                        @unique
+  timezone                String                        @default("Asia/Jerusalem")
+  isActive                Boolean                       @default(true) @map("is_active")
+  planId                  String?                       @map("plan_id")
   /// Pinned package version (null = legacy plan fields / no package).
-  planVersionId        String?         @map("plan_version_id")
+  planVersionId           String?                       @map("plan_version_id")
   /// Access policy – separate from payment: active | trial | grace | suspended (+ accessUntil for trial/grace).
-  accessStatus         String          @default("active") @map("access_status")
-  accessUntil          DateTime?       @map("access_until")
+  accessStatus            String                        @default("active") @map("access_status")
+  accessUntil             DateTime?                     @map("access_until")
   /// Payment state as KNOWN to the platform: manual (no billing integration – never shown as verified).
-  billingStatus        String          @default("manual") @map("billing_status")
+  billingStatus           String                        @default("manual") @map("billing_status")
   /// Owner asked to delete the business and all its data: WhatsApp is disconnected at once; the rest is erased by
   /// the retention job at `deletionScheduledFor` (cancellable until then).
-  deletionRequestedAt   DateTime?      @map("deletion_requested_at")
-  deletionScheduledFor  DateTime?      @map("deletion_scheduled_for")
-  deletionRequestedById String?        @map("deletion_requested_by_id")
+  deletionRequestedAt     DateTime?                     @map("deletion_requested_at")
+  deletionScheduledFor    DateTime?                     @map("deletion_scheduled_for")
+  deletionRequestedById   String?                       @map("deletion_requested_by_id")
   /// Why the platform set the current access status (shown in the platform screen and audit).
-  statusReason          String?        @map("status_reason")
-  cancelledAt           DateTime?      @map("cancelled_at")
+  statusReason            String?                       @map("status_reason")
+  cancelledAt             DateTime?                     @map("cancelled_at")
   /// Per-business module overrides on top of the plan: { crm?, messaging?, telephony? }
-  modules              Json            @default("{}")
+  modules                 Json                          @default("{}")
   /// Dialer / CRM / automation settings (see src/lib/settings.ts)
-  settings             Json            @default("{}")
+  settings                Json                          @default("{}")
   /// Fair worker rotation between businesses.
-  lastCampaignScanAt   DateTime?       @map("last_campaign_scan_at")
-  lastAutomationScanAt DateTime?       @map("last_automation_scan_at")
-  lastEventScanAt      DateTime?       @map("last_event_scan_at")
-  createdAt            DateTime        @default(now()) @map("created_at")
-  updatedAt            DateTime        @updatedAt @map("updated_at")
+  lastCampaignScanAt      DateTime?                     @map("last_campaign_scan_at")
+  lastAutomationScanAt    DateTime?                     @map("last_automation_scan_at")
+  lastEventScanAt         DateTime?                     @map("last_event_scan_at")
+  createdAt               DateTime                      @default(now()) @map("created_at")
+  updatedAt               DateTime                      @updatedAt @map("updated_at")
 
   plan        Plan?        @relation(fields: [planId], references: [id])
   planVersion PlanVersion? @relation(fields: [planVersionId], references: [id])
@@ -479,13 +482,13 @@ model Business {
   assignmentOverrides    AssignmentOverride[]
   dialerQueueAlerts      DialerQueueAlert[]
   knowledgeSources       KnowledgeSource[]
+  mediaAssets            MediaAsset[]
+  mediaProviderUploads   MediaProviderUpload[]
+  paymentConnections     PaymentProviderConnection[]
+  paymentRequests        PaymentRequest[]
+  paymentEvents          PaymentEvent[]
 
   @@map("businesses")
-  mediaAssets          MediaAsset[]
-  mediaProviderUploads MediaProviderUpload[]
-  paymentConnections   PaymentProviderConnection[]
-  paymentRequests      PaymentRequest[]
-  paymentEvents        PaymentEvent[]
 }
 
 /// A person who can log in. One account can be a member of several businesses.
@@ -516,33 +519,33 @@ model Account {
 /// Membership of an account in a business ("business user"). All operational
 /// data (calls, tasks, conversations…) references this row, never the Account.
 model User {
-  id            String         @id @default(cuid())
-  businessId    String         @map("business_id")
-  accountId     String         @map("account_id")
+  id              String         @id @default(cuid())
+  businessId      String         @map("business_id")
+  accountId       String         @map("account_id")
   /// Denormalised from Account for display/search.
-  email         String
-  fullName      String         @map("full_name")
-  role          UserRole       @default(agent)
-  teamId        String?        @map("team_id")
-  isActive      Boolean        @default(true) @map("is_active")
+  email           String
+  fullName        String         @map("full_name")
+  role            UserRole       @default(agent)
+  teamId          String?        @map("team_id")
+  isActive        Boolean        @default(true) @map("is_active")
   /// A platform support identity inside this business (never a member: not in switchers, pickers, seats or lists).
-  isSupport     Boolean        @default(false) @map("is_support")
+  isSupport       Boolean        @default(false) @map("is_support")
   /// Pending invitation: the membership stays inactive until the person accepts the one-time link.
-  inviteTokenHash String?      @unique @map("invite_token_hash")
-  inviteExpiresAt DateTime?    @map("invite_expires_at")
-  invitedAt       DateTime?    @map("invited_at")
+  inviteTokenHash String?        @unique @map("invite_token_hash")
+  inviteExpiresAt DateTime?      @map("invite_expires_at")
+  invitedAt       DateTime?      @map("invited_at")
   /// Personal mobile (E.164) – new-lead WhatsApp notifications are sent here.
-  personalPhone String?        @map("personal_phone")
-  crmSettings   Json?          @map("crm_settings")
+  personalPhone   String?        @map("personal_phone")
+  crmSettings     Json?          @map("crm_settings")
   /// Module access for this user (src/lib/access): { template, scope: own|team|business, modules: { crm: { enabled, actions[] }, … } }.
   /// Null = not migrated yet → derived from the role (never "everything").
-  permissions   Json?
-  avatarUrl     String?        @map("avatar_url")
-  presence      PresenceStatus @default(offline)
-  presenceAt    DateTime       @default(now()) @map("presence_at")
+  permissions     Json?
+  avatarUrl       String?        @map("avatar_url")
+  presence        PresenceStatus @default(offline)
+  presenceAt      DateTime       @default(now()) @map("presence_at")
   /// Real-time sales coach shown to this agent (business-level switch in settings.coach). 
-  coachEnabled  Boolean        @default(true) @map("coach_enabled")
-  lastSeenAt    DateTime?      @map("last_seen_at")
+  coachEnabled    Boolean        @default(true) @map("coach_enabled")
+  lastSeenAt      DateTime?      @map("last_seen_at")
 
   /// Telnyx telephony credential (one per business user).
   telnyxCredentialId String? @map("telnyx_credential_id")
@@ -623,21 +626,21 @@ model UsageCounter {
 
 /// Single source of truth for people. Messaging and telephony reference `contactId`.
 model Contact {
-  touchpoints LeadTouchpoint[]
-  id           String  @id @default(cuid())
-  businessId   String  @map("business_id")
-  fullName     String  @map("full_name")
+  touchpoints  LeadTouchpoint[]
+  id           String           @id @default(cuid())
+  businessId   String           @map("business_id")
+  fullName     String           @map("full_name")
   /// Primary phone, E.164, unique per business. Additional phones live in ContactPhone.
-  phoneE164    String  @map("phone_e164")
-  phoneRaw     String  @map("phone_raw")
+  phoneE164    String           @map("phone_e164")
+  phoneRaw     String           @map("phone_raw")
   /// Primary email (lower-cased). Additional emails live in ContactEmail.
   email        String?
   company      String?
   city         String?
   source       String?
   notes        String?
-  customFields Json?   @map("custom_fields")
-  ownerUserId  String? @map("owner_user_id")
+  customFields Json?            @map("custom_fields")
+  ownerUserId  String?          @map("owner_user_id")
 
   // Marketing consent (WhatsApp / SMS / email share one consent record + Suppression table)
   consentStatus   ConsentStatus @default(UNKNOWN) @map("consent_status")
@@ -682,7 +685,8 @@ model Contact {
 
   /// Deleted by the owner: personal details scrubbed, hidden from every list; history (sends, calls, messages,
   /// deals) keeps pointing at this row, and suppressions / do-not-contact stay (they are by phone / email).
-  deletedAt    DateTime? @map("deleted_at")
+  deletedAt DateTime? @map("deleted_at")
+
   @@unique([businessId, phoneE164])
   @@index([businessId, fullName])
   @@index([businessId, email])
@@ -754,30 +758,30 @@ model ContactTag {
 
 /// A sales opportunity at its earliest stage. A contact can have many leads over time.
 model Lead {
-  salesQuotes SalesQuote[]
-  touchpoints LeadTouchpoint[]
-  id          String     @id @default(cuid())
-  businessId  String     @map("business_id")
-  contactId   String     @map("contact_id")
-  title       String?
-  status      LeadStatus @default(new)
+  salesQuotes       SalesQuote[]
+  touchpoints       LeadTouchpoint[]
+  id                String           @id @default(cuid())
+  businessId        String           @map("business_id")
+  contactId         String           @map("contact_id")
+  title             String?
+  status            LeadStatus       @default(new)
   /// The business's own status (custom) – null = the system status of `status`. `status` always holds its meaning.
-  statusDefId String?    @map("status_def_id")
-  statusDef   LeadStatusDef? @relation(fields: [statusDefId], references: [id], onDelete: NoAction)
-  sourceAttribution Json @default("{}") @map("source_attribution")
-  source      String?
-  ownerUserId String?    @map("owner_user_id")
-  priority    Int        @default(0)
-  notes       String?
+  statusDefId       String?          @map("status_def_id")
+  statusDef         LeadStatusDef?   @relation(fields: [statusDefId], references: [id], onDelete: NoAction)
+  sourceAttribution Json             @default("{}") @map("source_attribution")
+  source            String?
+  ownerUserId       String?          @map("owner_user_id")
+  priority          Int              @default(0)
+  notes             String?
   /// Set when the lead was converted into a deal.
-  dealId      String?    @map("deal_id")
-  closedAt    DateTime?  @map("closed_at")
+  dealId            String?          @map("deal_id")
+  closedAt          DateTime?        @map("closed_at")
   /// Why the lead was closed automatically (e.g. "מוצו ניסיונות חיוג").
-  closeReason String?    @map("close_reason")
+  closeReason       String?          @map("close_reason")
   /// A closed lead handed to another agent restarts as "new": attempts are counted from here (earlier ones stay in history).
-  reopenedAt  DateTime?  @map("reopened_at")
-  createdAt   DateTime   @default(now()) @map("created_at")
-  updatedAt   DateTime   @updatedAt @map("updated_at")
+  reopenedAt        DateTime?        @map("reopened_at")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
 
   business                Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   /// Manager transfer requested while the lead was in a live call / dial attempt – applied once the call's outcome is saved.
@@ -1210,6 +1214,8 @@ model Call {
   recordingId         String?         @map("recording_id")
   recordingDurationMs Int?            @map("recording_duration_ms")
   recordingFormat     String?         @map("recording_format")
+  /// Set when the retention job deleted the recording (the download button then says "no longer kept").
+  recordingPurgedAt   DateTime?       @map("recording_purged_at")
 
   business    Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   user        User             @relation(fields: [userId], references: [id])
@@ -1275,8 +1281,8 @@ model TelephonyEvent {
   business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
   call     Call?     @relation(fields: [callId], references: [id])
 
-  @@index([processedAt, receivedAt])
   @@unique([provider, providerEventId])
+  @@index([processedAt, receivedAt])
   /// Under RLS the enum-led unique index is not usable (enum "=" is not leakproof) → lookups by event id use this one.
   @@index([providerEventId])
   @@index([callId])
@@ -2273,37 +2279,37 @@ model CoachKnowledge {
 
 /// One coach session per call: rolling summary + conversation state + usage/cost.
 model CoachSession {
-  id             String             @id @default(cuid())
-  businessId     String             @map("business_id")
-  callId         String             @unique @map("call_id")
-  userId         String             @map("user_id")
-  contactId      String?            @map("contact_id")
-  leadId         String?            @map("lead_id")
-  status         CoachSessionStatus @default(listening)
-  summary        String             @default("")
-  stage          String?
-  customerGoal   String?            @map("customer_goal")
-  lastObjection  String?            @map("last_objection")
+  id                    String             @id @default(cuid())
+  businessId            String             @map("business_id")
+  callId                String             @unique @map("call_id")
+  userId                String             @map("user_id")
+  contactId             String?            @map("contact_id")
+  leadId                String?            @map("lead_id")
+  status                CoachSessionStatus @default(listening)
+  summary               String             @default("")
+  stage                 String?
+  customerGoal          String?            @map("customer_goal")
+  lastObjection         String?            @map("last_objection")
   /// [{ text, by }] – promises / commitments made during the call
-  promises       Json               @default("[]")
-  segmentsCount  Int                @default(0) @map("segments_count")
-  lastSegmentAt  DateTime?          @map("last_segment_at")
-  sttSeconds     Float              @default(0) @map("stt_seconds")
-  tokensIn       Int                @default(0) @map("tokens_in")
-  tokensOut      Int                @default(0) @map("tokens_out")
-  costUsd        Decimal            @default(0) @map("cost_usd") @db.Decimal(10, 5)
-  latencyMsTotal Int                @default(0) @map("latency_ms_total")
-  latencySamples Int                @default(0) @map("latency_samples")
-  provider       String?
+  promises              Json               @default("[]")
+  segmentsCount         Int                @default(0) @map("segments_count")
+  lastSegmentAt         DateTime?          @map("last_segment_at")
+  sttSeconds            Float              @default(0) @map("stt_seconds")
+  tokensIn              Int                @default(0) @map("tokens_in")
+  tokensOut             Int                @default(0) @map("tokens_out")
+  costUsd               Decimal            @default(0) @map("cost_usd") @db.Decimal(10, 5)
+  latencyMsTotal        Int                @default(0) @map("latency_ms_total")
+  latencySamples        Int                @default(0) @map("latency_samples")
+  provider              String?
   /// AI documentation of the whole call: { summary, timeline:[{from,to,title,details}], customerNeeds, objections, agreements, nextSteps, sentiment, source }
-  documentation  Json?
-  documentedAt   DateTime?          @map("documented_at")
+  documentation         Json?
+  documentedAt          DateTime?          @map("documented_at")
   /// running | done | failed | skipped – documentation is "done" only once it was actually stored.
-  documentationStatus   String?     @map("documentation_status")
-  documentationError    String?     @map("documentation_error")
-  documentationAttempts Int         @default(0) @map("documentation_attempts")
-  createdAt      DateTime           @default(now()) @map("created_at")
-  updatedAt      DateTime           @updatedAt @map("updated_at")
+  documentationStatus   String?            @map("documentation_status")
+  documentationError    String?            @map("documentation_error")
+  documentationAttempts Int                @default(0) @map("documentation_attempts")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
 
   business        Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
   call            Call                  @relation(fields: [callId], references: [id], onDelete: Cascade)
@@ -2419,27 +2425,27 @@ model CoachExample {
 
 /// Key for the public API (/api/v1) – Make, Zapier, n8n, custom code. Only a hash is stored; the key is shown once.
 model ApiKey {
-  id          String    @id @default(cuid())
-  businessId  String    @map("business_id")
-  name        String
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  name          String
   /// First characters, to recognise the key in the list ("uk_live_ab12…").
-  prefix      String
-  keyHash     String    @unique @map("key_hash")
-  createdById String    @map("created_by_id")
-  lastUsedAt  DateTime? @map("last_used_at")
-  revokedAt   DateTime? @map("revoked_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  prefix        String
+  keyHash       String    @unique @map("key_hash")
+  createdById   String    @map("created_by_id")
+  lastUsedAt    DateTime? @map("last_used_at")
+  revokedAt     DateTime? @map("revoked_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
   /// Integration keys: limited scopes (empty = legacy full key that acts with CRM view). contacts:write,
   /// leads:write, blocks:write, events:read.
-  scopes      String[]  @default([])
+  scopes        String[]  @default([])
   /// Integration key of a generic CRM connection – records it writes are linked to that connection.
-  connectionId String?  @map("connection_id")
+  connectionId  String?   @map("connection_id")
   /// Key this one replaced (rotation) – the old one stays valid until its grace period ends.
-  rotatedFromId String? @map("rotated_from_id")
-  expiresAt   DateTime? @map("expires_at")
+  rotatedFromId String?   @map("rotated_from_id")
+  expiresAt     DateTime? @map("expires_at")
   /// Fixed-window rate limit (per minute), shared by every server instance.
-  windowStart DateTime? @map("window_start")
-  windowCount Int       @default(0) @map("window_count")
+  windowStart   DateTime? @map("window_start")
+  windowCount   Int       @default(0) @map("window_count")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -2632,6 +2638,8 @@ model KnowledgeSource {
   /// { question, answer, example: { q, a }, whenToUse, limits, caseSpecific[], messageIds[], redactions }
   structured           Json?
   /// Source WhatsApp conversation (the link is only useful to users who may open that conversation).
+  /// Explicitly shared with the sales coach (facts for the in-call assistant) – customer-service knowledge is not shared by default.
+  salesShared          Boolean   @default(false) @map("sales_shared")
   sourceConversationId String?   @map("source_conversation_id")
   /// On approval, this item replaces (retires) the given existing item.
   supersedesId         String?   @map("supersedes_id")
@@ -2763,25 +2771,25 @@ model AccessAuditLog {
 /// status: active (priority "זמינה עכשיו" until expiresAt) | scheduled (follow-up set) | needs_review (agent decides)
 ///   | handled (dial attempt made) | expired (not handled in time) | cancelled (customer / agent) | ineligible (blocked + reason)
 model CallbackSignal {
-  id          String    @id @default(cuid())
-  businessId  String    @map("business_id")
-  contactId   String    @map("contact_id")
-  leadId      String?   @map("lead_id")
-  userId      String?   @map("user_id")
-  messageId   String    @unique @map("message_id")
-  intent      String
-  confidence  Float     @default(0)
+  id             String    @id @default(cuid())
+  businessId     String    @map("business_id")
+  contactId      String    @map("contact_id")
+  leadId         String?   @map("lead_id")
+  userId         String?   @map("user_id")
+  messageId      String    @unique @map("message_id")
+  intent         String
+  confidence     Float     @default(0)
   /// ai | basic (rules without an AI key)
-  analyzer    String    @default("basic")
-  text        String
-  requestedAt DateTime  @map("requested_at")
-  dueAt       DateTime? @map("due_at")
-  expiresAt   DateTime? @map("expires_at")
-  status      String
-  reason      String?
+  analyzer       String    @default("basic")
+  text           String
+  requestedAt    DateTime  @map("requested_at")
+  dueAt          DateTime? @map("due_at")
+  expiresAt      DateTime? @map("expires_at")
+  status         String
+  reason         String?
   acknowledgedAt DateTime? @map("acknowledged_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -2820,28 +2828,28 @@ model OpsRule {
 /// A detected opportunity + proposed action waiting for (or past) a manager decision. `evidence` = the numbers
 /// computed in code; `proposal` = the exact change. Decided once (atomic status change), linked by `code` on WhatsApp.
 model OpsRecommendation {
-  id           String    @id @default(cuid())
-  businessId   String    @map("business_id")
-  ruleId       String?   @map("rule_id")
+  id                   String    @id @default(cuid())
+  businessId           String    @map("business_id")
+  ruleId               String?   @map("rule_id")
   /// momentum | availability_unattended
-  kind         String
-  agentId      String?   @map("agent_id")
+  kind                 String
+  agentId              String?   @map("agent_id")
   /// pending_manager → pending_agent → active → completed · rejected | expired | cancelled | failed |
   /// needs_adjustment (capacity changed while waiting) · insight (information only, nothing to approve)
-  status       String    @default("pending_manager")
+  status               String    @default("pending_manager")
   /// Short code for WhatsApp approval ("אשר 4821").
-  code         String
-  title        String
-  explanation  String
-  evidence     Json
-  proposal     Json
-  dedupeKey    String    @map("dedupe_key")
-  expiresAt    DateTime  @map("expires_at")
-  decidedById  String?   @map("decided_by_id")
-  decidedAt    DateTime? @map("decided_at")
-  decidedVia   String?   @map("decided_via")
-  result       Json?
-  notifiedAt   DateTime? @map("notified_at")
+  code                 String
+  title                String
+  explanation          String
+  evidence             Json
+  proposal             Json
+  dedupeKey            String    @map("dedupe_key")
+  expiresAt            DateTime  @map("expires_at")
+  decidedById          String?   @map("decided_by_id")
+  decidedAt            DateTime? @map("decided_at")
+  decidedVia           String?   @map("decided_via")
+  result               Json?
+  notifiedAt           DateTime? @map("notified_at")
   /// Leads: recommended → approved by the manager (ceiling) → confirmed by the agent (≤ manager) → actually assigned.
   requestedCount       Int?      @map("requested_count")
   managerApprovedCount Int?      @map("manager_approved_count")
@@ -2849,8 +2857,8 @@ model OpsRecommendation {
   agentAskedAt         DateTime? @map("agent_asked_at")
   agentRespondedAt     DateTime? @map("agent_responded_at")
   agentReply           String?   @map("agent_reply")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -2928,52 +2936,54 @@ model SupportRequest {
 
 /// Approved commercial catalog. Money is stored in minor units; taxes/discounts in basis points.
 model SalesOffer {
-  id String @id @default(cuid())
-  businessId String @map("business_id")
-  name String
-  description String @default("")
-  currency String @default("ILS")
-  unitAmount Int @map("unit_amount")
-  unitCost Int? @map("unit_cost")
-  taxBps Int @default(0) @map("tax_bps")
-  maxDiscountBps Int @default(0) @map("max_discount_bps")
-  active Boolean @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id             String   @id @default(cuid())
+  businessId     String   @map("business_id")
+  name           String
+  description    String   @default("")
+  currency       String   @default("ILS")
+  unitAmount     Int      @map("unit_amount")
+  unitCost       Int?     @map("unit_cost")
+  taxBps         Int      @default(0) @map("tax_bps")
+  maxDiscountBps Int      @default(0) @map("max_discount_bps")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
   @@index([businessId, active])
   @@map("sales_offers")
 }
 
 /// Each row is one immutable quote revision. Sharing a new revision revokes the previous link.
 model SalesQuote {
-  id String @id @default(cuid())
-  businessId String @map("business_id")
-  leadId String @map("lead_id")
-  createdById String @map("created_by_id")
-  familyId String @map("family_id")
-  revision Int @default(1)
-  title String
-  currency String
-  lines Json
-  costTotal Int? @map("cost_total")
-  subtotal Int
-  tax Int
-  total Int
-  terms String @default("")
-  status String @default("approved")
-  expiresAt DateTime @map("expires_at")
-  approvedById String? @map("approved_by_id")
-  approvedAt DateTime? @map("approved_at")
-  tokenHash String? @unique @map("token_hash")
-  sharedAt DateTime? @map("shared_at")
-  viewedAt DateTime? @map("viewed_at")
-  acceptedAt DateTime? @map("accepted_at")
-  acceptedName String? @map("accepted_name")
-  participants Json @default("[]")
-  createdAt DateTime @default(now()) @map("created_at")
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  id           String    @id @default(cuid())
+  businessId   String    @map("business_id")
+  leadId       String    @map("lead_id")
+  createdById  String    @map("created_by_id")
+  familyId     String    @map("family_id")
+  revision     Int       @default(1)
+  title        String
+  currency     String
+  lines        Json
+  costTotal    Int?      @map("cost_total")
+  subtotal     Int
+  tax          Int
+  total        Int
+  terms        String    @default("")
+  status       String    @default("approved")
+  expiresAt    DateTime  @map("expires_at")
+  approvedById String?   @map("approved_by_id")
+  approvedAt   DateTime? @map("approved_at")
+  tokenHash    String?   @unique @map("token_hash")
+  sharedAt     DateTime? @map("shared_at")
+  viewedAt     DateTime? @map("viewed_at")
+  acceptedAt   DateTime? @map("accepted_at")
+  acceptedName String?   @map("accepted_name")
+  participants Json      @default("[]")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  business     Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
   @@unique([businessId, familyId, revision])
   @@index([businessId, leadId, createdAt])
   @@index([businessId, status])
@@ -2981,81 +2991,84 @@ model SalesQuote {
 }
 
 model MetaAdConnection {
-  id String @id @default(cuid())
-  businessId String @unique @map("business_id")
+  id             String          @id @default(cuid())
+  businessId     String          @unique @map("business_id")
   /// Legacy single account of the manual-token connection (accounts now live in meta_ad_accounts).
-  accountId String? @map("account_id")
-  accountName String? @map("account_name")
-  tokenSealed String @map("token_sealed")
-  verifiedAt DateTime @map("verified_at")
+  accountId      String?         @map("account_id")
+  accountName    String?         @map("account_name")
+  tokenSealed    String          @map("token_sealed")
+  verifiedAt     DateTime        @map("verified_at")
   /// oauth (Facebook Login, ads_read) | manual_token (system-user token pasted by the owner)
-  kind String @default("manual_token")
-  metaUserId String? @map("meta_user_id")
-  metaUserName String? @map("meta_user_name")
-  scopes String[] @default([])
-  tokenExpiresAt DateTime? @map("token_expires_at")
+  kind           String          @default("manual_token")
+  metaUserId     String?         @map("meta_user_id")
+  metaUserName   String?         @map("meta_user_name")
+  scopes         String[]        @default([])
+  tokenExpiresAt DateTime?       @map("token_expires_at")
   /// active | expired | revoked | error – set from real Graph answers, never assumed
-  status String @default("active")
-  lastError String? @map("last_error")
-  lastCheckedAt DateTime? @map("last_checked_at")
-  connectedById String? @map("connected_by_id")
-  business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
-  accounts MetaAdAccount[]
+  status         String          @default("active")
+  lastError      String?         @map("last_error")
+  lastCheckedAt  DateTime?       @map("last_checked_at")
+  connectedById  String?         @map("connected_by_id")
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  accounts       MetaAdAccount[]
+
   @@map("meta_ad_connections")
 }
 
 /// A Meta ad account a manager chose to connect to this business (measurement only – read, never write).
 model MetaAdAccount {
-  id             String    @id @default(cuid())
-  businessId     String    @map("business_id")
-  connectionId   String?   @map("connection_id")
-  accountId      String    @map("account_id")
-  name           String
-  currency       String?
-  timezoneName   String?   @map("timezone_name")
-  accountStatus  Int?      @map("account_status")
+  id                String               @id @default(cuid())
+  businessId        String               @map("business_id")
+  connectionId      String?              @map("connection_id")
+  accountId         String               @map("account_id")
+  name              String
+  currency          String?
+  timezoneName      String?              @map("timezone_name")
+  accountStatus     Int?                 @map("account_status")
   /// active | disconnected | auth_error | no_access | throttled | error
-  status         String    @default("active")
+  status            String               @default("active")
   /// First day requested for the historical sync (account timezone).
-  syncFrom       DateTime? @map("sync_from") @db.Date
+  syncFrom          DateTime?            @map("sync_from") @db.Date
   /// Days [syncFrom, syncedThrough] were fully fetched – outside that range spend is "missing", not zero.
-  syncedThrough  DateTime? @map("synced_through") @db.Date
-  lastSyncAt     DateTime? @map("last_sync_at")
-  lastSyncStatus String?   @map("last_sync_status")
-  lastSyncError  String?   @map("last_sync_error")
-  nextSyncAt     DateTime? @map("next_sync_at")
-  failures       Int       @default(0)
-  structureSyncedAt DateTime? @map("structure_synced_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  business   Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  connection MetaAdConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
-  entities   MetaAdEntity[]
-  insights   MetaAdInsightDaily[]
-  runs       MetaSyncRun[]
+  syncedThrough     DateTime?            @map("synced_through") @db.Date
+  lastSyncAt        DateTime?            @map("last_sync_at")
+  lastSyncStatus    String?              @map("last_sync_status")
+  lastSyncError     String?              @map("last_sync_error")
+  nextSyncAt        DateTime?            @map("next_sync_at")
+  failures          Int                  @default(0)
+  structureSyncedAt DateTime?            @map("structure_synced_at")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+  business          Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  connection        MetaAdConnection?    @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  entities          MetaAdEntity[]
+  insights          MetaAdInsightDaily[]
+  runs              MetaSyncRun[]
+
   @@unique([businessId, accountId])
   @@map("meta_ad_accounts")
 }
 
 /// Campaign / ad set / ad of a connected account (ids are stable; names can change – history kept).
 model MetaAdEntity {
-  id                 String   @id @default(cuid())
-  businessId         String   @map("business_id")
-  adAccountRowId     String   @map("ad_account_row_id")
+  id                 String        @id @default(cuid())
+  businessId         String        @map("business_id")
+  adAccountRowId     String        @map("ad_account_row_id")
   level              String
-  externalId         String   @map("external_id")
+  externalId         String        @map("external_id")
   name               String
-  campaignExternalId String?  @map("campaign_external_id")
-  adsetExternalId    String?  @map("adset_external_id")
-  effectiveStatus    String?  @map("effective_status")
-  thumbnailUrl       String?  @map("thumbnail_url")
-  previewUrl         String?  @map("preview_url")
+  campaignExternalId String?       @map("campaign_external_id")
+  adsetExternalId    String?       @map("adset_external_id")
+  effectiveStatus    String?       @map("effective_status")
+  thumbnailUrl       String?       @map("thumbnail_url")
+  previewUrl         String?       @map("preview_url")
   /// [{ name, until }] – earlier names of this object
-  nameHistory        Json     @default("[]") @map("name_history")
-  firstSeenAt        DateTime @default(now()) @map("first_seen_at")
-  lastSeenAt         DateTime @default(now()) @map("last_seen_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-  account MetaAdAccount @relation(fields: [adAccountRowId], references: [id], onDelete: Cascade)
+  nameHistory        Json          @default("[]") @map("name_history")
+  firstSeenAt        DateTime      @default(now()) @map("first_seen_at")
+  lastSeenAt         DateTime      @default(now()) @map("last_seen_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+  account            MetaAdAccount @relation(fields: [adAccountRowId], references: [id], onDelete: Cascade)
+
   @@unique([businessId, level, externalId])
   @@index([adAccountRowId])
   @@map("meta_ad_entities")
@@ -3063,41 +3076,43 @@ model MetaAdEntity {
 
 /// Daily delivery per AD only (campaign / ad set totals are sums of their ads – never fetched at two levels).
 model MetaAdInsightDaily {
-  id             String   @id @default(cuid())
-  businessId     String   @map("business_id")
-  adAccountRowId String   @map("ad_account_row_id")
-  date           DateTime @db.Date
-  campaignId     String   @map("campaign_id")
-  adsetId        String   @map("adset_id")
-  adId           String   @map("ad_id")
-  spend          Decimal  @default(0) @db.Decimal(14, 2)
-  impressions    Int      @default(0)
-  clicks         Int      @default(0)
-  linkClicks     Int      @default(0) @map("link_clicks")
+  id             String        @id @default(cuid())
+  businessId     String        @map("business_id")
+  adAccountRowId String        @map("ad_account_row_id")
+  date           DateTime      @db.Date
+  campaignId     String        @map("campaign_id")
+  adsetId        String        @map("adset_id")
+  adId           String        @map("ad_id")
+  spend          Decimal       @default(0) @db.Decimal(14, 2)
+  impressions    Int           @default(0)
+  clicks         Int           @default(0)
+  linkClicks     Int           @default(0) @map("link_clicks")
   /// Leads Meta reports for the ad (its own definition – shown apart from CRM leads).
-  metaLeads      Int?     @map("meta_leads")
+  metaLeads      Int?          @map("meta_leads")
   currency       String
-  syncedAt       DateTime @default(now()) @map("synced_at")
-  account MetaAdAccount @relation(fields: [adAccountRowId], references: [id], onDelete: Cascade)
+  syncedAt       DateTime      @default(now()) @map("synced_at")
+  account        MetaAdAccount @relation(fields: [adAccountRowId], references: [id], onDelete: Cascade)
+
   @@unique([adAccountRowId, adId, date])
   @@index([businessId, date])
   @@map("meta_ad_insights_daily")
 }
 
 model MetaSyncRun {
-  id             String    @id @default(cuid())
-  businessId     String    @map("business_id")
-  adAccountRowId String    @map("ad_account_row_id")
+  id             String        @id @default(cuid())
+  businessId     String        @map("business_id")
+  adAccountRowId String        @map("ad_account_row_id")
   kind           String
-  rangeFrom      DateTime  @map("range_from") @db.Date
-  rangeTo        DateTime  @map("range_to") @db.Date
+  rangeFrom      DateTime      @map("range_from") @db.Date
+  rangeTo        DateTime      @map("range_to") @db.Date
   /// running | ok | failed | throttled | auth_error
-  status         String    @default("running")
-  rows           Int       @default(0)
+  status         String        @default("running")
+  rows           Int           @default(0)
   error          String?
-  startedAt      DateTime  @default(now()) @map("started_at")
-  finishedAt     DateTime? @map("finished_at")
-  account MetaAdAccount @relation(fields: [adAccountRowId], references: [id], onDelete: Cascade)
+  startedAt      DateTime      @default(now()) @map("started_at")
+  finishedAt     DateTime?     @map("finished_at")
+  account        MetaAdAccount @relation(fields: [adAccountRowId], references: [id], onDelete: Cascade)
+
   @@index([adAccountRowId, startedAt])
   @@map("meta_sync_runs")
 }
@@ -3105,35 +3120,36 @@ model MetaSyncRun {
 /// Where an inquiry came from – one row per inquiry (a lead, a repeat inquiry, a click-to-WhatsApp message). The
 /// first row of a contact is its acquisition source; later rows never overwrite it.
 model LeadTouchpoint {
-  id           String   @id @default(cuid())
-  businessId   String   @map("business_id")
-  contactId    String   @map("contact_id")
-  leadId       String?  @map("lead_id")
+  id          String   @id @default(cuid())
+  businessId  String   @map("business_id")
+  contactId   String   @map("contact_id")
+  leadId      String?  @map("lead_id")
   /// meta_lead_form | landing_page | whatsapp_ad | whatsapp | api | import | manual | store | other
-  channel      String
-  source       String?
-  medium       String?
-  adAccountId  String?  @map("ad_account_id")
-  campaignId   String?  @map("campaign_id")
-  adsetId      String?  @map("adset_id")
-  adId         String?  @map("ad_id")
-  formId       String?  @map("form_id")
-  metaLeadId   String?  @map("meta_lead_id")
-  utm          Json     @default("{}")
-  landingUrl   String?  @map("landing_url")
-  referrer     String?
+  channel     String
+  source      String?
+  medium      String?
+  adAccountId String?  @map("ad_account_id")
+  campaignId  String?  @map("campaign_id")
+  adsetId     String?  @map("adset_id")
+  adId        String?  @map("ad_id")
+  formId      String?  @map("form_id")
+  metaLeadId  String?  @map("meta_lead_id")
+  utm         Json     @default("{}")
+  landingUrl  String?  @map("landing_url")
+  referrer    String?
   /// { fbclid, fbc, gclid, ctwa_clid }
-  clickIds     Json     @default("{}") @map("click_ids")
+  clickIds    Json     @default("{}") @map("click_ids")
   /// meta_ids | utm_only | click_id_only | none – what the attribution can rely on
-  basis        String   @default("none")
+  basis       String   @default("none")
   /// api | screen | import | whatsapp_webhook | assistant | backfill_lead
-  dataSource   String   @map("data_source")
-  dedupeKey    String?  @map("dedupe_key")
-  occurredAt   DateTime @map("occurred_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  lead     Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  dataSource  String   @map("data_source")
+  dedupeKey   String?  @map("dedupe_key")
+  occurredAt  DateTime @map("occurred_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  lead        Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
   @@unique([businessId, dedupeKey])
   @@index([businessId, occurredAt])
   @@index([businessId, contactId, occurredAt])
@@ -3143,23 +3159,23 @@ model LeadTouchpoint {
 
 /// Per-business provider routing for NEW calls (feature flag TELEPHONY_ROUTING=on). No row = platform default, primary only.
 model TelephonyRouting {
-  businessId       String               @id @map("business_id")
-  primaryProvider  TelephonyProvider?   @map("primary_provider")
-  backupProvider   TelephonyProvider?   @map("backup_provider")
-  mode             TelephonyRoutingMode @default(primary_only)
+  businessId           String               @id @map("business_id")
+  primaryProvider      TelephonyProvider?   @map("primary_provider")
+  backupProvider       TelephonyProvider?   @map("backup_provider")
+  mode                 TelephonyRoutingMode @default(primary_only)
   /// manual_backup: which provider new calls use right now.
-  manualActive     String               @default("primary") @map("manual_active")
+  manualActive         String               @default("primary") @map("manual_active")
   /// Circuit breaker: failures counted within windowSeconds; open for cooldownSeconds; then probeCalls trial calls.
-  failureThreshold Int                  @default(5) @map("failure_threshold")
-  windowSeconds    Int                  @default(120) @map("window_seconds")
-  cooldownSeconds  Int                  @default(300) @map("cooldown_seconds")
-  probeCalls       Int                  @default(3) @map("probe_calls")
+  failureThreshold     Int                  @default(5) @map("failure_threshold")
+  windowSeconds        Int                  @default(120) @map("window_seconds")
+  cooldownSeconds      Int                  @default(300) @map("cooldown_seconds")
+  probeCalls           Int                  @default(3) @map("probe_calls")
   /// Cost / usage guard: at most this many NEW calls per day through the backup (null = no limit).
-  backupDailyCallLimit Int?             @map("backup_daily_call_limit")
+  backupDailyCallLimit Int?                 @map("backup_daily_call_limit")
   /// Temporary capacity limits (line / channel limits) count toward failover only when this is on.
-  failoverOnCapacity   Boolean          @default(false) @map("failover_on_capacity")
-  updatedById      String?              @map("updated_by_id")
-  updatedAt        DateTime             @updatedAt @map("updated_at")
+  failoverOnCapacity   Boolean              @default(false) @map("failover_on_capacity")
+  updatedById          String?              @map("updated_by_id")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -3363,20 +3379,20 @@ model MediaProviderUpload {
 /// A card-payment provider connected by the business (PayPlus, or the built-in sandbox for tests). Secrets sealed.
 /// UltraCRM never sees card numbers: payments happen on the provider's hosted page (embedded or sent as a link).
 model PaymentProviderConnection {
-  id          String    @id @default(cuid())
-  businessId  String    @map("business_id")
+  id          String   @id @default(cuid())
+  businessId  String   @map("business_id")
   /// payplus | sandbox
   provider    String
   /// test | live
-  environment String    @default("test")
+  environment String   @default("test")
   label       String?
   /// { apiKey: enc, secretKey: enc, paymentPageUid }
-  config      Json      @default("{}")
-  isActive    Boolean   @default(true) @map("is_active")
-  lastError   String?   @map("last_error")
-  createdById String?   @map("created_by_id")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  config      Json     @default("{}")
+  isActive    Boolean  @default(true) @map("is_active")
+  lastError   String?  @map("last_error")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   requests PaymentRequest[]
@@ -3456,44 +3472,44 @@ model PaymentEvent {
 /// shipments and the receipt when an invoicing source sends one. An order proves what was recorded / charged – not
 /// what was packed; "delivered" does not prove every item arrived.
 model StoreOrder {
-  id          String    @id @default(cuid())
-  businessId  String    @map("business_id")
-  storeId     String?   @map("store_id")
-  contactId   String?   @map("contact_id")
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  storeId          String?   @map("store_id")
+  contactId        String?   @map("contact_id")
   /// shopify | woocommerce | api
-  source      String
-  externalId  String    @map("external_id")
+  source           String
+  externalId       String    @map("external_id")
   /// The number the customer sees (#1001).
-  orderNumber String    @map("order_number")
+  orderNumber      String    @map("order_number")
   /// pending | paid | processing | completed | on_hold | cancelled | refunded | partially_refunded
-  status      String
-  phoneE164   String?   @map("phone_e164")
-  email       String?
-  currency    String?
-  total       Decimal?  @db.Decimal(14, 2)
-  placedAt    DateTime? @map("placed_at")
+  status           String
+  phoneE164        String?   @map("phone_e164")
+  email            String?
+  currency         String?
+  total            Decimal?  @db.Decimal(14, 2)
+  placedAt         DateTime? @map("placed_at")
   /// [{ key, name, sku?, quantity, refundedQuantity?, price?, kind: product|bundle|component|gift|benefit, parentKey?, components?: [{ name, sku?, quantity }] }]
-  items       Json      @default("[]")
+  items            Json      @default("[]")
   /// [{ at, kind: created|item_added|item_removed|quantity_changed|cancelled|refunded, name?, from?, to? }]
-  changes     Json      @default("[]")
+  changes          Json      @default("[]")
   /// [{ key, status: pending|shipped|delivered|returned|failed, carrier?, tracking?, shippedAt?, deliveredAt?, items: [{ key?, name, quantity }] }]
-  shipments   Json      @default("[]")
+  shipments        Json      @default("[]")
   /// { number?, issuedAt?, total?, url?, items: [{ name, sku?, quantity, price? }] } – as the invoicing source sent it
-  receipt     Json?
+  receipt          Json?
   /// { subtotal, discount, tax, shipping, fees, total, refunded, coupons: [...] } as the store computed them.
-  totals      Json?
+  totals           Json?
   /// Payment confirmation (NOT a receipt): { method, title, transactionId, paidAt }.
-  payment     Json?
+  payment          Json?
   /// { billing: { name, city, phone, email }, shipping: { name, city, method } } – what service needs, no more.
-  addresses   Json?
+  addresses        Json?
   /// Links found on the order (plugin documents: invoice / receipt / shipping label …) – labelled by their source, unverified.
-  documents   Json      @default("[]")
+  documents        Json      @default("[]")
   /// The source's modification time of the version stored – an older event never overwrites a newer one.
   sourceModifiedAt DateTime? @map("source_modified_at")
   /// Came from the historical import (never triggers automations as a "new purchase").
-  imported    Boolean   @default(false)
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  imported         Boolean   @default(false)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
   contact  Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
@@ -3507,27 +3523,27 @@ model StoreOrder {
 
 /// A checked customer complaint ("בירור חוסר במשלוח" etc.) kept in the customer file – one per claim (dedupeKey).
 model ServiceCase {
-  id             String      @id @default(cuid())
-  businessId     String      @map("business_id")
-  contactId      String      @map("contact_id")
-  conversationId String?     @map("conversation_id")
-  orderId        String?     @map("order_id")
-  kind           String      @default("missing_item")
+  id             String    @id @default(cuid())
+  businessId     String    @map("business_id")
+  contactId      String    @map("contact_id")
+  conversationId String?   @map("conversation_id")
+  orderId        String?   @map("order_id")
+  kind           String    @default("missing_item")
   /// not_ordered | ordered_not_received | partial | shipped_separately | promised | conflict | needs_info
   finding        String
   /// open | informed | resolved
-  status         String      @default("open")
+  status         String    @default("open")
   /// { product, quantity?, text, promised? }
   claim          Json
   summary        String
   /// [{ type: order|receipt|shipment|change|message|note|call, id, label, at? }]
-  sources        Json        @default("[]")
-  suggestedReply String?     @map("suggested_reply")
-  dedupeKey      String      @map("dedupe_key")
-  createdBy      String      @default("ai") @map("created_by")
-  resolvedAt     DateTime?   @map("resolved_at")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
+  sources        Json      @default("[]")
+  suggestedReply String?   @map("suggested_reply")
+  dedupeKey      String    @map("dedupe_key")
+  createdBy      String    @default("ai") @map("created_by")
+  resolvedAt     DateTime? @map("resolved_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   business Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
   contact  Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -3540,25 +3556,25 @@ model ServiceCase {
 
 /// Inbox of store events (webhooks, initial import, reconcile): stored first, processed by a worker with retries.
 model StoreEvent {
-  id              String    @id @default(cuid())
-  businessId      String    @map("business_id")
-  storeId         String    @map("store_id")
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  storeId          String    @map("store_id")
   /// webhook | import | reconcile
-  source          String
+  source           String
   /// order.updated, customer.created, product.updated …
-  topic           String
-  resourceId      String?   @map("resource_id")
-  deliveryId      String?   @map("delivery_id")
-  payloadHash     String    @map("payload_hash")
-  payload         Json
+  topic            String
+  resourceId       String?   @map("resource_id")
+  deliveryId       String?   @map("delivery_id")
+  payloadHash      String    @map("payload_hash")
+  payload          Json
   sourceModifiedAt DateTime? @map("source_modified_at")
   /// pending | processing | done | duplicate | stale | failed
-  status          String    @default("pending")
-  attempts        Int       @default(0)
-  nextAttemptAt   DateTime  @default(now()) @map("next_attempt_at")
-  error           String?
-  receivedAt      DateTime  @default(now()) @map("received_at")
-  processedAt     DateTime? @map("processed_at")
+  status           String    @default("pending")
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now()) @map("next_attempt_at")
+  error            String?
+  receivedAt       DateTime  @default(now()) @map("received_at")
+  processedAt      DateTime? @map("processed_at")
 
   store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
@@ -3570,19 +3586,19 @@ model StoreEvent {
 
 /// A store's customer (by its id in that store) ↔ the CRM contact it was linked to.
 model StoreCustomer {
-  id          String    @id @default(cuid())
-  businessId  String    @map("business_id")
-  storeId     String    @map("store_id")
-  externalId  String    @map("external_id")
-  contactId   String?   @map("contact_id")
-  email       String?
-  phoneE164   String?   @map("phone_e164")
-  name        String?
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  storeId          String    @map("store_id")
+  externalId       String    @map("external_id")
+  contactId        String?   @map("contact_id")
+  email            String?
+  phoneE164        String?   @map("phone_e164")
+  name             String?
   /// linked | created | no_phone (kept without a contact – never merged by name)
-  linkState   String    @default("linked") @map("link_state")
+  linkState        String    @default("linked") @map("link_state")
   sourceModifiedAt DateTime? @map("source_modified_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
@@ -3593,23 +3609,23 @@ model StoreCustomer {
 
 /// The store's catalog (current). Purchases keep their own snapshot – a catalog change never rewrites an order.
 model StoreProduct {
-  id          String    @id @default(cuid())
-  businessId  String    @map("business_id")
-  storeId     String    @map("store_id")
-  externalId  String    @map("external_id")
-  parentExternalId String? @map("parent_external_id")
-  name        String
-  sku         String?
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  storeId          String    @map("store_id")
+  externalId       String    @map("external_id")
+  parentExternalId String?   @map("parent_external_id")
+  name             String
+  sku              String?
   /// simple | variable | variation | grouped | bundle | composite | …
-  type        String?
-  status      String?
-  price       Decimal?  @db.Decimal(14, 2)
+  type             String?
+  status           String?
+  price            Decimal?  @db.Decimal(14, 2)
   /// Bundle composition as the catalog states it now (informational only).
-  components  Json?
-  deleted     Boolean   @default(false)
+  components       Json?
+  deleted          Boolean   @default(false)
   sourceModifiedAt DateTime? @map("source_modified_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
@@ -3639,67 +3655,68 @@ model SupportSession {
   @@map("support_sessions")
 }
 
-
 /// A connection to a business's own (external) CRM. The connector key picks the vendor code; everything else –
 /// mapping, queues, retries, event log, permissions – is shared infrastructure (src/server/crm-sync).
 model CrmConnection {
-  id            String    @id @default(cuid())
-  businessId    String    @map("business_id")
-  connectorKey  String    @map("connector_key")
-  name          String
+  id             String               @id @default(cuid())
+  businessId     String               @map("business_id")
+  connectorKey   String               @map("connector_key")
+  name           String
   /// setup | active | error | paused | disconnected – "active" only after a real connection test passed
-  status        String    @default("setup")
+  status         String               @default("setup")
   /// Sealed credentials (never returned, never logged).
-  authConfig    Json      @default("{}") @map("auth_config")
+  authConfig     Json                 @default("{}") @map("auth_config")
   /// Mapping, selection, directions, source of truth, freshness and deletion policy (see crm-sync/settings.ts).
-  settings      Json      @default("{}")
+  settings       Json                 @default("{}")
   /// Which source owns a record when several connections exist (lower = wins); a record is linked to one owner.
-  priority      Int       @default(100)
-  verifiedAt    DateTime? @map("verified_at")
-  lastTestAt    DateTime? @map("last_test_at")
-  lastTestResult Json?    @map("last_test_result")
+  priority       Int                  @default(100)
+  verifiedAt     DateTime?            @map("verified_at")
+  lastTestAt     DateTime?            @map("last_test_at")
+  lastTestResult Json?                @map("last_test_result")
   /// Last time data from the source was confirmed current (sync / webhook / reconcile) – drives pre-dial freshness.
-  lastSyncAt    DateTime? @map("last_sync_at")
-  lastSyncStatus String?  @map("last_sync_status")
-  lastError     String?   @map("last_error")
+  lastSyncAt     DateTime?            @map("last_sync_at")
+  lastSyncStatus String?              @map("last_sync_status")
+  lastError      String?              @map("last_error")
   /// Initial sync / polling / reconcile progress: { phase, cursor, processed, total, startedAt, finishedAt, since }.
-  syncState     Json      @default("{}") @map("sync_state")
-  nextSyncAt    DateTime? @map("next_sync_at")
-  createdById   String?   @map("created_by_id")
-  disconnectedAt DateTime? @map("disconnected_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  business Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  links    ExternalRecordLink[]
-  events   CrmSyncEvent[]
-  outbox   CrmOutbox[]
-  reviews  CrmReviewItem[]
+  syncState      Json                 @default("{}") @map("sync_state")
+  nextSyncAt     DateTime?            @map("next_sync_at")
+  createdById    String?              @map("created_by_id")
+  disconnectedAt DateTime?            @map("disconnected_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  business       Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  links          ExternalRecordLink[]
+  events         CrmSyncEvent[]
+  outbox         CrmOutbox[]
+  reviews        CrmReviewItem[]
+
   @@index([businessId])
   @@map("crm_connections")
 }
 
 /// Identity of an external record = business + connection + record type + external id → one local record.
 model ExternalRecordLink {
-  id              String    @id @default(cuid())
-  businessId      String    @map("business_id")
-  connectionId    String    @map("connection_id")
+  id              String        @id @default(cuid())
+  businessId      String        @map("business_id")
+  connectionId    String        @map("connection_id")
   /// contact | lead | user | activity | task
-  recordType      String    @map("record_type")
-  externalId      String    @map("external_id")
-  localId         String?   @map("local_id")
+  recordType      String        @map("record_type")
+  externalId      String        @map("external_id")
+  localId         String?       @map("local_id")
   /// Source timestamp / version of the last change applied – an older event never overwrites a newer one.
-  sourceUpdatedAt DateTime? @map("source_updated_at")
-  sourceVersion   String?   @map("source_version")
-  lastSyncedAt    DateTime? @map("last_synced_at")
+  sourceUpdatedAt DateTime?     @map("source_updated_at")
+  sourceVersion   String?       @map("source_version")
+  lastSyncedAt    DateTime?     @map("last_synced_at")
   /// Selected for work by the connection's rules (does not by itself dial or message anyone).
-  selected        Boolean   @default(false)
-  deletedAt       DateTime? @map("deleted_at")
+  selected        Boolean       @default(false)
+  deletedAt       DateTime?     @map("deleted_at")
   /// Last values WE wrote to the source ({ status, at, correlationId }) – their echo is ignored (no loops).
-  lastOutbound    Json      @default("{}") @map("last_outbound")
-  snapshot        Json      @default("{}")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-  connection CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  lastOutbound    Json          @default("{}") @map("last_outbound")
+  snapshot        Json          @default("{}")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  connection      CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
   @@unique([businessId, connectionId, recordType, externalId])
   @@index([businessId, recordType, localId])
   @@map("external_record_links")
@@ -3707,25 +3724,26 @@ model ExternalRecordLink {
 
 /// Every inbound change (webhook / poll / initial / API) – dedupe by event id, stale / echo detection, audit.
 model CrmSyncEvent {
-  id            String    @id @default(cuid())
-  businessId    String    @map("business_id")
-  connectionId  String    @map("connection_id")
-  eventId       String    @map("event_id")
+  id            String        @id @default(cuid())
+  businessId    String        @map("business_id")
+  connectionId  String        @map("connection_id")
+  eventId       String        @map("event_id")
   /// webhook | poll | initial | reconcile | api
   kind          String
-  recordType    String    @map("record_type")
-  externalId    String    @map("external_id")
-  occurredAt    DateTime? @map("occurred_at")
+  recordType    String        @map("record_type")
+  externalId    String        @map("external_id")
+  occurredAt    DateTime?     @map("occurred_at")
   /// pending | applied | skipped_duplicate | skipped_stale | skipped_echo | review | conflict | failed
-  status        String    @default("pending")
-  attempts      Int       @default(0)
+  status        String        @default("pending")
+  attempts      Int           @default(0)
   error         String?
-  payload       Json      @default("{}")
+  payload       Json          @default("{}")
   result        Json?
-  correlationId String?   @map("correlation_id")
-  processedAt   DateTime? @map("processed_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  connection CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  correlationId String?       @map("correlation_id")
+  processedAt   DateTime?     @map("processed_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  connection    CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
   @@unique([connectionId, eventId])
   @@index([businessId, status, createdAt])
   @@map("crm_sync_events")
@@ -3734,25 +3752,26 @@ model CrmSyncEvent {
 /// Write-back queue to the external CRM (call activity, late AI summary, follow-up task, status, block request).
 /// "Done here" is the local record; "synced" is this row reaching sent. Idempotent per dedupe key.
 model CrmOutbox {
-  id            String    @id @default(cuid())
-  businessId    String    @map("business_id")
-  connectionId  String    @map("connection_id")
+  id            String        @id @default(cuid())
+  businessId    String        @map("business_id")
+  connectionId  String        @map("connection_id")
   action        String
-  localType     String    @map("local_type")
-  localId       String    @map("local_id")
-  dedupeKey     String    @map("dedupe_key")
-  payload       Json      @default("{}")
+  localType     String        @map("local_type")
+  localId       String        @map("local_id")
+  dedupeKey     String        @map("dedupe_key")
+  payload       Json          @default("{}")
   /// pending | sent | failed | dead | cancelled
-  status        String    @default("pending")
-  attempts      Int       @default(0)
-  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
-  lastError     String?   @map("last_error")
-  externalRef   String?   @map("external_ref")
-  correlationId String    @map("correlation_id")
-  sentAt        DateTime? @map("sent_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  connection CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  status        String        @default("pending")
+  attempts      Int           @default(0)
+  nextAttemptAt DateTime      @default(now()) @map("next_attempt_at")
+  lastError     String?       @map("last_error")
+  externalRef   String?       @map("external_ref")
+  correlationId String        @map("correlation_id")
+  sentAt        DateTime?     @map("sent_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  connection    CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
   @@unique([connectionId, dedupeKey])
   @@index([businessId, status, nextAttemptAt])
   @@map("crm_outbox")
@@ -3760,22 +3779,23 @@ model CrmOutbox {
 
 /// Things a person decides: fuzzy identity matches, unmapped agents, conflicts, external deletions.
 model CrmReviewItem {
-  id           String    @id @default(cuid())
-  businessId   String    @map("business_id")
-  connectionId String    @map("connection_id")
+  id           String        @id @default(cuid())
+  businessId   String        @map("business_id")
+  connectionId String        @map("connection_id")
   /// fuzzy_match | unmapped_owner | conflict | deleted_external | unmapped_status
   kind         String
-  recordType   String    @map("record_type")
-  externalId   String    @map("external_id")
-  localId      String?   @map("local_id")
-  details      Json      @default("{}")
+  recordType   String        @map("record_type")
+  externalId   String        @map("external_id")
+  localId      String?       @map("local_id")
+  details      Json          @default("{}")
   /// open | resolved | dismissed
-  status       String    @default("open")
+  status       String        @default("open")
   resolution   String?
-  resolvedById String?   @map("resolved_by_id")
-  resolvedAt   DateTime? @map("resolved_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  connection CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  resolvedById String?       @map("resolved_by_id")
+  resolvedAt   DateTime?     @map("resolved_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  connection   CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
   @@unique([connectionId, kind, recordType, externalId])
   @@index([businessId, status])
   @@map("crm_review_items")
@@ -3798,53 +3818,56 @@ model PriceBookVersion {
   createdById  String?   @map("created_by_id")
   note         String?
   createdAt    DateTime  @default(now()) @map("created_at")
+
   @@map("price_book_versions")
 }
 
 /// The business's subscription to UltraCRM (platform billing – separate from the businesses' payments to their customers).
 model Subscription {
-  id                     String    @id @default(cuid())
-  businessId             String    @unique @map("business_id")
+  id                 String             @id @default(cuid())
+  businessId         String             @unique @map("business_id")
   /// none | pending_payment | active | past_due | grace | canceled
-  status                 String    @default("none")
-  priceBookVersionId     String?   @map("price_book_version_id")
+  status             String             @default("none")
+  priceBookVersionId String?            @map("price_book_version_id")
   /// billing provider key (sandbox until a real one is connected)
-  provider               String    @default("sandbox")
-  providerCustomerId     String?   @map("provider_customer_id")
+  provider           String             @default("sandbox")
+  providerCustomerId String?            @map("provider_customer_id")
   /// Tokenized payment method reference at the provider – never card numbers / CVV.
-  paymentMethodRef       String?   @map("payment_method_ref")
-  paymentMethodLabel     String?   @map("payment_method_label")
-  currentPeriodStart     DateTime? @map("current_period_start")
-  currentPeriodEnd       DateTime? @map("current_period_end")
-  cancelAtPeriodEnd      Boolean   @default(false) @map("cancel_at_period_end")
-  canceledAt             DateTime? @map("canceled_at")
-  graceUntil             DateTime? @map("grace_until")
-  failedAttempts         Int       @default(0) @map("failed_attempts")
-  nextRetryAt            DateTime? @map("next_retry_at")
+  paymentMethodRef   String?            @map("payment_method_ref")
+  paymentMethodLabel String?            @map("payment_method_label")
+  currentPeriodStart DateTime?          @map("current_period_start")
+  currentPeriodEnd   DateTime?          @map("current_period_end")
+  cancelAtPeriodEnd  Boolean            @default(false) @map("cancel_at_period_end")
+  canceledAt         DateTime?          @map("canceled_at")
+  graceUntil         DateTime?          @map("grace_until")
+  failedAttempts     Int                @default(0) @map("failed_attempts")
+  nextRetryAt        DateTime?          @map("next_retry_at")
   /// last provider event applied (occurredAt) – an older event never overrides a newer state
-  lastEventAt            DateTime? @map("last_event_at")
-  createdAt              DateTime  @default(now()) @map("created_at")
-  updatedAt              DateTime  @updatedAt @map("updated_at")
-  items     SubscriptionItem[]
-  documents BillingDocument[]
+  lastEventAt        DateTime?          @map("last_event_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  items              SubscriptionItem[]
+  documents          BillingDocument[]
+
   @@map("subscriptions")
 }
 
 model SubscriptionItem {
-  id               String   @id @default(cuid())
-  businessId       String   @map("business_id")
-  subscriptionId   String   @map("subscription_id")
-  code             String
-  module           String
-  kind             String
-  quantity         Int
+  id              String       @id @default(cuid())
+  businessId      String       @map("business_id")
+  subscriptionId  String       @map("subscription_id")
+  code            String
+  module          String
+  kind            String
+  quantity        Int
   /// Reduction scheduled for the next renewal (never mid-period).
-  pendingQuantity  Int?     @map("pending_quantity")
+  pendingQuantity Int?         @map("pending_quantity")
   /// Price at purchase (from the subscription's price book version).
-  unitPriceMinor   Int      @map("unit_price_minor")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  unitPriceMinor  Int          @map("unit_price_minor")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
   @@unique([subscriptionId, code])
   @@map("subscription_items")
 }
@@ -3852,32 +3875,33 @@ model SubscriptionItem {
 /// A charge document (initial / renewal / proration / credit). Lines and totals are frozen once issued – a later
 /// correction is a new credit document, never an edit. A provider payment confirmation is not an accounting receipt.
 model BillingDocument {
-  id                 String    @id @default(cuid())
-  businessId         String    @map("business_id")
-  subscriptionId     String    @map("subscription_id")
-  number             String    @unique
+  id                 String       @id @default(cuid())
+  businessId         String       @map("business_id")
+  subscriptionId     String       @map("subscription_id")
+  number             String       @unique
   /// initial | renewal | proration | credit | usage
   kind               String
-  periodStart        DateTime? @map("period_start")
-  periodEnd          DateTime? @map("period_end")
+  periodStart        DateTime?    @map("period_start")
+  periodEnd          DateTime?    @map("period_end")
   lines              Json
-  currency           String    @default("ILS")
-  subtotalMinor      Int       @map("subtotal_minor")
-  taxMinor           Int       @map("tax_minor")
-  totalMinor         Int       @map("total_minor")
+  currency           String       @default("ILS")
+  subtotalMinor      Int          @map("subtotal_minor")
+  taxMinor           Int          @map("tax_minor")
+  totalMinor         Int          @map("total_minor")
   /// open | paid | failed | void
-  status             String    @default("open")
+  status             String       @default("open")
   /// what it changes once paid: { items: [{ code, quantity }] } etc.
-  effect             Json      @default("{}")
-  idempotencyKey     String    @map("idempotency_key")
-  providerPaymentRef String?   @map("provider_payment_ref")
-  checkoutUrl        String?   @map("checkout_url")
-  attempts           Int       @default(0)
-  issuedAt           DateTime  @default(now()) @map("issued_at")
-  paidAt             DateTime? @map("paid_at")
-  failedAt           DateTime? @map("failed_at")
-  correctsDocumentId String?   @map("corrects_document_id")
-  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  effect             Json         @default("{}")
+  idempotencyKey     String       @map("idempotency_key")
+  providerPaymentRef String?      @map("provider_payment_ref")
+  checkoutUrl        String?      @map("checkout_url")
+  attempts           Int          @default(0)
+  issuedAt           DateTime     @default(now()) @map("issued_at")
+  paidAt             DateTime?    @map("paid_at")
+  failedAt           DateTime?    @map("failed_at")
+  correctsDocumentId String?      @map("corrects_document_id")
+  subscription       Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
   @@unique([businessId, idempotencyKey])
   @@index([businessId, issuedAt])
   @@map("billing_documents")
@@ -3896,6 +3920,7 @@ model BillingEvent {
   result      String?
   processedAt DateTime? @map("processed_at")
   createdAt   DateTime  @default(now()) @map("created_at")
+
   @@unique([provider, eventId])
   @@map("billing_events")
 }
@@ -3931,6 +3956,7 @@ model UsageEvent {
   correctsEventId   String?  @map("corrects_event_id")
   details           Json     @default("{}")
   createdAt         DateTime @default(now()) @map("created_at")
+
   @@unique([businessId, idempotencyKey])
   @@index([businessId, occurredAt])
   @@index([businessId, module, occurredAt])
@@ -3939,15 +3965,16 @@ model UsageEvent {
 
 /// Monthly budget cap and alert thresholds of a business (in the billing currency, minor units).
 model BudgetPolicy {
-  id               String   @id @default(cuid())
-  businessId       String   @unique @map("business_id")
-  monthlyCapMinor  Int?     @map("monthly_cap_minor")
-  alertPercents    Int[]    @default([50, 80, 100]) @map("alert_percents")
+  id              String   @id @default(cuid())
+  businessId      String   @unique @map("business_id")
+  monthlyCapMinor Int?     @map("monthly_cap_minor")
+  alertPercents   Int[]    @default([50, 80, 100]) @map("alert_percents")
   /// stop new outbound paid actions at the cap (inbound, opt-outs, active calls and logging always continue)
-  hardStop         Boolean  @default(true) @map("hard_stop")
-  alertsSent       Json     @default("{}") @map("alerts_sent")
-  updatedById      String?  @map("updated_by_id")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  hardStop        Boolean  @default(true) @map("hard_stop")
+  alertsSent      Json     @default("{}") @map("alerts_sent")
+  updatedById     String?  @map("updated_by_id")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
   @@map("budget_policies")
 }
 
@@ -3962,6 +3989,7 @@ model BudgetReservation {
   status      String   @default("held")
   expiresAt   DateTime @map("expires_at")
   createdAt   DateTime @default(now()) @map("created_at")
+
   @@unique([businessId, key])
   @@index([businessId, status])
   @@map("budget_reservations")
@@ -3969,36 +3997,38 @@ model BudgetReservation {
 
 /// Unified platform alert – one row per fingerprint (same problem = same row, counted), so a recurring failure never floods.
 model PlatformAlert {
-  id           String    @id @default(cuid())
-  fingerprint  String    @unique
+  id          String    @id @default(cuid())
+  fingerprint String    @unique
   /// info | warning | critical
-  severity     String
-  category     String
-  businessId   String?   @map("business_id")
-  title        String
-  details      Json      @default("{}")
-  count        Int       @default(1)
-  firstSeenAt  DateTime  @default(now()) @map("first_seen_at")
-  lastSeenAt   DateTime  @default(now()) @map("last_seen_at")
+  severity    String
+  category    String
+  businessId  String?   @map("business_id")
+  title       String
+  details     Json      @default("{}")
+  count       Int       @default(1)
+  firstSeenAt DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime  @default(now()) @map("last_seen_at")
   /// open | acknowledged | resolved
-  status       String    @default("open")
-  resolvedAt   DateTime? @map("resolved_at")
+  status      String    @default("open")
+  resolvedAt  DateTime? @map("resolved_at")
+
   @@index([status, lastSeenAt])
   @@map("platform_alerts")
 }
 
 /// "דווח על תקלה" from inside the app – incident code + technical context (never secrets).
 model SupportTicket {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  businessId  String   @map("business_id")
-  userId      String   @map("user_id")
-  message     String
-  context     Json     @default("{}")
+  id         String   @id @default(cuid())
+  code       String   @unique
+  businessId String   @map("business_id")
+  userId     String   @map("user_id")
+  message    String
+  context    Json     @default("{}")
   /// open | in_progress | resolved
-  status      String   @default("open")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  status     String   @default("open")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
   @@index([businessId, createdAt])
   @@map("support_tickets")
 }
@@ -4006,43 +4036,47 @@ model SupportTicket {
 /// Operational drills (restore from backup into an isolated environment) – their real result and time are shown;
 /// "backup OK" is never claimed from configuration alone.
 model OpsDrill {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   kind        String
   environment String
   /// ok | failed | partial
   result      String
-  details     Json      @default("{}")
-  startedAt   DateTime  @map("started_at")
-  finishedAt  DateTime  @map("finished_at")
-  performedBy String?   @map("performed_by")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  details     Json     @default("{}")
+  startedAt   DateTime @map("started_at")
+  finishedAt  DateTime @map("finished_at")
+  performedBy String?  @map("performed_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
   @@map("ops_drills")
 }
 
 /// Comparison of the usage ledger with a provider's report (uploaded CSV). Findings never change issued documents.
 model ReconciliationRun {
-  id          String   @id @default(cuid())
+  id          String               @id @default(cuid())
   provider    String
-  periodStart DateTime @map("period_start")
-  periodEnd   DateTime @map("period_end")
+  periodStart DateTime             @map("period_start")
+  periodEnd   DateTime             @map("period_end")
   currency    String
-  summary     Json     @default("{}")
-  createdById String?  @map("created_by_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  items ReconciliationItem[]
+  summary     Json                 @default("{}")
+  createdById String?              @map("created_by_id")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  items       ReconciliationItem[]
+
   @@map("reconciliation_runs")
 }
+
 model ReconciliationItem {
-  id          String  @id @default(cuid())
-  runId       String  @map("run_id")
+  id          String            @id @default(cuid())
+  runId       String            @map("run_id")
   /// missing_internal | missing_provider | duplicate | quantity_diff | price_diff | unassigned
   kind        String
-  providerRef String? @map("provider_ref")
-  businessId  String? @map("business_id")
-  details     Json    @default("{}")
+  providerRef String?           @map("provider_ref")
+  businessId  String?           @map("business_id")
+  details     Json              @default("{}")
   /// open | explained | adjusted
-  status      String  @default("open")
-  run ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  status      String            @default("open")
+  run         ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
   @@index([runId, kind])
   @@map("reconciliation_items")
 }
@@ -4074,19 +4108,19 @@ model LeadStatusDef {
 /// Custom pricing for one business (platform admin). Append-only versions – the terms in force at a moment are the
 /// highest version whose effectiveFrom ≤ that moment. Issued documents and recorded usage are never rewritten.
 model BusinessPricing {
-  id            String   @id @default(cuid())
-  businessId    String   @map("business_id")
-  version       Int
-  effectiveFrom DateTime @map("effective_from")
+  id                 String   @id @default(cuid())
+  businessId         String   @map("business_id")
+  version            Int
+  effectiveFrom      DateTime @map("effective_from")
   /// {licenseCode: unitPriceMinor} – replaces the price-book unit price for this business.
-  licensePrices Json     @default("{}") @map("license_prices")
+  licensePrices      Json     @default("{}") @map("license_prices")
   /// Recurring discount on the licenses subtotal: {type: "fixed"|"percent", amountMinor?, bps?, startsAt, endsAt?, note?}
-  discount      Json?
+  discount           Json?
   /// {service: unitPriceMinor} – replaces the price-book usage rate for usage recorded from effectiveFrom.
-  usageRates    Json     @default("{}") @map("usage_rates")
-  note          String?
-  createdByAccountId String? @map("created_by_account_id")
-  createdAt     DateTime @default(now()) @map("created_at")
+  usageRates         Json     @default("{}") @map("usage_rates")
+  note               String?
+  createdByAccountId String?  @map("created_by_account_id")
+  createdAt          DateTime @default(now()) @map("created_at")
 
   @@unique([businessId, version])
   @@index([businessId, effectiveFrom])
@@ -4096,16 +4130,16 @@ model BusinessPricing {
 /// One-time credit (platform admin) – consumed by the next renewal documents, never below zero; unused remainder
 /// stays for the following one. Cancelling is possible only while nothing was used.
 model BillingCredit {
-  id             String    @id @default(cuid())
-  businessId     String    @map("business_id")
-  amountMinor    Int       @map("amount_minor")
-  remainingMinor Int       @map("remaining_minor")
-  currency       String    @default("ILS")
-  reason         String
-  applied        Json      @default("[]")
-  createdByAccountId String? @map("created_by_account_id")
-  cancelledAt    DateTime? @map("cancelled_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  id                 String    @id @default(cuid())
+  businessId         String    @map("business_id")
+  amountMinor        Int       @map("amount_minor")
+  remainingMinor     Int       @map("remaining_minor")
+  currency           String    @default("ILS")
+  reason             String
+  applied            Json      @default("[]")
+  createdByAccountId String?   @map("created_by_account_id")
+  cancelledAt        DateTime? @map("cancelled_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
   @@index([businessId, cancelledAt])
   @@map("billing_credits")
@@ -4127,4 +4161,123 @@ model SequenceVersion {
   @@unique([sequenceId, version])
   @@index([businessId, sequenceId])
   @@map("sequence_versions")
+}
+
+/// "מאמן מכירות": a recording used for sales learning – uploaded by a manager or taken from a call of the business.
+/// Uploaded audio lives in sales_recording_chunks (per business, RLS); a call recording stays at its telephony provider.
+model SalesRecording {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  /// upload | call
+  source      String
+  callId      String?   @map("call_id")
+  dealId      String?   @map("deal_id")
+  title       String
+  fileName    String?   @map("file_name")
+  mimeType    String?   @map("mime_type")
+  sizeBytes   Int?      @map("size_bytes")
+  durationSec Int?      @map("duration_sec")
+  /// sha256 of the uploaded bytes – the same file is never processed twice in a business.
+  sha256      String?
+  /// uploading | queued | processing | ready | no_transcript | failed | deleted
+  status      String    @default("uploading")
+  error       String?
+  /// [{ startMs, endMs, text }]
+  segments    Json      @default("[]")
+  transcript  String    @default("")
+  attempts    Int       @default(0)
+  lockedAt    DateTime? @map("locked_at")
+  processedAt DateTime? @map("processed_at")
+  /// true = added by "learn automatically from closed deals"
+  auto        Boolean   @default(false)
+  costUsd     Decimal   @default(0) @map("cost_usd") @db.Decimal(10, 5)
+  createdById String?   @map("created_by_id")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  business Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  chunks   SalesRecordingChunk[]
+  insights SalesInsight[]
+
+  @@unique([businessId, callId])
+  @@index([businessId, status])
+  @@index([businessId, dealId])
+  @@map("sales_recordings")
+}
+
+model SalesRecordingChunk {
+  recordingId String @map("recording_id")
+  businessId  String @map("business_id")
+  idx         Int
+  data        Bytes
+
+  recording SalesRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@id([recordingId, idx])
+  @@index([businessId])
+  @@map("sales_recording_chunks")
+}
+
+/// Sales knowledge extracted from a recording. Never trusted as-is: a candidate until a manager approves it (or an
+/// explicit auto-publish policy does). Every edit is a new version (parentId → previous); nothing is overwritten.
+model SalesInsight {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  recordingId   String?   @map("recording_id")
+  dealId        String?   @map("deal_id")
+  /// opening | discovery | objection | offer | closing | improvement
+  kind          String
+  title         String
+  body          String
+  objection     String?
+  quote         String    @default("")
+  startMs       Int?      @map("start_ms")
+  endMs         Int?      @map("end_ms")
+  /// risk flags from extraction + checks: customer_detail | promise | discount | price | unverified_fact
+  flags         Json      @default("[]")
+  /// candidate | approved | rejected | removed | superseded
+  status        String    @default("candidate")
+  version       Int       @default(1)
+  parentId      String?   @map("parent_id")
+  rootId        String?   @map("root_id")
+  autoPublished Boolean   @default(false) @map("auto_published")
+  needsReview   Boolean   @default(false) @map("needs_review")
+  reviewReason  String?   @map("review_reason")
+  embedding     Json?
+  reviewedById  String?   @map("reviewed_by_id")
+  reviewedAt    DateTime? @map("reviewed_at")
+  createdById   String?   @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  business  Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recording SalesRecording? @relation(fields: [recordingId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, status])
+  @@index([businessId, dealId])
+  @@index([recordingId])
+  @@index([rootId])
+  @@map("sales_insights")
+}
+
+/// What "learn automatically from closed deals" did with one deal: condition, the calls it linked, the result.
+model SalesDealLearning {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  dealId     String   @map("deal_id")
+  /// won | paid
+  condition  String
+  /// waiting_payment | queued | done | no_recordings | changed
+  status     String
+  callIds    Json     @default("[]") @map("call_ids")
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId])
+  @@index([businessId, status])
+  @@map("sales_deal_learnings")
 }

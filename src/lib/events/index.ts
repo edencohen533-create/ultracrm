@@ -24,6 +24,7 @@ export type DomainEventType =
   | "deal.created"
   | "deal.won"
   | "deal.lost"
+  | "deal.reopened"
   | "call.ended"
   | "call.outcome_saved"
   /** The AI documentation of a call was stored (may arrive after the call was already written to an external CRM). */

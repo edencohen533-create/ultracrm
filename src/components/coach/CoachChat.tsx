@@ -6,7 +6,7 @@ import { api } from "@/lib/client/api";
 import { Badge, Button, cx } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
 
-type Sources = { transcriptLines?: number; lead?: boolean; product?: boolean; whatsapp?: number; outcomes?: number; examples?: number; knowledgeObjections?: number; mock?: boolean; latencyMs?: number };
+type Sources = { transcriptLines?: number; lead?: boolean; product?: boolean; whatsapp?: number; outcomes?: number; examples?: number; knowledgeObjections?: number; mock?: boolean; latencyMs?: number; insights?: number; sharedFacts?: number; facts?: Array<{ text: string; source: string }> };
 type Msg = { id: string; role: "agent" | "assistant"; text: string; followUp: string | null; why: string | null; basis: string | null; sources: Sources; createdAt: string };
 
 /** Honest one-liner: what really fed this answer (the agent sees when there is no transcript). */
@@ -15,6 +15,7 @@ function sourcesLine(s: Sources, t: (he: string, en: string) => string) {
   parts.push(s.transcriptLines ? t(`${s.transcriptLines} שורות תמלול`, `${s.transcriptLines} transcript lines`) : t("ללא תמלול – לפי מה שכתבת", "No transcript – based on what you wrote"));
   if (s.lead) parts.push(t("פרטי הליד", "Lead details")); if (s.product) parts.push(t("המוצר שמעניין", "Product of interest")); if (s.whatsapp) parts.push(t(`${s.whatsapp} הודעות WhatsApp`, `${s.whatsapp} WhatsApp messages`)); if (s.outcomes) parts.push(t(`${s.outcomes} שיחות קודמות`, `${s.outcomes} previous calls`));
   if (s.examples) parts.push(t(`${s.examples} דוגמאות ממכירות שנסגרו`, `${s.examples} examples from closed sales`)); if (s.knowledgeObjections) parts.push(t("ידע עסקי מאושר", "Approved business knowledge"));
+  if (s.insights) parts.push(t(`${s.insights} תובנות מכירה מאושרות`, `${s.insights} approved sales insights`)); if (s.sharedFacts) parts.push(t(`${s.sharedFacts} מקורות שירות משותפים`, `${s.sharedFacts} shared service sources`));
   return parts.join(" · ");
 }
 
@@ -62,8 +63,9 @@ export function CoachChat({ callId, disabledReason, mock }: { callId: string; di
               <div key={m.id} className="coach-msg agent" data-testid="coach-chat-agent">{m.text}</div>
             ) : (
               <div key={m.id} className="coach-msg assistant" data-testid="coach-chat-answer">
-                <div className="coach-say"><span className="label">{t("תגיד עכשיו", "Say now")}</span><p data-testid="coach-chat-say-now">{m.text}</p><button type="button" aria-label={t("העתק", "Copy")} title={t("העתק", "Copy")} onClick={() => copy(m)}>{copied === m.id ? <Check size={14} /> : <Copy size={14} />}</button></div>
+                <div className="coach-say"><span className="label">{t("ניסוח מוצע – תגיד עכשיו", "Suggested wording – say now")}</span><p data-testid="coach-chat-say-now">{m.text}</p><button type="button" aria-label={t("העתק", "Copy")} title={t("העתק", "Copy")} onClick={() => copy(m)}>{copied === m.id ? <Check size={14} /> : <Copy size={14} />}</button></div>
                 {m.followUp && <p className="coach-follow"><span className="label">{t("אפשר להמשיך", "Follow-up")}</span>{m.followUp}</p>}
+                {m.sources.facts?.length ? <div className="coach-facts" data-testid="coach-chat-facts"><span className="label">{t("עובדות ממקורות מאושרים", "Facts from approved sources")}</span><ul>{m.sources.facts.map((f, i) => <li key={i}>{f.text} <span className="text-muted">· {t("מקור:", "Source:")} {f.source}</span></li>)}</ul></div> : null}
                 <div className="coach-meta">
                   <span title={sourcesLine(m.sources, t)}>{sourcesLine(m.sources, t)}</span>
                   {m.why && <button type="button" onClick={() => setShowWhy(showWhy === m.id ? null : m.id)}>{showWhy === m.id ? t("הסתר", "Hide") : t("למה?", "Why?")}</button>}

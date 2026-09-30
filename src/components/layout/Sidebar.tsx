@@ -39,7 +39,7 @@ const ITEMS: Item[] = [
   { href: "/templates", label: "תבניות WhatsApp", en: "WhatsApp templates", roles: ALL, need: ["whatsapp.campaign_draft", "whatsapp.automations"], Icon: FileText, testid: "nav-templates", match: (p) => p.startsWith("/templates") },
   { href: "/campaigns/whatsapp", label: "הודעות תפוצה", en: "Broadcasts", roles: ALL, need: ["whatsapp.campaign_draft", "whatsapp.campaign_send", "sms.view", "email.view"], Icon: Megaphone, testid: "nav-campaigns", match: (p) => p.startsWith("/campaigns") },
   { href: "/automations", label: "אוטומציות", en: "Automations", roles: MGMT, need: ["whatsapp.automations", "sms.send", "email.send"], Icon: Zap, testid: "nav-automations", match: (p) => p.startsWith("/automations") || p.startsWith("/carts") },
-  { href: "/ai", label: "עוזר AI", en: "AI assistant", roles: ALL, Icon: Bot, testid: "nav-ai", match: (p) => p.startsWith("/ai") },
+  { href: "/ai", label: "מרכז ה־AI", en: "AI Center", roles: ALL, Icon: Bot, testid: "nav-ai", match: (p) => p.startsWith("/ai") },
   // "הצעות וסגירה" is no longer a menu item: offers open from the lead ("הצעת מחיר"), payment during a call from the
   // dialer, connections (payments / Meta) in settings → חיבורים. The /sales page itself still exists.
   { href: "/reports", label: "דוחות", en: "Reports", roles: MGMT, Icon: BarChart3, testid: "nav-reports", match: (p) => p.startsWith("/reports") || p.startsWith("/analytics") || p.startsWith("/manager") },

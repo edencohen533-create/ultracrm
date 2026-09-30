@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { RecordingDownload } from "@/components/calling/RecordingDownload";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -64,7 +65,7 @@ export function CallsInbox() {
               <Badge tone={r.answeredAt ? "good" : missed(r) ? "warn" : "neutral"}>{r.telephonyResult ? TELEPHONY_RESULT_LABEL[r.telephonyResult] ?? r.telephonyResult : r.answeredAt ? t("נענתה", "Answered") : t("לא נענתה", "Not answered")}</Badge>
               {r.answeredAt && <span className="text-xs tabular text-muted">{formatDuration(r.talkSeconds)}</span>}
               <span className="text-xs">{outcomeLabel(r.outcome)}</span>
-              {r.recordingStatus === "saved" && <a href={`/api/recordings/${r.id}`} target="_blank" className="text-xs text-accent underline">{t("הקלטה", "Recording")}</a>}
+              {r.recordingStatus === "saved" && <a href={`/api/recordings/${r.id}`} target="_blank" className="text-xs text-accent underline">{t("הקלטה", "Recording")}</a>}<RecordingDownload callId={r.id} status={r.recordingStatus} purgedAt={(r as { recordingPurgedAt?: string | null }).recordingPurgedAt} />
               <Button size="sm" variant="good" disabled={!canDial} onClick={() => callBack(r)} data-testid="call-back">{t("חייג חזרה", "Call back")}</Button>
             </li>
           ))}

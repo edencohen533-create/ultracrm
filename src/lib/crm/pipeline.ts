@@ -358,6 +358,10 @@ export async function updateDeal(user: SessionUser, id: string, input: z.infer<t
       await (await import("./customer-identity")).markPurchase(tx, { businessId: user.businessId, contactId: deal.contactId, actorUserId: user.id, via: "deal_won" });
       await emitEvent(tx, { businessId: user.businessId, type: "deal.won", contactId: deal.contactId, actorUserId: user.id, source: "user", dedupeKey: `deal.won:${deal.id}`, payload: { dealId: deal.id, amount: Number(u.amount) } });
     }
+    // A won deal moved back to an open stage (e.g. cancelled before payment) – knowledge learned from it is re-examined.
+    if (stage && deal.stage === "won" && stage !== "won" && stage !== "lost") {
+      await emitEvent(tx, { businessId: user.businessId, type: "deal.reopened", contactId: deal.contactId, actorUserId: user.id, source: "user", dedupeKey: `deal.reopened:${deal.id}:${Date.now()}`, payload: { dealId: deal.id, to: stage } });
+    }
     if (stage === "lost" && deal.stage !== "lost") {
       await emitEvent(tx, { businessId: user.businessId, type: "deal.lost", contactId: deal.contactId, actorUserId: user.id, source: "user", dedupeKey: `deal.lost:${deal.id}`, payload: { dealId: deal.id, leadId: deal.leadId } });
     }

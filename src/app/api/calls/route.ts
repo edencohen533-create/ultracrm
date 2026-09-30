@@ -60,7 +60,7 @@ export const GET = withAuth(async ({ req, user }) => {
     ...(f.cursor ? { cursor: { id: f.cursor }, skip: 1 } : {}),
     select: {
       id: true, createdAt: true, answeredAt: true, endedAt: true, talkSeconds: true, status: true, telephonyResult: true, outcome: true, statusDef: { select: { label: true } }, outcomeNote: true, callbackAt: true,
-      recordingStatus: true, mode: true, direction: true, toE164: true, fromE164: true, hangupCause: true,
+      recordingStatus: true, recordingPurgedAt: true, mode: true, direction: true, toE164: true, fromE164: true, hangupCause: true,
       coachSession: { select: { documentationStatus: true } },
       user: { select: { id: true, fullName: true } }, contact: { select: { id: true, fullName: true } }, list: { select: { id: true, name: true } },
     },

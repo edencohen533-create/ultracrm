@@ -48,7 +48,7 @@ export class CoachProviderError extends Error {
 export interface LlmResult { text: string; usage: Usage; model: string; latencyMs: number }
 
 /** Structured-output call: the caller passes a system prompt and ONE user message (data + task), expects JSON text back. */
-export async function llmComplete(system: string, user: string, opts: { maxTokens?: number; temperature?: number } = {}): Promise<LlmResult> {
+export async function llmComplete(system: string, user: string, opts: { maxTokens?: number; temperature?: number; timeoutMs?: number } = {}): Promise<LlmResult> {
   const status = providerStatus();
   const t0 = Date.now();
   if (status.mock) return { ...mockLlm(system, user), latencyMs: Date.now() - t0 };
@@ -58,7 +58,7 @@ export async function llmComplete(system: string, user: string, opts: { maxToken
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({ model, max_tokens: opts.maxTokens ?? 400, temperature: opts.temperature ?? 0.2, system, messages: [{ role: "user", content: user }] }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
   });
   if (!res.ok) throw new CoachProviderError(`Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json() as { content: Array<{ type: string; text?: string }>; usage: { input_tokens: number; output_tokens: number } };
@@ -85,6 +85,36 @@ export async function transcribeAudio(audio: Blob | Buffer, opts: { mimeType: st
   if (!res.ok) throw new CoachProviderError(`OpenAI STT ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json() as { text: string };
   return { text: (data.text ?? "").trim(), usage: { inputTokens: 0, outputTokens: 0, sttSeconds: opts.durationSeconds }, model };
+}
+
+export interface TimedSegment { startMs: number; endMs: number; text: string }
+/**
+ * A whole recording → text with segment timestamps (verbose_json). Whisper accepts files up to 25 MB.
+ * Mock mode (tests only): the transcript is read from a "#TRANSCRIPT" block inside the file ("12.5|text" per line);
+ * a file without it has no speech – exactly what an empty real transcription looks like.
+ */
+export async function transcribeTimed(audio: Buffer, opts: { mimeType: string; fileName: string; language?: string }): Promise<{ segments: TimedSegment[]; text: string; durationSec: number; usage: Usage; model: string }> {
+  const status = providerStatus();
+  if (status.mock) {
+    const raw = audio.toString("utf8"); const i = raw.indexOf("#TRANSCRIPT\n");
+    const segments = i < 0 ? [] : raw.slice(i + 12).split("\n").map((l) => l.trim()).filter(Boolean).map((l, k, all) => { const [sec, ...rest] = l.split("|"); const start = Math.round(Number(sec) * 1000) || k * 5000; const next = all[k + 1] ? Math.round(Number(all[k + 1].split("|")[0]) * 1000) : start + 5000; return { startMs: start, endMs: next, text: rest.join("|").trim() }; });
+    const durationSec = Math.ceil((segments.at(-1)?.endMs ?? 0) / 1000);
+    return { segments, text: segments.map((x) => x.text).join("\n"), durationSec, usage: { inputTokens: 0, outputTokens: 0, sttSeconds: durationSec }, model: "mock" };
+  }
+  if (status.stt === "missing") throw new CoachProviderError("OPENAI_API_KEY חסר – אין תמלול", "missing");
+  const model = process.env.COACH_STT_MODEL ?? "whisper-1";
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(audio)], { type: opts.mimeType }), opts.fileName);
+  form.append("model", model);
+  form.append("language", opts.language ?? "he");
+  form.append("response_format", "verbose_json");
+  form.append("timestamp_granularities[]", "segment");
+  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: form, signal: AbortSignal.timeout(240_000) });
+  if (!res.ok) throw new CoachProviderError(`OpenAI STT ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json() as { text?: string; duration?: number; segments?: Array<{ start: number; end: number; text: string }> };
+  const segments = (data.segments ?? []).map((x) => ({ startMs: Math.round(x.start * 1000), endMs: Math.round(x.end * 1000), text: x.text.trim() })).filter((x) => x.text);
+  const durationSec = Math.ceil(data.duration ?? (segments.at(-1)?.endMs ?? 0) / 1000);
+  return { segments, text: (data.text ?? "").trim(), durationSec, usage: { inputTokens: 0, outputTokens: 0, sttSeconds: durationSec }, model };
 }
 
 // ───────────────────────── Embeddings ─────────────────────────
@@ -120,6 +150,7 @@ export function tokenize(text: string): string[] {
 function mockLlm(system: string, user: string): Omit<LlmResult, "latencyMs"> {
   const usage = { inputTokens: Math.ceil((system.length + user.length) / 4), outputTokens: 120 };
   const grab = (tag: string) => { const m = user.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`)); return m ? m[1].trim() : ""; };
+  if (user.includes("TASK: sales_insights")) return { text: JSON.stringify(mockSalesInsights(grab("transcript"))), usage, model: "mock" };
   if (user.includes("TASK: extract_learning")) {
     const transcript = grab("transcript");
     const lines = transcript.split("\n").filter(Boolean);
@@ -140,9 +171,11 @@ function mockLlm(system: string, user: string): Omit<LlmResult, "latencyMs"> {
     const fromExamples = examples.match(/agent_response: (.+)/);
     const fromKnowledge = knowledge.match(/objection: .*\n\s*response: (.+)/);
     const price = /יקר|מחיר|עולה|תקציב/.test(q); const delay = /לחשוב|נחזור|לא עכשיו|אין לי זמן|תחזור/.test(q);
-    const sayNow = fromExamples?.[1] ?? fromKnowledge?.[1] ?? (price ? "מבין אותך לגמרי. לפני שנדבר על המחיר – מה הכי חשוב לך שזה ייתן לך?" : delay ? "ברור, קח את הזמן. רק כדי שאדע – מה הדבר שהיית רוצה לבדוק לפני שמחליטים?" : "שאלה טובה. מה בעצם הכי חשוב לך לפתור עכשיו?");
+    const fromInsights = grab("sales_insights").match(/body: (.+)/);
+    const fact = grab("business_facts").match(/^\[(\d+)\][^\n]*\n([^\n]+)/m);
+    const sayNow = fromInsights?.[1] ?? fromExamples?.[1] ?? fromKnowledge?.[1] ?? (price ? "מבין אותך לגמרי. לפני שנדבר על המחיר – מה הכי חשוב לך שזה ייתן לך?" : delay ? "ברור, קח את הזמן. רק כדי שאדע – מה הדבר שהיית רוצה לבדוק לפני שמחליטים?" : "שאלה טובה. מה בעצם הכי חשוב לך לפתור עכשיו?");
     const followUp = price ? "אם אחלק לך את זה לתשלומים, זה משנה את התמונה?" : delay ? "מה יעזור לך להחליט – שאשלח סיכום קצר בוואטסאפ?" : null;
-    return { text: JSON.stringify({ say_now: sayNow.slice(0, 220), follow_up: followUp, why: fromExamples ? "מבוסס על דוגמה שנבדקה מהעסק" : fromKnowledge ? "מבוסס על הידע העסקי המאושר" : "ניסוח כללי – אין ידע או דוגמאות דומות בעסק", confidence: fromExamples || fromKnowledge ? 0.8 : 0.5 }), usage, model: "mock" };
+    return { text: JSON.stringify({ facts: fact ? [{ text: fact[2].slice(0, 160), source: Number(fact[1]) }, { text: "עובדה בלי מקור", source: 99 }] : [], say_now: sayNow.slice(0, 220), follow_up: followUp, why: fromInsights ? "מבוסס על ידע מכירתי מאושר של העסק" : fromExamples ? "מבוסס על דוגמה שנבדקה מהעסק" : fromKnowledge ? "מבוסס על הידע העסקי המאושר" : "ניסוח כללי – אין ידע או דוגמאות דומות בעסק", confidence: fromExamples || fromKnowledge ? 0.8 : 0.5 }), usage, model: "mock" };
   }
   const last = grab("last_customer_utterance");
   const knowledge = grab("approved_knowledge");
@@ -156,4 +189,19 @@ function mockLlm(system: string, user: string): Omit<LlmResult, "latencyMs"> {
     : objectionMatch ? (fromExamples?.[1] ?? fromKnowledge?.[1] ?? "בסדר גמור. מה היה צריך לקרות כדי שזה יהיה נכון עבורך עכשיו?")
     : "שאלה טובה. מה הכי חשוב לך לבדוק לפני שמחליטים?";
   return { text: JSON.stringify({ objection: objectionMatch, say_now: sayNow.slice(0, 220), why: fromExamples ? "מבוסס על דוגמה שנבדקה מהעסק" : fromKnowledge ? "מבוסס על הידע העסקי המאושר" : "המלצת AI כללית ללא דוגמאות מספיקות", confidence: objectionMatch ? (fromExamples ? 0.8 : 0.6) : 0.4, stage: objectionMatch ? "objection" : "discovery", needs_more_context: !objectionMatch && last.length < 12 }), usage, model: "mock" };
+}
+
+/** Mock extraction (tests only): lines are "[mm:ss] speaker: text"; keywords decide the kind. */
+function mockSalesInsights(transcript: string) {
+  const lines = transcript.split("\n").filter(Boolean).map((l) => { const m = l.match(/^\[(\d+):(\d+)\]\s*([^:]+):\s*(.*)$/); return m ? { ms: (Number(m[1]) * 60 + Number(m[2])) * 1000, who: m[3].trim(), text: m[4] } : null; }).filter((x): x is { ms: number; who: string; text: string } => Boolean(x));
+  const out: Array<Record<string, unknown>> = [];
+  lines.forEach((l, i) => {
+    const next = lines[i + 1];
+    if (i === 0 && l.who !== "customer") out.push({ kind: "opening", title: "פתיחה", body: l.text, quote: l.text, start_ms: l.ms, flags: [] });
+    if (l.who === "agent" && /\?/.test(l.text) && i > 0) out.push({ kind: "discovery", title: "שאלת בירור", body: l.text, quote: l.text, start_ms: l.ms, flags: [] });
+    if (l.who === "customer" && /(יקר|לא בטוח|אחשוב|אין לי זמן)/.test(l.text) && next) out.push({ kind: "objection", title: "התנגדות", objection: l.text, body: next.text, quote: `${l.text}\n${next.text}`, start_ms: l.ms, flags: /(הנחה|%|חינם)/.test(next.text) ? ["discount"] : /(מבטיח|מובטח|אחריות לכל החיים)/.test(next.text) ? ["promise"] : [] });
+    if (l.who === "agent" && /(נסגור|נתקדם|לסגור)/.test(l.text)) out.push({ kind: "closing", title: "שלב סגירה", body: l.text, quote: l.text, start_ms: l.ms, flags: [] });
+  });
+  out.push({ kind: "improvement", title: "נקודה לשיפור", body: "לשאול שאלת בירור נוספת לפני הצגת המחיר", quote: "", start_ms: null, flags: [] });
+  return { insights: out };
 }

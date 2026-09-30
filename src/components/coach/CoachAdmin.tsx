@@ -69,7 +69,7 @@ export function CoachAdmin({ isAdmin }: { isAdmin: boolean }) {
       <Panel title={t("מאמן מכירות בזמן אמת", "Real-time sales coach")}>
         <div className="flex flex-wrap items-center gap-4 text-sm">
           <label className="flex items-center gap-2"><input type="checkbox" checked={settings.enabled} disabled={!isAdmin} onChange={(e) => saveSettings({ enabled: e.target.checked })} data-testid="coach-enabled" /> {t("מופעל לעסק", "Enabled for the business")}</label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={settings.learnFromRecordings} disabled={!isAdmin} onChange={(e) => saveSettings({ learnFromRecordings: e.target.checked })} /> {t("ללמוד גם מהקלטות שמורות (עלות תמלול)", "Also learn from saved recordings (transcription cost)")}</label>
+          <span className="text-xs text-muted">{t("למידה מהקלטות: בלשונית \"למידה מעסקאות שנסגרו\"", "Learning from recordings: in the \"Learning from closed deals\" tab")}</span>
         </div>
         {providers && (
           <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">

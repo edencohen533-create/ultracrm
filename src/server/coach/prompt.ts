@@ -17,7 +17,7 @@ export function knowledgeView(k: CoachKnowledge | null): KnowledgeView {
 
 /** Strip anything that could close our data tags and cap the length (customer text is never trusted). */
 export function sanitizeData(text: string, max = 2000): string {
-  return text.replace(/<\/?(?:transcript|last_customer_utterance|lead|approved_knowledge|retrieved_examples|whatsapp|summary|agent_question|chat_history|previous_outcomes)>/gi, "").replace(/\s+/g, " ").trim().slice(0, max);
+  return text.replace(/<\/?(?:transcript|last_customer_utterance|lead|approved_knowledge|retrieved_examples|whatsapp|summary|agent_question|chat_history|previous_outcomes|sales_insights|business_facts)>/gi, "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
 export function systemPrompt(k: KnowledgeView): string {
@@ -118,7 +118,8 @@ export function chatSystemPrompt(k: KnowledgeView, hasTranscript: boolean): stri
     hasTranscript ? "4. יש תמלול חלקי של השיחה ב-<transcript>; השתמש בו יחד עם מה שהנציג כתב." : "4. אין תמלול של השיחה. אתה יודע רק מה שהנציג כתב ומה שיש על הליד – אל תעמיד פנים ששמעת את השיחה ואל תצטט את הלקוח מעבר למה שהנציג כתב.",
     k.forbiddenClaims.length ? `5. אסור להציע לומר: ${k.forbiddenClaims.join(" | ")}` : "5. (אין טענות אסורות מוגדרות)",
     "6. say_now: משפט אחד (עד 30 מילים) בעברית מדוברת, טבעית ולא רובוטית, שהנציג יכול להגיד עכשיו בקול ללקוח. follow_up: שאלת המשך קצרה או דרך נוספת להתמודד (עד 20 מילים) או null. why: משפט אחד לנציג.",
-    "7. ענה אך ורק ב-JSON תקין: {\"say_now\": string, \"follow_up\": string|null, \"why\": string, \"confidence\": number 0-1}",
+    "7. say_now/follow_up הם ניסוח מכירתי (איך לומר). עובדה על מוצר, מחיר, תנאי או מדיניות לא נכנסת ל-say_now אלא ל-facts, ורק אם היא כתובה ב-<approved_knowledge> או ב-<business_facts>; source = מספר המקור ב-<business_facts> או 0 ל-<approved_knowledge>. <sales_insights> הם טכניקות מכירה מאושרות של העסק – השתמש בהן לניסוח, לא כעובדות.",
+    "8. ענה אך ורק ב-JSON תקין: {\"say_now\": string, \"follow_up\": string|null, \"why\": string, \"confidence\": number 0-1, \"facts\": [{\"text\": string, \"source\": number}]}",
     k.style ? `סגנון השיחה הרצוי: ${k.style}` : "",
     k.callGoal ? `מטרת השיחה: ${k.callGoal}` : "",
   ].filter(Boolean).join("\n");
@@ -134,6 +135,10 @@ export interface ChatPromptInput {
   outcomes: string[];
   knowledge: KnowledgeView;
   examples: UserPromptInput["examples"];
+  /** Approved sales insights (phrasing / technique). */
+  insights?: Array<{ id: string; kind: string; title: string; body: string; objection: string | null }>;
+  /** Approved customer-service sources the business shared with the sales coach (facts). Numbered from 1. */
+  facts?: Array<{ title: string; text: string }>;
 }
 
 export function chatUserPrompt(i: ChatPromptInput): string {
@@ -152,18 +157,20 @@ export function chatUserPrompt(i: ChatPromptInput): string {
     t ? `<transcript>\n${t}\n</transcript>` : "<transcript>\n(אין תמלול זמין לשיחה זו)\n</transcript>",
     hist ? `<chat_history>\n${hist}\n</chat_history>` : "",
     ex ? `<retrieved_examples>\n${ex}\n</retrieved_examples>` : "<retrieved_examples>\n(אין דוגמאות מכירה מאושרות דומות בעסק זה)\n</retrieved_examples>",
+    i.insights?.length ? `<sales_insights>\n${i.insights.map((x) => `- kind: ${x.kind}${x.objection ? `\n  objection: ${sanitizeData(x.objection, 200)}` : ""}\n  body: ${sanitizeData(x.body, 400)}`).join("\n")}\n</sales_insights>` : "",
+    i.facts?.length ? `<business_facts>\n${i.facts.map((f, n) => `[${n + 1}] ${sanitizeData(f.title, 120)}\n${sanitizeData(f.text, 700)}`).join("\n")}\n</business_facts>` : "",
     `<agent_question>\n${sanitizeData(i.question, 1000)}\n</agent_question>`,
     "ענה ב-JSON בלבד.",
   ].filter(Boolean).join("\n\n");
 }
 
-export interface ChatJson { say_now: string; follow_up: string | null; why: string; confidence: number }
+export interface ChatJson { say_now: string; follow_up: string | null; why: string; confidence: number; facts: Array<{ text: string; source: number }> }
 export function parseChat(text: string): ChatJson | null {
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return null;
   try {
     const j = JSON.parse(m[0]) as Partial<ChatJson>;
     if (typeof j.say_now !== "string" || !j.say_now.trim()) return null;
-    return { say_now: j.say_now.trim().slice(0, 400), follow_up: typeof j.follow_up === "string" && j.follow_up.trim() ? j.follow_up.trim().slice(0, 300) : null, why: typeof j.why === "string" ? j.why.slice(0, 400) : "", confidence: typeof j.confidence === "number" ? Math.max(0, Math.min(1, j.confidence)) : 0.5 };
+    return { say_now: j.say_now.trim().slice(0, 400), follow_up: typeof j.follow_up === "string" && j.follow_up.trim() ? j.follow_up.trim().slice(0, 300) : null, why: typeof j.why === "string" ? j.why.slice(0, 400) : "", confidence: typeof j.confidence === "number" ? Math.max(0, Math.min(1, j.confidence)) : 0.5, facts: Array.isArray(j.facts) ? j.facts.filter((f) => f && typeof f.text === "string" && typeof f.source === "number").slice(0, 4).map((f) => ({ text: f.text.slice(0, 300), source: f.source })) : [] };
   } catch { return null; }
 }

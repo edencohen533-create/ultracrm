@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { api, qs } from "@/lib/client/api";
 import { Badge, Button, Input, Modal, Panel, Phone, Select, Spinner, Textarea, cx } from "@/components/ui";
 import { formatDateTime, formatPhone } from "@/lib/client/format";
-import { CoachAdmin } from "@/components/coach/CoachAdmin";
 import { AssistantSettings } from "@/components/assistant/AssistantSettings";
 import { PermissionsTab } from "@/components/settings/PermissionsTab";
 import { ExhaustionPreview } from "@/components/dialer/ExhaustionPreview";
@@ -58,7 +57,7 @@ export default function SettingsPage() {
       {tab === "general" && <><GeneralTab isAdmin={isAdmin} /><div id="prioritization" className="mt-4"><PriorityTab isAdmin={isAdmin} /></div></>}
       {tab === "safety" && <SafetyTab isAdmin={isAdmin} />}
       {tab === "history" && <HistoryTab />}
-      {tab === "coach" && <CoachAdmin isAdmin={isAdmin} />}
+      {tab === "coach" && <div className="rounded-lg border border-line bg-panel p-4 text-sm space-y-2" data-testid="settings-coach-moved"><p>{t("המאמן עבר ל״מרכז ה־AI ← מאמן מכירות״ – שם נמצאים ההגדרות, הידע המאושר, ההקלטות והתובנות לסקירה.", "The coach moved to \"AI Center → Sales coach\" – settings, approved knowledge, recordings and insights for review are there.")}</p><a href="/ai?tab=sales" className="text-accent underline" data-testid="settings-coach-link">{t("למאמן המכירות", "Open the sales coach")}</a></div>}
       {tab === "assistant" && <AssistantSettings isOwner={isAdmin} />}
       {tab === "numbers" && <NumbersTab isAdmin={isAdmin} />}
       {tab === "users" && <div className="space-y-4" data-testid="users-and-permissions">

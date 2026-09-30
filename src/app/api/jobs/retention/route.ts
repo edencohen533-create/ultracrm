@@ -52,7 +52,7 @@ async function retainBusiness(businessId: string) {
       // Deleted at the provider that stored it (a recording never moves between providers).
       const deleted = c.recordingId ? await adapterFor(c.provider).deleteRecording(c.recordingId).catch(() => false) : true;
       if (deleted) {
-        await prisma.call.update({ where: { id: c.id }, data: { recordingStatus: "none", recordingId: null } });
+        await prisma.call.update({ where: { id: c.id }, data: { recordingStatus: "none", recordingId: null, recordingPurgedAt: new Date() } });
         recordingsDeleted++;
       }
     }

@@ -314,6 +314,7 @@ table {
 .coach-say button { padding: 4px; border-radius: 6px; color: var(--color-muted, #777); }
 .coach-say button:hover { background: var(--color-panel-2, #f1f1f1); }
 .coach-follow { margin: 6px 0 0; font-size: 13px; }
+.coach-facts { margin: 6px 0 0; font-size: 12px; border-inline-start: 2px solid var(--info); padding-inline-start: 8px; } .coach-facts ul { margin: 2px 0 0; padding: 0; list-style: none; }
 .coach-meta { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 10px; color: var(--color-muted, #777); }
 .coach-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .coach-meta button { text-decoration: underline; flex-shrink: 0; }

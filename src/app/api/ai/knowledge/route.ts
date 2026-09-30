@@ -9,7 +9,7 @@ export const maxDuration = 60;
 
 export const GET = withAuth(async ({ user }) => {
   assertCanManage(user, (await getAiSettings(user.businessId)).ai);
-  const rows = await prisma.knowledgeSource.findMany({ where: { businessId: user.businessId }, orderBy: { updatedAt: "desc" }, take: 300, select: { id: true, title: true, category: true, kind: true, audience: true, status: true, processing: true, error: true, url: true, fileName: true, sizeBytes: true, createdAt: true, updatedAt: true, approvedAt: true, learnMode: true, sourceConversationId: true, conflicts: true, supersedesId: true, createdById: true, approvedById: true, _count: { select: { chunks: true } } } });
+  const rows = await prisma.knowledgeSource.findMany({ where: { businessId: user.businessId }, orderBy: { updatedAt: "desc" }, take: 300, select: { id: true, title: true, category: true, kind: true, audience: true, salesShared: true, status: true, processing: true, error: true, url: true, fileName: true, sizeBytes: true, createdAt: true, updatedAt: true, approvedAt: true, learnMode: true, sourceConversationId: true, conflicts: true, supersedesId: true, createdById: true, approvedById: true, _count: { select: { chunks: true } } } });
   const users = await prisma.user.findMany({ where: { businessId: user.businessId, id: { in: rows.flatMap((r) => [r.createdById, r.approvedById]).filter(Boolean) as string[] } }, select: { id: true, fullName: true } });
   const name = new Map(users.map((u) => [u.id, u.fullName]));
   return ok({ categories: CATEGORIES, items: rows.map(({ _count, createdById, approvedById, ...r }) => ({ ...r, chunks: _count.chunks, proposedBy: createdById ? name.get(createdById) ?? null : null, approvedBy: approvedById ? name.get(approvedById) ?? null : null })) });

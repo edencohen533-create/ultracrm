@@ -131,13 +131,15 @@ export function queryTerms(q: string) {
 export interface Retrieved { chunkId: string; sourceId: string; title: string; category: string; audience: string; kind: string; learnMode: string | null; text: string; rank: number }
 /**
  * Top chunks for a query. audience "customer" = only approved + customer-facing sources (customer-service agent);
- * "internal" = approved sources of any audience (internal assistant). includeDrafts only for the owner's preview.
+ * "internal" = approved sources of any audience (internal assistant); "sales" = approved sources shared with the sales
+ * coach. includeDrafts only for the owner's preview (never for "sales").
  */
-export async function searchKnowledge(businessId: string, query: string, opts: { audience: "customer" | "internal"; includeDrafts?: boolean; limit?: number }): Promise<Retrieved[]> {
+export async function searchKnowledge(businessId: string, query: string, opts: { audience: "customer" | "internal" | "sales"; includeDrafts?: boolean; limit?: number }): Promise<Retrieved[]> {
   const terms = queryTerms(query); if (!terms.length) return [];
   const tsq = terms.map((t) => `${t}:*`).join(" | ");
-  const aud = opts.audience === "customer" ? Prisma.sql`AND s.audience = 'customer'` : Prisma.empty;
-  const st = opts.includeDrafts ? Prisma.empty : Prisma.sql`AND s.status = 'approved'`;
+  // "sales" = the sales coach: only approved sources the business explicitly shared with it (facts, not phrasing).
+  const aud = opts.audience === "customer" ? Prisma.sql`AND s.audience = 'customer'` : opts.audience === "sales" ? Prisma.sql`AND s.sales_shared = true` : Prisma.empty;
+  const st = opts.includeDrafts && opts.audience !== "sales" ? Prisma.empty : Prisma.sql`AND s.status = 'approved'`;
   return prisma.$queryRaw<Retrieved[]>(Prisma.sql`
     SELECT c.id AS "chunkId", s.id AS "sourceId", s.title, s.category, s.audience, s.kind, s.learn_mode AS "learnMode", c.text, ts_rank(c.tsv, to_tsquery('simple', ${tsq}))::float AS rank
     FROM ${T("knowledge_chunks")} c JOIN ${T("knowledge_sources")} s ON s.id = c.source_id

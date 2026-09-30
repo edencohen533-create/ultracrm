@@ -1,4 +1,5 @@
 import {adAttribution} from "./ad-attribution";
+import { hasTouchData, normalizeTouch, recordTouchpoint, touchFromFields, touchSnapshot, type Channel, type TouchInput } from "@/lib/marketing/touchpoints";
 /**
  * Leads, deals, tasks and notes of the CRM core.
  */
@@ -108,7 +109,10 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
  * - a person owned by an active agent → that agent. Another owner only by an explicit choice of a user who may
  *   transfer leads, from the screen – and it is recorded.
  */
-export async function createLead(user: SessionUser, input: z.infer<typeof leadInputSchema>, source: "user" | "import" | "webhook" = "user") {
+/** Where this inquiry came from (API / form fields, import columns, …) – recorded as a touchpoint, never overwriting earlier ones. */
+export interface LeadIntake { touch?: TouchInput; channel?: Channel; dataSource?: string; dedupeKey?: string | null; occurredAt?: Date }
+
+export async function createLead(user: SessionUser, input: z.infer<typeof leadInputSchema>, source: "user" | "import" | "webhook" = "user", intake: LeadIntake = {}) {
   const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true, ownerUserId: true, source: true, customFields: true } });
   if (!contact || !(await canAccessContact(user, contact))) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
   if (input.ownerUserId) await assertCanSeeUser(user, input.ownerUserId);
@@ -119,6 +123,8 @@ export async function createLead(user: SessionUser, input: z.infer<typeof leadIn
     const open = facts.openLeads[0];
     if (source === "user") throw new ApiError(`לאיש הקשר כבר יש ליד פתוח${open.ownerName ? ` אצל ${open.ownerName}` : ""} – אין צורך בליד נוסף`, 409, "open_lead_exists", { leadId: open.id });
     await audit(user.businessId, user.id, "lead", open.id, "lead.repeat_inquiry", { via: source, source: input.source ?? null, requestedOwner: input.ownerUserId ?? null });
+    // A repeat inquiry is its own touchpoint (it may come from another ad); the lead's original source stays as it was.
+    await recordTouchpoint(prisma, { businessId: user.businessId, contactId: contact.id, leadId: open.id, touch: { ...intake.touch, source: intake.touch?.source ?? input.source }, fallback: intake.channel ?? (source === "import" ? "import" : "api"), dataSource: intake.dataSource ?? source, dedupeKey: intake.dedupeKey ?? null, occurredAt: intake.occurredAt });
     const existing = await prisma.lead.findUniqueOrThrow({ where: { id: open.id }, include: LEAD_INCLUDE });
     return Object.assign(existing, { reused: true as boolean, routedTo: null as string | null });
   }
@@ -133,11 +139,21 @@ export async function createLead(user: SessionUser, input: z.infer<typeof leadIn
     reviewReason = facts.handlerInactive ? "handler_inactive" : "no_handler";
   }
   const existingCustomer = Boolean(facts?.isCustomer);
+  const fallback: Channel = intake.channel ?? (source === "import" ? "import" : source === "webhook" ? "api" : "manual");
+  // Explicit intake data wins. Otherwise (screen / assistant) the contact's own submitted ids are used only when the
+  // contact has no touchpoint yet (a person who arrived before touchpoints existed) – never inherited by a later inquiry.
+  let touch: TouchInput = { ...intake.touch, source: intake.touch?.source ?? input.source ?? contact.source ?? undefined };
+  let dataSource = intake.dataSource ?? (source === "user" ? "screen" : source);
+  if (!hasTouchData(intake.touch ?? {}) && !(await prisma.leadTouchpoint.findFirst({ where: { businessId: user.businessId, contactId: contact.id }, select: { id: true } }))) {
+    const legacy = touchFromFields(contact.customFields);
+    if (normalizeTouch(legacy, fallback).basis === "meta_ids") { touch = { ...legacy, ...touch, adId: legacy.adId, adsetId: legacy.adsetId, campaignId: legacy.campaignId }; dataSource = `${dataSource}+contact_fields`; }
+  }
   const lead = await prisma.$transaction(async (tx) => {
     const l = await tx.lead.create({
-      data: { sourceAttribution:adAttribution(contact.customFields), businessId: user.businessId, contactId: contact.id, title: input.title || null, status: input.status ?? "new", source: input.source ?? contact.source ?? null, ownerUserId, priority: input.priority ?? 0, notes: input.notes || null, existingCustomer, reviewReason },
+      data: { sourceAttribution: hasTouchData(intake.touch ?? {}) ? touchSnapshot(touch, fallback) : adAttribution(contact.customFields), businessId: user.businessId, contactId: contact.id, title: input.title || null, status: input.status ?? "new", source: input.source ?? contact.source ?? null, ownerUserId, priority: input.priority ?? 0, notes: input.notes || null, existingCustomer, reviewReason },
       include: LEAD_INCLUDE,
     });
+    await recordTouchpoint(tx, { businessId: user.businessId, contactId: contact.id, leadId: l.id, touch, fallback, dataSource, dedupeKey: intake.dedupeKey ?? `lead:${l.id}`, occurredAt: intake.occurredAt ?? l.createdAt });
     await audit(user.businessId, user.id, "lead", l.id, "lead.created", { contactId: contact.id, ownerUserId: l.ownerUserId, via: source, existingCustomer, reviewReason, routedToHandler: routedTo, requestedOwner: input.ownerUserId ?? null }, tx);
     await emitEvent(tx, { businessId: user.businessId, type: "lead.created", contactId: contact.id, actorUserId: user.id, source, dedupeKey: `lead.created:${l.id}`, payload: { leadId: l.id, ownerUserId: l.ownerUserId, source: l.source, existingCustomer, reviewReason } });
     return l;

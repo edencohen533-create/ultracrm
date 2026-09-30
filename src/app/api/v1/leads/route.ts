@@ -8,7 +8,7 @@ import { withBusiness } from "@/lib/tenant";
 import { normalizePhone } from "@/lib/phone";
 import { authenticateApiKey } from "@/server/services/integrations";
 import { createLead } from "@/lib/crm/pipeline";
-import { OPEN_LEAD_STATUSES } from "@/lib/crm/labels";
+import { CHANNELS, normalizeTouch, touchFromFields } from "@/lib/marketing/touchpoints";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,15 @@ const schema = z.object({
   /** Assign to this agent (email of an active user of the business); otherwise the business's distribution policy decides. */
   ownerEmail: z.string().trim().toLowerCase().max(200).optional(),
   customFields: z.record(z.string().max(60), z.union([z.string().max(1000), z.number(), z.boolean()])).optional(),
+  /**
+   * Where the inquiry came from (flat keys, as Meta Lead Ads connectors / landing pages send them): ad_id, adset_id,
+   * campaign_id, ad_account_id, form_id, leadgen_id, utm_source…utm_term, landing_url, referrer, fbclid, fbc, gclid.
+   * Only numeric Meta ids attribute to an ad; names / UTM labels are kept as context only.
+   */
+  attribution: z.record(z.string().max(60), z.union([z.string().max(2000), z.number()])).optional(),
+  channel: z.enum(CHANNELS).optional(),
+  /** When the person actually submitted (e.g. the Meta lead's created_time); default now. */
+  submittedAt: z.coerce.date().optional(),
 });
 
 /**
@@ -44,10 +53,12 @@ export async function POST(req: Request) {
       const contact = await findOrCreateContactByPhone(a.business.id, e164, { fullName: b.fullName, phoneRaw: b.phone, source: b.source ?? "api" });
       const emailFree = b.email && !contact.email ? !(await prisma.contact.findFirst({ where: { businessId: a.business.id, email: b.email, NOT: { id: contact.id } }, select: { id: true } })) : false;
       if (b.customFields || emailFree) await prisma.contact.update({ where: { id: contact.id }, data: { ...(b.customFields ? { customFields: { ...((contact.customFields as object | null) ?? {}), ...b.customFields } } : {}), ...(emailFree ? { email: b.email } : {}) } });
-      const open = await prisma.lead.findFirst({ where: { businessId: a.business.id, contactId: contact.id, status: { in: [...OPEN_LEAD_STATUSES] } }, select: { id: true } });
-      if (open) return { leadId: open.id, contactId: contact.id, created: false };
-      const lead = await createLead(a.session, { contactId: contact.id, title: b.title, source: b.source ?? "api", notes: b.notes, ...(owner ? { ownerUserId: owner.id } : {}) }, "webhook");
-      return { leadId: lead.id, contactId: contact.id, created: true };
+      // Attribution: the explicit object first, then the same keys inside customFields (older integrations send them there).
+      const touch = { ...touchFromFields(b.customFields), ...Object.fromEntries(Object.entries(touchFromFields(b.attribution)).filter(([, v]) => v !== undefined && !(typeof v === "object" && !Object.values(v as object).some(Boolean)))), channel: b.channel, source: b.source };
+      const metaLeadId = normalizeTouch(touch, "api").metaLeadId;
+      // An open lead is not duplicated – the inquiry is still recorded as a touchpoint of that lead (createLead).
+      const lead = await createLead(a.session, { contactId: contact.id, title: b.title, source: b.source ?? "api", notes: b.notes, ...(owner ? { ownerUserId: owner.id } : {}) }, "webhook", { touch, channel: b.channel, dataSource: "api", dedupeKey: metaLeadId ? `meta_lead:${metaLeadId}` : null, occurredAt: b.submittedAt });
+      return { leadId: lead.id, contactId: contact.id, created: !lead.reused };
     }, a.session);
     return ok(result, result.created ? 201 : 200);
   } catch (e) { return handleError(e); }

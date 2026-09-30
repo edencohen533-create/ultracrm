@@ -30,6 +30,10 @@
     {
       "path": "/api/jobs/whatsapp-health",
       "schedule": "15 3 * * *"
+    },
+    {
+      "path": "/api/jobs/marketing",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

@@ -364,6 +364,8 @@ model Plan {
 }
 
 model Business {
+  metaAdAccounts MetaAdAccount[]
+  leadTouchpoints LeadTouchpoint[]
   metaAdConnection MetaAdConnection?
   telephonyRouting  TelephonyRouting?
   telephonyHealth   TelephonyProviderHealth[]
@@ -619,6 +621,7 @@ model UsageCounter {
 
 /// Single source of truth for people. Messaging and telephony reference `contactId`.
 model Contact {
+  touchpoints LeadTouchpoint[]
   id           String  @id @default(cuid())
   businessId   String  @map("business_id")
   fullName     String  @map("full_name")
@@ -747,6 +750,7 @@ model ContactTag {
 /// A sales opportunity at its earliest stage. A contact can have many leads over time.
 model Lead {
   salesQuotes SalesQuote[]
+  touchpoints LeadTouchpoint[]
   id          String     @id @default(cuid())
   businessId  String     @map("business_id")
   contactId   String     @map("contact_id")
@@ -2945,12 +2949,162 @@ model SalesQuote {
 model MetaAdConnection {
   id String @id @default(cuid())
   businessId String @unique @map("business_id")
-  accountId String @map("account_id")
-  accountName String @map("account_name")
+  /// Legacy single account of the manual-token connection (accounts now live in meta_ad_accounts).
+  accountId String? @map("account_id")
+  accountName String? @map("account_name")
   tokenSealed String @map("token_sealed")
   verifiedAt DateTime @map("verified_at")
+  /// oauth (Facebook Login, ads_read) | manual_token (system-user token pasted by the owner)
+  kind String @default("manual_token")
+  metaUserId String? @map("meta_user_id")
+  metaUserName String? @map("meta_user_name")
+  scopes String[] @default([])
+  tokenExpiresAt DateTime? @map("token_expires_at")
+  /// active | expired | revoked | error – set from real Graph answers, never assumed
+  status String @default("active")
+  lastError String? @map("last_error")
+  lastCheckedAt DateTime? @map("last_checked_at")
+  connectedById String? @map("connected_by_id")
   business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
+  accounts MetaAdAccount[]
   @@map("meta_ad_connections")
+}
+
+/// A Meta ad account a manager chose to connect to this business (measurement only – read, never write).
+model MetaAdAccount {
+  id             String    @id @default(cuid())
+  businessId     String    @map("business_id")
+  connectionId   String?   @map("connection_id")
+  accountId      String    @map("account_id")
+  name           String
+  currency       String?
+  timezoneName   String?   @map("timezone_name")
+  accountStatus  Int?      @map("account_status")
+  /// active | disconnected | auth_error | no_access | throttled | error
+  status         String    @default("active")
+  /// First day requested for the historical sync (account timezone).
+  syncFrom       DateTime? @map("sync_from") @db.Date
+  /// Days [syncFrom, syncedThrough] were fully fetched – outside that range spend is "missing", not zero.
+  syncedThrough  DateTime? @map("synced_through") @db.Date
+  lastSyncAt     DateTime? @map("last_sync_at")
+  lastSyncStatus String?   @map("last_sync_status")
+  lastSyncError  String?   @map("last_sync_error")
+  nextSyncAt     DateTime? @map("next_sync_at")
+  failures       Int       @default(0)
+  structureSyncedAt DateTime? @map("structure_synced_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  business   Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  connection MetaAdConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  entities   MetaAdEntity[]
+  insights   MetaAdInsightDaily[]
+  runs       MetaSyncRun[]
+  @@unique([businessId, accountId])
+  @@map("meta_ad_accounts")
+}
+
+/// Campaign / ad set / ad of a connected account (ids are stable; names can change – history kept).
+model MetaAdEntity {
+  id                 String   @id @default(cuid())
+  businessId         String   @map("business_id")
+  adAccountRowId     String   @map("ad_account_row_id")
+  level              String
+  externalId         String   @map("external_id")
+  name               String
+  campaignExternalId String?  @map("campaign_external_id")
+  adsetExternalId    String?  @map("adset_external_id")
+  effectiveStatus    String?  @map("effective_status")
+  thumbnailUrl       String?  @map("thumbnail_url")
+  previewUrl         String?  @map("preview_url")
+  /// [{ name, until }] – earlier names of this object
+  nameHistory        Json     @default("[]") @map("name_history")
+  firstSeenAt        DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt         DateTime @default(now()) @map("last_seen_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  account MetaAdAccount @relation(fields: [adAccountRowId], references: [id], onDelete: Cascade)
+  @@unique([businessId, level, externalId])
+  @@index([adAccountRowId])
+  @@map("meta_ad_entities")
+}
+
+/// Daily delivery per AD only (campaign / ad set totals are sums of their ads – never fetched at two levels).
+model MetaAdInsightDaily {
+  id             String   @id @default(cuid())
+  businessId     String   @map("business_id")
+  adAccountRowId String   @map("ad_account_row_id")
+  date           DateTime @db.Date
+  campaignId     String   @map("campaign_id")
+  adsetId        String   @map("adset_id")
+  adId           String   @map("ad_id")
+  spend          Decimal  @default(0) @db.Decimal(14, 2)
+  impressions    Int      @default(0)
+  clicks         Int      @default(0)
+  linkClicks     Int      @default(0) @map("link_clicks")
+  /// Leads Meta reports for the ad (its own definition – shown apart from CRM leads).
+  metaLeads      Int?     @map("meta_leads")
+  currency       String
+  syncedAt       DateTime @default(now()) @map("synced_at")
+  account MetaAdAccount @relation(fields: [adAccountRowId], references: [id], onDelete: Cascade)
+  @@unique([adAccountRowId, adId, date])
+  @@index([businessId, date])
+  @@map("meta_ad_insights_daily")
+}
+
+model MetaSyncRun {
+  id             String    @id @default(cuid())
+  businessId     String    @map("business_id")
+  adAccountRowId String    @map("ad_account_row_id")
+  kind           String
+  rangeFrom      DateTime  @map("range_from") @db.Date
+  rangeTo        DateTime  @map("range_to") @db.Date
+  /// running | ok | failed | throttled | auth_error
+  status         String    @default("running")
+  rows           Int       @default(0)
+  error          String?
+  startedAt      DateTime  @default(now()) @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  account MetaAdAccount @relation(fields: [adAccountRowId], references: [id], onDelete: Cascade)
+  @@index([adAccountRowId, startedAt])
+  @@map("meta_sync_runs")
+}
+
+/// Where an inquiry came from – one row per inquiry (a lead, a repeat inquiry, a click-to-WhatsApp message). The
+/// first row of a contact is its acquisition source; later rows never overwrite it.
+model LeadTouchpoint {
+  id           String   @id @default(cuid())
+  businessId   String   @map("business_id")
+  contactId    String   @map("contact_id")
+  leadId       String?  @map("lead_id")
+  /// meta_lead_form | landing_page | whatsapp_ad | whatsapp | api | import | manual | store | other
+  channel      String
+  source       String?
+  medium       String?
+  adAccountId  String?  @map("ad_account_id")
+  campaignId   String?  @map("campaign_id")
+  adsetId      String?  @map("adset_id")
+  adId         String?  @map("ad_id")
+  formId       String?  @map("form_id")
+  metaLeadId   String?  @map("meta_lead_id")
+  utm          Json     @default("{}")
+  landingUrl   String?  @map("landing_url")
+  referrer     String?
+  /// { fbclid, fbc, gclid, ctwa_clid }
+  clickIds     Json     @default("{}") @map("click_ids")
+  /// meta_ids | utm_only | click_id_only | none – what the attribution can rely on
+  basis        String   @default("none")
+  /// api | screen | import | whatsapp_webhook | assistant | backfill_lead
+  dataSource   String   @map("data_source")
+  dedupeKey    String?  @map("dedupe_key")
+  occurredAt   DateTime @map("occurred_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  lead     Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  @@unique([businessId, dedupeKey])
+  @@index([businessId, occurredAt])
+  @@index([businessId, contactId, occurredAt])
+  @@index([businessId, adId])
+  @@map("lead_touchpoints")
 }
 
 /// Per-business provider routing for NEW calls (feature flag TELEPHONY_ROUTING=on). No row = platform default, primary only.

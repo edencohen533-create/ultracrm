@@ -26,7 +26,7 @@ export interface AiCtx { user: SessionUser; read: ToolCtx; ai: AiSettings; tz: s
  */
 const TOOL_NEEDS: Record<string, string[]> = {
   business_snapshot: ["crm.view", "telephony.use"], sales_summary: ["crm.view"], leads_summary: ["crm.view"], agents_performance: ["crm.view", "telephony.team_settings"],
-  prepare_ops_rule: ["crm.view"], sales_catalog: ["crm.view"], lead_advertisement: ["crm.view"],
+  prepare_ops_rule: ["crm.view"], sales_catalog: ["crm.view"], lead_advertisement: ["crm.view"], marketing_performance: ["crm.marketing_view"],
   calls_summary: ["telephony.use"], untreated_leads: ["crm.view"], overdue_tasks: ["crm.view", "telephony.use"], compare_periods: ["crm.view"],
   find_contact: ["crm.view", "telephony.use", "whatsapp.view"], contact_summary: ["crm.view", "telephony.use", "whatsapp.view"], focus_today: ["crm.view", "telephony.use"],
   my_queue_today: ["crm.view", "telephony.use"], agents_online: ["telephony.use", "crm.view"], find_lead: ["crm.view", "telephony.use"], create_task: ["crm.edit", "telephony.use"], set_follow_up: ["crm.edit"],
@@ -60,6 +60,7 @@ const ACTION_KINDS = ["create_task", "set_follow_up", "change_lead_status", "tra
 const READ_DEFS: ToolDef[] = Object.entries(READ_TOOLS).map(([name, t]) => ({ name, description: t.description, input_schema: t.input as Json }));
 const CRM_DEFS: ToolDef[] = [
   {name:"sales_catalog",description:"קטלוג מחירים מאושר והצעות קיימות בהרשאות המשתמש. אין להמציא מחיר או להציג אישור הצעה כתשלום. יצירת הצעה ושיתוף זמינים במסך הצעות וסגירה.",input_schema:{type:"object",properties:{leadId:{type:"string"}}}},
+  {name:"marketing_performance",description:"ביצועי שיווק ומכירות לפי מודעה / קבוצה / קמפיין ממטא – אותם חישובים של דוח \"שיווק ומכירות\". focus: most_paid (מה הביא הכי הרבה עסקאות ששולמו), cheapest_new_customer (לקוחות חדשים בעלות הנמוכה ביותר), low_handling (הרבה לידים ומעט טיפול), compare (שינוי מול התקופה הקודמת). בתשובה ציינו תמיד תקופה, מדגם, מודל השיוך והקישור לפירוט. אם conclusionAllowed=false אסור להכריז על מנצח – הסבירו את whyNoConclusion. המלצות הן הצעות בלבד: אין שינוי תקציב, השהיה או הפעלת קמפיין, ואין שליחת אירועים ל-Meta.",input_schema:{type:"object",properties:{focus:{type:"string",enum:["most_paid","cheapest_new_customer","low_handling","compare"]},days:{type:"number",description:"ימים אחרונים (ברירת מחדל 30)"},from:{type:"string",description:"YYYY-MM-DD"},to:{type:"string",description:"YYYY-MM-DD"},level:{type:"string",enum:["ad","adset","campaign"]},mode:{type:"string",enum:["cohort","activity"]}}}},
   {name:"lead_advertisement",description:"הצגת פרטי מודעת Facebook לפי מזהה הליד. אם חסר חיבור, הרשאה או מזהה מודעה — מסבירים מה חסר; אין להמציא ייחוס. אין אפשרות לשנות מודעות או תקציבים.",input_schema:{type:"object",properties:{leadId:{type:"string"}},required:["leadId"]}},
     { name: "report_unsupported_request", description: "כאשר בקשת המשתמש דורשת יכולת שאינה בקטלוג הכלים או הכללים: להציג במפורש שהפעולה אינה נתמכת ודורשת פיתוח. אין פעולה עסקית. לא להשתמש כשחסרה הרשאה, הגדרה או פרט לבקשה נתמכת.", input_schema: { type: "object", properties: { missingCapability: { type: "string" } }, required: ["missingCapability"] } },
   { name: "prepare_ops_rule", description: "פענוח חוק קבוע למנהל AI, כולל פולואפ לנציג שאינו מחובר. מחזיר פירוש לבדיקה בלבד; אינו שומר או מפעיל. להפעלה המשתמש עובר למנהל AI > כללים, בודק ומאשר שם.", input_schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } },
@@ -113,6 +114,7 @@ export async function runAiTool(ctx: AiCtx, name: string, args: Json): Promise<T
     const diag = DIAGNOSE_TOOL_DEFS.find((t) => t.name === name); if (diag) { const r = await runDiagnoseTool(ctx, name, args); return { ok: true, result: r.result, actionIds: r.actionIds, ms: Date.now() - t0 }; }
     switch (name) {
       case "sales_catalog": return {ok:true,result:await (await import("@/server/sales/quotes")).listSales(ctx.user,args.leadId?String(args.leadId):undefined),ms:Date.now()-t0};
+      case "marketing_performance": return {ok:true,result:await (await import("@/server/marketing/ai")).marketingInsight(ctx.user,args as Record<string, string>),ms:Date.now()-t0};
       case "lead_advertisement": return {ok:true,result:await (await import("@/server/sales/meta-ads")).leadAdvertisement(ctx.user,String(args.leadId??"")),ms:Date.now()-t0};
       case "report_unsupported_request": return { ok: true, result: { supported: false, code: "unsupported_capability", message: UNSUPPORTED_REQUEST, missingCapability: String(args.missingCapability ?? "יכולת שאינה בקטלוג").slice(0, 300), executed: false }, ms: Date.now() - t0 };
       case "prepare_ops_rule": {

@@ -7,7 +7,7 @@ import { api } from "@/lib/client/api";
 import { Button, Input, Modal, Select } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
 
-type Field = "fullName" | "phone" | "email" | "source" | "product" | "campaign" | "ad" | "notes";
+type Field = "fullName" | "phone" | "email" | "source" | "product" | "campaign" | "ad" | "adId" | "adsetId" | "campaignId" | "notes";
 const FIELDS: Array<[Field, string, string[], string]> = [
   ["fullName", "שם", ["שם", "שם מלא", "name", "full name", "fullname", "שם הלקוח", "לקוח"], "Name"],
   ["phone", "טלפון", ["טלפון", "נייד", "phone", "mobile", "מספר טלפון", "tel", "טל"], "Phone"],
@@ -16,6 +16,10 @@ const FIELDS: Array<[Field, string, string[], string]> = [
   ["product", "מוצר", ["מוצר", "product"], "Product"],
   ["campaign", "קמפיין", ["קמפיין", "campaign", "utm_campaign"], "Campaign"],
   ["ad", "מודעה", ["מודעה", "ad", "ad name"], "Ad"],
+  // Meta ids (numbers) – the only columns that attribute a lead to a specific ad in the marketing report.
+  ["adId", "מזהה מודעה (Meta)", ["ad_id", "ad id", "מזהה מודעה"], "Ad ID (Meta)"],
+  ["adsetId", "מזהה קבוצת מודעות", ["adset_id", "ad set id", "adset id", "מזהה קבוצת מודעות"], "Ad set ID"],
+  ["campaignId", "מזהה קמפיין (Meta)", ["campaign_id", "campaign id", "מזהה קמפיין"], "Campaign ID (Meta)"],
   ["notes", "הערות", ["הערות", "הערה", "notes", "note"], "Notes"],
 ];
 const CHUNK = 200;
@@ -38,7 +42,7 @@ export function LeadImportModal({ users, onClose, onDone }: { users: Array<{ id:
   const [file, setFile] = useState<string>("");
   const t = useT();
   const [table, setTable] = useState<string[][] | null>(null);
-  const [map, setMap] = useState<Record<Field, number>>({ fullName: -1, phone: -1, email: -1, source: -1, product: -1, campaign: -1, ad: -1, notes: -1 });
+  const [map, setMap] = useState<Record<Field, number>>({ fullName: -1, phone: -1, email: -1, source: -1, product: -1, campaign: -1, ad: -1, adId: -1, adsetId: -1, campaignId: -1, notes: -1 });
   const [owner, setOwner] = useState("auto");
   const [source, setSource] = useState("ייבוא Excel");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);

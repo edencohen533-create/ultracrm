@@ -247,7 +247,7 @@ async function createLeadFromDraft(user: SessionUser, d: LeadDraft): Promise<{ r
     const cf = (contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {}) as Record<string, unknown>;
     await prisma.contact.update({ where: { id: contact.id }, data: { customFields: { ...cf, product: d.product } as Prisma.InputJsonValue } });
   }
-  const lead = await createLead(user, { contactId: contact.id, ...(source ? { source } : {}), notes: `נוצר דרך העוזר בוואטסאפ על ידי ${user.fullName}` }, "user");
+  const lead = await createLead(user, { contactId: contact.id, ...(source ? { source } : {}), notes: `נוצר דרך העוזר בוואטסאפ על ידי ${user.fullName}` }, "user", { channel: "manual", dataSource: "assistant" });
   // Assignment runs through the existing rules (lead.created handler); run it now so the reply can name the agent.
   const { processDomainEvents } = await import("@/lib/events");
   await processDomainEvents({ businessId: user.businessId, limit: 10, deadline: Date.now() + 8_000 }).catch(() => undefined);

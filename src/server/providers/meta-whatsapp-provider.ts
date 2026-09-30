@@ -334,6 +334,14 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
       type,
       source: ConversationSource.WHATSAPP,
     });
+    // An inquiry from a click-to-WhatsApp ad is a touchpoint of the contact (and of its open lead, if any). The same
+    // message delivered twice is one touchpoint (dedupe by message id); the contact's earlier source is not overwritten.
+    const ref = message.referral;
+    if (ref && (ref.source_type === "ad" || ref.ctwa_clid)) {
+      const { recordTouchpoint } = await import("@/lib/marketing/touchpoints");
+      const open = await db.lead.findFirst({ where: { businessId: requireBusinessId(), contactId: contact.id, status: { in: [...(await import("@/lib/crm/labels")).OPEN_LEAD_STATUSES] } }, orderBy: { createdAt: "desc" }, select: { id: true } });
+      await recordTouchpoint(db, { businessId: requireBusinessId(), contactId: contact.id, leadId: open?.id ?? null, touch: { channel: "whatsapp_ad", source: "whatsapp", adId: ref.source_type === "ad" ? ref.source_id : undefined, ctwaClid: ref.ctwa_clid, landingUrl: ref.source_url }, fallback: "whatsapp_ad", dataSource: "whatsapp_webhook", dedupeKey: `wa:${message.id}`, occurredAt: providerTimestamp(message.timestamp) }).catch((e: Error) => console.error("[whatsapp referral touchpoint]", e.message));
+    }
   }
 
 }

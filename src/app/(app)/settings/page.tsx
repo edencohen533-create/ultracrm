@@ -1,5 +1,7 @@
 "use client";
 
+import { MetaAdsPanel } from "@/components/marketing/MetaAdsPanel";
+import { Suspense } from "react";
 import { PaymentSettings } from "@/components/settings/PaymentSettings";
 import { AccountDeletion } from "@/components/settings/AccountDeletion";
 import { useCallback, useEffect, useState } from "react";
@@ -364,6 +366,7 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
   useEffect(() => { fetch("/api/settings/whatsapp").then((r) => { if (r.status === 403) { setWaDenied(true); return null; } return r.ok ? r.json() : null; }).then((d) => setWa(d ?? null)).catch(() => setWaDenied(true)); }, []);
   return (
     <div className="space-y-4">
+      <Suspense fallback={null}><MetaAdsPanel /></Suspense>
       <Panel title={t("ערוצי דיוור", "Messaging channels")}>
         <ul className="text-sm space-y-3">
           <li className="flex flex-wrap items-center gap-2">

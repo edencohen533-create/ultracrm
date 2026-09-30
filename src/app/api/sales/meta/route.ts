@@ -10,9 +10,9 @@ export const GET = withAuth(async ({ user }) => ok(await metaAdStatus(user)), {
 });
 export const POST = withAuth(
   async ({ user, req }) => ok(await connectMetaAds(user, await req.json())),
-  { minRole: "owner", perm: "crm.edit" },
+  { perm: "crm.marketing_connect" },
 );
 export const DELETE = withAuth(
   async ({ user }) => ok(await disconnectMetaAds(user)),
-  { minRole: "owner", perm: "crm.edit" },
+  { perm: "crm.marketing_connect" },
 );

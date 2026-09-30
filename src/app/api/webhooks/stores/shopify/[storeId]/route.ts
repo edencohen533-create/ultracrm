@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 type Addr = { phone?: string | null; first_name?: string | null; last_name?: string | null; name?: string | null } | null | undefined;
 const nameOf = (...a: Addr[]) => { for (const x of a) { const n = x?.name || [x?.first_name, x?.last_name].filter(Boolean).join(" "); if (n) return n; } return undefined; };
 
-/** Shopify webhooks: checkouts/create, checkouts/update (abandoned checkouts) and orders/create (purchase). HMAC-verified. */
+/** Shopify webhooks: checkouts/* (abandoned checkouts), orders/* (purchase, edits, cancellations, refunds – kept as an
+ * order snapshot) and fulfillments/* (parcels). HMAC-verified. */
 export async function POST(req: Request, { params }: { params: Promise<{ storeId: string }> }) {
   const { storeId } = await params;
   const raw = await req.text();
@@ -25,7 +26,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ storeId
         items: (p.line_items ?? []).map((i: { title?: string; quantity?: number; price?: string | number }) => ({ name: i.title ?? "", quantity: i.quantity ?? 1, price: i.price !== undefined ? Number(i.price) : undefined })),
         checkoutUrl: p.abandoned_checkout_url ?? undefined, acceptsMarketing: typeof p.buyer_accepts_marketing === "boolean" ? p.buyer_accepts_marketing : undefined,
       });
+    } else if (topic.startsWith("fulfillments/")) {
+      // A parcel of an order (split shipments): its exact line items and delivery status.
+      const { mergeShipments, shopifyOrderSnapshot } = await import("@/server/services/store-order-service");
+      const [shipment] = shopifyOrderSnapshot({ id: p.order_id, line_items: [], fulfillments: [p] }).shipments ?? [];
+      if (p.order_id && shipment) await mergeShipments(store.businessId, "shopify", String(p.order_id), [shipment]);
     } else if (topic.startsWith("orders/")) {
+      const { upsertStoreOrder, shopifyOrderSnapshot } = await import("@/server/services/store-order-service");
+      await upsertStoreOrder(store.businessId, "shopify", shopifyOrderSnapshot(p), { storeId: store.id });
       await ingestOrder(store, { orderId: String(p.name ?? p.id), externalId: p.checkout_token ? String(p.checkout_token) : undefined, email: p.email ?? p.customer?.email ?? undefined, phone, total: p.total_price !== undefined ? Number(p.total_price) : undefined, currency: p.currency });
     }
   });

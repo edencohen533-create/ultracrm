@@ -1,4 +1,5 @@
 import { Tasks } from "@/components/contacts/contact-tasks";
+import { AiSuggestion } from "@/components/inbox/ai-suggestion";
 import { organizationRequest } from "@/lib/auth-compat";
 import { InternalNotes } from "@/components/inbox/internal-notes";
 import Link from "next/link";
@@ -87,6 +88,7 @@ export default organizationRequest(async function ConversationPage({
       />
       {(aiEnabledHere || conversation.aiMode) && <AiHandlingBar conversationId={conversation.id} aiMode={conversation.aiMode} enabledHere={aiEnabledHere} reason={conversation.aiHandoffReason} summary={conversation.aiHandoffSummary} />}
       </div>
+      <AiSuggestion conversationId={conversation.id} />
       <div className="flex items-center justify-between gap-2 border-b px-3 py-2 text-sm"><span className="min-w-0 truncate" dir="auto">{conversation.contact.fullName}</span><div className="flex shrink-0 items-center gap-2"><CustomerFileDrawerButton key={`drawer:${conversation.id}`} {...fileProps} /><Link className="underline" href={`/contacts/${conversation.contactId}`}>{t("כרטיס לקוח והסרה מדיוור", "Contact profile & unsubscribe")}</Link></div></div>
       <div className="chat-chrome-extra border-b px-3 py-1 text-xs text-muted-foreground">{t("מספר השיחה:", "Conversation number:")} {conversation.providerCredential ? `${conversation.providerCredential.label || "WhatsApp"} · ${conversation.providerCredential.displayPhoneNumber || t("מספר עסקי", "Business number")}` : t("הדגמה בלבד", "Demo only")}</div>
       {(block.doNotContact || block.fullyBlocked || block.pendingReview) && <div className="border-b px-3 py-2"><ContactBlockNotice summary={JSON.parse(JSON.stringify(block))} /></div>}

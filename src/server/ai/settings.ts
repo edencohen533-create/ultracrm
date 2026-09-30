@@ -22,6 +22,10 @@ export interface AiSettings {
     enabled: boolean; credentialIds: string[]; hours: { start: string; end: string; days: number[] };
     qualificationQuestions: string[]; handoffTopics: string[]; allowOrderStatus: boolean; maxRepliesPerConversationPerHour: number; dailyReplyLimit: number;
     offHoursMessage: string;
+    /** auto = replies go out within the agent's permissions; suggest = every reply waits for an agent's approval. */
+    replyMode: "auto" | "suggest";
+    /** Check "missing item" complaints against order / shipment / receipt data (needs allowOrderStatus). */
+    allowMissingItemCheck: boolean;
   };
   limits: { dailyChatMessagesPerUser: number };
 }
@@ -29,7 +33,7 @@ export const DEFAULT_AI: AiSettings = {
   name: "העוזר", language: "he", tone: "friendly", length: "short", agentsCanChat: true, managerIds: [],
   actions: { create_task: "auto", set_follow_up: "auto", change_lead_status: "auto", transfer_lead: "approve" },
   autoRepairs: true,
-  service: { enabled: false, credentialIds: [], hours: { start: "09:00", end: "18:00", days: [0, 1, 2, 3, 4] }, qualificationQuestions: [], handoffTopics: ["תלונה", "ביטול עסקה", "החזר כספי"], allowOrderStatus: true, maxRepliesPerConversationPerHour: 12, dailyReplyLimit: 500, offHoursMessage: "" },
+  service: { enabled: false, credentialIds: [], hours: { start: "09:00", end: "18:00", days: [0, 1, 2, 3, 4] }, qualificationQuestions: [], handoffTopics: ["תלונה", "ביטול עסקה", "החזר כספי"], allowOrderStatus: true, maxRepliesPerConversationPerHour: 12, dailyReplyLimit: 500, offHoursMessage: "", replyMode: "auto", allowMissingItemCheck: true },
   limits: { dailyChatMessagesPerUser: 300 },
 };
 

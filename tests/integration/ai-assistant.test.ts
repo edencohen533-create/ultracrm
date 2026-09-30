@@ -240,7 +240,7 @@ describe("AI assistant", { timeout: 1_800_000 }, () => {
     stubLLM([[tool("search_knowledge", { query: "שעות פעילות" })], [{ type: "text", text: "אנחנו פתוחים א-ה 09:00-18:00" }]]);
     const r = await run(owner, () => handleServiceInbound(a.business.id, { messageId: m1b.message.id, channel: "whatsapp" }));
     expect(r, JSON.stringify(r)).toMatchObject({ status: "executed" });
-    expect(calls[0].tools.sort()).toEqual(["handoff", "order_status", "search_knowledge"]);
+    expect(calls[0].tools.sort()).toEqual(["check_missing_item", "handoff", "order_status", "search_knowledge"]);
     const kb = JSON.parse((((calls[1].messages as Array<{ content: unknown }>).at(-1)!.content) as Array<{ content: string }>)[0].content);
     expect(JSON.stringify(kb)).not.toContain("סודית");
     const bot = await db.message.findFirstOrThrow({ where: { requestKey: `ai:svc:${m1b.message.id}` } });

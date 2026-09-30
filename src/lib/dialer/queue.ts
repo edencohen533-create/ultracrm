@@ -143,6 +143,13 @@ export function queueFilter(q: QueueParams, opts: { timeAware: boolean }) {
             OR EXISTS (SELECT 1 FROM ${QT("leads")} ol WHERE ol.business_id = l.business_id AND ol.contact_id = l.contact_id AND ol.status::text IN ${OPEN_LEADS} AND ol.owner_user_id = ${userId})
           )
           AND NOT EXISTS (SELECT 1 FROM ${QT("leads")} pl WHERE pl.business_id = l.business_id AND pl.contact_id = l.contact_id AND pl.pending_transfer_to_user_id IS NOT NULL)
+          -- External CRM owns assignment: its records wait while its data is not fresh (same rule as externalFreshnessBlock).
+          AND NOT EXISTS (
+            SELECT 1 FROM ${QT("external_record_links")} xl JOIN ${QT("crm_connections")} cc ON cc.id = xl.connection_id
+            WHERE xl.business_id = l.business_id AND xl.record_type = 'contact' AND xl.local_id = c.id AND xl.deleted_at IS NULL
+              AND COALESCE(cc.settings->>'ownerAuthority', 'external') = 'external'
+              AND (cc.status <> 'active' OR cc.last_sync_at IS NULL OR cc.last_sync_at < timezone('UTC', now()) - (COALESCE((cc.settings->>'freshnessMinutes')::int, 1440) || ' minutes')::interval)
+          )
           ${identity}
           -- Follow-ups without any time are never dialed.
           AND NOT EXISTS (

@@ -364,6 +364,7 @@ model Plan {
 }
 
 model Business {
+  crmConnections CrmConnection[]
   metaAdAccounts MetaAdAccount[]
   leadTouchpoints LeadTouchpoint[]
   metaAdConnection MetaAdConnection?
@@ -2406,6 +2407,17 @@ model ApiKey {
   lastUsedAt  DateTime? @map("last_used_at")
   revokedAt   DateTime? @map("revoked_at")
   createdAt   DateTime  @default(now()) @map("created_at")
+  /// Integration keys: limited scopes (empty = legacy full key that acts with CRM view). contacts:write,
+  /// leads:write, blocks:write, events:read.
+  scopes      String[]  @default([])
+  /// Integration key of a generic CRM connection – records it writes are linked to that connection.
+  connectionId String?  @map("connection_id")
+  /// Key this one replaced (rotation) – the old one stays valid until its grace period ends.
+  rotatedFromId String? @map("rotated_from_id")
+  expiresAt   DateTime? @map("expires_at")
+  /// Fixed-window rate limit (per minute), shared by every server instance.
+  windowStart DateTime? @map("window_start")
+  windowCount Int       @default(0) @map("window_count")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -3603,4 +3615,146 @@ model SupportSession {
   @@index([businessId, startedAt])
   @@index([accountId, startedAt])
   @@map("support_sessions")
+}
+
+
+/// A connection to a business's own (external) CRM. The connector key picks the vendor code; everything else –
+/// mapping, queues, retries, event log, permissions – is shared infrastructure (src/server/crm-sync).
+model CrmConnection {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  connectorKey  String    @map("connector_key")
+  name          String
+  /// setup | active | error | paused | disconnected – "active" only after a real connection test passed
+  status        String    @default("setup")
+  /// Sealed credentials (never returned, never logged).
+  authConfig    Json      @default("{}") @map("auth_config")
+  /// Mapping, selection, directions, source of truth, freshness and deletion policy (see crm-sync/settings.ts).
+  settings      Json      @default("{}")
+  /// Which source owns a record when several connections exist (lower = wins); a record is linked to one owner.
+  priority      Int       @default(100)
+  verifiedAt    DateTime? @map("verified_at")
+  lastTestAt    DateTime? @map("last_test_at")
+  lastTestResult Json?    @map("last_test_result")
+  /// Last time data from the source was confirmed current (sync / webhook / reconcile) – drives pre-dial freshness.
+  lastSyncAt    DateTime? @map("last_sync_at")
+  lastSyncStatus String?  @map("last_sync_status")
+  lastError     String?   @map("last_error")
+  /// Initial sync / polling / reconcile progress: { phase, cursor, processed, total, startedAt, finishedAt, since }.
+  syncState     Json      @default("{}") @map("sync_state")
+  nextSyncAt    DateTime? @map("next_sync_at")
+  createdById   String?   @map("created_by_id")
+  disconnectedAt DateTime? @map("disconnected_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  business Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  links    ExternalRecordLink[]
+  events   CrmSyncEvent[]
+  outbox   CrmOutbox[]
+  reviews  CrmReviewItem[]
+  @@index([businessId])
+  @@map("crm_connections")
+}
+
+/// Identity of an external record = business + connection + record type + external id → one local record.
+model ExternalRecordLink {
+  id              String    @id @default(cuid())
+  businessId      String    @map("business_id")
+  connectionId    String    @map("connection_id")
+  /// contact | lead | user | activity | task
+  recordType      String    @map("record_type")
+  externalId      String    @map("external_id")
+  localId         String?   @map("local_id")
+  /// Source timestamp / version of the last change applied – an older event never overwrites a newer one.
+  sourceUpdatedAt DateTime? @map("source_updated_at")
+  sourceVersion   String?   @map("source_version")
+  lastSyncedAt    DateTime? @map("last_synced_at")
+  /// Selected for work by the connection's rules (does not by itself dial or message anyone).
+  selected        Boolean   @default(false)
+  deletedAt       DateTime? @map("deleted_at")
+  /// Last values WE wrote to the source ({ status, at, correlationId }) – their echo is ignored (no loops).
+  lastOutbound    Json      @default("{}") @map("last_outbound")
+  snapshot        Json      @default("{}")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  connection CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  @@unique([businessId, connectionId, recordType, externalId])
+  @@index([businessId, recordType, localId])
+  @@map("external_record_links")
+}
+
+/// Every inbound change (webhook / poll / initial / API) – dedupe by event id, stale / echo detection, audit.
+model CrmSyncEvent {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  connectionId  String    @map("connection_id")
+  eventId       String    @map("event_id")
+  /// webhook | poll | initial | reconcile | api
+  kind          String
+  recordType    String    @map("record_type")
+  externalId    String    @map("external_id")
+  occurredAt    DateTime? @map("occurred_at")
+  /// pending | applied | skipped_duplicate | skipped_stale | skipped_echo | review | conflict | failed
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  error         String?
+  payload       Json      @default("{}")
+  result        Json?
+  correlationId String?   @map("correlation_id")
+  processedAt   DateTime? @map("processed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  connection CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  @@unique([connectionId, eventId])
+  @@index([businessId, status, createdAt])
+  @@map("crm_sync_events")
+}
+
+/// Write-back queue to the external CRM (call activity, late AI summary, follow-up task, status, block request).
+/// "Done here" is the local record; "synced" is this row reaching sent. Idempotent per dedupe key.
+model CrmOutbox {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  connectionId  String    @map("connection_id")
+  action        String
+  localType     String    @map("local_type")
+  localId       String    @map("local_id")
+  dedupeKey     String    @map("dedupe_key")
+  payload       Json      @default("{}")
+  /// pending | sent | failed | dead | cancelled
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  lastError     String?   @map("last_error")
+  externalRef   String?   @map("external_ref")
+  correlationId String    @map("correlation_id")
+  sentAt        DateTime? @map("sent_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  connection CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  @@unique([connectionId, dedupeKey])
+  @@index([businessId, status, nextAttemptAt])
+  @@map("crm_outbox")
+}
+
+/// Things a person decides: fuzzy identity matches, unmapped agents, conflicts, external deletions.
+model CrmReviewItem {
+  id           String    @id @default(cuid())
+  businessId   String    @map("business_id")
+  connectionId String    @map("connection_id")
+  /// fuzzy_match | unmapped_owner | conflict | deleted_external | unmapped_status
+  kind         String
+  recordType   String    @map("record_type")
+  externalId   String    @map("external_id")
+  localId      String?   @map("local_id")
+  details      Json      @default("{}")
+  /// open | resolved | dismissed
+  status       String    @default("open")
+  resolution   String?
+  resolvedById String?   @map("resolved_by_id")
+  resolvedAt   DateTime? @map("resolved_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  connection CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  @@unique([connectionId, kind, recordType, externalId])
+  @@index([businessId, status])
+  @@map("crm_review_items")
 }

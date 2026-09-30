@@ -334,6 +334,23 @@ export async function transferLeads(user: SessionUser, input: z.infer<typeof tra
   return { ...result, to: target };
 }
 
+/**
+ * A transfer decided by the source of truth (an external CRM that owns assignment): same rules as a manual transfer –
+ * during a live call it waits for the call to end; otherwise tasks, follow-ups and queues move with the lead.
+ */
+export async function transferLeadBySource(businessId: string, leadId: string, toUserId: string, actorId: string) {
+  const l = await prisma.lead.findFirst({ where: { id: leadId, businessId }, select: { id: true, contactId: true, ownerUserId: true } });
+  if (!l || l.ownerUserId === toUserId) return { changed: false, pending: false };
+  if (await activeCallOn(prisma, businessId, l.contactId)) {
+    await prisma.lead.update({ where: { id: l.id }, data: { pendingTransferToUserId: toUserId, pendingTransferById: actorId, pendingTransferAt: new Date() } });
+    await audit(businessId, actorId, "lead", l.id, "lead.transfer_pending", { from: l.ownerUserId, to: toUserId, via: "external_crm" });
+    return { changed: false, pending: true };
+  }
+  await applyTransfer(businessId, l.id, toUserId, actorId);
+  await notifyTransferred(businessId, l.id, toUserId);
+  return { changed: true, pending: false };
+}
+
 /** Apply transfers that were waiting for a call to finish (after an outcome is saved, and as a cron safety net). */
 export async function applyPendingTransfers(businessId: string, contactId?: string) {
   const waiting = await prisma.lead.findMany({ where: { businessId, pendingTransferToUserId: { not: null }, ...(contactId ? { contactId } : {}) }, select: { id: true, contactId: true, pendingTransferToUserId: true, pendingTransferById: true } });

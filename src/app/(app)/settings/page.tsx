@@ -367,6 +367,12 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
   return (
     <div className="space-y-4">
       <Suspense fallback={null}><MetaAdsPanel /></Suspense>
+      <Panel title={t("CRM חיצוני", "External CRM")}>
+        <div className="flex flex-wrap items-center gap-3 text-sm" data-testid="external-crm-panel">
+          <p className="flex-1 min-w-60 text-muted">{t("עסק שנשאר עם ה-CRM שלו: סנכרון אנשי קשר ופניות, עבודה בחייגן ובוואטסאפ, וכתיבת תוצאות השיחות חזרה – גם בלי מודול ה-CRM שלנו.", "Keep your own CRM: sync contacts and opportunities, work them in the dialer and WhatsApp, and write call results back – even without our CRM module.")}</p>
+          <a href="/settings/crm" className="text-accent underline text-xs" data-testid="external-crm-open">{t("ניהול חיבורי CRM חיצוני ←", "Manage external CRM connections →")}</a>
+        </div>
+      </Panel>
       <Panel title={t("ערוצי דיוור", "Messaging channels")}>
         <ul className="text-sm space-y-3">
           <li className="flex flex-wrap items-center gap-2">

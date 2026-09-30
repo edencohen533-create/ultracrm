@@ -8,7 +8,7 @@ import { createApiKey } from "@/server/services/integrations";
 export const dynamic = "force-dynamic";
 
 export const GET = withAuth(async () => {
-  const items = await prisma.apiKey.findMany({ orderBy: { createdAt: "desc" }, select: { id: true, name: true, prefix: true, lastUsedAt: true, revokedAt: true, createdAt: true } });
+  const items = await prisma.apiKey.findMany({ orderBy: { createdAt: "desc" }, select: { id: true, name: true, prefix: true, lastUsedAt: true, revokedAt: true, createdAt: true, scopes: true, connectionId: true, expiresAt: true } });
   return ok({ items });
 }, { minRole: "owner" });
 

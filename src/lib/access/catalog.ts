@@ -37,9 +37,9 @@ const TEMPLATES_RAW: Record<TemplateKey, { label: string; en: string; scope: Dat
 export const TEMPLATES = Object.fromEntries(Object.entries(TEMPLATES_RAW).map(([k, v]) => [k, withLabel(v, v.en)])) as typeof TEMPLATES_RAW;
 
 /** Real product dependencies between modules (shown when configuring packages and permissions). */
-const DEPENDENCY_EN: Record<string, string> = {"telephony": "The dialer works on the business's contacts and leads; without CRM the agent dials from dial lists and the lead card in the dialer only – CRM screens don't open.", "sms": "Campaigns use the shared contacts and audiences – even without the CRM module.", "email": "Campaigns use the shared contacts and audiences – even without the CRM module."};
+const DEPENDENCY_EN: Record<string, string> = {"telephony": "The dialer works on the business's contacts and leads; without CRM the agent dials from dial lists and the lead card in the dialer only – CRM screens don't open. An external CRM can be connected (Settings → Connections).", "sms": "Campaigns use the shared contacts and audiences – even without the CRM module.", "email": "Campaigns use the shared contacts and audiences – even without the CRM module."};
 export const DEPENDENCIES: Array<{ module: ModuleKey; note: string }> = ([
-  { module: "telephony", note: "החייגן עובד על אנשי הקשר והלידים של העסק; בלי CRM הנציג מחייג מרשימות החיוג ומכרטיס הליד בחייגן בלבד – מסכי ה-CRM אינם נפתחים." },
+  { module: "telephony", note: "החייגן עובד על אנשי הקשר והלידים של העסק; בלי CRM הנציג מחייג מרשימות החיוג ומכרטיס הליד בחייגן בלבד – מסכי ה-CRM אינם נפתחים. אפשר לחבר CRM חיצוני (הגדרות ← חיבורים)." },
   { module: "sms", note: "קמפיינים משתמשים באנשי הקשר ובקהלים המשותפים – גם בלי מודול CRM." },
   { module: "email", note: "קמפיינים משתמשים באנשי הקשר ובקהלים המשותפים – גם בלי מודול CRM." },
 ] as Array<{ module: ModuleKey; note: string; label: string }>).map((d) => { const x = withLabel({ ...d, label: d.note }, DEPENDENCY_EN[d.module] ?? d.note); return Object.defineProperty(x, "note", { get: () => x.label, enumerable: true }); });

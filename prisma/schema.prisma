@@ -2098,6 +2098,13 @@ model MarketingSequence {
   triggerConfig Json            @default("{}") @map("trigger_config")
   /// Stop when: reply | conversion | unsubscribe (unsubscribe is always enforced).
   stopOn        String[]        @default(["reply", "conversion", "unsubscribe"]) @map("stop_on")
+  /// draft (never published) | active | paused. `isActive` mirrors "active" for the engine.
+  status        String          @default("active")
+  /// Unpublished edits (the whole definition). Saving never touches the live version; "save & activate" publishes it.
+  draft         Json?
+  /// The published version number (SequenceVersion); runs keep the version they started with.
+  version       Int             @default(1)
+  publishedAt   DateTime?       @map("published_at")
   createdById   String?         @map("created_by_id")
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
@@ -2148,6 +2155,8 @@ model SequenceRun {
   stopReason  String?           @map("stop_reason")
   /// [{ step, messageId?, skipped?, at }]
   log         Json              @default("[]")
+  /// The published version this run follows (null = runs from before versioning → the current steps).
+  versionId   String?           @map("version_id")
   completedAt DateTime?         @map("completed_at")
 
   business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -4100,4 +4109,22 @@ model BillingCredit {
 
   @@index([businessId, cancelledAt])
   @@map("billing_credits")
+}
+
+/// A published journey version: the exact steps a run follows, the checks that passed and who approved it.
+model SequenceVersion {
+  id            String   @id @default(cuid())
+  businessId    String   @map("business_id")
+  sequenceId    String   @map("sequence_id")
+  version       Int
+  /// { name, trigger, triggerConfig, stopOn, steps: SequenceStep-like rows }
+  definition    Json
+  /// The publish checks and their results at approval time.
+  checks        Json     @default("[]")
+  publishedById String?  @map("published_by_id")
+  publishedAt   DateTime @default(now()) @map("published_at")
+
+  @@unique([sequenceId, version])
+  @@index([businessId, sequenceId])
+  @@map("sequence_versions")
 }

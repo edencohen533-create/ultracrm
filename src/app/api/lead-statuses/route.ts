@@ -19,7 +19,8 @@ export const GET = withAuth(async ({ user }) => {
   const s = await getBusinessSettings(user.businessId);
   // Managers also get the WhatsApp templates (with approval status) for the "notify the agent" option.
   const templates = user.role === "agent" ? [] : await prisma.template.findMany({ where: { businessId: user.businessId, channel: "whatsapp", internal: false }, orderBy: { name: "asc" }, select: { id: true, name: true, displayName: true, status: true, body: true } }).then((r) => r.map(withDisplayName));
-  return ok({ items: await listStatuses(user.businessId), leadAssignment: s.leadAssignment, templates, canEditStructure: user.role === "owner", timezone: s.timezone });
+  // The distribution policy is the owner's screen – nobody else sees it (also through the API).
+  return ok({ items: await listStatuses(user.businessId), leadAssignment: user.role === "owner" ? s.leadAssignment : null, templates: user.role === "owner" ? templates : [], canEditStructure: user.role === "owner", timezone: s.timezone });
 }, { perm: ["crm.view", "telephony.use"] });
 
 /** Add a status (owner): a name and its meaning. */
@@ -28,11 +29,12 @@ export const POST = withAuth(async ({ req, user }) => ok(await createStatus(user
 const schema = z.object({
   /** Rename / reorder / reactivate statuses (owner). */
   items: updateStatusesSchema.shape.items.optional(),
-  leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional(), notifyWhatsApp: z.object({ enabled: z.boolean(), templateId: z.string().nullable() }).optional() }).optional(),
+  leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional(), requireOnline: z.boolean().optional(), whenNoneOnline: z.enum(["unassigned", "any_eligible"]).optional(), notifyWhatsApp: z.object({ enabled: z.boolean(), templateId: z.string().nullable() }).optional() }).optional(),
 });
 
 export const PATCH = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, schema);
+  if (b.leadAssignment && user.role !== "owner") throw new ApiError("חלוקת הלידים זמינה לבעל העסק בלבד", 403, "owner_only");
   const items = b.items ? await updateStatuses(user, { items: b.items }) : null;
   if (b.leadAssignment?.agentIds?.length) {
     const n = await prisma.user.count({ where: { businessId: user.businessId, id: { in: b.leadAssignment.agentIds } } });

@@ -13,7 +13,7 @@ export async function opsOverview(user: SessionUser) {
   const ids = await visibleUserIds(user);
   const inScope = (agentId: string | null) => !ids || !agentId || ids.includes(agentId);
 
-  const rules = (await prisma.opsRule.findMany({ where: { businessId }, orderBy: [{ priority: "asc" }, { createdAt: "asc" }] })).map((r) => {
+  const rules = (await prisma.opsRule.findMany({ where: { businessId, NOT: { kind: "performance_bonus" } }, orderBy: [{ priority: "asc" }, { createdAt: "asc" }] })).map((r) => {
     const kind = r.kind as RuleKind;
     let summary: ReturnType<typeof describeRule> | null = null; try { summary = describeRule(kind, r.config, r.autonomy as Autonomy); } catch { summary = null; }
     return { ...r, kindLabel: KIND_LABEL[kind] ?? r.kind, autonomyLabel: AUTONOMY_LABEL[r.autonomy as Autonomy] ?? r.autonomy, allowedAutonomy: ALLOWED_AUTONOMY[kind] ?? [], summary, expired: Boolean(r.expiresAt && r.expiresAt <= new Date()) };

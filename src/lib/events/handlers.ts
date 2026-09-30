@@ -30,48 +30,44 @@ async function touchContact(contactId: string | null, at: Date) {
  * owner is the manager/owner who imported it goes through the distribution policy (round robin / least loaded, cap per
  * agent) and only falls back to that manager when the policy finds nobody.
  */
-async function pickOwner(businessId: string, preferredUserId?: string | null, source: string | null = null): Promise<{ owner: string | null; overrideId: string | null; listId: string | null }> {
+async function pickOwner(businessId: string, preferredUserId?: string | null, source: string | null = null): Promise<{ owner: string | null; overrideId: string | null; listId: string | null; reason: Record<string, unknown> }> {
   let fallback: string | null = null;
   if (preferredUserId) {
     const u = await prisma.user.findFirst({ where: { id: preferredUserId, businessId, isActive: true }, select: { id: true, role: true } });
-    if (u?.role === "agent") return { owner: u.id, overrideId: null, listId: null };
+    if (u?.role === "agent") return { owner: u.id, overrideId: null, listId: null, reason: { rule: "contact_owner", detail: "איש הקשר כבר שייך לנציג הזה" } };
     if (u) fallback = u.id;
   }
-  // Distribution policy (settings → leads → חלוקת לידים): least-loaded (default) or round robin, optional cap per agent.
-  // Read pointer → choose → write pointer runs under a per-business advisory lock, so two workers handling two new
-  // leads at the same moment cannot both hand them to the same agent.
-  // "מנהל AI" load rule (auto): agents with too many untouched leads are skipped until the load drops.
+  // Distribution policy (CRM → חלוקת לידים): least-loaded (default) or round robin, optional cap per agent and
+  // availability. The decision itself is pure (src/lib/crm/distribution.ts – shared with the preview); read pointer →
+  // decide → write pointer runs under a per-business advisory lock, so two new leads at the same moment can never both
+  // be handed out from the same pointer (no double turn, no skipped turn).
   const { ruleFor } = await import("@/server/ops/rules");
   const loadCap = await ruleFor(businessId, "load_cap").catch(() => null);
+  const { decide } = await import("@/lib/crm/distribution");
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lead-assign:${businessId}`}))`;
     const biz = await tx.business.findUnique({ where: { id: businessId }, select: { settings: true } });
     const policy = mergeSettings(biz?.settings).leadAssignment;
-    const agents = await tx.user.findMany({ where: { businessId, isActive: true, role: { in: ["agent", "manager"] }, ...(policy.agentIds.length ? { id: { in: policy.agentIds } } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, _count: { select: { ownedLeads: { where: { status: { in: ["new", "contacted", "qualified"] } } } } } } });
-    const capOf = (id: string) => (policy.perAgentMax ?? {})[id] ?? policy.maxOpenLeadsPerAgent;
-    let eligible = agents.filter((a) => { const cap = capOf(a.id); return !cap || a._count.ownedLeads < cap; });
-    if (loadCap?.autonomy === "auto" && eligible.length) {
-      const untouched = await tx.lead.groupBy({ by: ["ownerUserId"], where: { businessId, ownerUserId: { in: eligible.map((a) => a.id) }, status: "new", NOT: { contact: { calls: { some: { direction: "outbound", leadDialedAt: { not: null } } } } } }, _count: { _all: true } });
-      eligible = eligible.filter((a) => (untouched.find((x) => x.ownerUserId === a.id)?._count._all ?? 0) < loadCap.config.maxUntouched);
+    const users = await tx.user.findMany({ where: { businessId, isActive: true, role: { in: ["agent", "manager"] } }, orderBy: { createdAt: "asc" }, select: { id: true, _count: { select: { ownedLeads: { where: { status: { in: ["new", "contacted", "qualified"] } } } } } } });
+    const auto = loadCap?.autonomy === "auto";
+    const untouched = auto && users.length ? await tx.lead.groupBy({ by: ["ownerUserId"], where: { businessId, ownerUserId: { in: users.map((a) => a.id) }, status: "new", NOT: { contact: { calls: { some: { direction: "outbound", leadDialedAt: { not: null } } } } } }, _count: { _all: true } }) : [];
+    const online = policy.requireOnline && users.length ? new Set((await tx.dialerSession.findMany({ where: { businessId, userId: { in: users.map((u) => u.id) }, status: "active", lastHeartbeatAt: { gte: new Date(Date.now() - 5 * 60_000) } }, select: { userId: true } })).map((x) => x.userId)) : null;
+    const agents = users.map((u) => ({ id: u.id, openLeads: u._count.ownedLeads, untouched: untouched.find((x) => x.ownerUserId === u.id)?._count._all ?? 0, online: online ? online.has(u.id) : true }));
+    const pool = policy.agentIds.length ? agents.filter((a) => policy.agentIds.includes(a.id)) : agents;
+    // The active temporary allocation (approved "מנהל AI" request / distribution rule) – see src/server/ops/engine.ts.
+    const { activeOverride, recordOverride } = await import("@/server/ops/engine");
+    const ov = await activeOverride(tx, businessId, source);
+    const d = decide(policy, agents, auto ? loadCap!.config.maxUntouched : null, ov);
+    // No pool at all → the importing manager; pool exhausted (cap / load / availability) → unassigned.
+    if (!d.owner) return { owner: pool.length === 0 ? fallback : null, overrideId: null, listId: null, reason: { rule: "none", ...d.reason } };
+    const listId = ov ? await recordOverride(tx, ov, d, d.reason.eligible) : null;
+    if (d.movePointer) {
+      // Persist the pointer (raw JSON merge – no other settings touched).
+      const raw = (biz?.settings && typeof biz.settings === "object" ? biz.settings : {}) as Record<string, unknown>;
+      const la = (raw.leadAssignment && typeof raw.leadAssignment === "object" ? raw.leadAssignment : {}) as Record<string, unknown>;
+      await tx.business.update({ where: { id: businessId }, data: { settings: { ...raw, leadAssignment: { ...la, lastAssignedUserId: d.owner } } as Prisma.InputJsonValue } });
     }
-    if (eligible.length === 0) return { owner: agents.length === 0 ? fallback : null, overrideId: null, listId: null }; // no pool at all → the importing manager; pool exhausted (cap / load) → unassigned
-    let chosen: string;
-    if (policy.mode === "round_robin") {
-      const idx = eligible.findIndex((a) => a.id === policy.lastAssignedUserId);
-      chosen = eligible[(idx + 1) % eligible.length].id;
-    } else {
-      chosen = [...eligible].sort((a, b) => a._count.ownedLeads - b._count.ownedLeads)[0].id;
-    }
-    // A temporary allocation approved by the manager (and the agent) – see src/server/ops/engine.ts.
-    const { applyAllocation } = await import("@/server/ops/engine");
-    const alloc = await applyAllocation(tx, businessId, eligible.map((a) => a.id), chosen, source);
-    if (!alloc.movePointer) return { owner: alloc.owner, overrideId: alloc.overrideId, listId: alloc.listId };
-    chosen = alloc.owner;
-    // Persist the pointer (raw JSON merge – no other settings touched).
-    const raw = (biz?.settings && typeof biz.settings === "object" ? biz.settings : {}) as Record<string, unknown>;
-    const la = (raw.leadAssignment && typeof raw.leadAssignment === "object" ? raw.leadAssignment : {}) as Record<string, unknown>;
-    await tx.business.update({ where: { id: businessId }, data: { settings: { ...raw, leadAssignment: { ...la, lastAssignedUserId: chosen } } as Prisma.InputJsonValue } });
-    return { owner: chosen, overrideId: alloc.overrideId, listId: alloc.listId };
+    return { owner: d.owner, overrideId: d.overrideId, listId, reason: { rule: d.overrideId ? "allocation" : policy.mode, pointerFrom: policy.lastAssignedUserId, ...d.reason } };
   });
 }
 
@@ -92,6 +88,8 @@ const leadCreated: EventHandler = {
       const picked = await pickOwner(event.businessId, lead.contact.ownerUserId, lead.source);
       ownerUserId = picked.owner;
       const set = ownerUserId ? await prisma.lead.updateMany({ where: { id: lead.id, ownerUserId: null }, data: { ownerUserId } }) : { count: 0 };
+      // Why this lead went to this agent (or stayed unassigned) – shown in the lead's history and the distribution screen.
+      await audit(event.businessId, null, "lead", lead.id, set.count ? "lead.assigned" : "lead.unassigned", { owner: set.count ? ownerUserId : null, ...picked.reason });
       if (set.count && picked.overrideId) {
         // Allocated through an approved "מנהל AI" allocation: traceable per lead, queued in its campaign if set.
         const ov = await prisma.assignmentOverride.findUnique({ where: { id: picked.overrideId }, select: { recommendationId: true } });

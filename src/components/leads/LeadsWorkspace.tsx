@@ -76,6 +76,8 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   const [bulkBusy, setBulkBusy] = useState(false);
   const requestId = useRef(0);
   const manager = Boolean(me && me.user.role !== "agent");
+  /** Lead distribution and its rules are the business owner's (the server enforces it too). */
+  const isOwner = me?.user.role === "owner";
   const telephony = Boolean(me?.modules.telephony);
   const canDial = telephony && Boolean(state) && !state?.activeCall;
   const owner = filter.ownerUserId === "me" ? me?.user.id ?? "" : filter.ownerUserId;
@@ -157,7 +159,7 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
       {!listId && manager && telephony && <Link href="/calling/lists" className="lead-button" data-testid="open-lists">{t("רשימות חיוג", "Dial lists")}</Link>}
       <button className="lead-button" onClick={() => setTasksOpen(true)} data-testid="open-tasks"><CheckSquare size={15} />{t("משימות וחזרות", "Tasks & callbacks")}</button>
       {manager && <button className="lead-button mobile-keep" onClick={() => { setSettingsTab("statuses"); setSettingsOpen(true); }} data-testid="open-statuses">{t("עריכת סטטוסים", "Edit statuses")}</button>}
-      {manager && <button className="lead-button" onClick={() => { setSettingsTab("assignment"); setSettingsOpen(true); }} data-testid="open-assignment">{t("חלוקת לידים", "Lead distribution")}</button>}
+      {isOwner && <button className="lead-button mobile-keep" onClick={() => { setSettingsTab("assignment"); setSettingsOpen(true); }} data-testid="open-assignment">{t("חלוקת לידים", "Lead distribution")}</button>}
       {telephony && <button className="lead-button mobile-keep" onClick={() => { setSettingsTab("settings"); setSettingsOpen(true); }} data-testid="open-leads-settings"><Settings size={15} />{t("הגדרות", "Settings")}</button>}
       <button className="lead-button" onClick={() => { void load(); }} disabled={loading}><RefreshCw size={15} className={loading ? "animate-spin" : ""} />{t("רענן", "Refresh")}</button>
       <button className="lead-button primary" onClick={() => setOpen(true)}>{t("ליד חדש", "New lead")}</button></div></header>

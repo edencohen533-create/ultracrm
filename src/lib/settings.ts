@@ -195,7 +195,7 @@ export const DEFAULT_PRIORITIZATION: PrioritizationWeights = {
 export const DEFAULT_SETTINGS: BusinessSettings = {
   coach: { enabled: false, learnFromRecordings: false, documentCalls: true },
   leadStatuses: DEFAULT_LEAD_STATUSES,
-  leadAssignment: { mode: "least_loaded", maxOpenLeadsPerAgent: 0, agentIds: [], perAgentMax: {}, lastAssignedUserId: null, notifyWhatsApp: { enabled: false, templateId: null } },
+  leadAssignment: { mode: "least_loaded", maxOpenLeadsPerAgent: 0, agentIds: [], perAgentMax: {}, lastAssignedUserId: null, requireOnline: false, whenNoneOnline: "unassigned", notifyWhatsApp: { enabled: false, templateId: null } },
   assistant: DEFAULT_ASSISTANT,
   permissions: DEFAULT_PERMISSIONS,
   retention: { messagesDays: 0, auditDays: 0 },

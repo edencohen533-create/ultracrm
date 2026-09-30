@@ -1837,8 +1837,29 @@ model StoreConnection {
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  carts    Cart[]
+  /// API access check: none | ok | failed (a real request, never "saved = connected").
+  apiStatus           String    @default("none") @map("api_status")
+  apiCheckedAt        DateTime? @map("api_checked_at")
+  apiError            String?   @map("api_error")
+  /// { orders, customers, products, webhooksRead, webhooksWrite } – what the key can actually do.
+  apiAccess           Json?     @map("api_access")
+  /// Webhooks: none | configured (created / reported) | verified (a signed event arrived) | failed.
+  webhookStatus       String    @default("none") @map("webhook_status")
+  webhookError        String?   @map("webhook_error")
+  lastVerifiedEventAt DateTime? @map("last_verified_event_at")
+  /// Initial import / reconcile progress: { mode, status, scope, resources: { orders: { page, totalPages, total, done, failed } }, startedAt, finishedAt, error }.
+  syncState           Json?     @map("sync_state")
+  lastSyncAt          DateTime? @map("last_sync_at")
+  lastSyncError       String?   @map("last_sync_error")
+  /// Plugins / sources seen in real orders: { payment: [...], shipping: [...], documents: [...], bundles: [...] }.
+  capabilities        Json?
+  disconnectedAt      DateTime? @map("disconnected_at")
+
+  business  Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  carts     Cart[]
+  events    StoreEvent[]
+  customers StoreCustomer[]
+  products  StoreProduct[]
 
   @@index([businessId])
   @@map("store_connections")
@@ -3266,6 +3287,18 @@ model StoreOrder {
   shipments   Json      @default("[]")
   /// { number?, issuedAt?, total?, url?, items: [{ name, sku?, quantity, price? }] } – as the invoicing source sent it
   receipt     Json?
+  /// { subtotal, discount, tax, shipping, fees, total, refunded, coupons: [...] } as the store computed them.
+  totals      Json?
+  /// Payment confirmation (NOT a receipt): { method, title, transactionId, paidAt }.
+  payment     Json?
+  /// { billing: { name, city, phone, email }, shipping: { name, city, method } } – what service needs, no more.
+  addresses   Json?
+  /// Links found on the order (plugin documents: invoice / receipt / shipping label …) – labelled by their source, unverified.
+  documents   Json      @default("[]")
+  /// The source's modification time of the version stored – an older event never overwrites a newer one.
+  sourceModifiedAt DateTime? @map("source_modified_at")
+  /// Came from the historical import (never triggers automations as a "new purchase").
+  imported    Boolean   @default(false)
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
@@ -3310,4 +3343,84 @@ model ServiceCase {
   @@unique([businessId, dedupeKey])
   @@index([businessId, contactId, createdAt])
   @@map("service_cases")
+}
+
+/// Inbox of store events (webhooks, initial import, reconcile): stored first, processed by a worker with retries.
+model StoreEvent {
+  id              String    @id @default(cuid())
+  businessId      String    @map("business_id")
+  storeId         String    @map("store_id")
+  /// webhook | import | reconcile
+  source          String
+  /// order.updated, customer.created, product.updated …
+  topic           String
+  resourceId      String?   @map("resource_id")
+  deliveryId      String?   @map("delivery_id")
+  payloadHash     String    @map("payload_hash")
+  payload         Json
+  sourceModifiedAt DateTime? @map("source_modified_at")
+  /// pending | processing | done | duplicate | stale | failed
+  status          String    @default("pending")
+  attempts        Int       @default(0)
+  nextAttemptAt   DateTime  @default(now()) @map("next_attempt_at")
+  error           String?
+  receivedAt      DateTime  @default(now()) @map("received_at")
+  processedAt     DateTime? @map("processed_at")
+
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, payloadHash])
+  @@index([status, nextAttemptAt])
+  @@index([businessId, storeId, receivedAt])
+  @@map("store_events")
+}
+
+/// A store's customer (by its id in that store) ↔ the CRM contact it was linked to.
+model StoreCustomer {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  storeId     String    @map("store_id")
+  externalId  String    @map("external_id")
+  contactId   String?   @map("contact_id")
+  email       String?
+  phoneE164   String?   @map("phone_e164")
+  name        String?
+  /// linked | created | no_phone (kept without a contact – never merged by name)
+  linkState   String    @default("linked") @map("link_state")
+  sourceModifiedAt DateTime? @map("source_modified_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, externalId])
+  @@index([businessId, contactId])
+  @@map("store_customers")
+}
+
+/// The store's catalog (current). Purchases keep their own snapshot – a catalog change never rewrites an order.
+model StoreProduct {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  storeId     String    @map("store_id")
+  externalId  String    @map("external_id")
+  parentExternalId String? @map("parent_external_id")
+  name        String
+  sku         String?
+  /// simple | variable | variation | grouped | bundle | composite | …
+  type        String?
+  status      String?
+  price       Decimal?  @db.Decimal(14, 2)
+  /// Bundle composition as the catalog states it now (informational only).
+  components  Json?
+  deleted     Boolean   @default(false)
+  sourceModifiedAt DateTime? @map("source_modified_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, externalId])
+  @@index([businessId, name])
+  @@map("store_products")
 }

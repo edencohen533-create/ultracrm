@@ -25,7 +25,7 @@ export interface CustomerFile {
   hiddenLeads: number;
   purchases: Array<{ id: string; title: string; amount: number; currency: string; closedAt: string | null; owner: string | null; items: Array<{ name: string; quantity: number; unitPrice: number; startsAt: string; endsAt: string | null }> }>;
   opportunities: Array<{ id: string; title: string; amount: number; currency: string; stage: string; owner: string | null; expectedCloseAt: string | null }>;
-  orders: Array<{ id: string; orderId: string | null; total: number | null; currency: string | null; at: string | null; store: string; items: Array<{ name: string; quantity: number | null; price: number | null }>; status?: string; shipments?: string[]; receiptUrl?: string | null }>;
+  orders: Array<{ id: string; orderId: string | null; total: number | null; currency: string | null; at: string | null; store: string; items: Array<{ name: string; quantity: number | null; price: number | null }>; status?: string; shipments?: string[]; receiptUrl?: string | null; payment?: string | null; documents?: Array<{ label: string; url: string }> }>;
   /** Checked complaints (e.g. missing item) – claim, order checked, finding, next step, sources. */
   cases: Array<{ id: string; kind: string; finding: string; status: string; summary: string; orderNumber: string | null; createdAt: string; sources: Array<{ type: string; id: string; label: string; at?: string }> }>;
   documents: Array<{ id: string; fileName: string | null; mimeType: string; url: string; createdAt: string }>;
@@ -77,7 +77,9 @@ export async function customerFile(user: SessionUser, contactId: string, opts: {
       ...storeOrders.map((o) => {
         const items = describeOrder({ items: o.items as never });
         const ships = ((o.shipments ?? []) as Array<{ status: string; carrier?: string; tracking?: string; items?: Array<{ name: string; quantity: number }> }>).map((s) => `${s.carrier ?? "משלוח"} ${s.tracking ?? ""} – ${s.status}${s.items?.length ? ` (${s.items.map((i) => `${i.quantity} ${i.name}`).join(", ")})` : ""}`.replace(/\s+/g, " "));
-        return { id: o.id, orderId: o.orderNumber, total: o.total != null ? Number(o.total) : null, currency: o.currency, at: o.placedAt?.toISOString() ?? null, store: o.source, status: o.status, items: items.map((line) => ({ name: line, quantity: null, price: null })), shipments: ships, receiptUrl: ((o.receipt ?? null) as { url?: string } | null)?.url ?? null };
+        return { id: o.id, orderId: o.orderNumber, total: o.total != null ? Number(o.total) : null, currency: o.currency, at: o.placedAt?.toISOString() ?? null, store: o.source, status: o.status, items: items.map((line) => ({ name: line, quantity: null, price: null })), shipments: ships, receiptUrl: ((o.receipt ?? null) as { url?: string } | null)?.url ?? null,
+          payment: (() => { const p = (o.payment ?? null) as { title?: string; method?: string; transactionId?: string; paidAt?: string } | null; return p ? `${p.title ?? p.method ?? "תשלום"}${p.transactionId ? ` · אסמכתה ${p.transactionId}` : ""}${p.paidAt ? ` · ${new Date(p.paidAt).toLocaleDateString("he-IL")}` : ""}` : null; })(),
+          documents: ((o.documents ?? []) as Array<{ source: string; kind: string; url: string }>).map((d) => ({ label: `${d.kind === "receipt_link" ? "קישור קבלה" : d.kind === "invoice_link" ? "קישור חשבונית" : d.kind === "shipping_label" ? "תווית משלוח" : "מסמך"} (${d.source})`, url: d.url })) };
       }),
       ...base.orders.filter((o) => !o.orderId || !snap.has(o.orderId)),
     ];

@@ -17,7 +17,8 @@ vi.mock("@/lib/safe-url", async (original) => {
 });
 
 process.env.ENCRYPTION_KEY ||= crypto.randomBytes(32).toString("hex");
-const { connectShopify, connectWooCommerce } = await import("@/server/services/store-api");
+const { connectShopify } = await import("@/server/services/store-api");
+const { connectWoo } = await import("@/server/services/woo/connect");
 const { newPublicKey, sealStoreConfig } = await import("@/server/services/cart-service");
 const { createApiKey, createEndpoint, deliverDueWebhooks, sign } = await import("@/server/services/integrations");
 const { POST: v1LeadsPOST, GET: v1LeadsGET } = await import("@/app/api/v1/leads/route");
@@ -52,7 +53,7 @@ describe("round 9", { timeout: 1_800_000 }, () => {
   afterEach(() => { vi.unstubAllGlobals(); });
   afterAll(async () => { if (a) await destroyBusiness(a.business.id); if (b) await destroyBusiness(b.business.id); await db.account.deleteMany({ where: { id: { in: accounts } } }); }, 900_000);
 
-  it("store API: Shopify verifies the token and registers 3 webhooks; WooCommerce registers 2; bad credentials / internal hosts are rejected", async () => {
+  it("store API: Shopify verifies the token and registers 3 webhooks; WooCommerce is tested per resource and registers its 8 topics; bad credentials / internal hosts are rejected", async () => {
     const shop = await db.storeConnection.create({ data: { businessId: a.business.id, platform: "shopify", name: "S", publicKey: newPublicKey(), config: sealStoreConfig({}) } });
     let calls = stubFetch((url, init) => url.endsWith("/shop.json") ? { status: 200, body: { shop: { name: "My Shop" } } } : url.includes("/webhooks.json") && (!init?.method || init.method === "GET") ? { status: 200, body: { webhooks: [] } } : { status: 201, body: {} });
     const r = await run(a.session, () => connectShopify(shop, { shop: "my-shop.myshopify.com", accessToken: "shpat_1234567890", apiSecret: "shpss_secret_123" }));
@@ -69,12 +70,13 @@ describe("round 9", { timeout: 1_800_000 }, () => {
 
     const woo = await db.storeConnection.create({ data: { businessId: a.business.id, platform: "woocommerce", name: "W", publicKey: newPublicKey(), config: sealStoreConfig({}) } });
     calls = stubFetch((url, init) => !init?.method || init.method === "GET" ? { status: 200, body: [] } : { status: 201, body: {} });
-    const w = await run(a.session, () => connectWooCommerce(woo, { siteUrl: "https://shop.example.com", consumerKey: "ck_12345678", consumerSecret: "cs_12345678" }));
-    expect(w.registered).toEqual(["order.created", "order.updated"]);
+    const w = await run(a.session, () => connectWoo(woo, { siteUrl: "https://shop.example.com", consumerKey: "ck_12345678", consumerSecret: "cs_12345678" }));
+    expect(w.webhooks.created).toEqual(["order.created", "order.updated", "order.deleted", "customer.created", "customer.updated", "product.created", "product.updated", "product.deleted"]);
+    expect(w.access).toMatchObject({ orders: true, customers: true, products: true });
     const body = JSON.parse(String(calls.find((c) => c.init?.method === "POST")!.init!.body));
     expect(body.delivery_url).toContain(`/api/webhooks/stores/woocommerce/${woo.id}`); expect(body.secret.length).toBeGreaterThan(20);
     for (const bad of ["http://shop.example.com", "https://localhost", "https://10.0.0.5", "https://printer.local"]) {
-      await expect(run(a.session, () => connectWooCommerce(woo, { siteUrl: bad, consumerKey: "ck_12345678", consumerSecret: "cs_12345678" }))).rejects.toMatchObject({ code: "invalid_url" });
+      await expect(run(a.session, () => connectWoo(woo, { siteUrl: bad, consumerKey: "ck_12345678", consumerSecret: "cs_12345678" }))).rejects.toMatchObject({ code: "invalid_url" });
     }
   });
 

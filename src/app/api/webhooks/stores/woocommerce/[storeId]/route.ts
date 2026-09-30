@@ -1,40 +1,31 @@
+import { after } from "next/server";
 import { withBusiness } from "@/lib/tenant";
 import { db } from "@/lib/db";
-import { ingestCart, ingestOrder, storeSecret, verifyStoreSignature } from "@/server/services/cart-service";
+import { storeSecret, verifyStoreSignature } from "@/server/services/cart-service";
 
 export const dynamic = "force-dynamic";
-const OPEN = ["checkout-draft", "pending", "failed"];
-const PAID = ["processing", "completed", "on-hold"];
 
-/** WooCommerce webhooks (order.created / order.updated). Unpaid orders are carts; paid orders convert them. HMAC-verified. */
+/**
+ * WooCommerce deliveries (orders, customers, products – created / updated / deleted). The signature
+ * (X-WC-Webhook-Signature = base64 HMAC-SHA256 of the RAW body with our secret) is checked before anything is read;
+ * the business comes from the verified store connection, never from the payload. The event is STORED (deduped),
+ * acknowledged at once, and processed after the response (the every-minute job is the safety net, with retries).
+ */
 export async function POST(req: Request, { params }: { params: Promise<{ storeId: string }> }) {
   const { storeId } = await params;
   const raw = await req.text();
   const store = await db.storeConnection.findFirst({ where: { id: storeId, platform: "woocommerce", isActive: true } });
   if (!store) return new Response("unknown store", { status: 404 });
-  // WooCommerce "pings" a new webhook with a form body (webhook_id=…) and no signature – acknowledge it.
+  // WooCommerce "pings" a new webhook with a form body (webhook_id=…) and no signature – acknowledge only.
   if (raw.startsWith("webhook_id=")) return new Response("ok");
   if (!verifyStoreSignature(storeSecret(store), raw, req.headers.get("x-wc-webhook-signature"))) return new Response("bad signature", { status: 401 });
-  const o = JSON.parse(raw) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (!o?.id) return new Response("ok");
-  await withBusiness(store.businessId, async () => {
-    const b = o.billing ?? {};
-    const name = [b.first_name, b.last_name].filter(Boolean).join(" ") || undefined;
-    if (OPEN.includes(o.status)) {
-      await ingestCart(store, {
-        externalId: `order:${o.id}`, email: b.email || undefined, phone: b.phone || undefined, name, currency: o.currency, total: o.total !== undefined ? Number(o.total) : undefined,
-        items: (o.line_items ?? []).map((i: { name?: string; quantity?: number; price?: number | string }) => ({ name: i.name ?? "", quantity: i.quantity ?? 1, price: i.price !== undefined ? Number(i.price) : undefined })),
-        checkoutUrl: o.payment_url || undefined,
-      });
-    }
-    // Every placed order (paid, changed, cancelled, refunded) is kept as a snapshot – items as sold, bundles, gifts.
-    if (!OPEN.includes(o.status)) {
-      const { upsertStoreOrder, wooOrderSnapshot } = await import("@/server/services/store-order-service");
-      await upsertStoreOrder(store.businessId, "woocommerce", wooOrderSnapshot(o), { storeId: store.id });
-    }
-    if (PAID.includes(o.status)) {
-      await ingestOrder(store, { orderId: String(o.number ?? o.id), externalId: `order:${o.id}`, email: b.email || undefined, phone: b.phone || undefined, total: o.total !== undefined ? Number(o.total) : undefined, currency: o.currency });
-    }
-  });
-  return new Response("ok");
+  try { JSON.parse(raw); } catch { return new Response("bad payload", { status: 400 }); }
+  const { ingestWooWebhook, processStoreEvents } = await import("@/server/services/woo/events");
+  const r = await withBusiness(store.businessId, () => ingestWooWebhook(store, req.headers, raw));
+  if (!r.duplicate) {
+    const work = () => withBusiness(store.businessId, () => processStoreEvents({ storeId: store.id, limit: 10, deadline: Date.now() + 20_000 })).then(() => undefined, (e: Error) => console.error("[woo webhook] processing", { storeId, error: e.message }));
+    // After the response in a real request; outside one (direct calls / tests) process now.
+    try { after(work); } catch { await work(); }
+  }
+  return new Response(r.duplicate ? "duplicate" : "ok");
 }

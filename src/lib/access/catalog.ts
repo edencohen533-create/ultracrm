@@ -48,7 +48,7 @@ export const QUOTA_METRICS = ["users", "contacts", "messages_sent", "calls_start
 export type QuotaMetric = (typeof QUOTA_METRICS)[number];
 export const QUOTA_LABEL: Record<QuotaMetric, string> = bi({ users: "משתמשים פעילים", contacts: "אנשי קשר", messages_sent: "הודעות יוצאות בחודש", calls_started: "שיחות יוצאות בחודש", campaigns_started: "קמפיינים בחודש" }, { users: "Active users", contacts: "Contacts", messages_sent: "Outgoing messages per month", calls_started: "Outgoing calls per month", campaigns_started: "Campaigns per month" });
 
-export const ACCESS_STATUS_LABEL: Record<string, string> = bi({ active: "פעיל", trial: "ניסיון", grace: "תקופת חסד", suspended: "מושעה" }, { active: "Active", trial: "Trial", grace: "Grace period", suspended: "Suspended" });
+export const ACCESS_STATUS_LABEL: Record<string, string> = bi({ setup: "בהקמה", trial: "ניסיון", active: "פעיל", grace: "תקופת חסד", suspended: "מושעה", cancelled: "מבוטל" }, { setup: "Setting up", trial: "Trial", active: "Active", grace: "Grace period", suspended: "Suspended", cancelled: "Cancelled" });
 export const SOURCE_LABEL: Record<string, string> = bi({ plan: "חבילה", addon: "תוספת", trial: "ניסיון", temporary: "הרשאה זמנית", legacy: "ללא חבילה (ברירת מחדל קודמת)", override: "התאמה ידנית קודמת" }, { plan: "Plan", addon: "Add-on", trial: "Trial", temporary: "Temporary grant", legacy: "No plan (previous default)", override: "Previous manual override" });
 
 export function isPermission(p: string): p is Permission {

@@ -113,6 +113,9 @@ async function post(endpoint: WebhookEndpoint, deliveryId: string, event: string
 
 /** Cron (every minute, per business): send due deliveries; retry with backoff; give up after the last attempt. */
 export async function deliverDueWebhooks(businessId: string, deadline = Date.now() + 20_000) {
+  // A suspended / cancelled business sends nothing out; deliveries wait (kept) until it is reactivated.
+  const { businessEntitlement } = await import("@/lib/access/engine");
+  if ((await businessEntitlement(businessId)).suspended) return { processed: 0 };
   const due = await prisma.webhookDelivery.findMany({ where: { businessId, status: "pending", nextAttemptAt: { lte: new Date() } }, orderBy: { createdAt: "asc" }, take: 25, include: { endpoint: true } });
   let sent = 0;
   for (const d of due) {

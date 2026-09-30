@@ -8,7 +8,7 @@ import { ACCESS_STATUS_LABEL, DEPENDENCIES, MODULE_LABEL, MODULES, QUOTA_LABEL, 
 import { useT } from "@/components/i18n/LangProvider";
 import { StateBadge, UserAccessEditor, type AccessUserRow } from "./AccessMatrix";
 
-interface BizRow { id: string; name: string; isActive: boolean; accessStatus: string; accessUntil: string | null; billingStatus: string; planVersion: { id: string; version: number; name: string } | null; users: number; needsPackage: boolean; modules: Record<ModuleKey, { included: boolean; seats: number | null; sources: string[] }> }
+interface BizRow { createdAt: string | null; owner: { fullName: string; email: string; isActive: boolean } | null; statusReason: string | null; id: string; name: string; isActive: boolean; accessStatus: string; accessUntil: string | null; billingStatus: string; planVersion: { id: string; version: number; name: string } | null; users: number; needsPackage: boolean; modules: Record<ModuleKey, { included: boolean; seats: number | null; sources: string[] }> }
 interface Version { id: string; version: number; name: string; modules: Record<string, { included: boolean; seats: number | null }>; quotas: Record<string, number | null>; createdAt: string; businesses: number }
 interface Plan { id: string; name: string; description: string | null; currentVersion: number; versions: Version[] }
 interface Impact { modulesRemoved: ModuleKey[]; usersLosing: Record<string, Array<{ id: string; fullName: string }>>; seatOverflow: Record<string, { seats: number; holders: Array<{ id: string; fullName: string }> }>; campaigns: Array<{ id: string; name: string; channel: string; status: string }>; journeys: Array<{ id: string; name: string }>; inboxAutomations: number; serviceAgent: boolean; dialerSessions: number; dialLists: number }
@@ -20,7 +20,8 @@ export function PlatformAdmin() {
   const [tab, setTab] = useState<"businesses" | "plans" | "requests" | "support">("businesses");
   return (
     <div className="p-5 space-y-4 max-w-6xl" data-testid="platform-admin">
-      <h1 className="text-lg font-semibold">{t("ניהול פלטפורמה – חבילות והרשאות", "Platform admin – plans and permissions")}</h1>
+      <h1 className="text-lg font-semibold">{t("ניהול הפלטפורמה", "Platform administration")}</h1>
+      <p className="text-xs text-muted">{t("ניהול העסקים שמשתמשים ב-UltraCRM: חבילות, מצב, שימוש ובריאות חיבורים. תוכן שיחות ולקוחות אינו מוצג כאן – גישה אליו רק במצב תמיכה מפורש ומתועד.", "Managing the businesses that use UltraCRM: plans, status, usage and connection health. Conversations and customers are not shown here – only through an explicit, audited support session.")}</p>
       <div className="flex gap-1 border-b border-line">{([["businesses", "עסקים", "Businesses"], ["plans", "חבילות", "Plans"], ["requests", "בקשות והיסטוריה", "Requests & history"], ["support", "תמיכה ומחיקות", "Support & deletions"]] as const).map(([k, l, en]) => <button key={k} onClick={() => setTab(k)} data-testid={`platform-tab-${k}`} className={cx("px-4 h-10 text-sm -mb-px border-b-2", tab === k ? "border-accent text-accent font-semibold" : "border-transparent text-muted")}>{t(l, en)}</button>)}</div>
       {tab === "businesses" && <Businesses />}
       {tab === "plans" && <Plans />}
@@ -34,26 +35,39 @@ export function PlatformAdmin() {
 function Businesses() {
   const t = useT(); const loc = t.lang === "en" ? "en-GB" : "he-IL";
   const [rows, setRows] = useState<BizRow[] | null>(null); const [open, setOpen] = useState<string | null>(null);
+  const [q, setQ] = useState(""); const [statusF, setStatusF] = useState(""); const [creating, setCreating] = useState(false);
   const load = useCallback(() => api.get<{ items: BizRow[] }>("/api/platform/businesses").then((r) => setRows(r.items)).catch((e) => toast.error((e as Error).message)), []);
   useEffect(() => { void load(); }, [load]);
   if (!rows) return <Spinner />;
+  const shown = rows.filter((b) => (!statusF || b.accessStatus === statusF) && (!q.trim() || `${b.name} ${b.id} ${b.owner?.email ?? ""} ${b.owner?.fullName ?? ""}`.toLowerCase().includes(q.trim().toLowerCase())));
   return (
     <>
-      <Panel bodyClassName="p-0"><table className="w-full text-sm" data-testid="platform-businesses"><thead className="text-xs text-muted"><tr><th className="text-start p-2">{t("עסק", "Business")}</th><th className="text-start">{t("חבילה", "Plan")}</th><th className="text-start">{t("גישה", "Access")}</th>{MODULES.map((m) => <th key={m} className="text-start">{MODULE_LABEL[m]}</th>)}<th /></tr></thead>
-        <tbody className="divide-y divide-line">{rows.map((b) => (
+      <div className="flex flex-wrap items-end gap-2">
+        <Input label={t("חיפוש (שם, מזהה, בעלים)", "Search (name, id, owner)")} value={q} onChange={(e) => setQ(e.target.value)} data-testid="platform-search" />
+        <Select label={t("מצב", "Status")} value={statusF} onChange={(e) => setStatusF(e.target.value)} data-testid="platform-status-filter"><option value="">{t("הכול", "All")}</option>{Object.entries(ACCESS_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
+        <span className="text-xs text-muted">{shown.length}/{rows.length}</span>
+        <Button className="ms-auto" onClick={() => setCreating(true)} data-testid="platform-new-business">{t("+ עסק לקוח חדש", "+ New customer business")}</Button>
+      </div>
+      <Panel bodyClassName="p-0 overflow-x-auto"><table className="w-full text-sm" data-testid="platform-businesses"><thead className="text-xs text-muted"><tr><th className="text-start p-2">{t("עסק", "Business")}</th><th className="text-start">{t("חבילה", "Plan")}</th><th className="text-start">{t("גישה", "Access")}</th>{MODULES.map((m) => <th key={m} className="text-start">{MODULE_LABEL[m]}</th>)}<th /></tr></thead>
+        <tbody className="divide-y divide-line">{shown.map((b) => (
           <tr key={b.id} data-testid="platform-business-row">
-            <td className="p-2 font-medium">{b.name}<div className="text-xs text-muted">{t(`${b.users} משתמשים`, `${b.users} users`)}</div></td>
+            <td className="p-2 font-medium">{b.name}<div className="text-xs text-muted">{t(`${b.users} משתמשים`, `${b.users} users`)} · <span dir="ltr">{b.id.slice(-8)}</span> · {t("הצטרף", "joined")} {fmt(b.createdAt, loc)}</div><div className="text-xs text-muted">{b.owner ? `${t("בעלים", "Owner")}: ${b.owner.fullName} <${b.owner.email}>${b.owner.isActive ? "" : t(" (הזמנה ממתינה)", " (invite pending)")}` : t("ללא בעלים", "No owner")}</div></td>
             <td>{b.planVersion ? `${b.planVersion.name} · v${b.planVersion.version}` : <Badge tone="warn">{t("נדרש שיוך חבילה", "Plan assignment required")}</Badge>}</td>
             <td><Badge tone={b.accessStatus === "active" ? "good" : b.accessStatus === "suspended" ? "bad" : "warn"}>{ACCESS_STATUS_LABEL[b.accessStatus]}{b.accessUntil ? ` · ${fmt(b.accessUntil, loc)}` : ""}</Badge></td>
             {MODULES.map((m) => <td key={m} className="text-xs">{b.modules[m].included ? <><Badge tone="good">✓</Badge> <span className="text-muted">{b.modules[m].seats === null ? "∞" : b.modules[m].seats}</span><div className="text-muted">{b.modules[m].sources.map((s) => SOURCE_LABEL[s] ?? s).join(" + ")}</div></> : "—"}</td>)}
             <td className="p-2"><Button size="sm" variant="ghost" onClick={() => setOpen(b.id)} data-testid={`platform-open-${b.id}`}>{t("ניהול", "Manage")}</Button></td>
           </tr>))}</tbody></table></Panel>
       {open && <BusinessDetail id={open} onClose={() => { setOpen(null); void load(); }} />}
+      {creating && <NewBusiness onClose={() => { setCreating(false); void load(); }} />}
     </>
   );
 }
 
-interface Detail { business: { id: string; name: string; accessStatus: string; accessUntil: string | null; billingStatus: string; planVersionId: string | null }; entitlement: { planName: string | null; planVersion: number | null; modules: Record<ModuleKey, { included: boolean; seats: number | null; sources: Array<{ type: string; expiresAt: string | null; grantId?: string }> }> }; seats: Record<ModuleKey, { used: number; seats: number | null; free: number | null }>; grants: Array<{ id: string; module: string; kind: string; seats: number | null; expiresAt: string | null; revokedAt: string | null; note: string | null; createdAt: string }>; users: AccessUserRow[]; audit: Array<{ id: string; action: string; createdAt: string; targetUserId: string | null }> }
+interface StatusImpact { status: string; stops: boolean; users: number; campaigns: number; journeys: number; dialerSessions: number; dialLists: number; stores: number; outgoingWebhooks: number; serviceAgent: boolean; effects: string[] }
+interface Detail { owners: Array<{ fullName: string; email: string; pendingInvite: boolean }>; usage: { period: string; calls: number; talkMinutes: number; whatsappOut: number; whatsappIn: number; smsOut: number; emailOut: number; aiActions: number; quotas: Array<{ metric: string; used: number; limit: number | null }> }; providerCosts: { aiCoachUsd: number; note: string }; billing: { status: string; note: string };
+  health: { channels: Array<{ channel: string; provider: string; label: string | null; status: string; isActive: boolean; sendingBlocked: boolean; lastWebhookAt: string | null }>; numbers: Array<{ verificationStatus: string; isActive: boolean; count: number }>; stores: Array<{ platform: string; name: string; isActive: boolean; apiStatus: string; webhookStatus: string; lastVerifiedEventAt: string | null; lastSyncError: string | null; failedEvents: number }>; payments: Array<{ provider: string; environment: string; isActive: boolean }>; outgoingWebhooks: { active: number; failedDeliveries: number } };
+  supportSessions: Array<{ id: string; reason: string; startedAt: string; expiresAt: string; endedAt: string | null; endedReason: string | null }>;
+  business: { id: string; name: string; accessStatus: string; accessUntil: string | null; billingStatus: string; planVersionId: string | null; createdAt: string | null; statusReason: string | null; timezone: string }; entitlement: { planName: string | null; planVersion: number | null; modules: Record<ModuleKey, { included: boolean; seats: number | null; sources: Array<{ type: string; expiresAt: string | null; grantId?: string }> }> }; seats: Record<ModuleKey, { used: number; seats: number | null; free: number | null }>; grants: Array<{ id: string; module: string; kind: string; seats: number | null; expiresAt: string | null; revokedAt: string | null; note: string | null; createdAt: string }>; users: AccessUserRow[]; audit: Array<{ id: string; action: string; createdAt: string; targetUserId: string | null }> }
 
 function BusinessDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useT(); const loc = t.lang === "en" ? "en-GB" : "he-IL";
@@ -66,7 +80,10 @@ function BusinessDetail({ id, onClose }: { id: string; onClose: () => void }) {
     catch (e) { toast.error((e as Error).message); }
   }, [id]);
   useEffect(() => { void load(); }, [load]);
-  async function saveStatus() { try { await api.post(`/api/platform/businesses/${id}/status`, { status, until: until ? new Date(`${until}T23:59:59`).toISOString() : null }); toast.success(t("סטטוס הגישה עודכן", "Access status updated")); void load(); } catch (e) { toast.error((e as Error).message); } }
+  const [statusPreview, setStatusPreview] = useState<StatusImpact | null>(null); const [reason, setReason] = useState(""); const [confirmName, setConfirmName] = useState("");
+  const [supportOpen, setSupportOpen] = useState(false);
+  async function previewStatus() { try { setStatusPreview(await api.get<StatusImpact>(`/api/platform/businesses/${id}/status?status=${status}`)); setReason(""); setConfirmName(""); } catch (e) { toast.error((e as Error).message); } }
+  async function saveStatus() { try { await api.post(`/api/platform/businesses/${id}/status`, { status, until: until ? new Date(`${until}T23:59:59`).toISOString() : null, reason: reason || undefined, confirmName: confirmName || undefined }); toast.success(t("סטטוס הגישה עודכן", "Access status updated")); setStatusPreview(null); void load(); } catch (e) { toast.error((e as Error).message); } }
   if (!d) return <Modal open onClose={onClose} title={t("טוען…", "Loading…")}><Spinner /></Modal>;
   const versions = plans.flatMap((p) => p.versions.map((v) => ({ ...v, planName: p.name })));
   return (
@@ -89,9 +106,17 @@ function BusinessDetail({ id, onClose }: { id: string; onClose: () => void }) {
             <div className="flex flex-wrap gap-2 items-end">
               <Select label={t("סטטוס", "Status")} value={status} onChange={(e) => setStatus(e.target.value)} data-testid="platform-status">{Object.entries(ACCESS_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
               {(status === "trial" || status === "grace") && <Input label={t("עד תאריך", "Until date")} type="date" value={until} onChange={(e) => setUntil(e.target.value)} />}
-              <Button size="sm" onClick={saveStatus} data-testid="platform-status-save">{t("שמור", "Save")}</Button>
+              <Button size="sm" onClick={previewStatus} disabled={status === d.business.accessStatus && !(status === "trial" || status === "grace")} data-testid="platform-status-save">{t("המשך – הצג השפעה", "Continue – show impact")}</Button>
             </div>
-            <p className="text-xs text-muted mt-1">{t("תשלום:", "Billing:")} {d.business.billingStatus === "manual" ? t("שיוך ידני – אין חיבור לסליקה, התשלום אינו מאומת", "Manual assignment – no billing integration, payment is not verified") : d.business.billingStatus}</p>
+            {d.business.statusReason && <p className="text-xs mt-1">{t("סיבה:", "Reason:")} {d.business.statusReason}</p>}
+            {statusPreview && <div className="mt-2 rounded border border-line p-2 text-xs space-y-1" data-testid="platform-status-impact">
+              <b>{t("השפעת המעבר ל", "Effect of changing to ")}{ACCESS_STATUS_LABEL[statusPreview.status]}:</b>
+              <ul className="list-disc ps-5">{statusPreview.effects.map((x, i) => <li key={i}>{x}</li>)}</ul>
+              <p>{t(`כרגע: ${statusPreview.users} משתמשים, ${statusPreview.campaigns} קמפיינים מתוזמנים/רצים, ${statusPreview.journeys} מסעות, ${statusPreview.dialerSessions} סשנים בחייגן, ${statusPreview.stores} חנויות, ${statusPreview.outgoingWebhooks} Webhooks יוצאים${statusPreview.serviceAgent ? ", סוכן שירות פעיל" : ""}.`, `Now: ${statusPreview.users} users, ${statusPreview.campaigns} scheduled/running campaigns, ${statusPreview.journeys} journeys, ${statusPreview.dialerSessions} dialer sessions, ${statusPreview.stores} stores, ${statusPreview.outgoingWebhooks} outgoing webhooks${statusPreview.serviceAgent ? ", service agent on" : ""}.`)}</p>
+              <Textarea label={statusPreview.stops ? t("סיבה (חובה)", "Reason (required)") : t("סיבה (לתיעוד)", "Reason (for the record)")} rows={2} value={reason} onChange={(e) => setReason(e.target.value)} data-testid="platform-status-reason" />
+              {statusPreview.stops && <Input label={t(`לאישור הקלד את שם העסק: ${d.business.name}`, `To confirm type the business name: ${d.business.name}`)} value={confirmName} onChange={(e) => setConfirmName(e.target.value)} data-testid="platform-status-confirm" />}
+              <div className="flex gap-2"><Button size="sm" variant={statusPreview.stops ? "danger" : "primary"} disabled={statusPreview.stops && (!reason.trim() || confirmName.trim() !== d.business.name.trim())} onClick={saveStatus} data-testid="platform-status-apply">{t("אשר ושמור", "Confirm and save")}</Button><Button size="sm" variant="ghost" onClick={() => setStatusPreview(null)}>{t("ביטול", "Cancel")}</Button></div>
+            </div>}
           </Panel>
         </div>
         <Panel title={t("תוספות, ניסיונות והרשאות זמניות", "Add-ons, trials and temporary grants")}>
@@ -104,6 +129,40 @@ function BusinessDetail({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
           <ul className="mt-2 divide-y divide-line">{d.grants.map((g) => <li key={g.id} className="flex items-center gap-2 py-1 text-xs"><span className="w-32">{MODULE_LABEL[g.module as ModuleKey] ?? g.module}</span><Badge>{SOURCE_LABEL[g.kind] ?? g.kind}</Badge><span>{g.seats === null ? t("ללא הגבלת מושבים", "Unlimited seats") : t(`${g.seats} מושבים`, `${g.seats} seats`)}</span>{g.expiresAt && <span>{t("עד", "Until")} {fmt(g.expiresAt, loc)}</span>}{g.revokedAt ? <Badge tone="neutral">{t("בוטל", "Revoked")}</Badge> : <Button size="sm" variant="ghost" onClick={() => setTarget({ revokeGrantId: g.id })}>{t("בטל", "Revoke")}</Button>}</li>)}</ul>
         </Panel>
+        <div className="grid md:grid-cols-2 gap-3">
+          <Panel title={t("פרטי העסק", "Business")}>
+            <p className="text-xs"><span className="text-muted">{t("מזהה:", "Id:")}</span> <span dir="ltr">{d.business.id}</span> · {t("הצטרף", "Joined")} {fmt(d.business.createdAt, loc)} · {d.business.timezone}</p>
+            <ul className="text-xs mt-1">{d.owners.map((o, i) => <li key={i}>{t("בעלים", "Owner")}: {o.fullName} <span dir="ltr">&lt;{o.email}&gt;</span>{o.pendingInvite ? t(" · הזמנה ממתינה", " · invite pending") : ""}</li>)}{!d.owners.length && <li className="text-warn">{t("אין בעלים לעסק", "The business has no owner")}</li>}</ul>
+          </Panel>
+          <Panel title={t("חיוב ומנוי", "Billing & subscription")}>
+            <p className="text-xs" data-testid="platform-billing">{t("מצב:", "State:")} <b>{d.billing.status === "manual" ? t("שיוך ידני", "Manual") : d.billing.status}</b></p>
+            <p className="text-xs text-muted">{d.billing.note}</p>
+          </Panel>
+        </div>
+        <Panel title={t(`שימוש בפועל – ${d.usage.period}`, `Actual usage – ${d.usage.period}`)}>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs" data-testid="platform-usage">
+            <span>{t("שיחות", "Calls")}: <b>{d.usage.calls}</b> ({d.usage.talkMinutes} {t("דק׳ שיחה", "talk min")})</span>
+            <span>WhatsApp: <b>{d.usage.whatsappOut}</b> {t("יוצאות", "out")} · {d.usage.whatsappIn} {t("נכנסות", "in")}</span>
+            <span>SMS: <b>{d.usage.smsOut}</b></span><span>{t("אימייל", "Email")}: <b>{d.usage.emailOut}</b></span>
+            <span>{t("פעולות AI", "AI actions")}: <b>{d.usage.aiActions}</b></span>
+          </div>
+          <table className="mt-2 text-xs"><tbody>{d.usage.quotas.map((x) => <tr key={x.metric}><td className="pe-3">{QUOTA_LABEL[x.metric as keyof typeof QUOTA_LABEL] ?? x.metric}</td><td className="tabular">{x.used}{x.limit === null ? t(" · ללא מכסה", " · no quota") : ` / ${x.limit}`}</td></tr>)}</tbody></table>
+          <p className="text-xs text-muted mt-1">{t("עלות ספק (נמדדת):", "Provider cost (measured):")} AI ${d.providerCosts.aiCoachUsd.toFixed(2)} · {d.providerCosts.note}</p>
+        </Panel>
+        <Panel title={t("בריאות חיבורים (ללא סודות)", "Connection health (no secrets)")}>
+          <ul className="text-xs space-y-0.5" data-testid="platform-health">
+            {d.health.channels.map((c, i) => <li key={`c${i}`}>{c.channel} · {c.provider} · {c.label ?? ""} · {c.isActive ? c.status : t("לא פעיל", "inactive")}{c.sendingBlocked ? t(" · שליחה חסומה", " · sending blocked") : ""}{c.lastWebhookAt ? ` · ${t("אירוע אחרון", "last event")} ${fmt(c.lastWebhookAt, loc)}` : ""}</li>)}
+            {d.health.numbers.map((n, i) => <li key={`n${i}`}>{t("מספרי טלפון", "Phone numbers")}: {n.count} · {n.verificationStatus}{n.isActive ? "" : t(" (לא פעילים)", " (inactive)")}</li>)}
+            {d.health.stores.map((s, i) => <li key={`s${i}`}>{t("חנות", "Store")} {s.name} ({s.platform}) · API {s.apiStatus} · Webhooks {s.webhookStatus}{s.lastVerifiedEventAt ? ` · ${fmt(s.lastVerifiedEventAt, loc)}` : ""}{s.failedEvents ? t(` · ${s.failedEvents} אירועים נכשלו`, ` · ${s.failedEvents} failed events`) : ""}{s.lastSyncError ? ` · ${s.lastSyncError}` : ""}{s.isActive ? "" : t(" · מנותקת", " · disconnected")}</li>)}
+            {d.health.payments.map((p, i) => <li key={`p${i}`}>{t("סליקה", "Payments")}: {p.provider} · {p.environment}{p.isActive ? "" : t(" (לא פעיל)", " (inactive)")}</li>)}
+            <li>{t("Webhooks יוצאים", "Outgoing webhooks")}: {d.health.outgoingWebhooks.active}{d.health.outgoingWebhooks.failedDeliveries ? t(` · ${d.health.outgoingWebhooks.failedDeliveries} משלוחים נכשלו`, ` · ${d.health.outgoingWebhooks.failedDeliveries} failed deliveries`) : ""}</li>
+            {!d.health.channels.length && !d.health.stores.length && !d.health.payments.length && <li className="text-muted">{t("אין חיבורים לעסק", "No connections")}</li>}
+          </ul>
+        </Panel>
+        <Panel title={t("גישת תמיכה", "Support access")} actions={<Button size="sm" variant="secondary" onClick={() => setSupportOpen(true)} data-testid="platform-support-start">{t("כניסה במצב תמיכה", "Enter support mode")}</Button>}>
+          <p className="text-xs text-muted">{t("קריאה בלבד, עד 60 דקות, עם סיבה מתועדת. אין שליחה, חיוג, חיוב או חשיפת סודות.", "Read-only, up to 60 minutes, with a recorded reason. No sending, dialing, charging or secrets.")}</p>
+          <ul className="text-xs mt-1">{d.supportSessions.map((s) => <li key={s.id}>{new Date(s.startedAt).toLocaleString(loc)} · {s.reason} · {s.endedAt ? t(`הסתיים (${s.endedReason ?? ""})`, `ended (${s.endedReason ?? ""})`) : new Date(s.expiresAt) > new Date() ? t("פעיל", "active") : t("פג", "expired")}</li>)}</ul>
+        </Panel>
         <Panel title={t("משתמשים והרשאות", "Users and permissions")} bodyClassName="p-0">
           <table className="w-full text-sm"><tbody className="divide-y divide-line">{d.users.map((u) => <tr key={u.id} className={u.isActive ? "" : "opacity-50"}><td className="p-2">{u.fullName}<div className="text-xs text-muted">{u.email}</div></td>{MODULES.map((m) => <td key={m}><StateBadge state={u.effective?.[m]?.state} /></td>)}<td className="p-2">{u.role !== "owner" && u.isActive && <Button size="sm" variant="ghost" onClick={() => setEdit(u)} data-testid={`platform-user-${u.id}`}>{t("הגדרות", "Settings")}</Button>}</td></tr>)}</tbody></table>
         </Panel>
@@ -111,6 +170,7 @@ function BusinessDetail({ id, onClose }: { id: string; onClose: () => void }) {
       </div>
       {edit && <UserAccessEditor user={edit} packageModules={d.entitlement.modules} actor={null} endpoint={`/api/platform/businesses/${id}/users/${edit.id}`} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); void load(); }} />}
       {target && <ChangePreview businessId={id} target={target} onClose={() => setTarget(null)} onDone={() => { setTarget(null); void load(); }} />}
+      {supportOpen && <StartSupport businessId={id} businessName={d.business.name} onClose={() => setSupportOpen(false)} />}
     </Modal>
   );
 }
@@ -219,5 +279,62 @@ function SupportInbox() {
       <Panel title={t("בקשות מחיקה / הסרה מ-Meta", "Meta deletion / removal requests")} bodyClassName="p-0"><table className="w-full text-sm"><tbody className="divide-y divide-line">{d.meta.map((r) => <tr key={r.id}><td className="p-2 text-xs text-muted">{new Date(r.createdAt).toLocaleString(loc)}</td><td className="p-2">{r.kind === "deauthorize" ? t("הסרת אפליקציה", "App removal") : t("מחיקת נתונים", "Data deletion")}</td><td className="p-2 ltr">{r.confirmationCode}</td><td className="p-2">{r.status}</td><td className="p-2 text-xs">{t(`${r.businessIds.length} עסקים`, `${r.businessIds.length} businesses`)}</td></tr>)}</tbody></table></Panel>
       <Panel title={t("עסקים שממתינים למחיקה", "Businesses pending deletion")} bodyClassName="p-0"><table className="w-full text-sm"><tbody className="divide-y divide-line">{d.deletions.map((b) => <tr key={b.id}><td className="p-2">{b.name}</td><td className="p-2 text-xs">{t("בקשה:", "Requested:")} {new Date(b.deletionRequestedAt).toLocaleDateString(loc)}</td><td className="p-2 text-xs">{t("מחיקה:", "Deletion:")} {new Date(b.deletionScheduledFor).toLocaleDateString(loc)}</td></tr>)}</tbody></table></Panel>
     </div>
+  );
+}
+
+/** A new customer business: isolated and empty; its owner joins with a one-time link (shown ONCE here). */
+function NewBusiness({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  const [f, setF] = useState({ name: "", ownerName: "", ownerEmail: "", status: "setup" as "setup" | "trial" | "active", trialUntil: "", planVersionId: "" });
+  const [plans, setPlans] = useState<Plan[]>([]); const [busy, setBusy] = useState(false); const [done, setDone] = useState<{ inviteUrl: string; name: string } | null>(null);
+  useEffect(() => { api.get<{ items: Plan[] }>("/api/platform/plans").then((r) => setPlans(r.items)).catch(() => undefined); }, []);
+  async function create() {
+    setBusy(true);
+    try { const r = await api.post<{ business: { name: string }; inviteUrl: string }>("/api/platform/businesses", { name: f.name, ownerName: f.ownerName, ownerEmail: f.ownerEmail, status: f.status, trialUntil: f.status === "trial" && f.trialUntil ? new Date(`${f.trialUntil}T23:59:59`).toISOString() : null, planVersionId: f.planVersionId || null }); setDone({ inviteUrl: r.inviteUrl, name: r.business.name }); }
+    catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  }
+  const versions = plans.flatMap((p) => p.versions.filter((v) => v.version === p.currentVersion).map((v) => ({ ...v, planName: p.name })));
+  return (
+    <Modal open onClose={onClose} title={t("עסק לקוח חדש", "New customer business")}>
+      {done ? <div className="space-y-2 text-sm" data-testid="platform-new-done">
+        <p>{t(`העסק "${done.name}" נוצר – ריק, מבודד וללא חיבורים. שלח לבעלים את קישור ההזמנה (חד-פעמי, 7 ימים). הקישור לא יוצג שוב.`, `"${done.name}" was created – empty, isolated, with no connections. Send the owner this one-time invite link (7 days). It will not be shown again.`)}</p>
+        <code dir="ltr" className="block break-all rounded bg-panel-2 p-2 text-xs" data-testid="platform-invite-url">{done.inviteUrl}</code>
+        <Button size="sm" onClick={() => { void navigator.clipboard.writeText(done.inviteUrl); toast.success(t("הועתק", "Copied")); }}>{t("העתק קישור", "Copy link")}</Button>
+      </div> : <div className="space-y-2 text-sm" data-testid="platform-new-form">
+        <Input label={t("שם העסק", "Business name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} data-testid="platform-new-name" />
+        <div className="grid sm:grid-cols-2 gap-2">
+          <Input label={t("שם הבעלים", "Owner name")} value={f.ownerName} onChange={(e) => setF({ ...f, ownerName: e.target.value })} data-testid="platform-new-owner-name" />
+          <Input label={t("אימייל הבעלים", "Owner email")} dir="ltr" value={f.ownerEmail} onChange={(e) => setF({ ...f, ownerEmail: e.target.value })} data-testid="platform-new-owner-email" />
+        </div>
+        <div className="grid sm:grid-cols-2 gap-2">
+          <Select label={t("מצב התחלתי", "Initial status")} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as typeof f.status })}><option value="setup">{ACCESS_STATUS_LABEL.setup}</option><option value="trial">{ACCESS_STATUS_LABEL.trial}</option><option value="active">{ACCESS_STATUS_LABEL.active}</option></Select>
+          {f.status === "trial" && <Input label={t("ניסיון עד", "Trial until")} type="date" value={f.trialUntil} onChange={(e) => setF({ ...f, trialUntil: e.target.value })} />}
+        </div>
+        <Select label={t("חבילה", "Plan")} value={f.planVersionId} onChange={(e) => setF({ ...f, planVersionId: e.target.value })}><option value="">{t("ללא – לשייך אחר כך", "None – assign later")}</option>{versions.map((v) => <option key={v.id} value={v.id}>{v.planName} · v{v.version}</option>)}</Select>
+        <p className="text-xs text-muted">{t("שום נתון, חיבור או סוד לא מועתקים מעסק קיים. הבעלים יגדיר סיסמה בעצמו דרך הקישור.", "No data, connection or secret is copied from any existing business. The owner sets their own password through the link.")}</p>
+        <div className="flex gap-2"><Button disabled={busy || f.name.trim().length < 2 || !f.ownerEmail.includes("@") || (f.status === "trial" && !f.trialUntil)} onClick={() => void create()} data-testid="platform-new-create">{busy ? t("יוצר…", "Creating…") : t("צור עסק והזמנת בעלים", "Create business & owner invite")}</Button><Button variant="ghost" onClick={onClose}>{t("ביטול", "Cancel")}</Button></div>
+      </div>}
+    </Modal>
+  );
+}
+
+/** Explicit support entry: reason + duration; the browser session switches to the read-only support session. */
+function StartSupport({ businessId, businessName, onClose }: { businessId: string; businessName: string; onClose: () => void }) {
+  const t = useT();
+  const [reason, setReason] = useState(""); const [minutes, setMinutes] = useState(30); const [busy, setBusy] = useState(false);
+  async function start() {
+    setBusy(true);
+    try { await api.post(`/api/platform/businesses/${businessId}/support`, { reason, minutes }); window.location.href = "/dashboard"; }
+    catch (e) { toast.error((e as Error).message); setBusy(false); }
+  }
+  return (
+    <Modal open onClose={onClose} title={t(`כניסת תמיכה לעסק "${businessName}"`, `Support access to "${businessName}"`)}>
+      <div className="space-y-2 text-sm" data-testid="platform-support-form">
+        <p className="text-xs">{t("קריאה בלבד: אפשר לצפות בנתוני העסק כדי לאבחן תקלה. אין שליחה, חיוג, חיוב, שינוי הגדרות או חשיפת סודות. הכניסה, הסיבה והזמן נרשמים ביומן העסק וביומן הפלטפורמה.", "Read-only: view the business's data to diagnose an issue. No sending, dialing, charging, settings changes or secrets. The entry, reason and time are recorded in the business and platform logs.")}</p>
+        <Textarea label={t("סיבה (חובה)", "Reason (required)")} rows={2} value={reason} onChange={(e) => setReason(e.target.value)} data-testid="platform-support-reason" />
+        <Select label={t("משך", "Duration")} value={String(minutes)} onChange={(e) => setMinutes(Number(e.target.value))}><option value="15">15 {t("דק׳", "min")}</option><option value="30">30 {t("דק׳", "min")}</option><option value="60">60 {t("דק׳", "min")}</option></Select>
+        <div className="flex gap-2"><Button disabled={busy || reason.trim().length < 5} onClick={() => void start()} data-testid="platform-support-go">{t("כניסה במצב תמיכה", "Enter support mode")}</Button><Button variant="ghost" onClick={onClose}>{t("ביטול", "Cancel")}</Button></div>
+      </div>
+    </Modal>
   );
 }

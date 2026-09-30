@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const GET = withAuth(async ({ user }) => {
   const visible = await visibleUserIds(user);
   const items = await prisma.user.findMany({
-    where: { businessId: user.businessId, ...(visible ? { id: { in: visible } } : {}) },
+    where: { businessId: user.businessId, isSupport: false, ...(visible ? { id: { in: visible } } : {}) },
     select: { id: true, fullName: true, email: true, role: true, isActive: true, invitedAt: true, inviteExpiresAt: true, coachEnabled: true, presence: true, teamId: true, personalPhone: true, team: { select: { id: true, name: true } }, createdAt: true, lastSeenAt: true },
     orderBy: { fullName: "asc" },
   });

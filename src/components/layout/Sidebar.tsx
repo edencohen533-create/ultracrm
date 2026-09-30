@@ -111,7 +111,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
         ))}
         {platformAdmin && (
           <Link href="/platform" data-testid="nav-platform" className={cx("flex items-center gap-3 px-3 h-10 rounded-lg text-sm transition-colors mt-3", pathname.startsWith("/platform") ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-panel-2")}>
-            <Shield size={17} aria-hidden /><span className="nav-label">{t("ניהול פלטפורמה", "Platform admin")}</span>
+            <Shield size={17} aria-hidden /><span className="nav-label">{t("ניהול הפלטפורמה", "Platform administration")}</span>
           </Link>
         )}
       </nav>
@@ -122,10 +122,10 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
           </Link>
         )}
         <div className="flex items-center justify-between gap-2 px-1">
-          <div className="min-w-0">
+          <a href="/account" className="min-w-0 hover:underline" data-testid="nav-my-account" title={t("החשבון שלי", "My account")}>
             <p className="text-sm font-medium truncate">{user.fullName}</p>
-            <p className="text-[11px] text-muted">{role === "owner" ? t("בעלים", "Owner") : role === "manager" ? t("מנהל", "Manager") : t("נציג", "Agent")}</p>
-          </div>
+            <p className="text-[11px] text-muted">{role === "owner" ? t("בעלים בעסק זה", "Owner of this business") : role === "manager" ? t("מנהל בעסק זה", "Manager in this business") : t("נציג בעסק זה", "Agent in this business")}{platformAdmin ? ` · ${t("מנהל פלטפורמה", "Platform admin")}` : ""}</p>
+          </a>
           {access.telephony?.state === "active" && <Badge tone={presenceTone} dot>{t(...(PRESENCE_PAIR[presence] ?? [presence, presence]))}</Badge>}
         </div>
         {access.telephony?.state === "active" && (

@@ -394,6 +394,9 @@ model Business {
   deletionRequestedAt   DateTime?      @map("deletion_requested_at")
   deletionScheduledFor  DateTime?      @map("deletion_scheduled_for")
   deletionRequestedById String?        @map("deletion_requested_by_id")
+  /// Why the platform set the current access status (shown in the platform screen and audit).
+  statusReason          String?        @map("status_reason")
+  cancelledAt           DateTime?      @map("cancelled_at")
   /// Per-business module overrides on top of the plan: { crm?, messaging?, telephony? }
   modules              Json            @default("{}")
   /// Dialer / CRM / automation settings (see src/lib/settings.ts)
@@ -518,6 +521,8 @@ model User {
   role          UserRole       @default(agent)
   teamId        String?        @map("team_id")
   isActive      Boolean        @default(true) @map("is_active")
+  /// A platform support identity inside this business (never a member: not in switchers, pickers, seats or lists).
+  isSupport     Boolean        @default(false) @map("is_support")
   /// Pending invitation: the membership stays inactive until the person accepts the one-time link.
   inviteTokenHash String?      @unique @map("invite_token_hash")
   inviteExpiresAt DateTime?    @map("invite_expires_at")
@@ -3423,4 +3428,25 @@ model StoreProduct {
   @@unique([storeId, externalId])
   @@index([businessId, name])
   @@map("store_products")
+}
+
+/// Explicit, time-boxed, read-only access of a platform admin to a customer business (reason required, audited).
+model SupportSession {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  /// The platform admin's account.
+  accountId   String    @map("account_id")
+  /// The support identity (User with isSupport) the session acts as.
+  userId      String    @map("user_id")
+  reason      String
+  /// read_only (the only mode – no sending, dialing, charging or secrets).
+  mode        String    @default("read_only")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  expiresAt   DateTime  @map("expires_at")
+  endedAt     DateTime? @map("ended_at")
+  endedReason String?   @map("ended_reason")
+
+  @@index([businessId, startedAt])
+  @@index([accountId, startedAt])
+  @@map("support_sessions")
 }

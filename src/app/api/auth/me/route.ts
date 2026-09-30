@@ -25,5 +25,8 @@ export const GET = withAuth(async ({ user }) => {
     access: { scope: access.scope, template: access.template, suspended: access.suspended, modules: access.modules },
     plan: { key: entitlements.planKey, name: entitlements.planName },
     telephony: telephonyStatus(),
+    /** Account level (NOT a business role): platform administrator. And support access, when active. */
+    platformAdmin: Boolean((await (await import("@/lib/tenant")).withoutBusiness(() => prisma.account.findUnique({ where: { id: user.accountId }, select: { isPlatformAdmin: true } })))?.isPlatformAdmin),
+    support: user.support ?? null,
   });
 });

@@ -42,7 +42,7 @@ export async function businessEntitlement(businessId: string, now = new Date()):
   const expired = (b.accessStatus === "trial" || b.accessStatus === "grace") && b.accessUntil !== null && b.accessUntil <= now;
   const value: BusinessEntitlement = {
     planName: b.planVersion?.name ?? b.plan?.name ?? null, planVersion: b.planVersion?.version ?? null, planVersionId: b.planVersion?.id ?? null, planKey: b.plan?.key ?? null,
-    accessStatus: b.accessStatus, accessUntil: b.accessUntil, billingStatus: b.billingStatus, suspended: b.accessStatus === "suspended" || expired, modules, quotas,
+    accessStatus: b.accessStatus, accessUntil: b.accessUntil, billingStatus: b.billingStatus, suspended: b.accessStatus === "suspended" || b.accessStatus === "cancelled" || expired, modules, quotas,
   };
   cache.set(businessId, { at: Date.now(), value });
   return value;
@@ -135,8 +135,8 @@ export interface EffectiveModule { state: "active" | "not_assigned" | "not_in_pa
 export interface EffectiveAccess { userId: string; businessId: string; isOwner: boolean; scope: DataScope; template: string; derived: boolean; suspended: boolean; modules: Record<ModuleKey, EffectiveModule> }
 
 export async function effectiveAccess(businessId: string, userId: string): Promise<EffectiveAccess> {
-  const u = await db.user.findFirst({ where: { id: userId, businessId }, select: { id: true, role: true, teamId: true, permissions: true, isActive: true } });
-  if (!u || !u.isActive) throw new ApiError("לא מחובר", 401, "unauthorized");
+  const u = await db.user.findFirst({ where: { id: userId, businessId }, select: { id: true, role: true, teamId: true, permissions: true, isActive: true, isSupport: true } });
+  if (!u || (!u.isActive && !u.isSupport)) throw new ApiError("לא מחובר", 401, "unauthorized");
   const ent = await businessEntitlement(businessId);
   const perms = await userPermissions(businessId, u, ent);
   const isOwner = u.role === "owner";
@@ -145,10 +145,12 @@ export async function effectiveAccess(businessId: string, userId: string): Promi
     if (!ent.modules[m].included) { modules[m] = { state: "not_in_package", actions: [] }; continue; }
     if (ent.suspended) { modules[m] = { state: "suspended", actions: [] }; continue; }
     if (isOwner) { modules[m] = { state: "active", actions: Object.keys(ACTIONS[m]) }; continue; }
+    // Platform support: every purchased module, view actions only (mutations are refused in requireUser anyway).
+    if (u.isSupport) { modules[m] = { state: "active", actions: Object.keys(ACTIONS[m]).filter((a) => /view|read|list|report/i.test(a)) }; continue; }
     const g = perms.modules[m];
     modules[m] = g?.enabled ? { state: "active", actions: g.actions.filter((a) => a in ACTIONS[m]) } : { state: "not_assigned", actions: [] };
   }
-  return { userId, businessId, isOwner, scope: isOwner ? "business" : perms.scope, template: isOwner ? "owner" : perms.template, derived: perms.derived, suspended: ent.suspended, modules };
+  return { userId, businessId, isOwner, scope: isOwner || u.isSupport ? "business" : perms.scope, template: isOwner ? "owner" : perms.template, derived: perms.derived, suspended: ent.suspended, modules };
 }
 
 export function can(a: EffectiveAccess, p: Permission) { const [m, act] = p.split(".") as [ModuleKey, string]; return a.modules[m].state === "active" && a.modules[m].actions.includes(act); }

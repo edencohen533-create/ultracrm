@@ -16,6 +16,7 @@ export const GET = organizationRequest(async function(request: Request) {
     assignedTo: z.enum(["me", "unassigned", "all"]).optional(),
     providerCredentialId: z.string().min(1).optional(),
     tagId: z.string().min(1).optional(),
+    assignedAgentId: z.string().min(1).max(64).optional(),
     teamId: z.string().min(1).optional(),
     channel: z.enum(["whatsapp", "sms", "email"]).optional(),
     search: z.string().max(300).optional(),

@@ -32,7 +32,7 @@ export function SessionControls() {
         {q && (
           <span className="text-xs text-muted" title={t(`לא זמינים: ממתינים לניסיון חוזר ${q.unavailable.notDueYet} · בטיפול ${q.unavailable.inProgress} · מוצו ${q.unavailable.exhausted} · DNC ${q.unavailable.dnc}`, `Unavailable: waiting for retry ${q.unavailable.notDueYet} · in progress ${q.unavailable.inProgress} · exhausted ${q.unavailable.exhausted} · DNC ${q.unavailable.dnc}`)}>
             {t("בתור עכשיו", "In queue now")} <b className="text-text tabular">{q.dueNow}</b> · {t("סה״כ", "Total")} <span className="tabular">{q.total}</span> · {t("הושלמו", "Completed")} <span className="tabular">{q.byStatus.completed ?? 0}</span>
-            {q.unavailable.outsideDialWindow && <Badge tone="warn" className="ms-2">{t("מחוץ לחלון החיוג", "Outside dial window")}</Badge>}
+            {q.unavailable.outsideDialWindow && <Badge tone="warn" className="ms-2">{t("מחוץ לשעות החיוג של העסק", "Outside the business's dialing hours")}</Badge>}
             {q.unavailable.listPaused && <Badge tone="bad" className="ms-2">{t("הרשימה מושהית", "List paused")}</Badge>}
           </span>
         )}

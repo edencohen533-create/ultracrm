@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, DollarSign, History, Info, Moon, PhoneCall, UserPlus } from "lucide-react";
+import { ArrowRight, DollarSign, History, Info, Moon, Phone, PhoneCall } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { useDialer } from "@/components/telephony/DialerProvider";
 import { DialerWorkspace } from "@/components/dialer/DialerWorkspace";
 import { StartSessionForm } from "@/components/dialer/SessionControls";
 import { useT } from "@/components/i18n/LangProvider";
 
-interface Perf { followUps: { done: number; total: number }; dealsWon: number; newCustomerCalls: number; calls: { answered: number; total: number }; talkSeconds: number }
+interface Perf { followUps: { done: number; total: number }; dealsWon: number; calls: { answered: number; total: number; outbound: number; inbound: number }; talkSeconds: number }
 const hms = (s: number) => [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((n) => String(n).padStart(2, "0")).join(":");
 
 /**
@@ -30,7 +30,7 @@ export function DialerScreen() {
   const cards = perf ? [
     { label: t("שיחות מעקב להיום", "Today's follow-up calls"), value: <><b>{perf.followUps.done}</b> / {perf.followUps.total}</>, Icon: History, tone: "orange", hint: t("חזרות שבוצעו היום מתוך החזרות שמתוכננות להיום", "Callbacks done today out of those scheduled for today") },
     { label: t("עסקות סגורות", "Closed deals"), value: <b>{perf.dealsWon}</b>, Icon: DollarSign, tone: "green", hint: t("עסקאות שנסגרו בהצלחה היום על שמך", "Deals successfully closed today under your name") },
-    { label: t("שיחות עם לקוחות חדשים", "Calls with new customers"), value: <b>{perf.newCustomerCalls}</b>, Icon: UserPlus, tone: "yellow", hint: t("אנשי קשר שחויגו היום בפעם הראשונה", "Contacts dialed for the first time today") },
+    { label: t("שיחות", "Calls"), value: <><b>{perf.calls.total}</b> <small className="text-xs font-normal" dir={t.lang === "en" ? "ltr" : "rtl"}>{t(`(${perf.calls.outbound} יוצאות · ${perf.calls.inbound} נכנסות)`, `(${perf.calls.outbound} out · ${perf.calls.inbound} in)`)}</small></>, Icon: Phone, tone: "yellow", hint: t("כל השיחות שלך היום – ללקוחות חדשים וקיימים, יוצאות ונכנסות", "All your calls today – new and existing customers, outbound and inbound") },
     { label: t("סה״כ שיחות שנוהלו", "Total calls handled"), value: <><b>{perf.calls.answered}</b> / {perf.calls.total}</>, Icon: PhoneCall, tone: "blue", hint: t("שיחות שנענו מתוך כל השיחות שלך היום", "Answered calls out of all your calls today") },
     { label: t("סה״כ זמן בשיחה", "Total talk time"), value: <b>{hms(perf.talkSeconds)}</b>, Icon: Moon, tone: "indigo", hint: t("זמן דיבור מצטבר היום", "Cumulative talk time today") },
   ] : [];

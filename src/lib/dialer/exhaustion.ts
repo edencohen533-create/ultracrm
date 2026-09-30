@@ -149,7 +149,7 @@ export async function queueAvailability(user: Pick<SessionUser, "businessId" | "
     FROM ${T("list_leads")} l JOIN ${T("contacts")} c ON c.id = l.contact_id WHERE ${queueFilter(q, { timeAware: false })}`))[0]?.at;
   let nextAt = next && next.getTime() > Date.now() ? next : new Date(q.dayStart.getTime() + 24 * 3600_000);
   if (!open || !isWithinDialWindow(window, nextAt)) nextAt = nextDialWindowOpening(window, nextAt > new Date() ? nextAt : new Date()) ?? nextAt;
-  return { ...base, state: "waiting", waiting: later, nextAt: nextAt.toISOString(), exhaustedCount, reason: open ? null : "מחוץ לשעות החיוג של הקמפיין" };
+  return { ...base, state: "waiting", waiting: later, nextAt: nextAt.toISOString(), exhaustedCount, reason: open ? null : "מחוץ לשעות החיוג של העסק" };
 }
 
 /** Campaigns this user may work (server-side permissions), with what is dialable for them right now. */

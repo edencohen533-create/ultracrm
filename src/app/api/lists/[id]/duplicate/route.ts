@@ -22,7 +22,6 @@ export const POST = withAuth(async ({ req, user, params }) => {
       priority: src.priority,
       maxAttempts: src.maxAttempts,
       retryIntervalMinutes: src.retryIntervalMinutes,
-      dialWindowJson: (src.dialWindowJson as Prisma.InputJsonValue) ?? undefined,
       filterJson: (src.filterJson as Prisma.InputJsonValue) ?? undefined,
       scriptId: src.scriptId,
       phoneNumberId: src.phoneNumberId,

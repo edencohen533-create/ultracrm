@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Button, Input, Modal, Select } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
+import { ListActiveSwitch } from "@/components/lists/ListHelp";
 
 interface ListRef { id: string; name: string; isActive: boolean; audience?: string }
 
@@ -49,14 +50,6 @@ export function ListAdminActions({ list, lists, onChanged }: { list: ListRef; li
     try { await api.patch(`/api/lists/${list.id}`, { audience }); toast.success(t("מטרת רשימת החיוג עודכנה – התור מתעדכן מיד", "Dial list purpose updated – the queue follows at once")); onChanged(); }
     catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
   }
-  async function toggle() {
-    setBusy(true);
-    try {
-      await api.patch(`/api/lists/${list.id}`, { isActive: !list.isActive });
-      toast.success(list.isActive ? t("הרשימה הושבתה – לא יסופקו ממנה לידים. שיחות פעילות ימשיכו עד סופן", "List deactivated – it will supply no leads. Live calls continue until they end") : t("הרשימה הופעלה", "List activated"));
-      onChanged();
-    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
-  }
   async function openDelete() {
     try { setConfirmName(""); setDel(await api.get(`/api/lists/${list.id}/deletion`)); } catch (e) { toast.error((e as Error).message); }
   }
@@ -70,10 +63,7 @@ export function ListAdminActions({ list, lists, onChanged }: { list: ListRef; li
   }
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3" data-testid={`list-admin-${list.id}`}>
-      <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
-        <input type="checkbox" role="switch" aria-checked={list.isActive} checked={list.isActive} disabled={busy} onChange={toggle} className="h-4 w-4 accent-[var(--accent)]" data-testid="list-active-toggle" />
-        {list.isActive ? t("פעילה", "Active") : t("לא פעילה", "Inactive")}
-      </label>
+      <ListActiveSwitch list={list} onChanged={onChanged} />
       {list.audience && list.audience !== "personal" && <select aria-label={t("מטרת רשימת החיוג", "Dial list purpose")} value={list.audience} disabled={busy} onChange={(e) => void setAudience(e.target.value)} className="rounded-md border border-line bg-transparent px-2 py-1 text-xs" data-testid={`list-audience-${list.id}`}>
         <option value="new_prospects">{t("גיוס – ללא לקוחות קיימים", "Acquisition – no existing customers")}</option>
         <option value="existing_customers">{t("חידושים – לקוחות קיימים בלבד", "Renewals – existing customers only")}</option>

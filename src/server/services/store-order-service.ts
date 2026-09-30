@@ -18,9 +18,16 @@ export const orderItemSchema = z.object({
   key: z.string().trim().min(1).max(200),
   name: z.string().trim().min(1).max(300),
   sku: z.string().trim().max(120).optional(),
+  productId: z.string().trim().max(60).optional(),
+  variationId: z.string().trim().max(60).optional(),
+  /** Variation attributes as sold ("צבע: כחול, גודל: M"). */
+  variant: z.string().trim().max(300).optional(),
   quantity: z.number().min(0).max(100000),
   refundedQuantity: z.number().min(0).max(100000).optional(),
   price: z.number().min(0).max(10_000_000).optional(),
+  /** Line total after discounts, and its tax – as the store computed them. */
+  total: z.number().min(-10_000_000).max(10_000_000).optional(),
+  tax: z.number().min(-10_000_000).max(10_000_000).optional(),
   kind: kind.default("product"),
   parentKey: z.string().trim().max(200).optional(),
   /** Composition of a bundle as it was sold (when components are not sent as separate lines). */
@@ -76,11 +83,22 @@ function diff(prev: OrderItem[], next: OrderItem[], at: string): OrderChange[] {
 }
 
 /** Insert or update one order (same business, same source + external id). Returns the row. */
-export async function upsertStoreOrder(businessId: string, source: "shopify" | "woocommerce" | "api", input: OrderSnapshot, opts: { storeId?: string | null; at?: Date } = {}) {
+export interface OrderExtras {
+  totals?: Record<string, unknown> | null; payment?: Record<string, unknown> | null; addresses?: Record<string, unknown> | null;
+  documents?: Array<{ source: string; kind: string; url: string }>; sourceModifiedAt?: Date | null; imported?: boolean; contactId?: string | null;
+}
+/** Order ids are unique per store (two stores of one business may both have order #100). */
+export const storeOrderKey = (storeId: string | null | undefined, externalId: string) => (storeId && !externalId.startsWith(`${storeId}:`) ? `${storeId}:${externalId}` : externalId);
+
+export async function upsertStoreOrder(businessId: string, source: "shopify" | "woocommerce" | "api", input: OrderSnapshot, opts: { storeId?: string | null; at?: Date; extras?: OrderExtras } = {}) {
+  if (source !== "api") input = { ...input, externalId: storeOrderKey(opts.storeId, input.externalId) };
+  const ex = opts.extras ?? {};
   const at = (opts.at ?? new Date()).toISOString();
   const e164 = input.phone ? normalizePhone(input.phone) : null;
-  const contactId = (e164 ? await contactForIdentifier(businessId, e164) : null) ?? (input.email ? await contactForIdentifier(businessId, input.email) : null);
+  const contactId = ex.contactId ?? (e164 ? await contactForIdentifier(businessId, e164) : null) ?? (input.email ? await contactForIdentifier(businessId, input.email) : null);
   const existing = await prisma.storeOrder.findUnique({ where: { businessId_source_externalId: { businessId, source, externalId: input.externalId } } });
+  // An event older than the stored version never overwrites it (webhooks may arrive out of order).
+  if (existing?.sourceModifiedAt && ex.sourceModifiedAt && ex.sourceModifiedAt.getTime() < existing.sourceModifiedAt.getTime()) return Object.assign(existing, { stale: true as boolean });
   const prevItems = (existing?.items ?? []) as unknown as OrderItem[];
   const changes = ((existing?.changes ?? []) as unknown as OrderChange[]).slice();
   if (!existing) changes.push({ at, kind: "created" });
@@ -97,15 +115,23 @@ export async function upsertStoreOrder(businessId: string, source: "shopify" | "
     ...(input.shipments ? { shipments: input.shipments as unknown as Prisma.InputJsonValue } : {}),
     ...(input.receipt !== undefined ? { receipt: (input.receipt ?? Prisma.DbNull) as Prisma.InputJsonValue | typeof Prisma.DbNull } : {}),
     changes: changes.slice(-200) as unknown as Prisma.InputJsonValue,
+    ...(ex.totals !== undefined ? { totals: (ex.totals ?? Prisma.DbNull) as Prisma.InputJsonValue | typeof Prisma.DbNull } : {}),
+    ...(ex.payment !== undefined ? { payment: (ex.payment ?? Prisma.DbNull) as Prisma.InputJsonValue | typeof Prisma.DbNull } : {}),
+    ...(ex.addresses !== undefined ? { addresses: (ex.addresses ?? Prisma.DbNull) as Prisma.InputJsonValue | typeof Prisma.DbNull } : {}),
+    ...(ex.documents ? { documents: ex.documents as unknown as Prisma.InputJsonValue } : {}),
+    ...(ex.sourceModifiedAt ? { sourceModifiedAt: ex.sourceModifiedAt } : {}),
+    // "imported" sticks only while the order has never been seen live.
+    ...(ex.imported !== undefined ? { imported: existing ? existing.imported && ex.imported : ex.imported } : {}),
   };
-  return existing
-    ? prisma.storeOrder.update({ where: { id: existing.id }, data })
-    : prisma.storeOrder.create({ data: { businessId, source, externalId: input.externalId, storeId: opts.storeId ?? null, ...data } });
+  const row = existing
+    ? await prisma.storeOrder.update({ where: { id: existing.id }, data })
+    : await prisma.storeOrder.create({ data: { businessId, source, externalId: input.externalId, storeId: opts.storeId ?? null, ...data } });
+  return Object.assign(row, { stale: false as boolean, created: !existing });
 }
 
 /** Merge shipments into an existing order (courier / fulfillment events that arrive on their own). */
-export async function mergeShipments(businessId: string, source: "shopify" | "woocommerce" | "api", externalId: string, shipments: Shipment[]) {
-  const o = await prisma.storeOrder.findUnique({ where: { businessId_source_externalId: { businessId, source, externalId } } });
+export async function mergeShipments(businessId: string, source: "shopify" | "woocommerce" | "api", externalId: string, shipments: Shipment[], storeId?: string | null) {
+  const o = await prisma.storeOrder.findUnique({ where: { businessId_source_externalId: { businessId, source, externalId: source === "api" ? externalId : storeOrderKey(storeId, externalId) } } });
   if (!o) return null;
   const byKey = new Map(((o.shipments ?? []) as unknown as Shipment[]).map((s) => [s.key, s]));
   for (const s of shipments) byKey.set(s.key, { ...byKey.get(s.key), ...s });

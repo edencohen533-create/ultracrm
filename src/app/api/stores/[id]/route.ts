@@ -24,9 +24,12 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   return ok(storeView(u));
 }, { minRole: "manager", perm: ["whatsapp.automations", "sms.send", "email.send"] });
 
+/** Disconnect – never a delete: carts, orders, customers and history stay; API keys are forgotten. */
 export const DELETE = withAuth(async ({ user, params }) => {
-  const r = await prisma.storeConnection.deleteMany({ where: { id: params.id } });
-  if (!r.count) throw new ApiError("החנות לא נמצאה", 404, "not_found");
-  await audit(user.businessId, user.id, "store", params.id, "store.disconnected");
-  return ok({ deleted: true });
+  const s = await prisma.storeConnection.findUnique({ where: { id: params.id } });
+  if (!s) throw new ApiError("החנות לא נמצאה", 404, "not_found");
+  if (s.platform === "woocommerce") { const { disconnectWoo } = await import("@/server/services/woo/connect"); await disconnectWoo(s, { removeWebhooks: true }); }
+  else await prisma.storeConnection.update({ where: { id: s.id }, data: { isActive: false, disconnectedAt: new Date() } });
+  await audit(user.businessId, user.id, "store", params.id, "store.disconnected", { historyKept: true });
+  return ok({ disconnected: true });
 }, { minRole: "manager", perm: ["whatsapp.automations", "sms.send", "email.send"] });

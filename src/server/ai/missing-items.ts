@@ -36,7 +36,7 @@ export interface MissingItemResult {
   caseId: string | null;
   duplicateCase: boolean;
 }
-interface Candidate { id: string; storeOrderId: string | null; number: string; placedAt: Date | null; status: string; items: OrderItem[]; shipments: Shipment[]; receipt: Receipt | null; changes: OrderChange[]; label: string }
+interface Candidate { storeId?: string | null; id: string; storeOrderId: string | null; number: string; placedAt: Date | null; status: string; items: OrderItem[]; shipments: Shipment[]; receipt: Receipt | null; changes: OrderChange[]; label: string }
 
 // ─── Product matching (Hebrew aware, no catalog lookup – the order text as sold) ─────────────────────────────────
 const STOP = new Set(["של", "את", "עם", "לא", "קיבלתי", "הגיע", "הגיעה", "הגיעו", "חסר", "חסרה", "חסרים", "יחידות", "יחידה", "מוצר", "המוצר", "לי", "גם", "אחד", "אחת", "שני", "שתי", "בקבוק", "בקבוקים", "קופסה", "קופסאות"]);
@@ -114,7 +114,7 @@ async function candidates(businessId: string, contact: { id: string; phoneE164: 
     prisma.deal.findMany({ where: { businessId, contactId: contact.id, status: "won", closedAt: { gte: since }, items: { some: {} } }, orderBy: { closedAt: "desc" }, take: 10, select: { id: true, title: true, closedAt: true, items: { select: { id: true, name: true, quantity: true, unitPrice: true } } } }),
   ]);
   return [
-    ...orders.map((o) => ({ id: o.id, storeOrderId: o.id, number: o.orderNumber, placedAt: o.placedAt, status: o.status, items: o.items as unknown as OrderItem[], shipments: o.shipments as unknown as Shipment[], receipt: (o.receipt ?? null) as unknown as Receipt | null, changes: o.changes as unknown as OrderChange[], label: `הזמנה ${o.orderNumber}` })),
+    ...orders.map((o) => ({ storeId: o.storeId, id: o.id, storeOrderId: o.id, number: o.orderNumber, placedAt: o.placedAt, status: o.status, items: o.items as unknown as OrderItem[], shipments: o.shipments as unknown as Shipment[], receipt: (o.receipt ?? null) as unknown as Receipt | null, changes: o.changes as unknown as OrderChange[], label: `הזמנה ${o.orderNumber}` })),
     ...deals.map((d) => ({ id: `deal:${d.id}`, storeOrderId: null, number: `מכירה טלפונית ${d.id.slice(-6)}`, placedAt: d.closedAt, status: "completed", items: d.items.map((i) => ({ key: i.id, name: i.name, quantity: i.quantity, price: Number(i.unitPrice), kind: "product" as const })), shipments: [], receipt: null, changes: [], label: `מכירה טלפונית (${d.title})` })),
   ];
 }
@@ -221,7 +221,15 @@ export async function checkMissingItem(input: { businessId: string; contact: { i
   if (shippedQty > q.qty) conflicts.push(`במשלוחים נרשמו ${shippedQty} יחידות של ${product}, ובהזמנה ${q.qty}`);
   for (const s of o.shipments) sources.push({ type: "shipment", id: s.key, label: `משלוח ${s.carrier ?? ""} ${s.tracking ?? ""} – ${s.status}${s.items.length ? `: ${s.items.map((i) => `${i.quantity} ${i.name}`).join(", ")}` : " (ללא פירוט פריטים)"}`.replace(/\s+/g, " "), at: s.deliveredAt ?? s.shippedAt });
 
-  const header = `טענה: חסר ${product}${claimQty ? ` (${units(claimQty)})` : ""}${input.promised ? " – לטענת הלקוח/ה הובטח" : ""}. נבדק: ${orderRef.label}. בהזמנה: ${lines.join("; ") || "אין פריטים"}. כמות ${product} בהזמנה: ${q.qty}${q.cancelled ? " (ההזמנה בוטלה)" : ""}.`;
+  // Store data that is not current is never presented as real-time.
+  let staleNote = "";
+  if (o.storeId) {
+    const { storeFreshness } = await import("@/server/services/woo/health");
+    const st = await prisma.storeConnection.findUnique({ where: { id: o.storeId }, select: { apiStatus: true, webhookStatus: true, lastVerifiedEventAt: true, lastSyncAt: true, isActive: true } });
+    const fr = st ? storeFreshness(st) : null;
+    if (fr && !fr.fresh) staleNote = fr.asOf ? fmtDate(new Date(fr.asOf), tz) : "לא ידוע";
+  }
+  const header = `${staleNote ? `⚠️ נתוני החנות אינם מעודכנים (עודכנו לאחרונה: ${staleNote}). ` : ""}טענה: חסר ${product}${claimQty ? ` (${units(claimQty)})` : ""}${input.promised ? " – לטענת הלקוח/ה הובטח" : ""}. נבדק: ${orderRef.label}. בהזמנה: ${lines.join("; ") || "אין פריטים"}. כמות ${product} בהזמנה: ${q.qty}${q.cancelled ? " (ההזמנה בוטלה)" : ""}.`;
   const finish = async (finding: Finding, action: MissingItemResult["action"], customerMessage: string, next: string, status: "open" | "informed", extra: SourceRef[] = []) => {
     const all = [...sources, ...extra];
     const agentSummary = `${header} ממצא: ${FINDING_LABEL[finding]}. צעד הבא: ${next}`;
@@ -235,7 +243,7 @@ export async function checkMissingItem(input: { businessId: string; contact: { i
     const promises = await documentedPromises(input.businessId, input.contact.id, product);
     if (promises.length) return finish("promised", "handoff", "מצאתי תיעוד קודם שקשור לזה. העברתי את הפנייה לנציג שיבדוק אותו מול ההזמנה ויחזור אליך 🙏", "נמצא תיעוד הבטחה שאינו תואם להזמנה – לבדוק מול ההפניות המצורפות.", "open", promises);
     if (input.promised) return finish("promised", "handoff", "לא מצאתי תיעוד לכך אצלי, אבל זה לא אומר שזה לא נאמר. העברתי את הפנייה לנציג שיבדוק ויחזור אליך 🙏", "הלקוח/ה טוען/ת שהמוצר הובטח; לא נמצא תיעוד בהודעות / בהערות / בשיחות. היעדר תיעוד אינו מוכיח שלא הובטח – לבדוק.", "open");
-    const msg = `בדקתי את ${o.label}${o.placedAt ? ` מ-${fmtDate(o.placedAt, tz)}` : ""}. ${q.cancelled ? "ההזמנה הזו בוטלה. " : ""}מופיעים בה: ${lines.join(", ") || "אין פריטים רשומים"}. המוצר „${product}" לא מופיע בהזמנה הזו. אם המוצר הובטח לך בשיחה או בהודעה, או שמדובר בהזמנה אחרת – אשמח לבדוק גם את זה. אפשר גם לשלוח לך את פירוט ההזמנה.`;
+    const msg = `${staleNote ? `לפי נתוני ההזמנה שעודכנו לאחרונה ב-${staleNote}: ` : ""}בדקתי את ${o.label}${o.placedAt ? ` מ-${fmtDate(o.placedAt, tz)}` : ""}. ${q.cancelled ? "ההזמנה הזו בוטלה. " : ""}מופיעים בה: ${lines.join(", ") || "אין פריטים רשומים"}. המוצר „${product}" לא מופיע בהזמנה הזו. אם המוצר הובטח לך בשיחה או בהודעה, או שמדובר בהזמנה אחרת – אשמח לבדוק גם את זה. אפשר גם לשלוח לך את פירוט ההזמנה.`;
     return finish("not_ordered", "reply", msg, "הוסבר ללקוח/ה מה כלול בהזמנה; אין צורך בפעולה נוספת אלא אם תטען להבטחה או להזמנה אחרת.", "informed");
   }
 

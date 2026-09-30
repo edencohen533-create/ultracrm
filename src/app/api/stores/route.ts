@@ -10,7 +10,7 @@ import type { StoreConnection } from "@/generated/prisma/client";
 import { apiStatus } from "@/server/services/store-api";
 
 export const dynamic = "force-dynamic";
-export const storeView = (s: StoreConnection, reveal = false) => ({ id: s.id, platform: s.platform, name: s.name, domain: s.domain, publicKey: s.publicKey, abandonAfterMinutes: s.abandonAfterMinutes, isActive: s.isActive, lastEventAt: s.lastEventAt, createdAt: s.createdAt, snippet: snippetFor(s.publicKey), webhookUrl: s.platform === "custom" ? null : webhookUrlFor(s.platform, s.id), webhookSecret: reveal ? storeSecret(s) : null, webhookSecretMasked: maskSecret(storeSecret(s)), api: apiStatus(s) });
+export const storeView = (s: StoreConnection, reveal = false) => ({ id: s.id, platform: s.platform, name: s.name, domain: s.domain, publicKey: s.publicKey, abandonAfterMinutes: s.abandonAfterMinutes, isActive: s.isActive, lastEventAt: s.lastEventAt, createdAt: s.createdAt, snippet: snippetFor(s.publicKey), webhookUrl: s.platform === "custom" ? null : webhookUrlFor(s.platform, s.id), webhookSecret: reveal ? storeSecret(s) : null, webhookSecretMasked: maskSecret(storeSecret(s)), api: apiStatus(s), apiStatus: s.apiStatus, webhookStatus: s.webhookStatus, lastVerifiedEventAt: s.lastVerifiedEventAt, lastSyncAt: s.lastSyncAt, disconnectedAt: s.disconnectedAt });
 
 export const GET = withAuth(async () => ok({ items: (await prisma.storeConnection.findMany({ orderBy: { createdAt: "asc" } })).map((s) => storeView(s)) }), { minRole: "manager", perm: ["whatsapp.automations", "sms.send", "email.send"] });
 

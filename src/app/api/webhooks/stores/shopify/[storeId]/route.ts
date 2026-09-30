@@ -30,7 +30,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ storeId
       // A parcel of an order (split shipments): its exact line items and delivery status.
       const { mergeShipments, shopifyOrderSnapshot } = await import("@/server/services/store-order-service");
       const [shipment] = shopifyOrderSnapshot({ id: p.order_id, line_items: [], fulfillments: [p] }).shipments ?? [];
-      if (p.order_id && shipment) await mergeShipments(store.businessId, "shopify", String(p.order_id), [shipment]);
+      if (p.order_id && shipment) await mergeShipments(store.businessId, "shopify", String(p.order_id), [shipment], store.id);
     } else if (topic.startsWith("orders/")) {
       const { upsertStoreOrder, shopifyOrderSnapshot } = await import("@/server/services/store-order-service");
       await upsertStoreOrder(store.businessId, "shopify", shopifyOrderSnapshot(p), { storeId: store.id });

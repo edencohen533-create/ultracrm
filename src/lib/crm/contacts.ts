@@ -89,11 +89,14 @@ export const contactPatchSchema = contactInputSchema.partial().extend({
  * Find the contact owning `e164` (primary or additional phone) or create a card.
  * Safe under concurrent inbound events: a unique-constraint race is resolved by re-reading.
  */
-export async function findOrCreateContactByPhone(businessId: string, e164: string, create: { fullName: string; phoneRaw: string; source: string; ownerUserId?: string | null }, db: Db = prisma) {
+export async function findOrCreateContactByPhone(businessId: string, e164: string, create: { fullName: string; phoneRaw: string; source: string; ownerUserId?: string | null; email?: string | null }, db: Db = prisma, opts: { silent?: boolean } = {}) {
   const existingId = await contactForIdentifier(businessId, e164, db);
   if (existingId) return db.contact.findUniqueOrThrow({ where: { id: existingId } });
   try {
-    const created = await db.contact.create({ data: { businessId, fullName: create.fullName, phoneE164: e164, phoneRaw: create.phoneRaw, source: create.source, ownerUserId: create.ownerUserId ?? null } });
+    const emailFree = create.email ? !(await contactForIdentifier(businessId, create.email.toLowerCase(), db)) : false;
+    const created = await db.contact.create({ data: { businessId, fullName: create.fullName, phoneE164: e164, phoneRaw: create.phoneRaw, source: create.source, ownerUserId: create.ownerUserId ?? null, ...(emailFree ? { email: create.email!.toLowerCase() } : {}) } });
+    // A historical import is not a new person arriving now – no "contact created" automations.
+    if (opts.silent) return created;
     // New lead from an inbound channel → sequences with a CONTACT_CREATED trigger (optionally filtered by source). CSV imports never emit this.
     const { emitEvent } = await import("@/lib/events");
     await emitEvent(db, { businessId, type: "contact.created", contactId: created.id, source: "system", dedupeKey: `contact.created:${created.id}`, payload: { source: create.source } }).catch(() => undefined);

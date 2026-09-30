@@ -56,6 +56,17 @@ async function handoff(conversationId: string, reason: string, summary: string) 
 async function orderStatus(contact: { id: string; phoneE164: string }, orderNumber: string) {
   const n = orderNumber.replace(/[^\w-]/g, "");
   if (n.length < 3) return { found: false, note: "יש לבקש מהלקוח את מספר ההזמנה" };
+  // The order as the store recorded it (webhooks / import), with how fresh that data is.
+  const so = await prisma.storeOrder.findFirst({ where: { OR: [{ orderNumber: n }, { orderNumber: `#${n}` }], AND: [{ OR: [{ contactId: contact.id }, { phoneE164: contact.phoneE164 }] }] }, orderBy: { updatedAt: "desc" } });
+  if (so) {
+    const { storeFreshness } = await import("@/server/services/woo/health");
+    const store = so.storeId ? await prisma.storeConnection.findUnique({ where: { id: so.storeId }, select: { apiStatus: true, webhookStatus: true, lastVerifiedEventAt: true, lastSyncAt: true, isActive: true } }) : null;
+    const fr = store ? storeFreshness(store) : { fresh: true, asOf: so.updatedAt.toISOString() };
+    const { describeOrder } = await import("./missing-items");
+    const ships = ((so.shipments ?? []) as Array<{ status: string; carrier?: string; tracking?: string }>).map((s) => `${s.carrier ?? "משלוח"} ${s.tracking ?? ""} – ${s.status}`.trim());
+    return { found: true, order: so.orderNumber, status: so.status, items: describeOrder({ items: so.items as never }), shipments: ships, dataAsOf: fr.asOf, realtime: fr.fresh,
+      note: fr.fresh ? "נתוני ההזמנה מהחנות. 'נמסר' אינו מוכיח שכל הפריטים הגיעו." : `הנתונים עודכנו לאחרונה ב-${fr.asOf ?? "לא ידוע"} והחיבור לחנות אינו מעודכן – אל תציג אותם כמידע בזמן אמת; אמור מתי עודכנו או העבר לנציג.` };
+  }
   const cart = await prisma.cart.findFirst({ where: { OR: [{ orderId: n }, { externalId: n }], AND: [{ OR: [{ contactId: contact.id }, { phoneE164: contact.phoneE164 }] }] }, select: { orderId: true, status: true, convertedAt: true, orderTotal: true, currency: true } });
   if (!cart) return { found: false, note: "לא נמצאה הזמנה עם המספר הזה ששייכת למספר הטלפון שממנו הלקוח כותב. אין למסור מידע – אפשר להציע העברה לנציג." };
   return { found: true, order: cart.orderId ?? n, received: Boolean(cart.convertedAt), receivedAt: cart.convertedAt, total: cart.orderTotal ? `${cart.orderTotal} ${cart.currency ?? ""}` : null, note: "אין במערכת מידע על סטטוס משלוח – אין להמציא." };

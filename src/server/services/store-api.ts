@@ -3,7 +3,7 @@
  * and register the webhooks ourselves (no copy-pasting URLs in the store admin).
  *  • Shopify: shop.myshopify.com + Admin API access token (custom app with read_orders + read_checkouts) + the app's
  *    API secret key (Shopify signs webhooks created by the app with it).
- *  • WooCommerce: site URL + REST API consumer key/secret (Read/Write) – we choose the webhook secret.
+ *  • WooCommerce: see src/server/services/woo/connect.ts (test per resource, webhooks, import, reconcile).
  * Credentials are stored sealed (encrypted) in the store config and never returned to the browser.
  */
 import type { StoreConnection } from "@/generated/prisma/client";
@@ -11,12 +11,11 @@ import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 import { openConfig } from "@/server/channels/registry";
 import { webhookUrlFor } from "@/lib/store-urls";
-import { assertPublicHttpsUrl, safeFetch } from "@/lib/safe-url";
-import { newWebhookSecret, sealStoreConfig, storeSecret } from "./cart-service";
+import { safeFetch } from "@/lib/safe-url";
+import { sealStoreConfig } from "./cart-service";
 
 export const SHOPIFY_API_VERSION = "2024-10";
 const SHOPIFY_TOPICS = ["checkouts/create", "checkouts/update", "orders/create"];
-const WOO_TOPICS = ["order.created", "order.updated"];
 
 async function call(url: string, init: RequestInit, what: string) {
   let res: Response;
@@ -47,27 +46,6 @@ export async function connectShopify(store: StoreConnection, input: { shop: stri
   const cfg = { ...openConfig(store.config), webhookSecret: input.apiSecret.trim(), accessToken: input.accessToken.trim(), apiShop: host, apiConnectedAt: new Date().toISOString(), apiWebhooks: registered, apiStoreName: shopName };
   const updated = await prisma.storeConnection.update({ where: { id: store.id }, data: { config: sealStoreConfig(cfg), domain: store.domain ?? host } });
   return { store: updated, registered, failed, shopName };
-}
-
-export async function connectWooCommerce(store: StoreConnection, input: { siteUrl: string; consumerKey: string; consumerSecret: string }) {
-  const origin = assertPublicHttpsUrl(input.siteUrl, "כתובת האתר").origin;
-  const auth = `Basic ${Buffer.from(`${input.consumerKey.trim()}:${input.consumerSecret.trim()}`).toString("base64")}`;
-  const headers = { Authorization: auth, "Content-Type": "application/json", Accept: "application/json" };
-  const listRes = await call(`${origin}/wp-json/wc/v3/webhooks?per_page=100`, { headers }, "WooCommerce");
-  if (listRes.status === 404) throw new ApiError("לא נמצא WooCommerce REST API בכתובת הזו (בדוק שהכתובת נכונה ושה-Permalinks אינם 'Plain')", 400, "store_not_woocommerce");
-  if (!listRes.ok) throw new ApiError(`WooCommerce החזירה שגיאה ${listRes.status}`, 502, "store_error");
-  const existing = ((await listRes.json().catch(() => [])) as Array<{ topic: string; delivery_url: string; status: string }>) ?? [];
-  const address = webhookUrlFor("woocommerce", store.id);
-  const secret = storeSecret(store) || newWebhookSecret();
-  const registered: string[] = []; const failed: string[] = [];
-  for (const topic of WOO_TOPICS) {
-    if (existing.some((w) => w.topic === topic && w.delivery_url === address && w.status === "active")) { registered.push(topic); continue; }
-    const r = await call(`${origin}/wp-json/wc/v3/webhooks`, { method: "POST", headers, body: JSON.stringify({ name: `UltraCRM – ${topic}`, topic, delivery_url: address, secret, status: "active" }) }, "WooCommerce");
-    if (r.ok) registered.push(topic); else failed.push(`${topic} (${r.status})`);
-  }
-  const cfg = { ...openConfig(store.config), webhookSecret: secret, consumerKey: input.consumerKey.trim(), consumerSecret: input.consumerSecret.trim(), apiSite: origin, apiConnectedAt: new Date().toISOString(), apiWebhooks: registered };
-  const updated = await prisma.storeConnection.update({ where: { id: store.id }, data: { config: sealStoreConfig(cfg), domain: store.domain ?? new URL(origin).host } });
-  return { store: updated, registered, failed, shopName: new URL(origin).host };
 }
 
 /** Non-secret API status for the setup screen. */

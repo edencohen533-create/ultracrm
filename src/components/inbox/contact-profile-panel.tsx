@@ -158,6 +158,8 @@ function FileBody({ file, extra }: { file: CustomerFile; extra: Extra }) {
                   {o.items.length > 0 && <ul className="mt-1 space-y-0.5 text-xs">{o.items.map((i, n) => <li key={n} dir="auto">{i.name}{i.quantity != null ? ` × ${i.quantity}` : ""}{i.price != null ? ` · ${money(i.price, o.currency)}` : ""}</li>)}</ul>}
                   {o.status && <p className="mt-1 text-[11px] text-muted">{t("סטטוס", "Status")}: {o.status}</p>}
                   {o.shipments && o.shipments.length > 0 && <ul className="mt-1 space-y-0.5 text-[11px] text-muted">{o.shipments.map((sh, n) => <li key={n} dir="auto">📦 {sh}</li>)}</ul>}
+                  {o.payment && <p className="mt-1 text-[11px] text-muted" data-testid="order-payment">💳 {t("אישור תשלום (אינו קבלה)", "Payment confirmation (not a receipt)")}: {o.payment}</p>}
+                  {o.documents && o.documents.length > 0 && <ul className="mt-1 space-y-0.5 text-[11px]">{o.documents.map((d, n) => <li key={n}><a href={d.url} target="_blank" rel="noreferrer noopener" className="text-accent underline" data-testid="order-document">{d.label}</a> <span className="text-muted">· {t("מתוסף בחנות, לא אומת", "from a store plugin, unverified")}</span></li>)}</ul>}
                   {o.receiptUrl && <a href={o.receiptUrl} target="_blank" rel="noreferrer noopener" className="mt-1 inline-block text-xs text-accent underline" data-testid="order-receipt">{t("קבלה", "Receipt")}</a>}
                 </li>
               ))}</ul>

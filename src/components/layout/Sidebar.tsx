@@ -40,7 +40,8 @@ const ITEMS: Item[] = [
   { href: "/campaigns/whatsapp", label: "הודעות תפוצה", en: "Broadcasts", roles: ALL, need: ["whatsapp.campaign_draft", "whatsapp.campaign_send", "sms.view", "email.view"], Icon: Megaphone, testid: "nav-campaigns", match: (p) => p.startsWith("/campaigns") },
   { href: "/automations", label: "אוטומציות", en: "Automations", roles: MGMT, need: ["whatsapp.automations", "sms.send", "email.send"], Icon: Zap, testid: "nav-automations", match: (p) => p.startsWith("/automations") || p.startsWith("/carts") },
   { href: "/ai", label: "עוזר AI", en: "AI assistant", roles: ALL, Icon: Bot, testid: "nav-ai", match: (p) => p.startsWith("/ai") },
-  { href: "/sales", label: "הצעות וסגירה", en: "Sales", roles: ALL, need: ["crm.view"], Icon: Star, testid: "nav-sales", match: (p) => p.startsWith("/sales") },
+  // "הצעות וסגירה" is no longer a menu item: offers open from the lead ("הצעת מחיר"), payment during a call from the
+  // dialer, connections (payments / Meta) in settings → חיבורים. The /sales page itself still exists.
   { href: "/reports", label: "דוחות", en: "Reports", roles: MGMT, Icon: BarChart3, testid: "nav-reports", match: (p) => p.startsWith("/reports") || p.startsWith("/analytics") || p.startsWith("/manager") },
 ];
 
@@ -111,16 +112,18 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
             <Lock size={15} aria-hidden /><span className="nav-label">{t(i.label, i.en)}</span><span className="ms-auto text-[10px]">{t("לא בחבילה", "Not in plan")}</span>
           </Link>
         ))}
-        {platformAdmin && (
-          <Link href="/platform" data-testid="nav-platform" className={cx("flex items-center gap-3 px-3 h-10 rounded-lg text-sm transition-colors mt-3", pathname.startsWith("/platform") ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-panel-2")}>
-            <Shield size={17} aria-hidden /><span className="nav-label">{t("ניהול הפלטפורמה", "Platform administration")}</span>
-          </Link>
-        )}
       </nav>
       <div className="p-3 border-t border-line space-y-2">
         {manager && (
           <Link href="/settings" data-testid="nav-settings" title={t("הגדרות, חיבורים, מספרים יוצאים, משתמשים והרשאות", "Settings, connections, numbers, users and permissions")} className={cx("flex items-center gap-3 px-3 h-10 rounded-lg text-sm transition-colors", settingsActive ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-panel-2")}>
             <Settings size={17} aria-hidden /><span className="nav-label">{t("הגדרות", "Settings")}</span>
+          </Link>
+        )}
+        {/* Platform administration: its own item right under settings – only for an authorized platform admin (the
+            /platform pages and APIs check it on the server); never a tab inside the business's settings. */}
+        {platformAdmin && (
+          <Link href="/platform" data-testid="nav-platform" className={cx("flex items-center gap-3 px-3 h-10 rounded-lg text-sm transition-colors", pathname.startsWith("/platform") ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-panel-2")}>
+            <Shield size={17} aria-hidden /><span className="nav-label">{t("ניהול הפלטפורמה", "Platform administration")}</span>
           </Link>
         )}
         <div className="flex items-center justify-between gap-2 px-1">

@@ -132,7 +132,7 @@ export type WaitingKey = "total" | "new" | "today" | "overdue" | "schedule";
 interface Waiting { asOf: string; timezone: string; counts: { total: number; new: number; today: number; overdue: number; schedule: number; unassigned: number } }
 
 /** Manager card "ממתינים לשיחה היום" – clickable total and categories filter the list with the same ids. */
-export function WaitingCard({ agent, users, active, onPick, onAgent, version }: { agent: string; users: Array<{ id: string; fullName: string }>; active: WaitingKey | ""; onPick: (k: WaitingKey | "") => void; onAgent: (id: string) => void; version: unknown }) {
+export function WaitingCard({ agent, users, active, onPick, onAgent, version, canPickAgent = false }: { agent: string; users: Array<{ id: string; fullName: string }>; active: WaitingKey | ""; onPick: (k: WaitingKey | "") => void; onAgent: (id: string) => void; version: unknown; /** Owner only: "כל העסק" / other agents (the server enforces it). */ canPickAgent?: boolean }) {
   const [w, setW] = useState<Waiting | null>(null);
   const [failed, setFailed] = useState(false);
   const tr = useT();
@@ -156,7 +156,7 @@ export function WaitingCard({ agent, users, active, onPick, onAgent, version }: 
     <article className="lead-stat waiting-card" data-testid="waiting-card">
       <header>
         <button type="button" className={`waiting-total${active === "total" ? " active" : ""}`} onClick={() => onPick(active === "total" ? "" : "total")} data-testid="waiting-total"><strong>{failed ? "—" : w?.counts.total ?? "…"}</strong><span>{tr("ממתינים לשיחה היום", "Waiting for a call today")}</span></button>
-        <select aria-label={tr("נציג בכרטיס הממתינים", "Agent in the waiting card")} value={agent} onChange={(e) => onAgent(e.target.value)} data-testid="waiting-agent"><option value="">{tr("כל העסק", "Whole business")}</option><option value="unassigned">{tr("ללא שיוך", "Unassigned")}</option>{users.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</select>
+        {canPickAgent ? <select aria-label={tr("נציג בכרטיס הממתינים", "Agent in the waiting card")} value={agent} onChange={(e) => onAgent(e.target.value)} data-testid="waiting-agent"><option value="">{tr("כל העסק", "Whole business")}</option><option value="unassigned">{tr("ללא שיוך", "Unassigned")}</option>{users.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</select> : <span className="text-xs text-muted" data-testid="waiting-mine">{tr("שלי", "Mine")}</span>}
       </header>
       {failed ? <p className="text-xs text-bad">{tr("לא ניתן לטעון כרגע – הנתון אינו 0, נסו לרענן.", "Can't load right now – the number isn't 0, try refreshing.")}</p> : <div className="waiting-cats">
         {cat("new", tr("לידים חדשים שטרם חויגו", "New leads not yet dialed"), w?.counts.new)}

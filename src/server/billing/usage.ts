@@ -23,7 +23,16 @@ export async function ratesFor(businessId: string) {
   const hit = rateCache.get(businessId); if (hit && Date.now() - hit.at < 10_000) return hit.v;
   const sub = await db.subscription.findUnique({ where: { businessId }, select: { priceBookVersionId: true } });
   const v = sub?.priceBookVersionId ? await versionById(sub.priceBookVersionId) : await publishedVersion();
-  const val = v ? { version: v.version, currency: v.currency, rates: parseRates(v.usageRates) } : null;
+  // Custom usage rates of this business (platform admin) replace the price-book rate for usage recorded from now on.
+  const custom = await (await import("./pricing")).termsAt(businessId);
+  const base = v ? parseRates(v.usageRates) : [];
+  const { USAGE_SERVICES } = await import("./pricebook");
+  const rates = [
+    ...base.map((r) => (custom.terms.usageRates[r.service] !== undefined ? { ...r, unitPriceMinor: custom.terms.usageRates[r.service] } : r)),
+    // A service the price book doesn't price yet, priced for this business only.
+    ...Object.entries(custom.terms.usageRates).filter(([svc]) => !base.some((r) => r.service === svc)).map(([svc, p]) => ({ service: svc, unit: USAGE_SERVICES.find((x) => x.service === svc)?.unit ?? "unit", unitPriceMinor: p })),
+  ];
+  const val = v ? { version: v.version, currency: v.currency, rates, ...(custom.version ? { pricingVersion: custom.version } : {}) } : null;
   rateCache.set(businessId, { at: Date.now(), v: val });
   return val;
 }
@@ -42,7 +51,7 @@ export async function recordUsage(u: UsageInput) {
     idempotencyKey: u.idempotencyKey.slice(0, 300), kind: u.kind ?? "charge", occurredAt: u.occurredAt, unit: u.unit,
     quantity: new Prisma.Decimal(u.quantity), billedQuantity: u.billedQuantity !== undefined && u.billedQuantity !== null ? new Prisma.Decimal(u.billedQuantity) : null,
     priceBookVersion: r?.version ?? null, currency: r?.currency ?? "ILS", providerCostMinor: u.providerCostMinor ?? null, providerCurrency: u.providerCurrency ?? null,
-    priceMinor, status, billedByProvider: Boolean(u.billedByProvider), details: (u.details ?? {}) as Prisma.InputJsonValue,
+    priceMinor, status, billedByProvider: Boolean(u.billedByProvider), details: { ...(u.details ?? {}), ...(r && "pricingVersion" in r && r.pricingVersion ? { businessPricingVersion: r.pricingVersion } : {}) } as Prisma.InputJsonValue,
   }], skipDuplicates: true });
   if (res.count && priceMinor) await (await import("./budget")).checkBudgetAlerts(u.businessId).catch(() => undefined);
   return res.count > 0;

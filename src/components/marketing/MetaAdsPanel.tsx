@@ -71,14 +71,14 @@ export function MetaAdsPanel() {
 
   const loc = t.lang === "en" ? "en-GB" : "he-IL";
   const dt = (s: string | null) => (s ? new Date(s).toLocaleString(loc, { dateStyle: "short", timeStyle: "short" }) : "—");
-  if (denied) return <Panel title="Meta Ads"><p className="text-sm text-muted">{t("החיבור מנוהל על ידי בעל העסק או מנהל עם הרשאת \"חיבור חשבונות פרסום\".", "The connection is managed by the owner or a manager with the \"Connect ad accounts\" permission.")}</p></Panel>;
-  if (!st) return <Panel title="Meta Ads"><Spinner /></Panel>;
+  if (denied) return <Panel title={t("Meta Ads – מודעות ולידים", "Meta Ads – ads & leads")}><p className="text-sm text-muted">{t("החיבור מנוהל על ידי בעל העסק או מנהל עם הרשאת \"חיבור חשבונות פרסום\".", "The connection is managed by the owner or a manager with the \"Connect ad accounts\" permission.")}</p></Panel>;
+  if (!st) return <Panel title={t("Meta Ads – מודעות ולידים", "Meta Ads – ads & leads")}><Spinner /></Panel>;
   const c = st.connection;
   const connStatus = !c ? null : c.status === "active" ? <Badge tone="good" dot>{t("מחובר", "Connected")}</Badge> : c.status === "revoked" ? <Badge tone="bad" dot>{t("ההרשאה הוסרה ב-Meta", "Permission removed at Meta")}</Badge> : <Badge tone="bad" dot>{t("פג תוקף – נדרש חיבור מחדש", "Expired – reconnect needed")}</Badge>;
 
   return (
     <div id="meta-ads">
-    <Panel title={<span className="flex items-center gap-2">Meta Ads {connStatus}</span>} actions={<button type="button" className="text-xs underline text-muted" onClick={() => setHelp(true)} data-testid="meta-ads-help">{t("איך מגיעים נתוני מקור?", "How does source data arrive?")}</button>}>
+    <Panel title={<span className="flex items-center gap-2">{t("Meta Ads – מודעות ולידים", "Meta Ads – ads & leads")} {connStatus}</span>} actions={<button type="button" className="text-xs underline text-muted" onClick={() => setHelp(true)} data-testid="meta-ads-help">{t("איך מגיעים נתוני מקור?", "How does source data arrive?")}</button>}>
       <div className="space-y-3 text-sm" data-testid="meta-ads-panel">
         <p className="text-muted text-xs">{t("חיבור למדידה בלבד: קריאת הוצאות, חשיפות, קליקים ולידים לפי מודעה. המערכת לא יוצרת מודעות, לא משנה תקציבים ולא משהה קמפיינים. חיבור WhatsApp אינו נותן גישה לנתוני פרסום.", "Measurement only: reads spend, impressions, clicks and leads per ad. The system never creates ads, changes budgets or pauses campaigns. A WhatsApp connection gives no access to ad data.")}</p>
         {c ? (

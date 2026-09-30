@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Badge, Button, Input, Modal, Panel, Select, Spinner, Textarea, cx } from "@/components/ui";
+import { BusinessPricing } from "./BusinessPricing";
 import { ACCESS_STATUS_LABEL, DEPENDENCIES, MODULE_LABEL, MODULES, QUOTA_LABEL, QUOTA_METRICS, SOURCE_LABEL, type ModuleKey } from "@/lib/access/catalog";
 import { useT } from "@/components/i18n/LangProvider";
 import { StateBadge, UserAccessEditor, type AccessUserRow } from "./AccessMatrix";
@@ -140,6 +141,7 @@ function BusinessDetail({ id, onClose }: { id: string; onClose: () => void }) {
             <p className="text-xs text-muted">{d.billing.note}</p>
           </Panel>
         </div>
+        <BusinessPricing businessId={id} />
         <Panel title={t(`שימוש בפועל – ${d.usage.period}`, `Actual usage – ${d.usage.period}`)}>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs" data-testid="platform-usage">
             <span>{t("שיחות", "Calls")}: <b>{d.usage.calls}</b> ({d.usage.talkMinutes} {t("דק׳ שיחה", "talk min")})</span>

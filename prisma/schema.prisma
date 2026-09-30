@@ -4056,3 +4056,43 @@ model LeadStatusDef {
   @@index([businessId, deletedAt])
   @@map("lead_status_defs")
 }
+
+/// Custom pricing for one business (platform admin). Append-only versions – the terms in force at a moment are the
+/// highest version whose effectiveFrom ≤ that moment. Issued documents and recorded usage are never rewritten.
+model BusinessPricing {
+  id            String   @id @default(cuid())
+  businessId    String   @map("business_id")
+  version       Int
+  effectiveFrom DateTime @map("effective_from")
+  /// {licenseCode: unitPriceMinor} – replaces the price-book unit price for this business.
+  licensePrices Json     @default("{}") @map("license_prices")
+  /// Recurring discount on the licenses subtotal: {type: "fixed"|"percent", amountMinor?, bps?, startsAt, endsAt?, note?}
+  discount      Json?
+  /// {service: unitPriceMinor} – replaces the price-book usage rate for usage recorded from effectiveFrom.
+  usageRates    Json     @default("{}") @map("usage_rates")
+  note          String?
+  createdByAccountId String? @map("created_by_account_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([businessId, version])
+  @@index([businessId, effectiveFrom])
+  @@map("business_pricing")
+}
+
+/// One-time credit (platform admin) – consumed by the next renewal documents, never below zero; unused remainder
+/// stays for the following one. Cancelling is possible only while nothing was used.
+model BillingCredit {
+  id             String    @id @default(cuid())
+  businessId     String    @map("business_id")
+  amountMinor    Int       @map("amount_minor")
+  remainingMinor Int       @map("remaining_minor")
+  currency       String    @default("ILS")
+  reason         String
+  applied        Json      @default("[]")
+  createdByAccountId String? @map("created_by_account_id")
+  cancelledAt    DateTime? @map("cancelled_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([businessId, cancelledAt])
+  @@map("billing_credits")
+}

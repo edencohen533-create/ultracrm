@@ -825,3 +825,97 @@ button.seg-item { width: 100%; }
 /* "חייגן" area tabs – same look as the reports toolbar; scrolls sideways on narrow phones instead of wrapping. */
 .dialer-hub-nav { overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
 .dialer-hub-nav a { flex-shrink: 0; }
+
+/* ── Broadcasts, distribution lists and the campaign report – UltraCRM design language ─────────────────────────────
+   Same tokens as the rest of the app (panel / line / text / muted / accent, 12px cards, 8px controls, text-sm
+   tables, font-semibold headings); replaces the previous product-specific blues. RTL-safe (logical properties) and
+   responsive: rows collapse, tables scroll inside their card, filters wrap. */
+.cmp-side { background: var(--panel-2); border-inline-end: 1px solid var(--line); padding: 16px 10px; }
+.cmp-side h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 8px 8px; }
+.cmp-side button { color: var(--text); font-size: 14px; border-radius: 8px; border-inline-start: 3px solid transparent; padding: 8px 10px; }
+.cmp-side button:hover { background: var(--panel); }
+.cmp-side button.active { background: var(--panel); color: var(--accent); font-weight: 600; border-inline-start-color: var(--accent); box-shadow: none; }
+.cmp-main { background: var(--bg); }
+.cmp-head { padding: 20px 20px 12px; }
+.cmp-head h1 { font-size: 18px; font-weight: 600; color: var(--text); }
+.cmp-count { color: var(--muted); font-weight: 500; font-size: 13px; }
+.cmp-search { height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); }
+.cmp-search input { color: var(--text); font-size: 14px; }
+.cmp-btn { height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 13px; font-weight: 500; }
+.cmp-btn:hover { background: var(--panel-2); }
+.cmp-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.cmp-btn.primary:hover { background: var(--accent-2); }
+.cmp-btn.outline { background: var(--panel); border-color: var(--accent); color: var(--accent); height: 36px; }
+.cmp-main .campaigns-nav { padding: 0 20px; }
+.cmp-rows { margin: 0 20px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; border-top: 1px solid var(--line); }
+.cmp-row { padding: 14px 16px; border-bottom: 1px solid var(--line); gap: 14px; }
+.cmp-row:last-child { border-bottom: 0; }
+.cmp-row:hover { background: var(--panel-2); }
+.cmp-row-icon { color: var(--muted); }
+.cmp-row-main h3 { font-size: 14px; font-weight: 600; color: var(--text); }
+.cmp-row-main p { font-size: 12px; color: var(--muted); }
+.cmp-reason { color: var(--bad); }
+.cmp-badge { height: 22px; border-radius: 6px; font-size: 12px; font-weight: 500; background: var(--muted-bg); color: var(--text); }
+.cmp-badge.draft { background: var(--muted-bg); color: var(--muted); }
+.cmp-badge.scheduled { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-2); }
+.cmp-badge.running, .cmp-badge.paused { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
+.cmp-badge.sent, .cmp-badge.completed { background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); }
+.cmp-badge.failed, .cmp-badge.cancelled { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); }
+.cmp-progress { background: var(--muted-bg); border-radius: 6px; }
+.cmp-progress > div { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.cmp-progress > span { color: var(--text); font-weight: 600; }
+.cmp-menu { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / .08); }
+.cmp-menu > * { color: var(--text); }
+.cmp-menu > *:hover { background: var(--panel-2); }
+.cmp-menu .danger { color: var(--bad); }
+.cmp-empty { color: var(--muted); font-size: 14px; }
+.cmp-input { height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
+.cmp-note { color: var(--muted); }
+.cmp-cal-head button { border: 1px solid var(--line); background: var(--panel); }
+.cmp-cal-grid { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.cmp-cal-dow { background: var(--panel-2); color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); }
+.cmp-cal-day { border-color: var(--line); }
+.cmp-cal-day.other { background: var(--panel-2); color: var(--muted); }
+.cmp-cal-item { background: var(--muted-bg); color: var(--text); border-radius: 6px; }
+.cmp-cal-item.b-sent { background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); }
+.cmp-cal-item.b-failed { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); }
+.cmp-cal-item.b-scheduled { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-2); }
+
+.rep { background: var(--bg); }
+.rep-head { background: var(--panel); border-bottom: 1px solid var(--line); padding: 14px 20px; }
+.rep-crumbs { font-size: 14px; color: var(--muted); }
+.rep-crumbs strong { color: var(--text); font-size: 18px; font-weight: 600; }
+.rep-crumbs a { color: var(--muted); text-decoration: underline; }
+.rep-tabs { background: var(--panel); border-bottom: 1px solid var(--line); padding: 0 20px; gap: 4px; }
+.rep-tabs button { padding: 10px 12px; font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.rep-tabs button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.rep-body { padding: 16px 20px 32px; gap: 12px; }
+.rep-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.rep-card h2 { font-size: 14px; font-weight: 600; color: var(--text); margin: 0 0 12px; }
+.rep-metrics { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.rep-metric { background: var(--panel); align-items: flex-start; text-align: start; padding: 10px 12px; }
+.rep-metric strong { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; order: 2; }
+.rep-label { order: 1; font-size: 12px; color: var(--muted); }
+.rep-sub { order: 3; font-size: 12px; color: var(--muted); min-height: 0; }
+.rep-note { order: 4; font-size: 11px; color: var(--muted); }
+.rep-empty { color: var(--muted); font-size: 13px; }
+.rep-list li { border-bottom: 1px solid var(--line); font-size: 13px; }
+.rep-list li:last-child { border-bottom: 0; }
+.rep-list a { color: var(--accent-2); }
+.rep-notes { color: var(--muted); }
+.rep-filters { flex-wrap: wrap; }
+.rep-filters select { height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 0 8px; }
+.rep-table { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font-size: 13px; }
+.rep-table th { background: var(--panel-2); color: var(--muted); font-weight: 500; }
+.rep-table td { border-top: 1px solid var(--line); }
+.rep-pager { color: var(--muted); }
+.rep-pager button { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); height: 32px; }
+@media (max-width: 760px) {
+  .cmp-head, .rep-head { padding: 12px; }
+  .cmp-rows { margin: 0 12px 12px; }
+  .cmp-row { padding: 12px; }
+  .rep-body { padding: 12px; }
+  .rep-table { display: block; overflow-x: auto; white-space: nowrap; }
+  .rep-filters select { width: 100%; }
+  .rep-metric strong { font-size: 18px; }
+}

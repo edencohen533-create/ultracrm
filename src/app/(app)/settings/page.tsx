@@ -30,12 +30,12 @@ export default function SettingsPage() {
   const [me, setMe] = useState<{ user: { role: string }; modules: Record<string, boolean> } | null>(null);
   useEffect(() => { api.get<{ user: { role: string }; modules: Record<string, boolean> }>("/api/auth/me").then(setMe).catch(() => undefined); }, []);
   // Old links: "תעדוף לידים" now lives in "חייגן"; "הרשאות נתונים" / "מודולים והרשאות" in "משתמשים וצוותים".
-  useEffect(() => { const t = new URLSearchParams(window.location.search).get("tab"); const moved: Record<string, Tab> = { priority: "general", permissions: "users", access: "users" }; if (t) setTab((moved[t] ?? t) as Tab); }, []);
+  useEffect(() => { const t = new URLSearchParams(window.location.search).get("tab"); const moved: Record<string, Tab> = { priority: "general", permissions: "users", access: "users", marketing: "suppressions" }; if (t) setTab((moved[t] ?? t) as Tab); }, []);
   const isAdmin = me?.user.role === "owner";
   // Server modules are crm/telephony/whatsapp/sms/email; `messaging` here means the WhatsApp module.
   const modules: Record<string, boolean> = me ? { ...me.modules, messaging: me.modules.whatsapp ?? me.modules.messaging ?? false } : { crm: true, messaging: true, telephony: true };
   const groups: Array<{ title: string; tabs: Array<[Tab, string]>; show: boolean }> = [
-    { title: t("עסק", "Business"), tabs: [["business", t("פרטי העסק", "Business details")], ["users", t("משתמשים וצוותים", "Users & Teams")], ["connections", t("חיבורים", "Connections")], ["plan", t("חבילה ומכסות", "Plan & quotas")], ["automations", t("אוטומציות", "Automations")], ["marketing", t("דיוור", "Marketing")], ["assistant", t("העוזר האישי בוואטסאפ", "WhatsApp personal assistant")], ["account", t("חשבון ומחיקה", "Account & deletion")], ["suppressions", t("הסרות מדיוור", "Unsubscribes")], ["history", t("היסטוריית שינויים", "Change history")]], show: true },
+    { title: t("עסק", "Business"), tabs: [["business", t("פרטי העסק", "Business details")], ["users", t("משתמשים וצוותים", "Users & Teams")], ["connections", t("חיבורים", "Connections")], ["plan", t("חבילה ומכסות", "Plan & quotas")], ["automations", t("אוטומציות", "Automations")], ["assistant", t("העוזר האישי בוואטסאפ", "WhatsApp personal assistant")], ["account", t("חשבון ומחיקה", "Account & deletion")], ["suppressions", t("הסרות והגנות דיוור", "Unsubscribes & sending protection")], ["history", t("היסטוריית שינויים", "Change history")]], show: true },
     { title: t("טלפוניה", "Telephony"), tabs: [["general", t("חייגן", "Dialer")], ["safety", t("בטיחות ושיחות נכנסות", "Safety & inbound calls")], ["numbers", t("מספרים יוצאים", "Outbound numbers")], ["scripts", t("תסריטים", "Scripts")], ["dnc", t("לא ליצור קשר", "Do not contact")], ["coach", t("מאמן AI", "AI coach")]], show: modules.telephony },
   ];
   return (
@@ -50,12 +50,11 @@ export default function SettingsPage() {
         ))}
       </div>
       {tab === "business" && <><BusinessTab isAdmin={isAdmin} /><p className="text-xs text-muted">{t("סיסמה, שפה ופרטים אישיים נמצאים ב", "Password, language and personal details are in ")}<a href="/account" className="underline" data-testid="settings-my-account">{t("החשבון שלי", "My account")}</a>{t(" – הם שייכים לך בכל העסקים, לא לעסק הזה.", " – they belong to you across businesses, not to this business.")}</p></>}
-      {tab === "account" && <AccountDeletion isOwner={isAdmin} />}
+      {tab === "account" && <><MarketingTab isAdmin={isAdmin} part="retention" /><AccountDeletion isOwner={isAdmin} /></>}
       {tab === "connections" && <ConnectionsTab modules={modules} />}
       {tab === "plan" && <><a href="/settings/billing" className="block rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm mb-3" data-testid="open-billing">{t("חיוב ושימוש – רישיונות, מסמכים, שימוש ותקציב ←", "Billing & usage – licenses, documents, usage and budget →")}</a><PlanOverview /></>}
       {tab === "automations" && <AutomationsTab isAdmin={isAdmin} messaging={modules.messaging} />}
-      {tab === "marketing" && <MarketingTab isAdmin={isAdmin} />}
-      {tab === "suppressions" && <SuppressionsTab />}
+      {tab === "suppressions" && <><MarketingTab isAdmin={isAdmin} part="guards" /><div className="mt-4"><SuppressionsTab /></div></>}
       {tab === "general" && <><GeneralTab isAdmin={isAdmin} /><div id="prioritization" className="mt-4"><PriorityTab isAdmin={isAdmin} /></div></>}
       {tab === "safety" && <SafetyTab isAdmin={isAdmin} />}
       {tab === "history" && <HistoryTab />}
@@ -439,7 +438,12 @@ function AutomationsTab({ isAdmin, messaging }: { isAdmin: boolean; messaging: b
   );
 }
 
-function MarketingTab({ isAdmin }: { isAdmin: boolean }) {
+/**
+ * Business-wide messaging settings, split since sending settings moved into each campaign (wizard → "שליחה"):
+ * "retention" (under חשבון ומחיקה) and "guards" – the ceiling / frequency protection enforced on every campaign and the
+ * default window new campaigns start from and automations use (under הסרות והגנות דיוור).
+ */
+function MarketingTab({ isAdmin, part }: { isAdmin: boolean; part: "retention" | "guards" }) {
   const t = useT();
   const [m, setM] = useState<{ window: { start: string; end: string; days: number[] }; maxPerMinute: number; minHoursBetweenMarketing: number } | null>(null);
   const [ret, setRet] = useState<{ messagesDays: number; auditDays: number }>({ messagesDays: 0, auditDays: 0 });
@@ -451,14 +455,16 @@ function MarketingTab({ isAdmin }: { isAdmin: boolean }) {
     try { await api.patch("/api/settings", { settings: { marketing: m, retention: ret } }); toast.success(t("נשמר", "Saved")); } catch (e) { toast.error((e as Error).message); }
   }
   return (<>
-    <Panel title={t("שמירה ומחיקת מידע", "Data retention and deletion")} className="mb-4">
+    {part === "retention" && <Panel title={t("שמירה ומחיקת מידע", "Data retention and deletion")} className="mb-4">
       <p className="text-xs text-muted mb-3">{t("מדיניות שמירה לעסק: תוכן הודעות וקבצים מצורפים ישנים נמחקים בעבודת רקע יומית (השיחות, הספירות ויומן הביקורת של המחיקה נשמרים). 0 = לשמור לתמיד. המחיקה אינה הפיכה.", "Business retention policy: old message content and attachments are deleted by a daily background job (conversations, counts and the deletion audit log are kept). 0 = keep forever. Deletion is irreversible.")}</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <Input label={t("מחיקת תוכן הודעות ומדיה אחרי (ימים)", "Delete message content and media after (days)")} type="number" value={String(ret.messagesDays)} onChange={(e) => setRet({ ...ret, messagesDays: Number(e.target.value) })} disabled={!isAdmin} />
         <Input label={t("מחיקת יומן ביקורת אחרי (ימים)", "Delete audit log after (days)")} type="number" value={String(ret.auditDays)} onChange={(e) => setRet({ ...ret, auditDays: Number(e.target.value) })} disabled={!isAdmin} />
       </div>
-    </Panel>
-    <Panel title={t("דיוור – חלון שליחה, קצב ותדירות (כל הערוצים)", "Marketing – sending window, rate and frequency (all channels)")}>
+          {isAdmin && <Button className="mt-3" onClick={save} data-testid="retention-save">{t("שמור", "Save")}</Button>}
+    </Panel>}
+    {part === "guards" && <Panel title={t("הגנות דיוור לעסק", "Business sending protection")}>
+      <p className="text-xs text-muted mb-2" data-testid="guards-note">{t("מועד, חלון וקצב של כל קמפיין נקבעים בשלב \"שליחה\" ביצירת הקמפיין. כאן: התקרה והגנת התדירות שנאכפות תמיד על כל הקמפיינים, וחלון ברירת המחדל שממנו מתחיל קמפיין חדש ושבו פועלות האוטומציות.", "Each campaign's time, window and pace are set in the \"Sending\" step when creating it. Here: the ceiling and frequency protection always enforced on every campaign, and the default window new campaigns start from and automations use.")}</p>
       <p className="text-xs text-muted mb-3">{t(`קמפיינים שיווקיים ורצפים בכל הערוצים נשלחים רק בתוך חלון השליחה (באזור הזמן של העסק${tz ? `: ${tz}` : ""}). מגבלת התדירות משותפת לכל הערוצים כולל WhatsApp.`, `Marketing campaigns and sequences on all channels are sent only within the sending window (in the business time zone${tz ? `: ${tz}` : ""}). The frequency cap is shared across all channels including WhatsApp.`)}</p>
       <div className="grid gap-3 sm:grid-cols-3">
         <Input label={t("תחילת חלון (HH:MM)", "Window start (HH:MM)")} value={m.window.start} onChange={(e) => setM({ ...m, window: { ...m.window, start: e.target.value } })} disabled={!isAdmin} ltr />
@@ -468,7 +474,7 @@ function MarketingTab({ isAdmin }: { isAdmin: boolean }) {
         <Input label={t("שעות מינימום בין הודעות שיווקיות לאותו נמען", "Minimum hours between marketing messages to the same recipient")} type="number" value={String(m.minHoursBetweenMarketing)} onChange={(e) => setM({ ...m, minHoursBetweenMarketing: Number(e.target.value) })} disabled={!isAdmin} hint={t("נאכף כיום ב-24 שעות בכל הערוצים; ערך גבוה יותר מחמיר את בדיקת הזכאות בסיכום הקמפיין", "Currently enforced at 24 hours on all channels; a higher value tightens the eligibility check in the campaign summary")} />
       </div>
       {isAdmin && <Button className="mt-3" onClick={save}>{t("שמור", "Save")}</Button>}
-    </Panel>
+    </Panel>}
   </>);
 }
 

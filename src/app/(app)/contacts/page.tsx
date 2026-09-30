@@ -12,6 +12,7 @@ import { OUTCOMES } from "@/lib/outcomes";
 import { useMe } from "@/lib/client/use-me";
 import { parseCsv } from "@/lib/contact-csv";
 import { SegmentsPanel } from "@/components/contacts/segments-panel";
+import { ContactsBulkBar } from "@/components/contacts/ContactsBulkBar";
 import { useT } from "@/components/i18n/LangProvider";
 
 interface Row {
@@ -56,6 +57,13 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState({ q: "", source: "", city: "", neverCalled: "", consent: "", tagId: "", hasOpenLead: "" });
   const [segmentId, setSegmentId] = useState<string | null>(null);
+  // Selection: picked rows (kept across pages) or "all filtered results" (resolved again on the server).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [allFiltered, setAllFiltered] = useState(false);
+  const [lists, setLists] = useState<Array<{ id: string; name: string; segment: unknown }>>([]);
+  useEffect(() => { api.get<{ lists: Array<{ id: string; name: string; segment: unknown }> }>("/api/distribution-lists").then((r) => setLists(r.lists)).catch(() => undefined); }, []);
+  // A new filter / list is a new result set – a previous "all filtered" choice never carries over.
+  useEffect(() => { setAllFiltered(false); setSelected(new Set()); }, [filter, segmentId]);
   const [tags, setTags] = useState<Array<{ id: string; name: string }>>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -174,10 +182,16 @@ export default function ContactsPage() {
       ) : rows.length === 0 ? (
         <EmptyState title={t("אין אנשי קשר", "No contacts")} hint={t("הוסף איש קשר, ייבא CSV, או קבל הודעת WhatsApp / שיחה נכנסת – כרטיס נוצר אוטומטית", "Add a contact, import a CSV, or receive a WhatsApp message / inbound call – a card is created automatically")} />
       ) : (
-        <div className="bg-panel border border-line rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+        <>
+        <ContactsBulkBar pageIds={rows.map((r) => r.id)} selected={selected} allFiltered={allFiltered} total={total}
+          filter={Object.fromEntries(Object.entries({ ...filter, segmentId: segmentId ?? "" }).filter(([, v]) => v))}
+          list={segmentId ? (() => { const l = lists.find((x) => x.id === segmentId); return l ? { id: l.id, name: l.name, dynamic: l.segment !== null } : null; })() : null}
+          isOwner={me?.user.role === "owner"} onSelectAll={() => setAllFiltered(true)} onClear={() => { setSelected(new Set()); setAllFiltered(false); }} onDone={load} />
+        <div className="bg-panel border border-line rounded-xl overflow-x-auto">
+          <table className="w-full min-w-[760px] text-sm" data-testid="contacts-table">
             <thead className="text-xs text-muted bg-white/3">
               <tr>
+                <th className="w-9 px-3"><input type="checkbox" aria-label={t("בחירת כל אנשי הקשר בעמוד", "Select all contacts on this page")} checked={allFiltered || (rows.length > 0 && rows.every((r) => selected.has(r.id)))} onChange={(e) => { setAllFiltered(false); setSelected((cur) => { const n = new Set(cur); for (const r of rows) { if (e.target.checked) n.add(r.id); else n.delete(r.id); } return n; }); }} data-testid="contacts-select-page" /></th>
                 <th className="text-start px-3 h-9 font-medium">{t("שם", "Name")}</th>
                 <th className="text-start px-3 font-medium">{t("טלפון", "Phone")}</th>
                 <th className="text-start px-3 font-medium">{t("תגיות", "Tags")}</th>
@@ -190,7 +204,8 @@ export default function ContactsPage() {
             </thead>
             <tbody className="divide-y divide-line">
               {rows.map((c) => (
-                <tr key={c.id} className="hover:bg-white/3">
+                <tr key={c.id} className={allFiltered || selected.has(c.id) ? "bg-accent/5" : "hover:bg-white/3"}>
+                  <td className="px-3"><input type="checkbox" aria-label={t(`בחירת ${c.fullName}`, `Select ${c.fullName}`)} checked={allFiltered || selected.has(c.id)} onChange={(e) => { if (allFiltered) { setAllFiltered(false); setSelected(new Set(rows.map((r) => r.id).filter((id) => id !== c.id))); return; } setSelected((cur) => { const n = new Set(cur); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; }); }} data-testid={`contact-select-${c.id}`} /></td>
                   <td className="px-3 h-11">
                     <Link href={`/contacts/${c.id}`} className="font-medium hover:underline">{c.fullName}</Link>
                     <span className="block text-[11px] text-muted truncate">{[c.company, c.city].filter(Boolean).join(" · ")}{c._count.leads ? t(` · ${c._count.leads} לידים פתוחים`, ` · ${c._count.leads} open leads`) : ""}</span>
@@ -224,6 +239,7 @@ export default function ContactsPage() {
             </div>
           </div>
         </div>
+        </>
       )}
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title={t("איש קשר חדש", "New contact")} footer={<><Button variant="ghost" onClick={() => setCreateOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={create} disabled={!form.fullName || !form.phone}>{t("צור", "Create")}</Button></>}>

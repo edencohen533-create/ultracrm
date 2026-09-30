@@ -40,7 +40,16 @@ export const PATCH = organizationRequest(async function(request: Request, { para
       const { retryRecipient } = await import("@/server/services/campaign-service");
       return Response.json(await retryRecipient(id, parsed.data.recipientId, Boolean(parsed.data.confirmNotSent), actorId ?? null));
     }
-    await changeCampaignStatus(id, parsed.data.action, parsed.data.scheduledAt, actorId, parsed.data.scheduledTimezone, parsed.data.throttle);
+    // A schedule entered in the business's local time → the exact instant (never the browser's time zone).
+    let scheduledAt = parsed.data.scheduledAt; let scheduledTimezone = parsed.data.scheduledTimezone;
+    if (parsed.data.scheduledLocal) {
+      const { getBusinessSettings } = await import("@/lib/settings"); const { zonedDateTime } = await import("@/lib/business-day"); const { requireBusinessId } = await import("@/lib/tenant");
+      const tz = (await getBusinessSettings(requireBusinessId())).timezone;
+      const at = zonedDateTime(tz, parsed.data.scheduledLocal.date, parsed.data.scheduledLocal.time);
+      if (!at) return Response.json({ error: "מועד התזמון לא תקין" }, { status: 400 });
+      scheduledAt = at.toISOString(); scheduledTimezone = tz;
+    }
+    await changeCampaignStatus(id, parsed.data.action, scheduledAt, actorId, scheduledTimezone, parsed.data.throttle, parsed.data.sendWindow);
     return Response.json({ ok: true });
   } catch (error) {
     if (error instanceof CampaignError) return Response.json({ error: error.message }, { status: 409 });

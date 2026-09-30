@@ -28,6 +28,10 @@ export const campaignSchema = z.object({
   /** Sending pace: at most batchSize recipients every intervalMinutes. */
   throttle: throttleSchema.nullable().optional(),
 });
+/** Days 0 (Sunday) … 6, hours HH:MM – the end after the start, at least one day. */
+export const sendWindowSchema = z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)).min(1).max(7), timezone: z.string().max(60).optional() })
+  .refine((w) => w.start < w.end, { message: "שעת הסיום חייבת להיות אחרי שעת ההתחלה" });
+
 export const campaignActionSchema = z.object({
   action: z.enum(["start", "pause", "resume", "cancel", "unschedule", "retry_recipient"]),
   scheduledAt: z.iso.datetime({ offset: true }).optional(),
@@ -38,5 +42,9 @@ export const campaignActionSchema = z.object({
   confirmNotSent: z.boolean().optional(),
   /** start: sending pace chosen at the review step (null = no pace). */
   throttle: throttleSchema.nullable().optional(),
+  /** start: this campaign's sending window (null = the business's default window). */
+  sendWindow: sendWindowSchema.nullable().optional(),
+  /** start: a schedule in the BUSINESS's local date + time (converted on the server with the business time zone). */
+  scheduledLocal: z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), time: z.string().regex(/^\d{2}:\d{2}$/) }).optional(),
 });
 export * from "./campaign-shared";

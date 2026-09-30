@@ -16,7 +16,7 @@ import { CampaignError, createCampaign, deleteDraftCampaign, sendCampaignTest } 
 import { sendChannelTest } from "./channel-send-service";
 
 export type DraftChannel = "whatsapp" | "sms" | "email";
-export const DRAFT_STEPS: Record<DraftChannel, string[]> = { email: ["info", "audience", "template", "content", "review"], whatsapp: ["info", "audience", "template", "content", "review"], sms: ["info", "audience", "content", "review"] };
+export const DRAFT_STEPS: Record<DraftChannel, string[]> = { email: ["info", "audience", "template", "content", "sending", "review"], whatsapp: ["info", "audience", "template", "content", "sending", "review"], sms: ["info", "audience", "content", "sending", "review"] };
 
 /** Everything the wizard may store. Partial on purpose: each step validates its own fields at build time. */
 export const draftDataSchema = z.object({
@@ -39,6 +39,11 @@ export const draftDataSchema = z.object({
   scheduledAt: z.string().nullable().optional(),
   throttle: z.object({ batchSize: z.number().int().min(1).max(100000), intervalMinutes: z.number().int().min(5).max(1440) }).nullable().optional(),
   testTo: z.string().max(200).optional(),
+  /** "sending" step: now / at a time (business-local date + time), the campaign's sending window. */
+  sendMode: z.enum(["now", "schedule"]).optional(),
+  scheduleDate: z.string().max(10).optional(),
+  scheduleTime: z.string().max(5).optional(),
+  sendWindow: z.object({ start: z.string().max(5), end: z.string().max(5), days: z.array(z.number().int().min(0).max(6)).max(7) }).nullable().optional(),
 }).passthrough();
 export type DraftData = z.infer<typeof draftDataSchema>;
 
@@ -160,6 +165,12 @@ export function draftChecks(d: ReturnType<typeof view>) {
     if (!data.body?.trim()) problems.push({ step: "content", message: "יש לכתוב את תוכן ההודעה" });
     else { const p = validateMergeTags(data.body); if (p.length) problems.push({ step: "content", message: p.join(" · ") }); const m = smsMetrics(data.body + "\nלהסרה השיבו הסר"); if (m.segments > SMS_MAX_SEGMENTS) problems.push({ step: "content", message: `ההודעה ארוכה מדי (${m.segments} מקטעים)` }); }
   }
+  // "sending": a schedule needs a future business-local date + time; a window needs a day and an end after its start.
+  if (data.sendMode === "schedule") {
+    // (A time in the past is refused when the campaign is started – changeCampaignStatus.)
+    if (!data.scheduleDate || !data.scheduleTime) problems.push({ step: "sending", message: "יש לבחור תאריך ושעה לשליחה המתוזמנת" });
+  }
+  if (data.sendWindow && (!data.sendWindow.days.length || data.sendWindow.start >= data.sendWindow.end)) problems.push({ step: "sending", message: "חלון השליחה לא תקין – יש לבחור לפחות יום אחד ושעת סיום אחרי שעת ההתחלה" });
   return problems;
 }
 

@@ -60,7 +60,7 @@ describe("campaign builder (simulated providers, real DB)", () => {
 
   it("email draft: autosave, lazy validation per step, template copy leaves the source untouched, build + preflight + test + send + report", async () => {
     const d0 = await run(a.session, () => createDraft("email", a.user.id));
-    expect(d0.steps).toEqual(["info", "audience", "template", "content", "review"]);
+    expect(d0.steps).toEqual(["info", "audience", "template", "content", "sending", "review"]);
     expect(draftChecks(d0).map((p) => p.step)).toEqual(expect.arrayContaining(["info", "audience"]));
     await run(a.session, () => updateDraft(d0.id, { name: "מבצע סתיו", step: "audience", data: { subject: "שלום {{first_name|לקוח}}", preheader: "רק השבוע", senderCredentialId: emailCred } }));
     await run(a.session, () => updateDraft(d0.id, { data: { listIds: [listA, listB], excludedListIds: [] } }));
@@ -108,7 +108,7 @@ describe("campaign builder (simulated providers, real DB)", () => {
 
   it("SMS draft has no template step; schedule → unschedule → back to draft; delete draft removes campaign + working template", async () => {
     const d = await run(a.session, () => createDraft("sms", a.user.id, "SMS בדיקה"));
-    expect(d.steps).toEqual(["info", "audience", "content", "review"]);
+    expect(d.steps).toEqual(["info", "audience", "content", "sending", "review"]);
     await run(a.session, () => updateDraft(d.id, { data: { senderCredentialId: smsCred, senderId: "+972501110000", listIds: [listA], body: "היי {{first_name|לקוח}}, מבצע!" } }));
     const { campaignId } = await run(a.session, () => buildDraft(d.id, a.user.id));
     await run(a.session, () => changeCampaignStatus(campaignId, "start", new Date(Date.now() + 86400_000).toISOString(), a.user.id, "Asia/Jerusalem"));

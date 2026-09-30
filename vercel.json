@@ -34,6 +34,10 @@
     {
       "path": "/api/jobs/marketing",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/jobs/crm-sync",
+      "schedule": "* * * * *"
     }
   ]
 }

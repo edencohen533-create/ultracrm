@@ -55,6 +55,9 @@ export async function dialEligibility(actor: DialActor | SessionUser, opts: { co
   if (held) throw new ApiError(`${held.lockedBy?.fullName ?? "נציג אחר"} עובד כרגע על איש קשר זה בחייגן`, 409, "contact_claimed");
 
   if (opts.auto) {
+    // 3b. An external CRM that owns assignment must be fresh – otherwise the ownership above can't be trusted.
+    const stale = await (await import("@/server/crm-sync/freshness")).externalFreshnessBlock(businessId, opts.contactId);
+    if (stale) throw new ApiError(stale, 409, "crm_stale");
     // 4. Follow-ups are never dialed automatically before their time (or without one).
     const open = await prisma.task.findMany({ where: { businessId, contactId: opts.contactId, status: "open", type: "callback" }, select: { dueAt: true } });
     if (open.some((t) => t.dueAt.getTime() > Date.now())) throw new ApiError("מועד הפולואפ עוד לא הגיע", 409, "follow_up_not_due");

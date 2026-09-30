@@ -323,7 +323,7 @@ const callDocumentation: EventHandler = {
 /** Outgoing webhooks (Make / Zapier …): queue one signed delivery per subscribed endpoint. */
 const webhooks: EventHandler = {
   name: "webhooks",
-  types: ["lead.created", "lead.status_changed", "deal.created", "deal.won", "deal.lost", "call.outcome_saved", "message.received", "contact.created", "contact.suppressed", "cart.abandoned", "task.created"],
+  types: ["lead.created", "lead.status_changed", "deal.created", "deal.won", "deal.lost", "call.outcome_saved", "call.summary_ready", "message.received", "contact.created", "contact.suppressed", "cart.abandoned", "task.created"],
   run: async (event) => { const { enqueueWebhookDeliveries } = await import("@/server/services/integrations"); return enqueueWebhookDeliveries(event); },
 };
 
@@ -339,4 +339,11 @@ const agentPresence: EventHandler = {
   },
 };
 
-export const HANDLERS: EventHandler[] = [agentPresence, coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, whatsappAvailability, dialerQueueEmpty, suppressed, taskCreated, sequences, webhooks];
+/** External CRM write-back: queue call activity / late AI summary / follow-up / status / block for linked records. */
+const crmWriteback: EventHandler = {
+  name: "crm.writeback",
+  types: ["call.outcome_saved", "call.summary_ready", "task.created", "contact.suppressed", "lead.status_changed"],
+  async run(event) { return (await import("@/server/crm-sync/outbox")).enqueueCrmWriteback(event); },
+};
+
+export const HANDLERS: EventHandler[] = [agentPresence, coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, whatsappAvailability, dialerQueueEmpty, suppressed, taskCreated, sequences, webhooks, crmWriteback];

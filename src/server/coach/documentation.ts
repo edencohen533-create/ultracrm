@@ -60,7 +60,7 @@ function parse(text: string): Omit<CallDocumentation, "source"> | null {
  * documentation. Without a model, the timed transcript IS the documentation (source "transcript", shown as such).
  */
 export async function documentCall(callId: string, opts: { retry?: boolean } = {}) {
-  const call = await prisma.call.findUnique({ where: { id: callId }, select: { id: true, businessId: true, answeredAt: true, talkSeconds: true, contact: { select: { fullName: true } }, user: { select: { fullName: true } } } });
+  const call = await prisma.call.findUnique({ where: { id: callId }, select: { id: true, businessId: true, contactId: true, answeredAt: true, talkSeconds: true, contact: { select: { fullName: true } }, user: { select: { fullName: true } } } });
   if (!call?.answeredAt) return { skipped: "not answered" };
   const settings = await getBusinessSettings(call.businessId);
   if (settings.coach.documentCalls === false) return { skipped: "documentation disabled" };
@@ -89,6 +89,10 @@ export async function documentCall(callId: string, opts: { retry?: boolean } = {
       doc = { ...parsed, source: "ai" };
     }
     await prisma.coachSession.update({ where: { id: session.id }, data: { documentation: doc as unknown as Prisma.InputJsonValue, documentedAt: new Date(), documentationStatus: "done", documentationError: null } });
+    // Outgoing webhooks / a connected external CRM update the call activity they already have (no second call).
+    const { emitEvent, kickEventProcessing } = await import("@/lib/events");
+    await emitEvent(prisma, { businessId: call.businessId, type: "call.summary_ready", contactId: call.contactId, source: "system", dedupeKey: `call.summary_ready:${call.id}:${Date.now()}`, payload: { callId: call.id, source: doc.source } }).catch(() => undefined);
+    kickEventProcessing(call.businessId);
     return { documented: doc.source, blocks: doc.timeline.length };
   } catch (e) {
     return fail(`שגיאה בתיעוד: ${(e as Error).message.slice(0, 200)}`);

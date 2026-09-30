@@ -68,7 +68,8 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const [suppressText, setSuppressText] = useState("");
   const search = useSearchParams();
   const focusLeadId = search.get("lead");
-  const [leadEdit, setLeadEdit] = useState<{ id: string; title: string; status: string; source: string; priority: number; ownerUserId: string; notes: string } | null>(null);
+  const [pickStatusId, setPickStatusId] = useState<string | undefined>(undefined);
+  const [leadEdit, setLeadEdit] = useState<{ id: string; title: string; status: string; statusDefId: string | null; source: string; priority: number; ownerUserId: string; notes: string } | null>(null);
   const [leadMeta, setLeadMeta] = useState<{ attempts: number; attemptLimit: number | null; closeReason: string | null; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null } | null>(null);
   const [leadModal, setLeadModal] = useState<"followup" | "attempts" | "deal" | null>(null);
   const [showChat, setShowChat] = useState(search.get("tab") === "chat");
@@ -82,9 +83,9 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
       setNow(Date.now());
       const focus = (focusLeadId && r.leads.find((l) => l.id === focusLeadId)) || r.leads.find((l) => ["new", "contacted", "qualified", "follow_up"].includes(l.status)) || null;
       if (focus) {
-        const full = await api.get<{ id: string; title: string | null; status: string; source: string | null; priority: number; notes: string | null; owner: { id: string } | null; attempts: number; attemptLimit?: number | null; closeReason?: string | null; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null }>(`/api/leads/${focus.id}`);
+        const full = await api.get<{ id: string; title: string | null; status: string; statusDefId?: string | null; source: string | null; priority: number; notes: string | null; owner: { id: string } | null; attempts: number; attemptLimit?: number | null; closeReason?: string | null; lastAttemptAt: string | null; timezone: string; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null } | null }>(`/api/leads/${focus.id}`);
         setLeadMeta({ attempts: full.attempts, attemptLimit: full.attemptLimit ?? null, closeReason: full.closeReason ?? null, lastAttemptAt: full.lastAttemptAt, timezone: full.timezone, followUp: full.followUp, needsSchedule: full.needsSchedule, pendingTransfer: full.pendingTransfer });
-        setLeadEdit({ id: full.id, title: full.title ?? "", status: full.status, source: full.source ?? "", priority: full.priority, ownerUserId: full.owner?.id ?? "", notes: full.notes ?? "" });
+        setLeadEdit({ id: full.id, title: full.title ?? "", status: full.status, statusDefId: full.statusDefId ?? null, source: full.source ?? "", priority: full.priority, ownerUserId: full.owner?.id ?? "", notes: full.notes ?? "" });
       } else setLeadEdit(null);
     } catch (e) {
       setC(null);
@@ -151,7 +152,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   }
   async function saveLead() {
     if (!leadEdit) return;
-    try { await api.patch(`/api/leads/${leadEdit.id}`, { title: leadEdit.title, status: leadEdit.status, source: leadEdit.source, priority: leadEdit.priority, notes: leadEdit.notes, ownerUserId: leadEdit.ownerUserId || null }); toast.success(t("הליד נשמר", "Lead saved")); load(); } catch (e) { toast.error((e as Error).message); }
+    try { await api.patch(`/api/leads/${leadEdit.id}`, { title: leadEdit.title, statusId: statuses.forLead(leadEdit)?.id, source: leadEdit.source, priority: leadEdit.priority, notes: leadEdit.notes, ownerUserId: leadEdit.ownerUserId || null }); toast.success(t("הליד נשמר", "Lead saved")); load(); } catch (e) { toast.error((e as Error).message); }
   }
 
   if (loadError) return <div className="p-5 space-y-3" role="alert"><p>{loadError}</p><Button onClick={load}>{t("נסה שוב", "Try again")}</Button><Link href="/contacts" className="ms-3 underline">{t("חזרה לאנשי קשר", "Back to contacts")}</Link></div>;
@@ -248,7 +249,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
 
         <div className="lg:col-span-2 space-y-4">
           {leadEdit && (
-            <Panel title={t("הליד", "Lead")} actions={<div className="flex items-center gap-2"><Badge tone={leadEdit.status === "new" ? "info" : leadEdit.status === "qualified" ? "good" : ["lost", "unqualified"].includes(leadEdit.status) ? "bad" : "neutral"}>{statuses.label(leadEdit.status)}</Badge><Button size="sm" onClick={saveLead} data-testid="lead-save">{t("שמור", "Save")}</Button></div>}>
+            <Panel title={t("הליד", "Lead")} actions={<div className="flex items-center gap-2"><Badge tone={leadEdit.status === "new" ? "info" : leadEdit.status === "qualified" ? "good" : ["lost", "unqualified"].includes(leadEdit.status) ? "bad" : "neutral"}>{statuses.forLead(leadEdit)?.label ?? leadEdit.status}</Badge><Button size="sm" onClick={saveLead} data-testid="lead-save">{t("שמור", "Save")}</Button></div>}>
               <div className="grid md:grid-cols-3 gap-2">
                 {leadMeta?.closeReason && <div role="status" className="md:col-span-3 lead-transfer-note" data-testid="lead-close-reason">{t("נסגר אוטומטית:", "Closed automatically:")} {leadMeta.closeReason}</div>}
                 {leadMeta && <div className="md:col-span-3 lead-dial-summary" data-testid="lead-dial-summary">
@@ -257,11 +258,11 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
                   <div><span>{t("ניסיון אחרון", "Last attempt")}</span><b dir="ltr">{leadMeta.lastAttemptAt ? fmtBiz(leadMeta.timezone, leadMeta.lastAttemptAt, loc) : "—"}</b></div>
                   <div><span>{t("פולואפ", "Follow-up")}</span><FollowUpBadge followUp={leadMeta.followUp} needsSchedule={leadMeta.needsSchedule} tz={leadMeta.timezone} onClick={() => setLeadModal("followup")} /><button className="lead-link" onClick={() => setLeadModal("followup")}>{leadMeta.followUp ? t("ערוך", "Edit") : t("קבע פולואפ", "Set follow-up")}</button></div>
                 </div>}
-                {leadModal === "followup" && <FollowUpModal leadId={leadEdit.id} name={c.fullName} tz={leadMeta?.timezone} current={leadMeta?.followUp} onClose={() => setLeadModal(null)} onSaved={() => load()} />}
-                {leadModal === "deal" && <DealCloseModal contactId={c.id} leadId={leadEdit.id} name={c.fullName} onClose={() => setLeadModal(null)} onDone={() => load()} />}
+                {leadModal === "followup" && <FollowUpModal leadId={leadEdit.id} name={c.fullName} tz={leadMeta?.timezone} current={leadMeta?.followUp} statusId={pickStatusId} onClose={() => { setLeadModal(null); setPickStatusId(undefined); }} onSaved={() => load()} />}
+                {leadModal === "deal" && <DealCloseModal contactId={c.id} leadId={leadEdit.id} name={c.fullName} onClose={() => { setLeadModal(null); setPickStatusId(undefined); }} onDone={() => { const custom = pickStatusId; setPickStatusId(undefined); void (custom ? api.patch(`/api/leads/${leadEdit.id}`, { statusId: custom }).catch(() => undefined) : Promise.resolve()).then(() => load()); }} />}
                 {leadModal === "attempts" && <AttemptsModal leadId={leadEdit.id} name={c.fullName} tz={leadMeta?.timezone} onClose={() => setLeadModal(null)} />}
                 <Input label={t("כותרת", "Title")} value={leadEdit.title} onChange={(e) => setLeadEdit({ ...leadEdit, title: e.target.value })} />
-                <Select label={t("סטטוס", "Status")} value={leadEdit.status} onChange={(e) => { if (e.target.value === "follow_up" && leadEdit.status !== "follow_up") setLeadModal("followup"); else if (e.target.value === "converted" && leadEdit.status !== "converted") setLeadModal("deal"); else setLeadEdit({ ...leadEdit, status: e.target.value }); }} data-testid="lead-status">{statuses.items.filter((st) => !st.hidden || st.key === leadEdit.status).map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</Select>
+                <Select label={t("סטטוס", "Status")} value={statuses.forLead(leadEdit)?.id ?? ""} onChange={(e) => { const def = statuses.items.find((st) => st.id === e.target.value); if (!def) return; if (def.kind === "follow_up" && leadEdit.status !== "follow_up") { setPickStatusId(def.id); setLeadModal("followup"); } else if (def.kind === "converted" && leadEdit.status !== "converted") { setPickStatusId(def.isSystem ? undefined : def.id); setLeadModal("deal"); } else setLeadEdit({ ...leadEdit, status: def.kind, statusDefId: def.isSystem ? null : def.id }); }} data-testid="lead-status">{statuses.optionsFor(leadEdit).map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}</Select>
                 <Input label={t("מקור", "Source")} value={leadEdit.source} onChange={(e) => setLeadEdit({ ...leadEdit, source: e.target.value })} />
                 <Input label={t("עדיפות (0–100)", "Priority (0–100)")} type="number" value={String(leadEdit.priority)} onChange={(e) => setLeadEdit({ ...leadEdit, priority: Number(e.target.value) })} />
                 {isManager ? <Select label={t("נציג אחראי", "Owner")} value={leadEdit.ownerUserId} onChange={(e) => setLeadEdit({ ...leadEdit, ownerUserId: e.target.value })}><option value="">{t("ללא", "None")}</option>{users.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select> : <Input label={t("נציג אחראי", "Owner")} value={users.find((u) => u.id === leadEdit.ownerUserId)?.fullName ?? t("ללא", "None")} disabled />}

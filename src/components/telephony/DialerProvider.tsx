@@ -86,9 +86,10 @@ interface Ctx {
   dial: (input: DialInput) => Promise<CallDto | null>;
   hangup: () => Promise<void>;
   sendDtmf: (digit: string) => Promise<void>;
-  saveOutcome: (callId: string, outcome: OutcomeKey, opts?: { note?: string; callbackAt?: Date; callbackUserId?: string; contactUpdates?: Record<string, string | undefined> }) => Promise<void>;
+  saveOutcome: (callId: string, outcome: OutcomeKey | null, opts?: { note?: string; callbackAt?: Date; callbackUserId?: string; contactUpdates?: Record<string, string | undefined>; statusId?: string; followUp?: { date: string; time: string } }) => Promise<void>;
   /** After a hang-up: save the outcome and dial the next lead of the session right away (no wrap-up screen, no countdown). */
-  continueToNext: (callId: string, outcome: OutcomeKey, opts?: { note?: string }) => Promise<void>;
+  /** `outcome` = technical result; or `opts.statusId` = the CRM status (+ `followUp` for a follow-up status). */
+  continueToNext: (callId: string, outcome: OutcomeKey | null, opts?: { note?: string; statusId?: string; followUp?: { date: string; time: string }; callbackUserId?: string }) => Promise<void>;
   countdown: { secondsLeft: number; leadId: string | null } | null;
   cancelCountdown: () => void;
   lastError: { code: string; message: string } | null;
@@ -817,7 +818,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     async (callId, outcome, opts) => {
       setBusy("outcome");
       try {
-        await api.post(`/api/dialer/call/${callId}/outcome`, { outcome, note: opts?.note, callbackAt: opts?.callbackAt?.toISOString(), callbackUserId: opts?.callbackUserId, contactUpdates: opts?.contactUpdates });
+        await api.post(`/api/dialer/call/${callId}/outcome`, { outcome: outcome ?? undefined, statusId: opts?.statusId, followUp: opts?.followUp, note: opts?.note, callbackAt: opts?.callbackAt?.toISOString(), callbackUserId: opts?.callbackUserId, contactUpdates: opts?.contactUpdates });
         await refresh();
         const s = stateRef.current;
         if (s?.session?.mode === "power" && s.session.status === "active" && !s.activeCall) {
@@ -839,7 +840,7 @@ export function DialerProvider({ children, enabled = true }: { children: ReactNo
     async (callId, outcome, opts) => {
       setBusy("outcome");
       try {
-        await api.post(`/api/dialer/call/${callId}/outcome`, { outcome, note: opts?.note });
+        await api.post(`/api/dialer/call/${callId}/outcome`, { outcome: outcome ?? undefined, statusId: opts?.statusId, followUp: opts?.followUp, callbackUserId: opts?.callbackUserId, note: opts?.note });
       } catch (err) { handleErr(err, t("שגיאה בשמירת תוצאה", "Error saving outcome")); setBusy(null); throw err; }
       setBusy(null);
       await refresh();

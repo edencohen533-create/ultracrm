@@ -34,7 +34,7 @@ function createClient() {
 const TENANT_MODELS = new Set<string>([
   // Telephony routing / backup provider (always accessed with an explicit businessId as well).
   "TelephonyRouting", "TelephonyProviderHealth", "TelephonySwitchLog", "CallAttempt", "TelephonyProviderCredential", "TelephonyAgentEndpoint",
-  "User", "Team", "UsageCounter", "Contact", "ContactPhone", "ContactEmail", "Tag", "Lead", "Deal", "Task", "Note",
+  "User", "Team", "UsageCounter", "Contact", "ContactPhone", "ContactEmail", "Tag", "Lead", "LeadStatusDef", "Deal", "Task", "Note",
   "Suppression", "DncEntry", "DomainEvent", "AutomationJob", "AuditLog",
   "DialList", "ListLead", "DialerSession", "Call", "CallMonitor", "PhoneNumber", "Script", "NoteDraft",
   "ProviderCredential", "Conversation", "Message", "ConversationDraft", "CannedReply", "Template",

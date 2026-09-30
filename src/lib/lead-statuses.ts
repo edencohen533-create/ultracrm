@@ -19,6 +19,19 @@ export function mergeLeadStatuses(raw: unknown): LeadStatusConfig[] {
   return out;
 }
 
+/** A business status as the API returns it (src/lib/crm/statuses.ts): stable id + meaning (`kind`). */
+export interface LeadStatusItem { id: string; kind: LeadStatusKey; label: string; sortOrder: number; isSystem: boolean; active: boolean }
+/** What each meaning does – shown when adding a status and in the wrap-up. */
+export const STATUS_KIND_HELP: Record<LeadStatusKey, { he: string; en: string; title: string; titleEn: string }> = {
+  new: { title: "חדש", titleEn: "New", he: "ליד שעוד לא טופל. לא מוצע בסיום שיחה.", en: "A lead not handled yet. Not offered at wrap-up." },
+  contacted: { title: "נוצר קשר", titleEn: "Contacted", he: "היה קשר, הליד נשאר פתוח.", en: "There was contact; the lead stays open." },
+  follow_up: { title: "פולואפ", titleEn: "Follow-up", he: "מחייב תאריך ושעה. נכנס לחייגן של הנציג המטפל כשהזמן מגיע.", en: "Requires a date and time. Enters the handling agent's dialer when it's due." },
+  qualified: { title: "מתאים / מעוניין", titleEn: "Qualified / interested", he: "הליד פתוח ומתאים להמשך מכירה.", en: "The lead is open and fit to continue selling." },
+  unqualified: { title: "לא רלוונטי", titleEn: "Not relevant", he: "סוגר את הליד ומוציא אותו מתורי החיוג.", en: "Closes the lead and takes it out of the dial queues." },
+  converted: { title: "מכירה", titleEn: "Sale", he: "סוגר את הליד ופותח עסקה שנסגרה (זכייה).", en: "Closes the lead and opens a won deal." },
+  lost: { title: "אבוד", titleEn: "Lost", he: "סוגר את הליד בלי מכירה.", en: "Closes the lead without a sale." },
+};
+
 /** How new leads without an owner are handed to agents. */
 export interface LeadAssignmentSettings {
   mode: "least_loaded" | "round_robin";

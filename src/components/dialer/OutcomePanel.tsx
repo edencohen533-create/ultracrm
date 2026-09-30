@@ -1,101 +1,83 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Input, Kbd, cx } from "@/components/ui";
-import { OUTCOMES } from "@/lib/outcomes";
-import { TELEPHONY_RESULT_LABEL, formatDuration, toLocalInputValue } from "@/lib/client/format";
+import { Badge, Button, Kbd, cx } from "@/components/ui";
+import { TELEPHONY_RESULT_LABEL, formatDuration } from "@/lib/client/format";
 import type { CallDto, OutcomeKey } from "@/lib/client/types";
-import { api } from "@/lib/client/api";
 import { useHotkeys } from "./useHotkeys";
 import { useT } from "@/components/i18n/LangProvider";
+import { FollowUpFields, pickReady, useWrapUpStatuses, type WrapUpPick } from "./WrapUpStatus";
 
-const toneCls: Record<string, string> = {
-  good: "border-good/40 hover:bg-good/15 data-[sel=true]:bg-good data-[sel=true]:text-white",
-  neutral: "border-line hover:bg-white/10 data-[sel=true]:bg-accent data-[sel=true]:text-white",
-  bad: "border-line hover:bg-white/10 data-[sel=true]:bg-warn data-[sel=true]:text-black",
-  danger: "border-bad/40 hover:bg-bad/15 data-[sel=true]:bg-bad data-[sel=true]:text-white",
+const KIND_TONE: Record<string, string> = {
+  converted: "border-good/40 hover:bg-good/15 data-[sel=true]:bg-good data-[sel=true]:text-white",
+  qualified: "border-good/40 hover:bg-good/15 data-[sel=true]:bg-good data-[sel=true]:text-white",
+  unqualified: "border-line hover:bg-white/10 data-[sel=true]:bg-warn data-[sel=true]:text-black",
+  lost: "border-line hover:bg-white/10 data-[sel=true]:bg-warn data-[sel=true]:text-black",
 };
+const DEFAULT_TONE = "border-line hover:bg-white/10 data-[sel=true]:bg-accent data-[sel=true]:text-white";
+/** Technical telephony results – not CRM statuses. */
+const TECHNICAL: Array<{ key: OutcomeKey; he: string; en: string }> = [
+  { key: "no_answer", he: "אין מענה", en: "No answer" }, { key: "busy", he: "תפוס", en: "Busy" }, { key: "wrong_number", he: "מספר שגוי", en: "Wrong number" },
+];
 
-export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; note: string; onSave: (outcome: OutcomeKey, callbackAt?: Date, callbackUserId?: string) => Promise<void>; saving: boolean }) {
+/**
+ * Full wrap-up. Two separate choices:
+ *  • the CRM status (the business's own statuses – renamed / added / deleted in the CRM show here at once); the
+ *    status's MEANING decides what happens (follow-up asks for a date + time, sale opens the deal form…);
+ *  • or a technical telephony result (no answer / busy / wrong number) and, apart, "do not contact" (blocks the number).
+ */
+export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; note: string; onSave: (p: WrapUpPick) => Promise<void>; saving: boolean }) {
   const t = useT();
-  const [selected, setSelected] = useState<OutcomeKey | null>(null);
-  const [callbackAt, setCallbackAt] = useState("");
-  const [callbackUserId, setCallbackUserId] = useState("");
-  const [peers, setPeers] = useState<{ id: string; fullName: string }[]>([]);
-  useEffect(() => {
-    let active = true;
-    api.get<{ peers: { id: string; fullName: string }[]; allowed: boolean }>("/api/crm-settings/follow-ups?peers=1").then(r => { if (active) setPeers(r.allowed ? r.peers : []); }).catch(() => {});
-    return () => { active = false; };
-  }, [call.id]);
+  const { wrapUp: statuses } = useWrapUpStatuses(call.id);
   const answered = Boolean(call.answeredAt);
-  const [minLocal] = useState(() => toLocalInputValue(new Date()));
+  const [pick, setPick] = useState<WrapUpPick | null>(null);
 
   // Sensible default from the provider's result – the agent can still change it.
-  useEffect(() => {
-    setSelected(call.telephonyResult === "busy" ? "busy" : call.telephonyResult === "no_answer" ? "no_answer" : null);
-    setCallbackAt("");
-    setCallbackUserId("");
-  }, [call.id, call.telephonyResult]);
+  useEffect(() => { setPick(call.telephonyResult === "busy" ? { outcome: "busy" } : call.telephonyResult === "no_answer" ? { outcome: "no_answer" } : null); }, [call.id, call.telephonyResult]);
 
-  const def = useMemo(() => OUTCOMES.find((o) => o.key === selected) ?? null, [selected]);
-  const canSave = Boolean(def) && (!def?.requiresCallbackTime || Boolean(callbackAt)) && !saving;
-
+  const canSave = pickReady(pick) && !saving;
+  const selStatus = (id: string, kind: string) => setPick({ statusId: id, kind });
   const hotkeys = useMemo(() => {
     const m: Record<string, () => void> = {};
-    for (const o of OUTCOMES) m[o.hotkey] = () => setSelected(o.key);
-    m.Enter = () => { if (canSave && def) onSave(def.key, callbackAt ? new Date(callbackAt) : undefined, callbackUserId || undefined); };
+    statuses.slice(0, 9).forEach((s, i) => { m[String(i + 1)] = () => selStatus(s.id, s.kind); });
+    m.Enter = () => { if (canSave && pick) void onSave(pick); };
     return m;
-  }, [canSave, def, onSave, callbackAt, callbackUserId]);
+  }, [statuses, canSave, pick, onSave]);
   useHotkeys(hotkeys);
-
-  const quickCallback = (hours: number) => {
-    const d = new Date();
-    d.setHours(d.getHours() + hours);
-    d.setSeconds(0, 0);
-    setCallbackAt(toLocalInputValue(d));
-  };
+  const chosen = statuses.find((s) => s.id === pick?.statusId);
 
   return (
-    <div className="p-4 border-t border-line bg-panel-2/60">
-      <div className="flex items-center justify-between mb-3">
+    <div className="p-4 border-t border-line bg-panel-2/60" data-testid="outcome-panel">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-2">
-          <h3 className="font-semibold">{t("תוצאת שיחה", "Call outcome")}</h3>
-          <Badge tone={answered ? "good" : "neutral"}>{t("ספק:", "Provider:")} {call.telephonyResult ? TELEPHONY_RESULT_LABEL[call.telephonyResult] : "—"}</Badge>
+          <h3 className="font-semibold">{t("סיום שיחה", "Call wrap-up")}</h3>
+          <Badge tone={answered ? "good" : "neutral"}>{t("טלפוניה:", "Telephony:")} {call.telephonyResult ? TELEPHONY_RESULT_LABEL[call.telephonyResult] : "—"}</Badge>
           {answered && <span className="text-xs text-muted tabular">{t("משך", "Duration")} {formatDuration(call.talkSeconds)}</span>}
         </div>
-        <span className="text-[11px] text-muted">{t("מקשים 1–8 לבחירה · Enter לשמירה", "Keys 1–8 to select · Enter to save")}</span>
+        <span className="text-[11px] text-muted">{t(`מקשים 1–${Math.min(9, statuses.length)} לבחירת סטטוס · Enter לשמירה`, `Keys 1–${Math.min(9, statuses.length)} pick a status · Enter saves`)}</span>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {OUTCOMES.map((o) => (
-          <button
-            key={o.key}
-            data-sel={selected === o.key}
-            onClick={() => setSelected(o.key)}
-            className={cx("h-11 rounded-lg border text-sm font-medium transition-colors flex items-center justify-between px-3", toneCls[o.tone])}
-          >
-            <span>{o.label}</span>
-            <Kbd>{o.hotkey}</Kbd>
+
+      <p className="mb-1 text-xs font-medium text-muted">{t("סטטוס בטיפול (CRM)", "Handling status (CRM)")}</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="outcome-statuses">
+        {statuses.map((s, i) => (
+          <button key={s.id} type="button" data-sel={pick?.statusId === s.id} data-kind={s.kind} onClick={() => selStatus(s.id, s.kind)} className={cx("h-11 rounded-lg border text-sm font-medium transition-colors flex items-center justify-between px-3", KIND_TONE[s.kind] ?? DEFAULT_TONE)} data-testid={`outcome-status-${s.id}`}>
+            <span className="truncate">{s.label}</span>{i < 9 && <Kbd>{i + 1}</Kbd>}
           </button>
         ))}
       </div>
-      {def?.requiresCallbackTime && (
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          {peers.length > 0 && <label>{t("נציג לחזרה", "Callback agent")}<select aria-label={t("נציג לחזרה", "Callback agent")} value={callbackUserId} onChange={e => setCallbackUserId(e.target.value)} className="border border-line rounded-lg p-2"><option value="">{t("אני", "Me")}</option>{peers.map(p => <option key={p.id} value={p.id}>{p.fullName}</option>)}</select></label>}
-          <Input label={t("מועד חזרה", "Callback time")} type="datetime-local" value={callbackAt} onChange={(e) => setCallbackAt(e.target.value)} min={minLocal} className="h-9" ltr />
-          {[1, 3, 24, 72].map((h) => (
-            <Button key={h} size="sm" variant="secondary" onClick={() => quickCallback(h)}>
-              {h < 24 ? t(`בעוד ${h} שע׳`, `In ${h}h`) : t(`בעוד ${h / 24} ימים`, `In ${h / 24} days`)}
-            </Button>
-          ))}
-        </div>
-      )}
-      {def?.addsToDnc && <p className="mt-2 text-xs text-bad">{t("המספר ייחסם לכל הרשימות של העסק ולא יחויג שוב.", "The number will be blocked across all of the business's lists and won't be dialed again.")}</p>}
-      {!note.trim() && def && (def.key === "answered_interested" || def.key === "sale") && <p className="mt-2 text-xs text-warn">{t("מומלץ להוסיף הערה לפני השמירה.", "Adding a note before saving is recommended.")}</p>}
+      {pick?.kind === "follow_up" && <FollowUpFields value={pick} onChange={setPick} callId={call.id} />}
+      {chosen?.kind === "converted" && <p className="mt-2 text-xs text-muted">{t("אחרי השמירה ייפתח טופס העסקה.", "The deal form opens after saving.")}</p>}
+
+      <p className="mb-1 mt-3 text-xs font-medium text-muted">{t("או תוצאת טלפוניה (בלי שינוי סטטוס)", "Or a telephony result (no status change)")}</p>
+      <div className="flex flex-wrap gap-2" data-testid="outcome-technical">
+        {TECHNICAL.map((o) => <button key={o.key} type="button" data-sel={pick?.outcome === o.key} onClick={() => setPick({ outcome: o.key })} className={cx("h-9 rounded-lg border px-3 text-sm", DEFAULT_TONE)} data-testid={`outcome-tech-${o.key}`}>{t(o.he, o.en)}</button>)}
+        <button type="button" data-sel={pick?.outcome === "dnc"} onClick={() => setPick({ outcome: "dnc" })} className="h-9 rounded-lg border border-bad/40 px-3 text-sm hover:bg-bad/15 data-[sel=true]:bg-bad data-[sel=true]:text-white" data-testid="outcome-tech-dnc">{t("לא ליצור קשר", "Do not contact")}</button>
+      </div>
+      {pick?.outcome === "dnc" && <p className="mt-2 text-xs text-bad">{t("המספר ייחסם לכל הרשימות של העסק ולא יחויג שוב.", "The number will be blocked across all of the business's lists and won't be dialed again.")}</p>}
+      {!note.trim() && (chosen?.kind === "qualified" || chosen?.kind === "converted") && <p className="mt-2 text-xs text-warn">{t("מומלץ להוסיף הערה לפני השמירה.", "Adding a note before saving is recommended.")}</p>}
       <div className="mt-3 flex items-center justify-between">
         <span className="text-xs text-muted">{t("ההערות מהכרטיס יישמרו יחד עם התוצאה", "Notes from the card will be saved with the outcome")}</span>
-        <Button size="lg" disabled={!canSave} loading={saving} onClick={() => def && onSave(def.key, callbackAt ? new Date(callbackAt) : undefined, callbackUserId || undefined)}>
-          {t("שמור תוצאה והמשך", "Save outcome and continue")}
-        </Button>
+        <Button size="lg" disabled={!canSave} loading={saving} onClick={() => pick && void onSave(pick)} data-testid="outcome-save">{t("שמור והמשך", "Save and continue")}</Button>
       </div>
     </div>
   );

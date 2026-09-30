@@ -114,6 +114,8 @@ export async function ownsContactHistory(user: SessionUser, contact: { id: strin
 export const followUpSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   time: z.string().regex(/^\d{2}:\d{2}$/),
+  /** A follow-up status of the business (its meaning must be follow-up); default = the system "פולואפ". */
+  statusId: z.string().min(1).optional(),
   note: z.string().trim().max(1000).optional(),
 });
 
@@ -165,7 +167,7 @@ export async function syncFollowUpQueue(db: Db, businessId: string, filter: { co
   return first.size;
 }
 
-async function assertFollowUpTime(businessId: string, date: string, time: string) {
+export async function assertFollowUpTime(businessId: string, date: string, time: string) {
   const settings = await getBusinessSettings(businessId);
   const tz = settings.timezone;
   const dueAt = zonedDateTime(tz, date, time);
@@ -185,14 +187,17 @@ export async function scheduleFollowUp(user: SessionUser, leadId: string, input:
   if (CLOSED.includes(lead.status)) throw new ApiError("לא ניתן לקבוע פולואפ לליד סגור", 409, "lead_closed");
   if (lead.pendingTransferToUserId) throw new ApiError("הליד ממתין להעברה לנציג אחר – קבע את הפולואפ אחרי ההעברה", 409, "transfer_pending");
   const { dueAt } = await assertFollowUpTime(user.businessId, input.date, input.time);
+  const { resolveStatus } = await import("./statuses");
+  const chosen = await resolveStatus(user.businessId, input.statusId ? { statusId: input.statusId } : { kind: "follow_up" }, prisma, { allowInactive: input.statusId === lead.statusDefId });
+  if (chosen.status !== "follow_up") throw new ApiError("הסטטוס שנבחר אינו מסוג פולואפ", 400, "not_follow_up_status");
   const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${"lead-followup:" + lead.id}, 0))`);
     const previous = await tx.task.findMany({ where: { businessId: user.businessId, status: "open", type: "callback", OR: [{ leadId: lead.id }, { contactId: lead.contactId, leadId: null }] }, select: { id: true, dueAt: true } });
     if (previous.length) await tx.task.updateMany({ where: { id: { in: previous.map((p) => p.id) } }, data: { status: "cancelled", note: undefined } });
     const task = await tx.task.create({ data: { businessId: user.businessId, userId: lead.ownerUserId ?? user.id, createdById: user.id, contactId: lead.contactId, leadId: lead.id, type: "callback", title: "פולואפ", dueAt, note: input.note || null } });
-    if (lead.status !== "follow_up") {
-      await tx.lead.update({ where: { id: lead.id }, data: { status: "follow_up", closedAt: null } });
-      await emitEvent(tx, { businessId: user.businessId, type: "lead.status_changed", contactId: lead.contactId, actorUserId: user.id, source: "user", dedupeKey: `lead.status_changed:${lead.id}:follow_up:${Date.now()}`, payload: { leadId: lead.id, from: lead.status, to: "follow_up" } });
+    if (lead.status !== "follow_up" || lead.statusDefId !== chosen.statusDefId) {
+      await tx.lead.update({ where: { id: lead.id }, data: { status: "follow_up", statusDefId: chosen.statusDefId, closedAt: null } });
+      await emitEvent(tx, { businessId: user.businessId, type: "lead.status_changed", contactId: lead.contactId, actorUserId: user.id, source: "user", dedupeKey: `lead.status_changed:${lead.id}:${chosen.statusDefId ?? "follow_up"}:${Date.now()}`, payload: { leadId: lead.id, from: lead.status, to: "follow_up", fromStatusId: lead.statusDefId, toStatusId: chosen.statusDefId } });
     }
     // Moving the time: queue rows were pointing at the old time – reset them before re-syncing to the new one.
     if (previous.length) await tx.listLead.updateMany({ where: { businessId: user.businessId, contactId: lead.contactId, status: "callback" }, data: { nextAttemptAt: dueAt } });

@@ -21,7 +21,9 @@ import { afterCallFinalized, dialLeadLeg, processProviderEvent } from "@/lib/tel
 import { getBusinessSettings, isWithinDialWindow } from "@/lib/settings";
 import { OUTCOME_BY_KEY } from "@/lib/outcomes";
 import { applyOutcomeToLead, assertListAccess, assertLeadLock, isDnc, listDialWindow, releaseLead } from "@/lib/dialer/queue";
-import { afterFollowUpAttempt, applyPendingTransfers, assertDialAllowed } from "@/lib/crm/lead-ops";
+import { afterFollowUpAttempt, applyPendingTransfers, assertDialAllowed, syncFollowUpQueue } from "@/lib/crm/lead-ops";
+import { resolveStatus } from "@/lib/crm/statuses";
+import { OPEN_LEAD_STATUSES } from "@/lib/crm/labels";
 import { audit } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { emitEvent, kickEventProcessing } from "@/lib/events";
@@ -447,7 +449,12 @@ export async function sendDtmf(user: SessionUser, callId: string, digits: string
 
 export interface SaveOutcomeInput {
   callId: string;
-  outcome: OutcomeKey;
+  /** Technical / queue outcome. With `statusId` it is derived from the status's meaning. */
+  outcome?: OutcomeKey;
+  /** The CRM status the agent chose (business handling) – the one source of truth with the CRM. */
+  statusId?: string;
+  /** Follow-up time as the business's local date + time (validated like in the CRM: future, inside dialing hours). */
+  followUp?: { date: string; time: string };
   note?: string;
   callbackAt?: Date;
   callbackUserId?: string;
@@ -463,8 +470,21 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
   if (!call.endedAt) throw new ApiError("השיחה עדיין פעילה – נתק לפני שמירת תוצאה", 409, "call_still_active");
   if (call.outcomeSavedAt) return call;
 
+  // A CRM status → its meaning decides what happens (never its name); the telephony result stays apart.
+  let chosen: Awaited<ReturnType<typeof resolveStatus>> | null = null;
+  if (input.statusId) {
+    chosen = await resolveStatus(user.businessId, { statusId: input.statusId });
+    const mapped = OUTCOME_FOR_KIND[chosen.status];
+    if (!mapped) throw new ApiError("לא ניתן לבחור את הסטטוס הזה בסיום שיחה", 400, "status_not_for_wrap_up");
+    input = { ...input, outcome: mapped };
+  }
+  if (!input.outcome) throw new ApiError("יש לבחור סטטוס או תוצאת טלפוניה", 400, "outcome_required");
   const def = OUTCOME_BY_KEY[input.outcome];
   if (!def) throw new ApiError("תוצאה לא חוקית", 400, "invalid_outcome");
+  if (def.requiresCallbackTime && input.followUp) {
+    const { assertFollowUpTime } = await import("@/lib/crm/lead-ops");
+    input = { ...input, callbackAt: (await assertFollowUpTime(user.businessId, input.followUp.date, input.followUp.time)).dueAt };
+  }
   if (def.requiresCallbackTime && !input.callbackAt) throw new ApiError("יש לבחור מועד לחזרה", 400, "callback_time_required");
   if (input.callbackAt && input.callbackAt.getTime() < Date.now() - 60_000) throw new ApiError("מועד החזרה חייב להיות בעתיד", 400, "callback_in_past");
 
@@ -481,9 +501,10 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
         if (assignments.length && !assignments.some(a => a.userId === callbackUserId)) throw new ApiError("לנציג אין גישה לרשימת החיוג", 403, "forbidden");
       }
     }
+    const outcome = input.outcome!;
     const u = await tx.call.update({
       where: { id: call.id },
-      data: { outcome: input.outcome, outcomeNote: input.note?.trim() || null, outcomeSavedAt: new Date(), callbackAt: input.callbackAt ?? null },
+      data: { outcome, statusDefId: chosen?.def.id ?? null, outcomeNote: input.note?.trim() || null, outcomeSavedAt: new Date(), callbackAt: input.callbackAt ?? null },
       include: CALL_INCLUDE,
     });
     if (input.contactUpdates && call.contactId) {
@@ -499,6 +520,9 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
       if (Object.keys(cu).length) await tx.contact.update({ where: { id: call.contactId }, data: cu });
     }
     if (def.requiresCallbackTime && call.contactId) {
+      // One follow-up per contact: a later one that was already scheduled is replaced (a due one is recorded below).
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${"contact-followup:" + call.contactId}, 0))`);
+      await tx.task.updateMany({ where: { businessId: user.businessId, contactId: call.contactId, status: "open", type: "callback", dueAt: { gt: new Date(Date.now() + 60_000) } }, data: { status: "cancelled" } });
       await tx.task.create({
         data: {
           businessId: user.businessId,
@@ -514,14 +538,19 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
     }
     if (call.contactId) await tx.noteDraft.deleteMany({ where: { userId: user.id, contactId: call.contactId } });
     if (call.leadId) {
-      await applyOutcomeToLead({ businessId: user.businessId, userId: user.id, leadId: call.leadId, outcome: input.outcome, callbackAt: input.callbackAt, callbackUserId, note: input.note }, tx);
+      await applyOutcomeToLead({ businessId: user.businessId, userId: user.id, leadId: call.leadId, outcome: outcome, callbackAt: input.callbackAt, callbackUserId, note: input.note }, tx);
     } else if (def.addsToDnc) {
       const { addToDnc } = await import("@/lib/dialer/queue");
-      await addToDnc(user.businessId, user.id, call.toE164, `outcome:${input.outcome}`, tx);
+      await addToDnc(user.businessId, user.id, call.toE164, `outcome:${outcome}`, tx);
     }
 
     // The follow-up that was due gets its result recorded (moved to the retry time, closed, or replaced by the new callback).
-    if (call.contactId) await afterFollowUpAttempt(tx, { businessId: user.businessId, userId: user.id, callId: call.id, contactId: call.contactId, listLeadId: call.leadId, outcome: input.outcome, retry: Boolean(def.retry) && !def.addsToDnc, callbackTaskCreated: Boolean(def.requiresCallbackTime) });
+    if (call.contactId) await afterFollowUpAttempt(tx, { businessId: user.businessId, userId: user.id, callId: call.id, contactId: call.contactId, listLeadId: call.leadId, outcome, retry: Boolean(def.retry) && !def.addsToDnc, callbackTaskCreated: Boolean(def.requiresCallbackTime) });
+
+    // The CRM status the agent chose is written to the contact's open lead now (same transaction as the dialer).
+    if (chosen && call.contactId) await applyWrapUpStatus(tx, { businessId: user.businessId, userId: user.id, contactId: call.contactId, chosen, callId: call.id });
+    // The follow-up is in the dial queue right away (the agent's list and every list holding the contact).
+    if (def.requiresCallbackTime && call.contactId) await syncFollowUpQueue(tx, user.businessId, { contactId: call.contactId });
 
     // A real dial attempt clears a "זמינה עכשיו" priority; what happens next follows the outcome and the dialer rules.
     if (call.contactId && call.leadDialedAt) {
@@ -551,10 +580,10 @@ export async function saveOutcome(user: SessionUser, input: SaveOutcomeInput): P
 
     const session = await tx.dialerSession.findFirst({ where: { userId: user.id, status: { in: ["active", "paused"] } } });
     await tx.user.updateMany({ where: { id: user.id, presence: "wrap_up" }, data: { presence: session?.status === "paused" ? "paused" : "available", presenceAt: new Date() } });
-    await audit(user.businessId, user.id, "call", call.id, "call.outcome_saved", { outcome: input.outcome }, tx);
+    await audit(user.businessId, user.id, "call", call.id, "call.outcome_saved", { outcome, statusId: chosen?.def.id ?? null, status: chosen?.def.label ?? null }, tx);
     await emitEvent(tx, {
       businessId: user.businessId, type: "call.outcome_saved", contactId: call.contactId, actorUserId: user.id, source: "user",
-      dedupeKey: `call.outcome_saved:${call.id}`, payload: { callId: call.id, outcome: input.outcome, userId: user.id, callbackAt: input.callbackAt?.toISOString() ?? null, listLeadId: call.leadId },
+      dedupeKey: `call.outcome_saved:${call.id}`, payload: { callId: call.id, outcome, statusId: chosen?.def.id ?? null, statusDefId: chosen?.statusDefId ?? null, userId: user.id, callbackAt: input.callbackAt?.toISOString() ?? null, listLeadId: call.leadId },
     });
     return u;
   });
@@ -595,4 +624,29 @@ export async function pendingWrapUpFor(userId: string) {
     orderBy: { createdAt: "desc" },
     include: CALL_INCLUDE,
   });
+}
+
+/** What the queue does for each status meaning (a sale opens a won deal – see events/handlers). "new" isn't a wrap-up. */
+const OUTCOME_FOR_KIND: Partial<Record<string, OutcomeKey>> = {
+  contacted: "answered", qualified: "answered_interested", follow_up: "callback", unqualified: "answered_not_interested", lost: "answered_not_interested", converted: "sale",
+};
+const CLOSING_KINDS = ["unqualified", "lost", "converted"];
+
+/**
+ * Put the chosen status on the contact's open lead (the most recent one). A sale is linked by the deal handler (it
+ * opens the won deal and sets "converted" with the chosen status); leaving a follow-up cancels its later schedule.
+ */
+async function applyWrapUpStatus(tx: Prisma.TransactionClient, input: { businessId: string; userId: string; contactId: string; chosen: Awaited<ReturnType<typeof resolveStatus>>; callId: string }) {
+  const { chosen } = input;
+  if (chosen.status === "converted") return;
+  const lead = await tx.lead.findFirst({ where: { businessId: input.businessId, contactId: input.contactId, status: { in: [...OPEN_LEAD_STATUSES] } }, orderBy: { createdAt: "desc" }, select: { id: true, status: true, statusDefId: true, ownerUserId: true } });
+  if (!lead) return;
+  if (lead.status === chosen.status && lead.statusDefId === chosen.statusDefId) return;
+  const closing = CLOSING_KINDS.includes(chosen.status);
+  await tx.lead.update({ where: { id: lead.id }, data: { status: chosen.status, statusDefId: chosen.statusDefId, ...(lead.status !== chosen.status ? { closedAt: closing ? new Date() : null, closeReason: null } : {}) } });
+  if (lead.status === "follow_up" && chosen.status !== "follow_up") {
+    const cancelled = await tx.task.updateMany({ where: { businessId: input.businessId, status: "open", type: "callback", OR: [{ leadId: lead.id }, { contactId: input.contactId, leadId: null }] }, data: { status: "cancelled" } });
+    if (cancelled.count) await tx.listLead.updateMany({ where: { businessId: input.businessId, contactId: input.contactId, status: "callback" }, data: { status: closing ? "completed" : "pending", nextAttemptAt: null, preferredUserId: null } });
+  }
+  await emitEvent(tx, { businessId: input.businessId, type: "lead.status_changed", contactId: input.contactId, actorUserId: input.userId, source: "user", dedupeKey: `lead.status_changed:${lead.id}:${chosen.def.id}:call:${input.callId}`, payload: { leadId: lead.id, from: lead.status, to: chosen.status, fromStatusId: lead.statusDefId, toStatusId: chosen.statusDefId, callId: input.callId } });
 }

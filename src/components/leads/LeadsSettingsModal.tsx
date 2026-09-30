@@ -5,61 +5,33 @@ import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Button, Input, Modal, Select, cx } from "@/components/ui";
 import { CrmSettings } from "@/components/crm-settings/CrmSettings";
-import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
-import type { LeadAssignmentSettings, LeadStatusConfig } from "@/lib/lead-statuses";
+import { StatusesEditor } from "@/components/leads/StatusesEditor";
+import type { LeadAssignmentSettings } from "@/lib/lead-statuses";
 import { useT } from "@/components/i18n/LangProvider";
 
-type Tab = "dialer" | "statuses" | "assignment";
+/** "settings" = dialer settings + statuses; "statuses" = only the status editor; "assignment" = only lead distribution. */
+export type LeadsSettingsMode = "settings" | "statuses" | "assignment";
 
 /**
- * "הגדרות חייגן" from the leads screen: the per-agent dialer settings (formerly /crm-settings), and for managers the
- * editable lead statuses and the lead-distribution policy (round robin / least loaded, cap per agent).
+ * Settings opened from the leads screen – one focused view per entry point, no tabs:
+ *  • "הגדרות": the per-agent dialer settings and (managers) the statuses, in one place;
+ *  • "עריכת סטטוסים": only the status editor (the same component as inside "הגדרות");
+ *  • "חלוקת לידים": only the distribution policy.
  */
-export function LeadsSettingsModal({ open, onClose, manager, initialTab = "dialer" }: { open: boolean; onClose: () => void; manager: boolean; initialTab?: Tab }) {
-  const [tab, setTab] = useState<Tab>(initialTab);
+export function LeadsSettingsModal({ open, onClose, manager, mode = "settings" }: { open: boolean; onClose: () => void; manager: boolean; mode?: LeadsSettingsMode }) {
   const t = useT();
-  useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
   const [dirty, setDirty] = useState(false);
   const close = () => { if (dirty && !window.confirm(t("יש שינויים בהגדרות החייגן שלא נשמרו. לסגור בלי לשמור?", "You have unsaved dialer settings changes. Close without saving?"))) return; onClose(); };
-  const tabs: Array<[Tab, string]> = [["dialer", t("חייגן", "Dialer")], ...(manager ? [["statuses", t("סטטוסים", "Statuses")] as [Tab, string], ["assignment", t("חלוקת לידים", "Lead distribution")] as [Tab, string]] : [])];
+  const title = mode === "statuses" ? t("עריכת סטטוסים", "Edit statuses") : mode === "assignment" ? t("חלוקת לידים", "Lead distribution") : t("הגדרות", "Settings");
   return (
-    <Modal open={open} onClose={close} title={tab === "statuses" ? t("עריכת סטטוסים", "Edit statuses") : tab === "assignment" ? t("חלוקת לידים", "Lead distribution") : t("הגדרות חייגן", "Dialer settings")} width="max-w-4xl">
-      <div className="flex gap-1 border-b border-line mb-3" role="tablist">{tabs.map(([k, label]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cx("h-9 px-3 text-sm border-b-2 -mb-px", tab === k ? "border-accent font-medium" : "border-transparent text-muted")} data-testid={`leads-settings-tab-${k}`}>{label}</button>)}</div>
-      {tab === "dialer" && <CrmSettings embedded onDirtyChange={setDirty} />}
-      {tab === "statuses" && manager && <StatusesEditor />}
-      {tab === "assignment" && manager && <AssignmentEditor />}
+    <Modal open={open} onClose={close} title={title} width={mode === "settings" ? "max-w-4xl" : "max-w-2xl"}>
+      {mode === "settings" && <div className="space-y-5" data-testid="leads-settings">
+        <CrmSettings embedded onDirtyChange={setDirty} />
+        {manager && <section className="border-t border-line pt-4" aria-labelledby="settings-statuses"><h3 id="settings-statuses" className="mb-2 text-sm font-semibold">{t("סטטוסים", "Statuses")}</h3><StatusesEditor compact /></section>}
+      </div>}
+      {mode === "statuses" && manager && <StatusesEditor />}
+      {mode === "assignment" && manager && <AssignmentEditor />}
     </Modal>
-  );
-}
-
-function StatusesEditor() {
-  const statuses = useLeadStatuses();
-  const t = useT();
-  const [rows, setRows] = useState<LeadStatusConfig[]>(statuses.items);
-  const [saving, setSaving] = useState(false);
-  useEffect(() => { setRows(statuses.items); }, [statuses.items]);
-  const move = (i: number, d: -1 | 1) => setRows((r) => { const n = [...r]; const j = i + d; if (j < 0 || j >= n.length) return r; [n[i], n[j]] = [n[j], n[i]]; return n; });
-  async function save() {
-    setSaving(true);
-    try { const r = await api.patch<{ items: LeadStatusConfig[] }>("/api/lead-statuses", { leadStatuses: rows }); statuses.refresh(r.items); toast.success(t("הסטטוסים נשמרו", "Statuses saved")); }
-    catch (e) { toast.error((e as Error).message); } finally { setSaving(false); }
-  }
-  return (
-    <div className="space-y-2" data-testid="statuses-editor">
-      <p className="text-xs text-muted">{t("שנה שם, סדר או הסתר סטטוס. המפתח הפנימי נשאר (דוחות ואוטומציות ממשיכים לעבוד); סטטוס מוסתר לא יוצג לבחירה אבל לידים קיימים בו נשארים.", "Rename, reorder or hide a status. The internal key stays (reports and automations keep working); a hidden status isn't offered for selection, but existing leads in it remain.")}</p>
-      <ul className="divide-y divide-line">
-        {rows.map((s, i) => (
-          <li key={s.key} className="flex items-center gap-2 py-1.5">
-            <span className="text-[11px] text-muted w-20 ltr">{s.key}</span>
-            <Input value={s.label} onChange={(e) => setRows((r) => r.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} aria-label={t(`שם הסטטוס ${s.key}`, `Status name ${s.key}`)} className="flex-1" data-testid={`status-label-${s.key}`} />
-            <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={s.hidden} onChange={(e) => setRows((r) => r.map((x, j) => j === i ? { ...x, hidden: e.target.checked } : x))} /> {t("מוסתר", "Hidden")}</label>
-            <Button size="sm" variant="ghost" onClick={() => move(i, -1)} disabled={i === 0} aria-label={t("הזז למעלה", "Move up")}>↑</Button>
-            <Button size="sm" variant="ghost" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label={t("הזז למטה", "Move down")}>↓</Button>
-          </li>
-        ))}
-      </ul>
-      <div className="flex justify-end"><Button onClick={save} loading={saving} data-testid="statuses-save">{t("שמור סטטוסים", "Save statuses")}</Button></div>
-    </div>
   );
 }
 

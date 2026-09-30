@@ -130,7 +130,10 @@ export async function startSequencesForEvent(event: DomainEvent) {
       if (cfg.campaignId && p.campaignId !== cfg.campaignId) continue;
       if (cfg.marketingOnly !== false && p.category !== "marketing") continue;
     } else if (trigger === "TAG_ADDED") { if (cfg.tagName && p.tagName !== cfg.tagName) continue; }
-    else if (trigger === "LEAD_STATUS_CHANGED") { if (cfg.leadStatus && p.to !== cfg.leadStatus) continue; }
+    else if (trigger === "LEAD_STATUS_CHANGED") {
+      // A custom status is matched by its id; a system status by its meaning when no custom status was chosen.
+      if (cfg.leadStatus && !(p.toStatusId ? p.toStatusId === cfg.leadStatus : p.to === cfg.leadStatus)) continue;
+    }
     else if (trigger === "CALL_UNANSWERED") {
       // Only unanswered outcomes; the lead must have reached N unanswered attempts (counted from the call log).
       if (!["no_answer", "busy"].includes(String(p.outcome))) continue;

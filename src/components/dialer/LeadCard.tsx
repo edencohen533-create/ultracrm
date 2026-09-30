@@ -241,7 +241,7 @@ export function LeadCard({
                 <span>{c.user.fullName}</span>
                 <Badge tone={c.answeredAt ? "good" : "neutral"}>{c.telephonyResult ? TELEPHONY_RESULT_LABEL[c.telephonyResult] : "—"}</Badge>
                 {c.answeredAt && <span className="tabular text-muted">{formatDuration(c.talkSeconds)}</span>}
-                <span className={cx("font-medium", c.outcome === "sale" && "text-good", c.outcome === "dnc" && "text-bad")}>{outcomeLabel(c.outcome)}</span>
+                <span className={cx("font-medium", c.outcome === "sale" && "text-good", c.outcome === "dnc" && "text-bad")}>{(c as { statusDef?: { label: string } | null }).statusDef?.label ?? outcomeLabel(c.outcome)}</span>
                 {c.recordingStatus === "saved" && <a href={`/api/recordings/${c.id}`} target="_blank" className="text-accent underline hover:underline">{t("הקלטה", "Recording")}</a>}
                 {c.outcomeNote && <span className="w-full text-muted whitespace-pre-wrap">{c.outcomeNote}</span>}
               </li>

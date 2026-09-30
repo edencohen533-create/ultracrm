@@ -137,10 +137,12 @@ const outcomeFollowUp: EventHandler = {
   name: "call.outcome-follow-up",
   types: ["call.outcome_saved"],
   async run(event) {
-    const { callId, outcome, userId } = payload<{ callId: string; outcome: string; userId: string }>(event);
+    const { callId, outcome, userId, statusId, statusDefId } = payload<{ callId: string; outcome: string; userId: string; statusId?: string | null; statusDefId?: string | null }>(event);
     if (!event.contactId) return { skipped: "no contact" };
     const settings = await getBusinessSettings(event.businessId);
     const result: Record<string, unknown> = {};
+    // The agent chose a CRM status at wrap-up: it was already written to the lead (dialer/calls.ts) – no mapping here.
+    const chosenStatus = Boolean(statusId);
     // Follow-up task for interested / sale (callback outcome already created its own task in the dialer).
     if (settings.automations.followUpTaskOutcomes.includes(outcome)) {
       const task = await prisma.task.upsert({
@@ -154,14 +156,19 @@ const outcomeFollowUp: EventHandler = {
       result.taskId = task.id;
     }
     // Lead pipeline
-    if (outcome === "answered") result.leadsContacted = (await prisma.lead.updateMany({ where: { contactId: event.contactId, status: "new" }, data: { status: "contacted" } })).count;
-    if (outcome === "answered_interested") result.leadsQualified = (await prisma.lead.updateMany({ where: { contactId: event.contactId, status: { in: ["new", "contacted"] } }, data: { status: "qualified" } })).count;
-    if (outcome === "answered_not_interested") result.leadsUnqualified = (await prisma.lead.updateMany({ where: { contactId: event.contactId, status: { in: ["new", "contacted"] } }, data: { status: "unqualified", closedAt: new Date() } })).count;
+    if (!chosenStatus && outcome === "answered") result.leadsContacted = (await prisma.lead.updateMany({ where: { contactId: event.contactId, status: "new" }, data: { status: "contacted" } })).count;
+    if (!chosenStatus && outcome === "answered_interested") result.leadsQualified = (await prisma.lead.updateMany({ where: { contactId: event.contactId, status: { in: ["new", "contacted"] } }, data: { status: "qualified" } })).count;
+    if (!chosenStatus && outcome === "answered_not_interested") result.leadsUnqualified = (await prisma.lead.updateMany({ where: { contactId: event.contactId, status: { in: ["new", "contacted"] } }, data: { status: "unqualified", closedAt: new Date() } })).count;
     if (outcome === "sale") {
-      const openLead = await prisma.lead.findFirst({ where: { contactId: event.contactId, status: { in: ["new", "contacted", "qualified"] } }, orderBy: { createdAt: "desc" } });
+      const openLead = await prisma.lead.findFirst({ where: { contactId: event.contactId, status: { in: ["new", "contacted", "follow_up", "qualified"] } }, orderBy: { createdAt: "desc" } });
+      // A sale closes a pending follow-up of that lead (the dialer must not call a customer who just bought).
+      if (openLead?.status === "follow_up") {
+        const cancelled = await prisma.task.updateMany({ where: { businessId: event.businessId, status: "open", type: "callback", OR: [{ leadId: openLead.id }, { contactId: event.contactId, leadId: null }], NOT: { callId } }, data: { status: "cancelled" } });
+        if (cancelled.count) await prisma.listLead.updateMany({ where: { businessId: event.businessId, contactId: event.contactId, status: "callback" }, data: { status: "completed", nextAttemptAt: null, preferredUserId: null } });
+      }
       const contact = await prisma.contact.findUnique({ where: { id: event.contactId }, select: { fullName: true } });
       const deal = await prisma.deal.create({ data: { businessId: event.businessId, contactId: event.contactId, leadId: openLead?.id, title: `מכירה טלפונית – ${contact?.fullName ?? ""}`.trim(), stage: "won", status: "won", ownerUserId: userId, closedAt: new Date(), notes: `נוצר אוטומטית מתוצאת שיחה ${callId}` } });
-      if (openLead) await prisma.lead.update({ where: { id: openLead.id }, data: { status: "converted", dealId: deal.id, closedAt: new Date() } });
+      if (openLead) await prisma.lead.update({ where: { id: openLead.id }, data: { status: "converted", statusDefId: statusDefId ?? null, dealId: deal.id, closedAt: new Date() } });
       await (await import("@/lib/crm/customer-identity")).markPurchase(prisma, { businessId: event.businessId, contactId: event.contactId, actorUserId: userId, via: "call_outcome_sale" });
       result.dealId = deal.id;
     }

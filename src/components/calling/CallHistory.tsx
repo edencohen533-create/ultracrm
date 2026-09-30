@@ -13,8 +13,8 @@ import { useT } from "@/components/i18n/LangProvider";
 import { useMe } from "@/lib/client/use-me";
 import { CallDocView, DocStatus, type CallDoc } from "@/components/leads/LeadDrawer";
 
-interface Row { id: string; createdAt: string; answeredAt: string | null; talkSeconds: number | null; status: string; direction: string; telephonyResult: string | null; outcome: string | null; outcomeNote: string | null; recordingStatus: string; mode: string; toE164: string; fromE164: string; hangupCause: string | null; user: { id: string; fullName: string }; contact: { id: string; fullName: string } | null; list: { id: string; name: string } | null; coachSession: { documentationStatus: string | null } | null }
-interface Detail { id: string; createdAt: string; ringingAt: string | null; answeredAt: string | null; endedAt: string | null; talkSeconds: number | null; status: string; direction: string; mode: string; telephonyResult: string | null; hangupCause: string | null; outcome: string | null; outcomeNote: string | null; callbackAt: string | null; toE164: string; fromE164: string; recordingStatus: string; canPlayRecording: boolean; user: { id: string; fullName: string }; contact: { id: string; fullName: string; phoneE164: string } | null; list: { id: string; name: string } | null; coachSession: { documentation: CallDoc | null; documentationStatus: string | null; documentationError: string | null } | null }
+interface Row { id: string; createdAt: string; answeredAt: string | null; talkSeconds: number | null; status: string; direction: string; telephonyResult: string | null; outcome: string | null; statusDef?: { label: string } | null; outcomeNote: string | null; recordingStatus: string; mode: string; toE164: string; fromE164: string; hangupCause: string | null; user: { id: string; fullName: string }; contact: { id: string; fullName: string } | null; list: { id: string; name: string } | null; coachSession: { documentationStatus: string | null } | null }
+interface Detail { id: string; createdAt: string; ringingAt: string | null; answeredAt: string | null; endedAt: string | null; talkSeconds: number | null; status: string; direction: string; mode: string; telephonyResult: string | null; hangupCause: string | null; outcome: string | null; statusDef?: { label: string } | null; outcomeNote: string | null; callbackAt: string | null; toE164: string; fromE164: string; recordingStatus: string; canPlayRecording: boolean; user: { id: string; fullName: string }; contact: { id: string; fullName: string; phoneE164: string } | null; list: { id: string; name: string } | null; coachSession: { documentation: CallDoc | null; documentationStatus: string | null; documentationError: string | null } | null }
 
 const PAGE = 50;
 /** Filters live in the URL (חייגן → היסטוריית שיחות?…): refresh, shared links and back / forward keep the same view. */
@@ -144,7 +144,7 @@ export function CallHistory() {
                     <td className="px-3 text-muted">{r.direction === "inbound" ? t("נכנסת", "Inbound") : MODE_LABEL[r.mode]}</td>
                     <td className="px-3"><Badge tone={r.answeredAt ? "good" : "neutral"}>{r.telephonyResult ? TELEPHONY_RESULT_LABEL[r.telephonyResult] : r.status === "failed" ? t("נכשלה", "Failed") : "—"}</Badge>{r.hangupCause && <span className="text-muted ms-1 ltr">{r.hangupCause}</span>}</td>
                     <td className="px-3 tabular">{r.answeredAt ? formatDuration(r.talkSeconds) : "—"}</td>
-                    <td className="px-3">{OUTCOMES.find((o) => o.key === r.outcome)?.label ?? "—"}{r.outcomeNote && <p className="text-muted truncate max-w-56" title={r.outcomeNote}>{r.outcomeNote}</p>}</td>
+                    <td className="px-3">{r.statusDef?.label ?? OUTCOMES.find((o) => o.key === r.outcome)?.label ?? "—"}{r.outcomeNote && <p className="text-muted truncate max-w-56" title={r.outcomeNote}>{r.outcomeNote}</p>}</td>
                     <td className="px-3 text-muted">{r.list?.name ?? "—"}</td>
                     <td className="px-3">{r.recordingStatus === "saved" && canRecordings ? <audio controls preload="none" src={`/api/recordings/${r.id}`} className="h-7 w-40" /> : r.recordingStatus === "saved" ? <span className="text-muted">{t("אין הרשאה", "No permission")}</span> : "—"}</td>
                   </tr>
@@ -194,6 +194,7 @@ function CallDrawer({ id, canRecordings, onClose, onCustomerCalls }: { id: strin
                 {row(t("טלפוניה", "Telephony"), <>{d.telephonyResult ? TELEPHONY_RESULT_LABEL[d.telephonyResult] : "—"}{d.hangupCause && <span className="text-muted ms-1 ltr">{d.hangupCause}</span>}</>)}
                 {row(t("משך שיחה", "Talk time"), d.answeredAt ? formatDuration(d.talkSeconds) : "—")}
                 {row(t("רשימת חיוג", "Dial list"), d.list ? <Link href={`/calling/lists/${d.list.id}`} className="underline">{d.list.name}</Link> : "—")}
+                {row(t("סטטוס שנבחר", "Status chosen"), d.statusDef?.label ?? "—")}
                 {row(t("תוצאה", "Outcome"), OUTCOMES.find((o) => o.key === d.outcome)?.label ?? "—")}
                 {d.callbackAt && row(t("חזרה", "Callback"), formatDateTime(d.callbackAt))}
               </dl>

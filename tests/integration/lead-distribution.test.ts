@@ -39,21 +39,21 @@ describe("lead statuses, round robin, dial-list workspace", () => {
   afterAll(async () => { await destroyBusiness(t.business.id, [t.account.id, ...accounts]); });
   const run = <T,>(fn: () => Promise<T>) => withBusiness(t.business.id, fn, t.session);
 
-  it("manager renames/hides a status; unknown keys are rejected; agents get 403; the hook endpoint returns the merged list", async () => {
+  it("statuses: the owner renames / reorders; managers and agents can't change the structure; unknown ids rejected; every role reads", async () => {
     const agentSession: SessionUser = { ...t.session, id: agents[0], accountId: accounts[0], email: `${t.business.slug}-a1@test.local`, role: "agent" };
-    expect((await statusesPatch(await req("/api/lead-statuses", agentSession, "PATCH", { leadStatuses: [{ key: "new", label: "x", hidden: false }] }), ctx)).status).toBe(403);
-    const managerSession: SessionUser = { ...t.session, role: "manager" };
-    const res = await statusesPatch(await req("/api/lead-statuses", managerSession, "PATCH", { leadStatuses: [{ key: "qualified", label: "חם 🔥", hidden: false }, { key: "unqualified", label: "לא רלוונטי", hidden: true }] }), ctx);
+    const first = await statusesGet(await req("/api/lead-statuses", agentSession, "GET"), ctx);
+    const items = (await first.json()).data.items as Array<{ id: string; kind: string; label: string; isSystem: boolean }>;
+    expect(items.map((x) => x.kind).sort()).toEqual(["contacted", "converted", "follow_up", "lost", "new", "qualified", "unqualified"]);
+    const qualified = items.find((x) => x.kind === "qualified")!;
+    expect((await statusesPatch(await req("/api/lead-statuses", agentSession, "PATCH", { items: [{ id: qualified.id, label: "x" }] }), ctx)).status).toBe(403);
+    // (A real manager is refused too – tests/integration/crm-status-outcomes.test.ts; here the session is the owner's.)
+    const res = await statusesPatch(await req("/api/lead-statuses", t.session, "PATCH", { items: [{ id: qualified.id, label: "חם 🔥" }] }), ctx);
     expect(res.status).toBe(200);
-    const s = await getBusinessSettings(t.business.id);
-    expect(s.leadStatuses.find((x) => x.key === "qualified")?.label).toBe("חם 🔥");
-    expect(s.leadStatuses.find((x) => x.key === "unqualified")?.hidden).toBe(true);
-    expect(s.leadStatuses.map((x) => x.key).sort()).toEqual(["contacted", "converted", "follow_up", "lost", "new", "qualified", "unqualified"]); // keys never disappear
-    expect(s.leadStatuses[0].key).toBe("qualified"); // saved order first, defaults appended
-    const bad = await statusesPatch(await req("/api/lead-statuses", t.session, "PATCH", { leadStatuses: [{ key: "hot", label: "x", hidden: false }] }), ctx);
+    const after = (await res.json()).data.items as Array<{ id: string; label: string }>;
+    expect(after[0]).toMatchObject({ id: qualified.id, label: "חם 🔥" }); // saved order first, the rest keep theirs
+    expect(after).toHaveLength(7); // system statuses never disappear
+    const bad = await statusesPatch(await req("/api/lead-statuses", t.session, "PATCH", { items: [{ id: "nope", label: "x" }] }), ctx);
     expect(bad.status).toBe(400);
-    const list = await statusesGet(await req("/api/lead-statuses", t.session, "GET"), ctx);
-    expect((await list.json()).data.items.find((x: { key: string }) => x.key === "unqualified").hidden).toBe(true);
   });
 
   it("round robin rotates through the selected agents and skips agents at the cap", async () => {

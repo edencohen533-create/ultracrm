@@ -12,6 +12,7 @@ import { NoLeadsPanel } from "./NoLeadsPanel";
 import { DueElsewhereBanner } from "./DueElsewhereBanner";
 import { CallPanel } from "./CallPanel";
 import { OutcomePanel } from "./OutcomePanel";
+import { FollowUpFields, pickReady, useWrapUpStatuses, type WrapUpPick } from "./WrapUpStatus";
 import { CoachCard } from "@/components/coach/CoachCard";
 import { useHotkeys } from "./useHotkeys";
 import { callElapsed, useTicker } from "@/components/telephony/CallBar";
@@ -39,7 +40,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
   const [refreshKey, setRefreshKey] = useState(0);
   const [fullWrapUp, setFullWrapUp] = useState(false);
   /** A sale in the dialer opens the "עסקה נסגרה" popup (products, value, renewal date) before moving on. */
-  const [sale, setSale] = useState<{ contactId: string; name: string; then: "next" | "none" } | null>(null);
+  const [sale, setSale] = useState<{ contactId: string; name: string; then: "next" | "none"; pick?: WrapUpPick } | null>(null);
 
   const session = state?.session;
   const lead = state?.lead ?? null;
@@ -79,21 +80,24 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
 
   useEffect(() => { setFullWrapUp(false); }, [wrapUp?.id]);
   /** "המשך לליד הבא": save the (auto / quick) outcome with the typed note and dial the next lead now. */
-  const continueNext = useCallback(async (outcome: OutcomeKey, afterDeal = false) => {
+  const continueNext = useCallback(async (choice: OutcomeKey | WrapUpPick, afterDeal = false) => {
     if (!wrapUp) return;
-    if (outcome === "sale" && wrapUp.contactId && !afterDeal) { setSale({ contactId: wrapUp.contactId, name: formatPhone(wrapUp.toE164), then: "next" }); return; }
+    const pick: WrapUpPick = typeof choice === "string" ? { outcome: choice } : choice;
+    // A sale (by the status's meaning) opens the deal form first, then continues.
+    const isSale = pick.kind === "converted" || pick.outcome === "sale";
+    if (isSale && wrapUp.contactId && !afterDeal) { setSale({ contactId: wrapUp.contactId, name: formatPhone(wrapUp.toE164), then: "next", pick }); return; }
     try {
-      await d.continueToNext(wrapUp.id, outcome, { note });
+      await d.continueToNext(wrapUp.id, pick.statusId ? null : pick.outcome ?? null, { note, statusId: pick.statusId, followUp: pick.followUp, callbackUserId: pick.callbackUserId });
       setNote("");
       if (wrapUp.contactId) { try { localStorage.removeItem(`dialer.note.${wrapUp.contactId}`); } catch { /* ignore */ } }
     } catch { /* toast shown by provider */ }
   }, [wrapUp, d, note]);
 
   const onSave = useCallback(
-    async (outcome: OutcomeKey, callbackAt?: Date, callbackUserId?: string) => {
+    async (pick: WrapUpPick) => {
       if (!wrapUp) return;
       try {
-        await saveOutcome(wrapUp.id, outcome, { note, callbackAt, callbackUserId });
+        await saveOutcome(wrapUp.id, pick.statusId ? null : pick.outcome ?? null, { note, statusId: pick.statusId, followUp: pick.followUp, callbackUserId: pick.callbackUserId });
         setNote("");
         if (wrapUp.contactId) {
           try {
@@ -103,7 +107,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
           }
         }
         toast.success(t("התוצאה נשמרה", "Outcome saved"));
-        if (outcome === "sale" && wrapUp.contactId) setSale({ contactId: wrapUp.contactId, name: formatPhone(wrapUp.toE164), then: "none" });
+        if ((pick.kind === "converted" || pick.outcome === "sale") && wrapUp.contactId) setSale({ contactId: wrapUp.contactId, name: formatPhone(wrapUp.toE164), then: "none" });
       } catch {
         /* toast shown by provider */
       }
@@ -180,7 +184,7 @@ export function DialerWorkspace({ embedded = false, compact = false, minimal = f
               refreshKey={refreshKey}
             />
           </div>
-          {sale && <DealCloseModal contactId={sale.contactId} name={sale.name} onClose={() => setSale(null)} onDone={() => { const then = sale.then; setSale(null); if (then === "next") void continueNext("sale", true); }} />}
+          {sale && <DealCloseModal contactId={sale.contactId} name={sale.name} onClose={() => setSale(null)} onDone={() => { const then = sale.then; setSale(null); if (then === "next") void continueNext(sale.pick ?? "sale", true); }} />}
           {wrapUp && !call && (minimal && !fullWrapUp
             ? <NextBar call={wrapUp} canContinue={Boolean(session && session.status === "active" && session.mode !== "manual" && !sessionTakenOver)} busy={busy === "outcome" || busy === "next" || busy === "dial"} onContinue={continueNext} onFull={() => setFullWrapUp(true)} />
             
@@ -269,23 +273,26 @@ function CallStrip({ canDialLead, onDialLead, onDialNext, canDialNext, blockedRe
  * Unanswered calls are documented automatically from the provider result (אין מענה / תפוס); for an answered call the
  * agent taps the result first. The full documentation form (callback time, contact edits…) stays one click away.
  */
-function NextBar({ call, canContinue, busy, onContinue, onFull }: { call: CallDto; canContinue: boolean; busy: boolean; onContinue: (o: OutcomeKey) => void; onFull: () => void }) {
+function NextBar({ call, canContinue, busy, onContinue, onFull }: { call: CallDto; canContinue: boolean; busy: boolean; onContinue: (p: WrapUpPick) => void; onFull: () => void }) {
   const t = useT();
+  const { wrapUp: statuses } = useWrapUpStatuses(call.id);
   const answered = Boolean(call.answeredAt);
+  // Technical result (from the provider) – apart from the business status the agent picks.
   const auto: OutcomeKey = call.telephonyResult === "busy" ? "busy" : "no_answer";
-  const [pick, setPick] = useState<OutcomeKey | null>(answered ? null : auto);
-  const quick: Array<[OutcomeKey, string]> = [["answered_interested", t("מעוניין", "Interested")], ["answered_not_interested", t("לא מעוניין", "Not interested")], ["sale", t("בוצעה מכירה", "Sale made")]];
+  const [pick, setPick] = useState<WrapUpPick | null>(answered ? null : { outcome: auto });
   return (
     <div className="next-bar" data-testid="next-bar">
       <div className="next-bar-info">
         <b>{t("השיחה הסתיימה", "Call ended")}</b>
-        {answered ? <span>{t("בחר תוצאה:", "Choose outcome:")}</span> : <span>{t("נרשם אוטומטית:", "Logged automatically:")} <b>{auto === "busy" ? t("תפוס", "Busy") : t("אין מענה", "No answer")}</b></span>}
-        {answered && <div className="next-bar-chips">{quick.map(([k, label]) => <button key={k} type="button" aria-pressed={pick === k} onClick={() => setPick(k)} data-testid={`next-quick-${k}`}>{label}</button>)}</div>}
+        <span className="text-xs" data-testid="next-telephony">{t("טלפוניה:", "Telephony:")} <b>{answered ? t("נענתה", "Answered") : auto === "busy" ? t("תפוס", "Busy") : t("אין מענה", "No answer")}</b></span>
+        {answered ? <span>{t("בחר סטטוס:", "Choose status:")}</span> : <span>{t("נרשם אוטומטית – אפשר גם לבחור סטטוס:", "Logged automatically – you can also choose a status:")}</span>}
+        <div className="next-bar-chips">{statuses.map((s) => <button key={s.id} type="button" aria-pressed={pick?.statusId === s.id} onClick={() => setPick(pick?.statusId === s.id ? (answered ? null : { outcome: auto }) : { statusId: s.id, kind: s.kind })} data-testid={`next-status-${s.id}`} data-kind={s.kind}>{s.label}</button>)}</div>
+        {pick?.kind === "follow_up" && <FollowUpFields value={pick} onChange={setPick} callId={call.id} />}
       </div>
       <PostCallWhatsApp callId={call.id} />
       <div className="next-bar-actions">
-        <button type="button" className="next-bar-full" onClick={onFull} data-testid="next-full">{t("תיעוד מלא / לחזור בהמשך", "Full log / call back later")}</button>
-        <Button variant="good" size="lg" disabled={!pick || busy} loading={busy} onClick={() => pick && onContinue(pick)} data-testid="next-continue">{canContinue ? t("המשך לליד הבא ›", "Next lead ›") : t("שמור", "Save")}</Button>
+        <button type="button" className="next-bar-full" onClick={onFull} data-testid="next-full">{t("תיעוד מלא", "Full log")}</button>
+        <Button variant="good" size="lg" disabled={!pickReady(pick) || busy} loading={busy} onClick={() => pick && onContinue(pick)} data-testid="next-continue">{canContinue ? t("המשך לליד הבא ›", "Next lead ›") : t("שמור", "Save")}</Button>
       </div>
     </div>
   );

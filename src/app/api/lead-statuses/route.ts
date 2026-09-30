@@ -4,27 +4,36 @@ import { withAuth, parseBody } from "@/lib/api";
 
 import { ok, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
-import { getBusinessSettings, mergeLeadStatuses } from "@/lib/settings";
+import { getBusinessSettings } from "@/lib/settings";
+import { createStatus, createStatusSchema, listStatuses, updateStatuses, updateStatusesSchema } from "@/lib/crm/statuses";
 import { audit } from "@/lib/audit";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
-/** Lead status labels/order/visibility + the lead-distribution policy. Every role reads; managers (not only owners) edit. */
+/**
+ * Lead statuses (rows with stable ids and a meaning – src/lib/crm/statuses.ts) + the lead-distribution policy.
+ * Every role reads. Status structure (add / rename / reorder / reactivate / delete) – owner only; distribution – managers.
+ */
 export const GET = withAuth(async ({ user }) => {
   const s = await getBusinessSettings(user.businessId);
   // Managers also get the WhatsApp templates (with approval status) for the "notify the agent" option.
   const templates = user.role === "agent" ? [] : await prisma.template.findMany({ where: { businessId: user.businessId, channel: "whatsapp", internal: false }, orderBy: { name: "asc" }, select: { id: true, name: true, displayName: true, status: true, body: true } }).then((r) => r.map(withDisplayName));
-  return ok({ items: s.leadStatuses, leadAssignment: s.leadAssignment, templates });
+  return ok({ items: await listStatuses(user.businessId), leadAssignment: s.leadAssignment, templates, canEditStructure: user.role === "owner", timezone: s.timezone });
 }, { perm: ["crm.view", "telephony.use"] });
 
+/** Add a status (owner): a name and its meaning. */
+export const POST = withAuth(async ({ req, user }) => ok(await createStatus(user, await parseBody(req, createStatusSchema)), 201), { minRole: "manager", perm: "crm.edit" });
+
 const schema = z.object({
-  leadStatuses: z.array(z.object({ key: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost"]), label: z.string().trim().min(1).max(40), hidden: z.boolean().default(false) })).max(7).optional(),
+  /** Rename / reorder / reactivate statuses (owner). */
+  items: updateStatusesSchema.shape.items.optional(),
   leadAssignment: z.object({ mode: z.enum(["least_loaded", "round_robin"]).optional(), maxOpenLeadsPerAgent: z.number().int().min(0).max(10000).optional(), agentIds: z.array(z.string()).max(200).optional(), perAgentMax: z.record(z.string(), z.number().int().min(0).max(10000)).optional(), notifyWhatsApp: z.object({ enabled: z.boolean(), templateId: z.string().nullable() }).optional() }).optional(),
 });
 
 export const PATCH = withAuth(async ({ req, user }) => {
   const b = await parseBody(req, schema);
+  const items = b.items ? await updateStatuses(user, { items: b.items }) : null;
   if (b.leadAssignment?.agentIds?.length) {
     const n = await prisma.user.count({ where: { businessId: user.businessId, id: { in: b.leadAssignment.agentIds } } });
     if (n !== new Set(b.leadAssignment.agentIds).size) throw new ApiError("נציג לא קיים בעסק", 400, "invalid_agent");
@@ -34,11 +43,12 @@ export const PATCH = withAuth(async ({ req, user }) => {
   const la = (raw.leadAssignment && typeof raw.leadAssignment === "object" ? raw.leadAssignment : {}) as Record<string, unknown>;
   const next = {
     ...raw,
-    ...(b.leadStatuses ? { leadStatuses: mergeLeadStatuses(b.leadStatuses) } : {}),
     ...(b.leadAssignment ? { leadAssignment: { ...la, ...b.leadAssignment } } : {}),
   };
-  await prisma.business.update({ where: { id: user.businessId }, data: { settings: next as Prisma.InputJsonValue } });
-  await audit(user.businessId, user.id, "settings", user.businessId, "settings.updated", { changed: { ...(b.leadStatuses ? { leadStatuses: true } : {}), ...(b.leadAssignment ? { leadAssignment: b.leadAssignment } : {}) } });
+  if (b.leadAssignment) {
+    await prisma.business.update({ where: { id: user.businessId }, data: { settings: next as Prisma.InputJsonValue } });
+    await audit(user.businessId, user.id, "settings", user.businessId, "settings.updated", { changed: { leadAssignment: b.leadAssignment } });
+  }
   const s = await getBusinessSettings(user.businessId);
-  return ok({ items: s.leadStatuses, leadAssignment: s.leadAssignment });
+  return ok({ items: items ?? await listStatuses(user.businessId), leadAssignment: s.leadAssignment });
 }, { minRole: "manager", perm: "crm.edit" });

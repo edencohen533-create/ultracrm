@@ -28,7 +28,7 @@ export function FollowUpBadge({ followUp, needsSchedule, tz, onClick }: { follow
 }
 
 /** Choosing "פולואפ" opens this at once: date + time are mandatory, a note for the call is optional. */
-export function FollowUpModal({ leadId, name, tz = TZ_DEFAULT, current, onClose, onSaved }: { leadId: string; name: string; tz?: string; current?: FollowUpInfo | null; onClose: () => void; onSaved: () => void }) {
+export function FollowUpModal({ leadId, name, tz = TZ_DEFAULT, current, statusId, onClose, onSaved }: { leadId: string; name: string; tz?: string; current?: FollowUpInfo | null; /** A follow-up status of the business (default: the system "פולואפ"). */ statusId?: string; onClose: () => void; onSaved: () => void }) {
   // Default: the next round hour, in business time (computed once when the modal opens).
   const [init] = useState(() => { const z = current ? zoned(tz, new Date(current.dueAt)) : zoned(tz, new Date(Date.now() + 3600_000)); return current ? z : { ...z, time: `${z.time.slice(0, 2)}:00` }; });
   const [date, setDate] = useState(init.date);
@@ -39,7 +39,7 @@ export function FollowUpModal({ leadId, name, tz = TZ_DEFAULT, current, onClose,
   const t = useT();
   async function save() {
     setBusy(true); setProblem(null);
-    try { await api.put(`/api/leads/${leadId}/follow-up`, { date, time, note: note.trim() || undefined }); toast.success(current ? t("מועד הפולואפ עודכן", "Follow-up time updated") : t("הפולואפ נקבע", "Follow-up scheduled")); onSaved(); onClose(); }
+    try { await api.put(`/api/leads/${leadId}/follow-up`, { date, time, note: note.trim() || undefined, statusId }); toast.success(current ? t("מועד הפולואפ עודכן", "Follow-up time updated") : t("הפולואפ נקבע", "Follow-up scheduled")); onSaved(); onClose(); }
     catch (e) {
       const err = e as ApiClientError;
       if (err.code === "outside_dial_window") setProblem({ message: err.message, suggestion: (err.details as { suggestion?: { date: string; time: string } } | undefined)?.suggestion ?? null });

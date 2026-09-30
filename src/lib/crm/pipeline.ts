@@ -18,12 +18,15 @@ import { getBusinessSettings } from "@/lib/settings";
 // ─── Leads ───────────────────────────────────────────────────────────────────
 
 import { LEAD_STATUSES, DEAL_STAGES } from "./labels";
+import { listStatuses, resolveStatus } from "./statuses";
 export { LEAD_STATUSES, LEAD_STATUS_LABEL, DEAL_STAGES, DEAL_STAGE_LABEL } from "./labels";
 
 export const leadInputSchema = z.object({
   contactId: z.string().min(1),
   title: z.string().trim().max(160).optional(),
   status: z.enum(LEAD_STATUSES).optional(),
+  /** The business's status (stable id, system or custom). Wins over `status`, which older clients still send. */
+  statusId: z.string().min(1).optional(),
   source: z.string().max(100).optional(),
   ownerUserId: z.string().nullable().optional(),
   priority: z.number().int().min(0).max(100).optional(),
@@ -33,6 +36,8 @@ export const leadPatchSchema = leadInputSchema.partial().omit({ contactId: true 
 
 export const leadFilterSchema = z.object({
   status: z.enum(LEAD_STATUSES).optional(),
+  /** A specific status: custom → exactly it; system → its meaning without a custom status. */
+  statusId: z.string().optional(),
   /** Only leads whose contact is in this dial list (the list screen reuses the leads workspace). */
   listId: z.string().optional(),
   ownerUserId: z.string().optional(),
@@ -53,6 +58,13 @@ export const leadFilterSchema = z.object({
 
 export const LEAD_INCLUDE = { contact: { select: { id: true, fullName: true, phoneE164: true, email: true, company: true, customFields: true } }, owner: { select: { id: true, fullName: true } } } satisfies Prisma.LeadInclude;
 
+/** Where-clause for one status id: a custom status is exactly its id; a system status is its meaning without a custom one. */
+async function statusFilter(businessId: string, statusId: string): Promise<Prisma.LeadWhereInput> {
+  const def = (await listStatuses(businessId, { includeDeleted: true })).find((s) => s.id === statusId);
+  if (!def) return { id: "__none__" };
+  return def.isSystem ? { status: def.kind, statusDefId: null } : { statusDefId: def.id };
+}
+
 export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterSchema>) {
   const ids = await visibleUserIds(user);
   const scope = { businessId: user.businessId, ...ownerScope(ids) };
@@ -60,6 +72,7 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
   const where: Prisma.LeadWhereInput = {
     businessId: user.businessId,
     ...(f.status ? { status: f.status } : {}),
+    ...(f.statusId ? await statusFilter(user.businessId, f.statusId) : {}),
     ...(f.source ? { source: f.source } : {}),
     ...(f.ownerUserId ? { ownerUserId: f.ownerUserId === "unassigned" ? null : f.ownerUserId } : {}),
     ...(f.waiting ? { id: { in: (await waitingToday(user, f.ownerUserId || null)).ids[f.waiting] } } : {}),
@@ -72,7 +85,7 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
   const [total, items, byStatus, byOwner, sources, deals, owners] = await Promise.all([
     prisma.lead.count({ where }),
     prisma.lead.findMany({ where, orderBy: [order, { id: "asc" }], skip: (f.page - 1) * f.limit, take: f.limit, include: LEAD_INCLUDE }),
-    prisma.lead.groupBy({ by: ["status"], where: scope, _count: { _all: true } }),
+    prisma.lead.groupBy({ by: ["status", "statusDefId"], where: scope, _count: { _all: true } }),
     prisma.lead.groupBy({ by: ["ownerUserId"], where, _count: { _all: true }, orderBy: { _count: { ownerUserId: "desc" } } }),
     prisma.lead.findMany({ where: { ...scope, source: { not: null } }, distinct: ["source"], select: { source: true }, orderBy: { source: "asc" } }),
     prisma.deal.aggregate({ where: { businessId: user.businessId, status: "won", currency: "ILS", lead: where, ...ownerScope(ids) }, _sum: { amount: true }, _count: { _all: true } }),
@@ -93,7 +106,9 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
       pendingTransfer: l.pendingTransferToUserId ? { to: transferTo.find((u) => u.id === l.pendingTransferToUserId)?.fullName ?? null, at: l.pendingTransferAt } : null };
   });
   return { items: enriched, total, page: f.page, limit: f.limit, timezone: settings.timezone, permissions: { canTransfer: await canTransferLeads(user) },
-    byStatus: Object.fromEntries(byStatus.map((s) => [s.status, s._count._all])),
+    byStatus: byStatus.reduce<Record<string, number>>((m, s) => { m[s.status] = (m[s.status] ?? 0) + s._count._all; return m; }, {}),
+    /** Per status id (custom statuses apart from the system status of the same meaning). */
+    byStatusId: await (async () => { const defs = await listStatuses(user.businessId, { includeDeleted: true }); return byStatus.reduce<Record<string, number>>((m, s) => { const id = s.statusDefId ?? defs.find((d) => d.isSystem && d.kind === s.status)?.id ?? s.status; m[id] = (m[id] ?? 0) + s._count._all; return m; }, {}); })(),
     byOwner: byOwner.map((g) => ({ id: g.ownerUserId, name: owners.find((o) => o.id === g.ownerUserId)?.fullName ?? "ללא שיוך", count: g._count._all })),
     sources: sources.map((s) => s.source!).filter(Boolean),
     metrics: { leads: total, deals: deals._count._all, revenue: Number(deals._sum.amount ?? 0), conversion: total ? converted / total * 100 : 0 },
@@ -166,6 +181,13 @@ export async function updateLead(user: SessionUser, id: string, input: z.infer<t
   const lead = await prisma.lead.findFirst({ where: { id, businessId: user.businessId } });
   if (!lead) throw new ApiError("ליד לא נמצא", 404, "not_found");
   await assertOwnerAccess(user, lead.ownerUserId);
+  // The chosen status → its meaning (drives every rule below) + the custom status id (null for a system status).
+  let statusDefId: string | null | undefined;
+  if (input.statusId || input.status) {
+    const r = await resolveStatus(user.businessId, { statusId: input.statusId, kind: input.statusId ? null : input.status }, prisma, { allowInactive: input.statusId === lead.statusDefId });
+    input = { ...input, status: r.status }; statusDefId = r.statusDefId;
+    delete input.statusId;
+  }
   // "פולואפ" always has a time: it is set through the follow-up endpoint (date + time), never as a bare status.
   if (input.status === "follow_up" && lead.status !== "follow_up" && !(await followUpsFor(user.businessId, [lead])).get(lead.id)) throw new ApiError("לפולואפ חובה לבחור תאריך ושעה", 400, "follow_up_time_required");
   // A manager moving a lead to an agent is a transfer (tasks, follow-ups, queue and access move with it).
@@ -187,7 +209,7 @@ export async function updateLead(user: SessionUser, id: string, input: z.infer<t
       where: { id: lead.id },
       data: {
         ...(input.title !== undefined ? { title: input.title || null } : {}),
-        ...(input.status ? { status: input.status, closedAt: closing ? new Date() : null, closeReason: null } : {}),
+        ...(input.status ? { status: input.status, statusDefId: statusDefId ?? null, ...(input.status !== lead.status ? { closedAt: closing ? new Date() : null, closeReason: null } : {}) } : {}),
         ...(input.source !== undefined ? { source: input.source || null } : {}),
         ...(input.ownerUserId !== undefined ? { ownerUserId: input.ownerUserId } : {}),
         ...(input.priority !== undefined ? { priority: input.priority } : {}),
@@ -202,8 +224,8 @@ export async function updateLead(user: SessionUser, id: string, input: z.infer<t
       if (cancelled.count) await tx.listLead.updateMany({ where: { businessId: user.businessId, contactId: lead.contactId, status: "callback" }, data: { status: closing ? "completed" : "pending", nextAttemptAt: null, preferredUserId: null } });
       if (closing && lead.ownerUserId) { const pl = await personalListId(tx, user.businessId, lead.ownerUserId); if (pl) await tx.listLead.updateMany({ where: { listId: pl, contactId: lead.contactId, status: { in: ["pending", "callback"] } }, data: { status: "completed", nextAttemptAt: null } }); }
     }
-    if (input.status && input.status !== lead.status) {
-      await emitEvent(tx, { businessId: user.businessId, type: "lead.status_changed", contactId: lead.contactId, actorUserId: user.id, source: "user", dedupeKey: `lead.status_changed:${lead.id}:${input.status}:${Date.now()}`, payload: { leadId: lead.id, from: lead.status, to: input.status } });
+    if (input.status && (input.status !== lead.status || (statusDefId ?? null) !== lead.statusDefId)) {
+      await emitEvent(tx, { businessId: user.businessId, type: "lead.status_changed", contactId: lead.contactId, actorUserId: user.id, source: "user", dedupeKey: `lead.status_changed:${lead.id}:${statusDefId ?? input.status}:${Date.now()}`, payload: { leadId: lead.id, from: lead.status, to: input.status, fromStatusId: lead.statusDefId, toStatusId: statusDefId ?? null } });
     }
     return u;
   });

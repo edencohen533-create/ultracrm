@@ -421,6 +421,7 @@ model Business {
   contactEmails  ContactEmail[]
   tags           Tag[]
   leads          Lead[]
+  leadStatusDefs LeadStatusDef[]
   deals          Deal[]
   tasks          Task[]
   notes          Note[]
@@ -757,6 +758,9 @@ model Lead {
   contactId   String     @map("contact_id")
   title       String?
   status      LeadStatus @default(new)
+  /// The business's own status (custom) – null = the system status of `status`. `status` always holds its meaning.
+  statusDefId String?    @map("status_def_id")
+  statusDef   LeadStatusDef? @relation(fields: [statusDefId], references: [id], onDelete: NoAction)
   sourceAttribution Json @default("{}") @map("source_attribution")
   source      String?
   ownerUserId String?    @map("owner_user_id")
@@ -1148,6 +1152,9 @@ model DialerSession {
 
 model Call {
   coachSession   CoachSession?
+  /// The CRM status the agent chose at wrap-up (business handling), apart from the telephony `outcome`.
+  statusDefId    String?           @map("status_def_id")
+  statusDef      LeadStatusDef?    @relation(fields: [statusDefId], references: [id], onDelete: NoAction)
   id             String            @id @default(cuid())
   businessId     String            @map("business_id")
   userId         String            @map("user_id")
@@ -4024,4 +4031,28 @@ model ReconciliationItem {
   run ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   @@index([runId, kind])
   @@map("reconciliation_items")
+}
+
+/// A business's lead status: a stable id + label + order, and its operational meaning (`kind`). The 7 system
+/// statuses (one per kind, isSystem) are renamed but never deleted; custom statuses are soft-deleted (history keeps
+/// its references). Follow-up / sale / closed behaviour always comes from `kind`, never from the label.
+model LeadStatusDef {
+  id          String     @id @default(cuid())
+  businessId  String     @map("business_id")
+  kind        LeadStatus
+  label       String
+  sortOrder   Int        @default(0) @map("sort_order")
+  isSystem    Boolean    @default(false) @map("is_system")
+  /// false = not offered for selection (statuses that were "hidden" before); existing leads keep it.
+  active      Boolean    @default(true)
+  deletedAt   DateTime?  @map("deleted_at")
+  createdById String?    @map("created_by_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  business    Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  leads       Lead[]
+  calls       Call[]
+
+  @@index([businessId, deletedAt])
+  @@map("lead_status_defs")
 }

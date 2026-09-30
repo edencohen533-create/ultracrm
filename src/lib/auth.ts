@@ -29,6 +29,9 @@ export interface SessionUser {
   teamId: string | null;
   /** Account.sessionVersion at sign-in; a password change bumps it and invalidates older tokens. */
   sessionVersion?: number;
+  /** Platform support access (read-only, time-boxed) – validated against SupportSession on every request. */
+  supportSessionId?: string;
+  support?: { id: string; expiresAt: string; businessName: string } | null;
 }
 
 export async function signSession(user: SessionUser) {
@@ -53,6 +56,7 @@ async function verify(token: string): Promise<SessionUser | null> {
       role: payload.role as UserRole,
       teamId: (payload.teamId as string | null) ?? null,
       sessionVersion: typeof payload.sessionVersion === "number" ? payload.sessionVersion : 0,
+      ...(typeof payload.supportSessionId === "string" ? { supportSessionId: payload.supportSessionId } : {}),
     };
   } catch {
     return null;
@@ -83,10 +87,25 @@ export async function requireUser(req: NextRequest): Promise<SessionUser> {
   assertSameOriginMutation(req);
   const session = await getSessionFromRequest(req);
   if (!session) throw new ApiError("לא מחובר", 401, "unauthorized");
-  return revalidateSession(session);
+  const user = await revalidateSession(session);
+  // Support access is read-only on the server: no change, send, dial, charge or secret – whatever the UI shows.
+  if (user.support) {
+    const { supportRequestRefusal } = await import("@/lib/platform/support");
+    const refusal = supportRequestRefusal(req.method, new URL(req.url));
+    if (refusal) throw new ApiError(refusal, 403, "support_read_only");
+  }
+  return user;
 }
 
 export async function revalidateSession(session: SessionUser): Promise<SessionUser> {
+  if (session.supportSessionId) {
+    // A support identity is never an active member: the SupportSession row is what grants (and ends) access.
+    const { activeSupportSession } = await import("@/lib/platform/support");
+    const s = await activeSupportSession(session.supportSessionId, session.accountId, session.id, session.businessId);
+    const u = s ? await db.user.findUnique({ where: { id: session.id }, select: { isSupport: true, businessId: true, fullName: true, email: true, business: { select: { isActive: true } } } }) : null;
+    if (!s || !u?.isSupport || u.businessId !== session.businessId) throw new ApiError("גישת התמיכה הסתיימה", 401, "unauthorized");
+    return { ...session, role: "manager", teamId: null, fullName: u.fullName, email: u.email, support: { id: s.id, expiresAt: s.expiresAt.toISOString(), businessName: s.businessName } };
+  }
   const user = await db.user.findUnique({
     where: { id: session.id },
     select: { id: true, isActive: true, role: true, teamId: true, businessId: true, accountId: true, fullName: true, email: true, business: { select: { isActive: true } }, account: { select: { sessionVersion: true, isActive: true } } },

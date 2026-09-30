@@ -271,15 +271,45 @@ export async function applyEntitlementChange(actor: SessionUser, businessId: str
   });
 }
 
-export async function setAccessStatus(actor: SessionUser, businessId: string, status: "active" | "trial" | "grace" | "suspended", until: Date | null) {
+export const ACCESS_STATUSES = ["setup", "trial", "active", "grace", "suspended", "cancelled"] as const;
+export type AccessStatus = (typeof ACCESS_STATUSES)[number];
+/** What changing the status does, BEFORE it is done (shown with the confirmation). Data is never deleted. */
+export async function statusImpact(businessId: string, status: AccessStatus) {
+  return withoutBusiness(async () => {
+    const [campaigns, journeys, dialerSessions, dialLists, stores, webhooks, users, settings] = await Promise.all([
+      db.campaign.count({ where: { businessId, status: { in: ["SCHEDULED", "RUNNING"] } } }),
+      db.marketingSequence.count({ where: { businessId, isActive: true } }),
+      db.dialerSession.count({ where: { businessId, status: { in: ["active", "paused"] } } }),
+      db.dialList.count({ where: { businessId, isActive: true, archivedAt: null } }),
+      db.storeConnection.count({ where: { businessId, isActive: true } }),
+      db.webhookEndpoint.count({ where: { businessId, isActive: true } }),
+      db.user.count({ where: { businessId, isActive: true } }),
+      db.business.findUnique({ where: { id: businessId }, select: { settings: true } }),
+    ]);
+    const stops = status === "suspended" || status === "cancelled";
+    return { status, stops, users, campaigns, journeys, dialerSessions, dialLists, stores, outgoingWebhooks: webhooks, serviceAgent: Boolean((settings?.settings as { ai?: { service?: { enabled?: boolean } } } | null)?.ai?.service?.enabled),
+      effects: stops ? [
+        "משתמשי העסק לא יוכלו לבצע פעולות במודולים (הכניסה תציג שהגישה מושעית)",
+        "קמפיינים, מסעות, אוטומציות, סוכן השירות וחיוג אוטומטי נעצרים לפני כל שליחה / חיוג",
+        "Webhooks יוצאים ללקוח נעצרים; אירועים נכנסים (WhatsApp, חנות, טלפוניה) ממשיכים להישמר – שום מידע לא הולך לאיבוד",
+        "שום נתון לא נמחק; חידוש מחזיר את הפעילות מאותה נקודה",
+      ] : ["הגישה והפעילות לפי החבילה והמודולים", ...(status === "trial" || status === "grace" ? ["בתאריך הסיום העסק יושעה אוטומטית (ללא מחיקה)"] : [])] };
+  });
+}
+
+export async function setAccessStatus(actor: SessionUser, businessId: string, status: AccessStatus, until: Date | null, opts: { reason?: string; confirmName?: string } = {}) {
   await requirePlatformAdmin(actor);
   if ((status === "trial" || status === "grace") && !until) throw new ApiError("לניסיון / תקופת חסד יש לקבוע תאריך סיום", 400, "validation");
   return withoutBusiness(async () => {
-    const b = await db.business.findUnique({ where: { id: businessId }, select: { accessStatus: true, accessUntil: true } });
+    const b = await db.business.findUnique({ where: { id: businessId }, select: { name: true, accessStatus: true, accessUntil: true } });
     if (!b) throw new ApiError("עסק לא נמצא", 404, "not_found");
-    await db.business.update({ where: { id: businessId }, data: { accessStatus: status, accessUntil: status === "active" || status === "suspended" ? null : until } });
+    if (status === "suspended" || status === "cancelled") {
+      if (!opts.reason?.trim()) throw new ApiError("להשעיה / ביטול יש לכתוב סיבה", 400, "reason_required");
+      if ((opts.confirmName ?? "").trim() !== b.name.trim()) throw new ApiError("לאישור יש להקליד את שם העסק בדיוק", 400, "confirm_name");
+    }
+    await db.business.update({ where: { id: businessId }, data: { accessStatus: status, accessUntil: status === "trial" || status === "grace" ? until : null, statusReason: opts.reason?.trim() || null, cancelledAt: status === "cancelled" ? new Date() : null } });
     invalidateEntitlement(businessId);
-    await accessAudit({ businessId, actorAccountId: actor.accountId, action: "access_status_changed", before: b, after: { accessStatus: status, accessUntil: until } });
+    await accessAudit({ businessId, actorAccountId: actor.accountId, action: "access_status_changed", before: { accessStatus: b.accessStatus, accessUntil: b.accessUntil }, after: { accessStatus: status, accessUntil: until, reason: opts.reason ?? null } });
   });
 }
 
@@ -289,7 +319,7 @@ export async function businessDetail(businessId: string) {
     if (!b) throw new ApiError("עסק לא נמצא", 404, "not_found");
     const ent = await businessEntitlement(businessId);
     const grants = await db.entitlementGrant.findMany({ where: { businessId }, orderBy: { createdAt: "desc" } });
-    const users = await db.user.findMany({ where: { businessId }, orderBy: [{ isActive: "desc" }, { fullName: "asc" }], select: { id: true, fullName: true, email: true, role: true, isActive: true, teamId: true, permissions: true } });
+    const users = await db.user.findMany({ where: { businessId, isSupport: false }, orderBy: [{ isActive: "desc" }, { fullName: "asc" }], select: { id: true, fullName: true, email: true, role: true, isActive: true, teamId: true, permissions: true } });
     const rows = [];
     for (const u of users) { const p = await userPermissions(businessId, u, ent); rows.push({ id: u.id, fullName: u.fullName, email: u.email, role: u.role, isActive: u.isActive, derived: p.derived, template: u.role === "owner" ? "owner" : p.template, scope: p.scope, permissions: p.modules, effective: u.isActive ? (await effectiveAccess(businessId, u.id)).modules : null }); }
     const audit = await db.accessAuditLog.findMany({ where: { businessId }, orderBy: { createdAt: "desc" }, take: 50 });

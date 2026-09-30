@@ -13,6 +13,8 @@ export async function notifyAgentNewLead(businessId: string, leadId: string, use
   const { leadAssignment } = await getBusinessSettings(businessId);
   const cfg = leadAssignment.notifyWhatsApp;
   if (!cfg?.enabled) return { status: "disabled" as const };
+  const { businessCanUse } = await import("@/lib/access/engine");
+  if (!(await businessCanUse(businessId, "whatsapp"))) return { status: "disabled" as const };
   const [user, lead] = await Promise.all([
     prisma.user.findFirst({ where: { id: userId, businessId, isActive: true }, select: { personalPhone: true } }),
     prisma.lead.findFirst({ where: { id: leadId, businessId }, select: { source: true, contact: { select: { fullName: true, phoneE164: true } } } }),

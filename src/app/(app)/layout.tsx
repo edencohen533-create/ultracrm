@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { AccessGate } from "@/components/layout/AccessGate";
 import { HotLeadsBanner } from "@/components/telephony/HotLeadsBanner";
 import { OpsAgentRequests } from "@/components/ai/OpsAgentRequests";
+import { SupportBanner } from "@/components/platform/SupportBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -36,13 +37,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Sidebar
           user={{ fullName: session.fullName, role: session.role }}
           businessName={business?.name ?? "UltraCRM"}
-          businesses={memberships.map((m) => ({ id: m.business.id, name: m.business.name, active: m.businessId === session.businessId }))}
+          businesses={session.support ? [] : memberships.map((m) => ({ id: m.business.id, name: m.business.name, active: m.businessId === session.businessId }))}
           modules={entitlements.modules}
           access={access.modules}
-          platformAdmin={Boolean(account?.isPlatformAdmin)}
+          platformAdmin={Boolean(account?.isPlatformAdmin) && !session.support}
           planName={entitlements.planName}
         />
         <div className="app-main-col flex-1 min-w-0 flex flex-col">
+          {session.support && <SupportBanner businessName={session.support.businessName} expiresAt={session.support.expiresAt} />}
           {dialer && <CallBar />}
           {dialer && <HotLeadsBanner />}
           <OpsAgentRequests />

@@ -23,7 +23,7 @@ export const GET = withAuth(async ({ req, user }) => {
   const from = f.from ? new Date(f.from) : businessDayStart(settings.timezone);
   const to = f.to ? new Date(f.to) : new Date();
   const [agents, metrics, deals, quality] = await Promise.all([
-    prisma.user.findMany({ where: { businessId: user.businessId, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, fullName: true, isActive: true, presence: true, presenceAt: true, lastSeenAt: true }, orderBy: { fullName: "asc" } }),
+    prisma.user.findMany({ where: { businessId: user.businessId, isSupport: false, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, fullName: true, isActive: true, presence: true, presenceAt: true, lastSeenAt: true }, orderBy: { fullName: "asc" } }),
     agentMetrics({ businessId: user.businessId, userIds, from, to }),
     prisma.deal.groupBy({ by: ["ownerUserId"], where: { businessId: user.businessId, status: "won", closedAt: { gte: from, lte: to }, ...(userIds ? { ownerUserId: { in: userIds } } : {}) }, _count: { _all: true } }),
     leadQualityByAgent(user.businessId, userIds, from, to),

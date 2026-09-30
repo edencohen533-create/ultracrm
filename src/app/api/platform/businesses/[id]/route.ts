@@ -1,6 +1,7 @@
 import { withAuth } from "@/lib/api";
 import { ok } from "@/lib/response";
-import { businessDetail, requirePlatformAdmin } from "@/lib/access/manage";
+import { platformBusinessView } from "@/lib/platform/businesses";
 
 export const dynamic = "force-dynamic";
-export const GET = withAuth(async ({ user, params }) => { await requirePlatformAdmin(user); return ok(await businessDetail(params.id)); });
+/** Platform admins only: one business – status, package, seats, usage, health, billing state, support, audit. No content. */
+export const GET = withAuth(async ({ user, params }) => ok(await platformBusinessView(user, params.id)));

@@ -15,7 +15,8 @@ interface ListRow {
   stats: { byStatus: Record<string, number>; dueNow: number; total: number };
 }
 
-export default function ListsPage() {
+/** "חייגן → רשימות חיוג": the dial lists (create, activate / deactivate, agents, move leads, delete, start the dialer). */
+export function DialListsScreen() {
   const [lists, setLists] = useState<ListRow[] | null>(null);
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -48,7 +49,7 @@ export default function ListsPage() {
         dialWindow: { start: form.start, end: form.end, days: form.days }, scriptId: form.scriptId || null, phoneNumberId: form.phoneNumberId || null, isDynamic: form.isDynamic, audience: form.audience, agentIds: form.access === "all" ? [] : form.agentIds,
         filter: form.filterSource || form.filterNeverCalled ? { source: form.filterSource || undefined, neverCalled: form.filterNeverCalled ? "true" : undefined } : undefined,
       });
-      toast.success(t(`הרשימה נוצרה${r.added ? ` עם ${r.added} לידים` : ""}`, `List created${r.added ? ` with ${r.added} leads` : ""}`));
+      toast.success(t(`רשימת החיוג נוצרה${r.added ? ` עם ${r.added} לידים` : ""}`, `List created${r.added ? ` with ${r.added} leads` : ""}`));
       setOpen(false);
       load();
     } catch (e) {
@@ -62,15 +63,15 @@ export default function ListsPage() {
   return (
     <div className="p-5 space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold">{t("קמפיינים – חייגן", "Campaigns – Dialer")}</h1>
-        {isManager && <Button size="sm" className="ms-auto" onClick={() => setOpen(true)}>{t("+ רשימה חדשה", "+ New list")}</Button>}
+        <h1 className="text-lg font-semibold">{t("רשימות חיוג", "Dial lists")}</h1>
+        {isManager && <Button size="sm" className="ms-auto" onClick={() => setOpen(true)}>{t("+ רשימת חיוג חדשה", "+ New dial list")}</Button>}
       </div>
       {isManager && <QueueAlerts />}
-      {!lists ? <div className="flex justify-center p-10"><Spinner /></div> : lists.length === 0 ? <EmptyState title={t("אין רשימות", "No lists")} hint={t("צור רשימה מסינון אנשי קשר או ידנית", "Create a list from a contact filter or manually")} /> : (
+      {!lists ? <div className="flex justify-center p-10"><Spinner /></div> : lists.length === 0 ? <EmptyState title={t("אין רשימות חיוג", "No dial lists")} hint={t("צור רשימת חיוג מסינון אנשי קשר או ידנית", "Create a dial list from a contact filter or manually")} /> : (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
           {lists.map((l) => (
             <div key={l.id} className={`bg-panel border border-line rounded-xl p-4 hover:border-accent/50 transition-colors ${l.isActive ? "" : "opacity-80"}`} data-testid={`list-card-${l.id}`}>
-            <Link href={`/lists/${l.id}`} className="block">
+            <Link href={`/calling/lists/${l.id}`} className="block">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-semibold truncate">{l.name}</h2>
                 <Badge tone={l.isActive ? "good" : "neutral"}>{l.isActive ? t("פעילה", "Active") : t("לא פעילה", "Inactive")}</Badge>
@@ -94,7 +95,7 @@ export default function ListsPage() {
           <Input label={t("שם", "Name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="col-span-2" />
           <Textarea label={t("תיאור", "Description")} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="col-span-2" />
           <Input label={t("עדיפות (0–100)", "Priority (0–100)")} type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })} />
-          <Select label={t("מטרת הקמפיין", "Campaign purpose")} value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value as typeof form.audience })} data-testid="list-audience">
+          <Select label={t("מטרת רשימת החיוג", "Dial list purpose")} value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value as typeof form.audience })} data-testid="list-audience">
             <option value="new_prospects">{t("גיוס לקוחות חדשים", "New customer acquisition")}</option>
             <option value="existing_customers">{t("חידושים / מכירה נוספת ללקוחות קיימים", "Renewals / upsell to existing customers")}</option>
             <option value="all">{t("כולם (לידים ולקוחות)", "Everyone (leads and customers)")}</option>
@@ -128,7 +129,7 @@ export default function ListsPage() {
             </div>
           </div>
           <div className="col-span-2">
-            <span className="block text-xs text-muted mb-1">{t("למי הקמפיין פתוח", "Who the campaign is open to")}</span>
+            <span className="block text-xs text-muted mb-1">{t("למי רשימת החיוג פתוחה", "Who the dial list is open to")}</span>
             <div className="flex gap-4 text-sm mb-2"><label className="flex items-center gap-1"><input type="radio" checked={form.access === "all"} onChange={() => setForm({ ...form, access: "all" })} /> {t("כל הנציגים בעסק", "All agents in the business")}</label><label className="flex items-center gap-1"><input type="radio" checked={form.access === "selected"} onChange={() => setForm({ ...form, access: "selected" })} /> {t("נציגים מסוימים", "Specific agents")}</label></div>
             {form.access === "selected" && <div className="flex flex-wrap gap-1.5">
               {users.filter((u) => u.role === "agent" || u.role === "manager").map((u) => (
@@ -161,7 +162,7 @@ function QueueAlerts() {
   return (
     <div className="rounded-xl border border-warn/40 bg-warn/10 p-3 space-y-1" data-testid="queue-alerts">
       <p className="text-sm font-semibold">{t("נציגים ללא לידים זמינים", "Agents without available leads")}</p>
-      {open.map((a) => <p key={a.id} className="text-sm" data-testid="queue-alert">{t("לנציג", "Agent")} <b>{a.agent}</b> {t("אין כרגע לידים זמינים לחיוג בקמפיין", "currently has no leads available to dial in campaign")} <Link className="underline" href={`/lists/${a.listId}`}>{a.list}</Link>. {t("מוצו:", "Exhausted:")} {a.exhaustedCount}. {a.nextAt ? t(`החיוג הבא צפוי ב-${new Date(a.nextAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })}.`, `Next dial expected at ${new Date(a.nextAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}.`) : t("אין עבודה עתידית בקמפיין.", "No future work in the campaign.")}</p>)}
+      {open.map((a) => <p key={a.id} className="text-sm" data-testid="queue-alert">{t("לנציג", "Agent")} <b>{a.agent}</b> {t("אין כרגע לידים זמינים לחיוג ברשימה", "currently has no leads available to dial in list")} <Link className="underline" href={`/calling/lists/${a.listId}`}>{a.list}</Link>. {t("מוצו:", "Exhausted:")} {a.exhaustedCount}. {a.nextAt ? t(`החיוג הבא צפוי ב-${new Date(a.nextAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })}.`, `Next dial expected at ${new Date(a.nextAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}.`) : t("אין עבודה עתידית ברשימה.", "No future work in the list.")}</p>)}
     </div>
   );
 }

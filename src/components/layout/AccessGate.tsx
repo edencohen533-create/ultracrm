@@ -10,7 +10,7 @@ import { useT } from "@/components/i18n/LangProvider";
 /** Screen → what it needs (any of). Data is protected by the APIs; this only avoids showing an empty, failing screen. */
 const SCREENS: Array<{ match: (p: string) => boolean; need: string[] }> = [
   { match: (p) => p.startsWith("/sales") || p === "/leads" || p.startsWith("/leads/") || p.startsWith("/deals") || p.startsWith("/tasks"), need: ["crm.view"] },
-  { match: (p) => p.startsWith("/dialer") || p.startsWith("/lists") || p.startsWith("/calls"), need: ["telephony.use"] },
+  { match: (p) => p.startsWith("/dialer") || p.startsWith("/calling") || p.startsWith("/lists") || p.startsWith("/calls"), need: ["telephony.use"] },
   { match: (p) => p.startsWith("/manager") || p.startsWith("/numbers"), need: ["telephony.team_settings"] },
   { match: (p) => p.startsWith("/campaigns"), need: ["whatsapp.campaign_draft", "whatsapp.campaign_send", "sms.view", "email.view"] },
   { match: (p) => p.startsWith("/audiences") || p === "/contacts" || p.startsWith("/contacts/"), need: ["crm.view", "sms.draft", "email.draft", "whatsapp.campaign_draft", "telephony.use", "whatsapp.view"] },

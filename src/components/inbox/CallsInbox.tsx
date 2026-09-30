@@ -41,7 +41,7 @@ export function CallsInbox() {
     try {
       await dial(r.contact ? { mode: "manual", contactId: r.contact.id } : { mode: "manual", phone: r.toE164 });
       // The component lives inside the lead workspace (drawer); the embedded dialer opens there – no navigation needed.
-      if (!pathname.startsWith("/leads") && !pathname.startsWith("/lists/")) router.push("/leads");
+      if (!pathname.startsWith("/leads") && !pathname.startsWith("/calling/lists/")) router.push("/leads");
     } catch (e) { toast.error((e as Error).message); }
   }
   return (

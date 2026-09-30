@@ -821,3 +821,7 @@ button.seg-item { width: 100%; }
 }
 /* Touch screens: checkboxes/radios big enough to tap. */
 @media (pointer:coarse){input[type=checkbox],input[type=radio]{min-width:20px;min-height:20px}}
+
+/* "חייגן" area tabs – same look as the reports toolbar; scrolls sideways on narrow phones instead of wrapping. */
+.dialer-hub-nav { overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+.dialer-hub-nav a { flex-shrink: 0; }

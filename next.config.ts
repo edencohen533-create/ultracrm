@@ -2,6 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Old telephony URLs → the "חייגן" area (query strings / filters are carried over), so saved links keep working.
+  async redirects() {
+    return [
+      { source: "/lists", destination: "/calling/lists", permanent: false },
+      { source: "/lists/:id", destination: "/calling/lists/:id", permanent: false },
+      { source: "/manager/calls", destination: "/calling/history", permanent: false },
+    ];
+  },
   async headers() {
     return [
       { source: "/:path*", headers: [

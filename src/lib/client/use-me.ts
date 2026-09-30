@@ -11,6 +11,8 @@ export interface Me {
   modules: { crm: boolean; messaging: boolean; telephony: boolean; whatsapp?: boolean; sms?: boolean; email?: boolean };
   plan: { key: string | null; name: string | null };
   telephony: { provider: string; simulation: boolean };
+  /** What this user may do (package ∩ assigned permissions) – for hiding UI only; the server enforces it. */
+  access?: { scope: string; modules: Record<string, { state: string; actions: string[] }> };
 }
 
 let cached: Me | null = null;

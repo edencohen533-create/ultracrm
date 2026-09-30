@@ -221,7 +221,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
             {c.queueLeads.length > 0 && (
               <div className="mt-3 border-t border-line pt-3">
                 <p className="text-xs text-muted mb-1">{t("רשימות חיוג", "Dial lists")}</p>
-                {c.queueLeads.map((l) => <div key={l.id} className="flex justify-between text-xs py-0.5"><Link href={`/lists/${l.list.id}`} className="hover:underline">{l.list.name}</Link><span className="text-muted">{l.status} · {l.attempts} {t("ניסיונות", "attempts")}</span></div>)}
+                {c.queueLeads.map((l) => <div key={l.id} className="flex justify-between text-xs py-0.5"><Link href={`/calling/lists/${l.list.id}`} className="hover:underline">{l.list.name}</Link><span className="text-muted">{l.status} · {l.attempts} {t("ניסיונות", "attempts")}</span></div>)}
               </div>
             )}
           </Panel>
@@ -297,7 +297,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
             <div className="flex gap-2"><Textarea rows={2} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} placeholder={t("הערה פנימית לכרטיס (לא נשלחת ללקוח)", "Internal note on the card (not sent to the customer)")} /><Button onClick={addNote} disabled={!noteBody.trim()}>{t("שמור", "Save")}</Button></div>
           </Panel>
 
-          <Panel title={t("ציר פעילות", "Activity timeline")} bodyClassName="p-0">
+          <Panel title={t("ציר פעילות", "Activity timeline")} bodyClassName="p-0" actions={me?.modules.telephony ? <Link href={`/calling/history?contactId=${encodeURIComponent(c.id)}`} className="text-xs text-accent underline" data-testid="contact-all-calls">{t("כל השיחות של הלקוח", "All of the customer's calls")}</Link> : undefined}>
             {!timeline ? <div className="p-4"><Spinner /></div> : timeline.length === 0 ? <EmptyState title={t("אין פעילות עדיין", "No activity yet")} /> : (
               <ul className="divide-y divide-line">
                 {timeline.map((it) => (

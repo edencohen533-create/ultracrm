@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, qs } from "@/lib/client/api";
 import { Panel, Select, Spinner, cx } from "@/components/ui";
@@ -29,6 +30,8 @@ function presetRange(p: Preset, today: string): [string, string] {
   }
 }
 const KEY = ["answerRate", "leadCloseRate", "dealsWon", "revenue"];
+/** Call metrics that open "חייגן → היסטוריית שיחות" with the same period / agent / list (the same rows they count). */
+const CALL_METRIC: Record<string, "outbound" | "answered"> = { outbound: "outbound", answered: "answered", answerRate: "outbound", talkSeconds: "answered", avgTalkSeconds: "answered" };
 
 /**
  * Reports page: filters & dates → key metrics (value, comparison value, change) → daily charts → per-agent detail.
@@ -62,6 +65,15 @@ export function ReportsOverview() {
   const range = (p: PeriodView) => (p.from === p.to ? d(p.from) : `${d(p.from)} – ${d(p.to)}`);
   const time = (iso: string) => new Date(iso).toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", timeZone: data?.timezone });
   const curStart = data?.periods.current.start, curEnd = data?.periods.current.end;
+  const historyHref = (id: string) => {
+    const metric = CALL_METRIC[id];
+    // A product filter has no equivalent in the call history – no link rather than a list that doesn't match the number.
+    if (!metric || !data || product) return undefined;
+    const p = new URLSearchParams({ from: data.periods.current.from, to: data.periods.current.to, metric });
+    if (userId) p.set("userId", userId);
+    if (listId) p.set("listId", listId);
+    return `/calling/history?${p.toString()}`;
+  };
   const detailRange = useMemo(() => (curStart && curEnd ? { from: curStart, to: curEnd, userId: userId || null } : undefined), [curStart, curEnd, userId]);
 
   return (
@@ -77,7 +89,7 @@ export function ReportsOverview() {
             <option value="previous">{t("התקופה הקודמת (אותו אורך)", "Previous period (same length)")}</option><option value="custom">{t("טווח מותאם", "Custom range")}</option><option value="none">{t("ללא השוואה", "No comparison")}</option>
           </Select>
           <Select label={t("נציג", "Agent")} value={userId} onChange={(e) => setUserId(e.target.value)} data-testid="rep-agent"><option value="">{t("כל הנציגים", "All agents")}</option>{opts?.agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}</Select>
-          <Select label={t("קמפיין", "Campaign")} value={listId} onChange={(e) => setListId(e.target.value)} data-testid="rep-list"><option value="">{t("כל הקמפיינים", "All campaigns")}</option>{opts?.lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select>
+          <Select label={t("רשימת חיוג", "Dial list")} value={listId} onChange={(e) => setListId(e.target.value)} data-testid="rep-list"><option value="">{t("כל רשימות החיוג", "All dial lists")}</option>{opts?.lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select>
           {(opts?.products.length ?? 0) > 0 && <Select label={t("מוצר", "Product")} value={product} onChange={(e) => setProduct(e.target.value)} data-testid="rep-product"><option value="">{t("כל המוצרים", "All products")}</option>{opts!.products.map((p) => <option key={p} value={p}>{p}</option>)}</Select>}
         </div>
         {(preset === "custom" || compare === "custom") && (
@@ -104,10 +116,10 @@ export function ReportsOverview() {
         <>
           {/* 2. Key metrics */}
           <section aria-label={t("מדדים מרכזיים", "Key metrics")} className={cx("grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4", loading && "opacity-60")} data-testid="rep-kpis">
-            {data.metrics.filter((m) => KEY.includes(m.id)).map((m) => <MetricCard key={m.id} m={m} big />)}
+            {data.metrics.filter((m) => KEY.includes(m.id)).map((m) => <MetricCard key={m.id} m={m} big href={historyHref(m.id)} />)}
           </section>
           <section aria-label={t("מדדים נוספים", "More metrics")} className={cx("grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4", loading && "opacity-60")}>
-            {data.metrics.filter((m) => !KEY.includes(m.id)).map((m) => <MetricCard key={m.id} m={m} />)}
+            {data.metrics.filter((m) => !KEY.includes(m.id)).map((m) => <MetricCard key={m.id} m={m} href={historyHref(m.id)} />)}
           </section>
 
           {/* 3. Charts */}
@@ -137,7 +149,7 @@ function fmt(v: number | null, kind: MetricKind, lang: string) {
   return v.toLocaleString(loc);
 }
 
-function MetricCard({ m, big = false }: { m: Metric; big?: boolean }) {
+function MetricCard({ m, big = false, href }: { m: Metric; big?: boolean; href?: string }) {
   const t = useT();
   const c = m.change;
   const sign = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
@@ -156,6 +168,7 @@ function MetricCard({ m, big = false }: { m: Metric; big?: boolean }) {
       <div className="flex items-center gap-1 text-xs text-muted">{t(m.label, m.en)}<HelpTip label={t(m.label, m.en)} testId={`rep-help-${m.id}`}>{t(m.definition, m.definitionEn)}{m.direction === "neutral" ? t(" שינוי במדד זה אינו מסומן כטוב או רע.", " A change here is not marked good or bad.") : ""}</HelpTip></div>
       <p className={cx("mt-1 font-bold tabular-nums", big ? "text-2xl" : "text-xl")} dir="ltr" style={{ textAlign: "start" }} data-testid="rep-value">{fmt(c.current, m.kind, t.lang)}</p>
       {c.note !== "no_compare" && <p className="text-xs text-muted" data-testid="rep-prev">{t("לעומת", "vs")} <span dir="ltr">{fmt(c.previous, m.kind, t.lang)}</span></p>}
+      {href && <Link href={href} className="mt-1 inline-block text-xs text-accent underline" data-testid={`rep-open-${m.id}`}>{t("לשיחות בהיסטוריה ←", "Open in call history →")}</Link>}
       {change && <p className={cx("mt-1 text-xs font-medium", tone)} data-testid="rep-change"><span aria-hidden="true">{arrow} </span>{change}{c.trend === "better" ? <span className="sr-only">{t(" – שיפור", " – improvement")}</span> : c.trend === "worse" ? <span className="sr-only">{t(" – ירידה", " – decline")}</span> : null}</p>}
     </article>
   );

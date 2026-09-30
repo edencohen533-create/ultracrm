@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * "עכשיו" – live floor. Polls /api/manager/live every 1.5s (existing realtime
+ * "חייגן → שיחות פעילות" – live floor. Polls /api/manager/live every 1.5s (existing realtime
  * infrastructure is server polling). Rows are merged by agent id so the table
  * never re-orders under the cursor; timers run locally from server timestamps
  * with the server/client clock offset applied. Stale data is flagged, never
@@ -25,7 +25,7 @@ interface Row {
   call: { id: string; status: string; direction: string; toE164: string; contact: { id: string; fullName: string } | null; list: { id: string; name: string } | null; createdAt: string; ringingAt: string | null; answeredAt: string | null; canMonitor: boolean; monitors: Array<{ id: string; managerId: string; mode: string; status: string; manager: { fullName: string } }> } | null;
   today: Metrics | null;
 }
-interface Live { serverNow: string; rows: Row[]; counts: Record<string, number>; today: Metrics & { failedBeforeProvider: number }; telephony: { simulation: boolean }; teams: Array<{ id: string; name: string }>; dialingPaused: boolean }
+interface Live { serverNow: string; rows: Row[]; counts: Record<string, number>; today: Metrics & { failedBeforeProvider: number }; telephony: { simulation: boolean }; mayMonitor?: boolean; teams: Array<{ id: string; name: string }>; dialingPaused: boolean }
 
 const STATUS: Record<LiveStatus, { label: string; en: string; tone: "neutral" | "good" | "warn" | "info" | "bad" | "accent"; icon: string }> = {
   available: { label: "זמין", en: "Available", tone: "info", icon: "●" },
@@ -129,7 +129,7 @@ export function LiveFloor() {
           <Badge tone={conn.tone} dot>{conn.label}</Badge>
           {lastOk && <span className="text-xs text-muted">{t("עדכון אחרון", "Last update")} {new Date(lastOk).toLocaleTimeString(locale)}</span>}
           {live.telephony.simulation && <Badge tone="warn">{t("מצב הדמיה – אין אודיו אמיתי", "Simulation mode – no real audio")}</Badge>}
-          {phone.status !== "ready" && phone.status !== "simulation" && <Badge tone="bad">{t("הדפדפן שלך לא רשום לטלפוניה – האזנה לא זמינה", "Your browser is not registered for telephony – listening unavailable")}</Badge>}
+          {live.mayMonitor && phone.status !== "ready" && phone.status !== "simulation" && <Badge tone="bad">{t("הדפדפן שלך לא רשום לטלפוניה – האזנה לא זמינה", "Your browser is not registered for telephony – listening unavailable")}</Badge>}
           <div className="ms-auto">
             {live.dialingPaused ? (
               <Button size="sm" variant="good" onClick={() => api.post("/api/manager/pause", { scope: "business", paused: false }).then(() => { toast.success(t("החיוג חודש", "Dialing resumed")); poll(); }).catch((e) => toast.error(e.message))}>{t("▶ חדש חיוגים לכל העסק", "▶ Resume dialing for the whole business")}</Button>
@@ -139,6 +139,8 @@ export function LiveFloor() {
           </div>
         </div>
         {live.dialingPaused && <div className="rounded-lg bg-bad/10 text-bad text-sm p-3">{t("החיוג היוצא מושהה ברמת העסק. שיחות פעילות לא הופסקו; נציגים לא יכולים לחייג או למשוך לידים.", "Outbound dialing is paused for the business. Active calls were not stopped; agents can't dial or pull leads.")}</div>}
+
+        <ActiveCalls rows={live.rows} serverNow={serverNow} />
 
         <section>
           <h2 className="text-xs font-semibold text-muted mb-2">{t("מצב המוקד כרגע", "Current floor status")}</h2>
@@ -264,6 +266,35 @@ export function LiveFloor() {
         />
       )}
     </div>
+  );
+}
+
+/** The calls that are live right now (agent, customer, dial list, state, running duration) – or a clear empty state. */
+function ActiveCalls({ rows, serverNow }: { rows: Row[]; serverNow: number }) {
+  const t = useT();
+  const active = rows.filter((r) => r.call).sort((a, b) => new Date(a.call!.createdAt).getTime() - new Date(b.call!.createdAt).getTime());
+  const secs = (iso: string) => Math.max(0, Math.round((serverNow - new Date(iso).getTime()) / 1000));
+  return (
+    <section data-testid="active-calls">
+      <h2 className="text-xs font-semibold text-muted mb-2">{t(`שיחות פעילות (${active.length})`, `Active calls (${active.length})`)}</h2>
+      {active.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-line bg-panel px-4 py-6 text-center text-sm text-muted" data-testid="active-calls-empty">{t("אין שיחות פעילות כרגע. שיחה שתתחיל תופיע כאן אוטומטית.", "No active calls right now. A call that starts will appear here automatically.")}</div>
+      ) : (
+        <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {active.map((r) => {
+            const c = r.call!;
+            const st = STATUS[r.status];
+            return (
+              <li key={c.id} className={cx("rounded-lg border bg-panel px-3 py-2 text-sm", c.answeredAt ? "border-good/40" : "border-line")} data-testid={`active-call-${c.id}`}>
+                <div className="flex items-center justify-between gap-2"><b className="truncate">{r.fullName}</b><Badge tone={st.tone}>{t(st.label, st.en)}</Badge></div>
+                <p className="truncate mt-0.5">{c.contact ? <Link href={`/contacts/${c.contact.id}`} className="hover:underline">{c.contact.fullName}</Link> : t("לא מזוהה", "Unknown")} <Phone value={formatPhone(c.toE164)} className="text-muted text-xs" /></p>
+                <p className="text-xs text-muted flex justify-between gap-2 mt-0.5"><span className="truncate">{c.list?.name ?? r.session?.list?.name ?? (c.direction === "inbound" ? t("שיחה נכנסת", "Inbound call") : t("חיוג ידני", "Manual dial"))}</span><span className="tabular shrink-0">{c.answeredAt ? formatDuration(secs(c.answeredAt)) : `${t("צלצול", "Ringing")} ${formatDuration(secs(c.ringingAt ?? c.createdAt))}`}</span></p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

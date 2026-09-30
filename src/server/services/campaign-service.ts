@@ -97,7 +97,7 @@ export async function createCampaign(input: z.infer<typeof campaignSchema>, acto
   }, { isolationLevel: "RepeatableRead", timeout: 30000 }).catch((error) => { if (error instanceof AudienceError) throw new CampaignError(error.message); throw error; });
 }
 
-export async function changeCampaignStatus(id: string, action: "start" | "pause" | "resume" | "cancel" | "unschedule", scheduledAt?: string, actorUserId?: string, scheduledTimezone?: string, throttle?: { batchSize: number; intervalMinutes: number } | null) {
+export async function changeCampaignStatus(id: string, action: "start" | "pause" | "resume" | "cancel" | "unschedule", scheduledAt?: string, actorUserId?: string, scheduledTimezone?: string, throttle?: { batchSize: number; intervalMinutes: number } | null, sendWindow?: { start: string; end: string; days: number[]; timezone?: string } | null) {
   if (action === "unschedule") {
     // Back to a draft: nothing was sent yet (the worker only claims recipients once the campaign is RUNNING).
     const r = await prisma.campaign.updateMany({ where: { id, status: "SCHEDULED" }, data: { status: "DRAFT", scheduledAt: null, scheduledTimezone: null, preflightSnapshot: Prisma.DbNull, statusReason: null } });
@@ -128,7 +128,7 @@ export async function changeCampaignStatus(id: string, action: "start" | "pause"
   await prisma.$transaction(async (tx) => {
     const result = await tx.campaign.updateMany({
       where: { id, status: { in: from[action] } },
-      data: { status, statusReason: null, ...(action === "start" && throttle !== undefined ? { throttle: throttle === null ? Prisma.DbNull : (throttle as Prisma.InputJsonValue) } : {}), ...((action === "start" || action === "resume") ? { scheduledAt: date, ...(scheduledTimezone ? { scheduledTimezone } : {}), preflightSnapshot: snapshot as Prisma.InputJsonValue } : {}) },
+      data: { status, statusReason: null, ...(action === "start" && throttle !== undefined ? { throttle: throttle === null ? Prisma.DbNull : (throttle as Prisma.InputJsonValue) } : {}), ...(action === "start" && sendWindow !== undefined ? { sendWindow: sendWindow === null ? Prisma.DbNull : (sendWindow as Prisma.InputJsonValue) } : {}), ...((action === "start" || action === "resume") ? { scheduledAt: date, ...(scheduledTimezone ? { scheduledTimezone } : {}), preflightSnapshot: snapshot as Prisma.InputJsonValue } : {}) },
     });
     if (!result.count) throw new CampaignError("לא ניתן לבצע פעולה זו במצב הנוכחי של הקמפיין");
     if (action === "start") {

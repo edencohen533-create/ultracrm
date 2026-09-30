@@ -680,6 +680,9 @@ model Contact {
   storeOrders        StoreOrder[]
   serviceCases       ServiceCase[]
 
+  /// Deleted by the owner: personal details scrubbed, hidden from every list; history (sends, calls, messages,
+  /// deals) keeps pointing at this row, and suppressions / do-not-contact stay (they are by phone / email).
+  deletedAt    DateTime? @map("deleted_at")
   @@unique([businessId, phoneE164])
   @@index([businessId, fullName])
   @@index([businessId, email])
@@ -1792,6 +1795,8 @@ model Campaign {
   /// Why the campaign was paused/failed by the system (provider down, quota…).
   statusReason          String?        @map("status_reason")
   /// Sending pace: { batchSize, intervalMinutes } = at most batchSize recipients per intervalMinutes. Null = as fast as allowed.
+  /// This campaign's sending window {start, end, days, timezone}; null = the business's default window (older campaigns).
+  sendWindow            Json?          @map("send_window")
   throttle              Json?
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")

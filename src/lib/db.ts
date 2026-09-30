@@ -58,6 +58,7 @@ const STRICT_MODELS = new Set<string>([
 
 const WHERE_FILTER_OPS = new Set(["findMany", "findFirst", "findFirstOrThrow", "count", "aggregate", "groupBy", "updateMany", "updateManyAndReturn", "deleteMany"]);
 const WHERE_UNIQUE_OPS = new Set(["findUnique", "findUniqueOrThrow", "update", "delete"]);
+const CONTACT_READS = new Set(["findMany", "findFirst", "findFirstOrThrow", "count", "aggregate", "groupBy"]);
 
 type AnyArgs = Record<string, unknown> & { where?: Record<string, unknown>; data?: unknown; create?: Record<string, unknown> };
 
@@ -96,7 +97,11 @@ function createScopedClient(base: PrismaClient) {
             if (STRICT_MODELS.has(model)) throw new Error(`Business context is required to access ${model}`);
             return query(args);
           }
-          return query(scopeArgs(operation, args, businessId) as typeof args);
+          const scoped = scopeArgs(operation, args, businessId) as AnyArgs;
+          // A deleted contact is hidden from every list / count / search; history that reaches it through a relation
+          // (include) or by its id keeps working. A query that names deletedAt itself decides on its own.
+          if (model === "Contact" && CONTACT_READS.has(operation) && !JSON.stringify(scoped.where ?? {}).includes("deletedAt")) scoped.where = { AND: [scoped.where ?? {}, { deletedAt: null }] };
+          return query(scoped as typeof args);
         },
       },
     },

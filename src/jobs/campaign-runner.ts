@@ -33,7 +33,16 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
     if (!(await businessCanUse(requireBusinessId(), ch))) await prisma.campaign.updateMany({ where: { businessId: requireBusinessId(), channel: ch, status: "RUNNING" }, data: { status: "PAUSED", statusReason: "הערוץ אינו כלול כעת בחבילה של העסק" } });
   }
   const settings = await getBusinessSettings(requireBusinessId());
-  const insideWindow = isWithinDialWindow({ ...settings.marketing.window, timezone: settings.marketing.window.timezone ?? settings.timezone });
+  // Each campaign's own sending window (chosen when it was created); older campaigns without one keep the business's
+  // default window. Outside the window only MARKETING messages wait – service messages go out as before.
+  const businessWindow = { ...settings.marketing.window, timezone: settings.marketing.window.timezone ?? settings.timezone };
+  const windowClosed: string[] = [];
+  for (const c of await prisma.campaign.findMany({ where: { businessId: requireBusinessId(), status: "RUNNING" }, select: { id: true, sendWindow: true, template: { select: { category: true } } } })) {
+    if (c.template?.category !== "MARKETING") continue;
+    const own = c.sendWindow as { start: string; end: string; days: number[]; timezone?: string } | null;
+    const w = own ? { ...own, timezone: own.timezone ?? settings.timezone } : businessWindow;
+    if (!isWithinDialWindow(w)) windowClosed.push(c.id);
+  }
   const budget = settings.marketing.maxPerMinute > 0 ? settings.marketing.maxPerMinute : Number.MAX_SAFE_INTEGER;
   const now = new Date();
   // Per-campaign pace ("X נמענים כל חצי שעה"): recipients claimed inside the current interval count against the batch.
@@ -47,7 +56,7 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
   }
   const pacedOut = [...paceLeft].filter(([, left]) => left <= 0).map(([id]) => id);
   const due = await prisma.campaignRecipient.findMany({
-    where: { status: "QUEUED", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }], ...(pacedOut.length ? { campaignId: { notIn: pacedOut } } : {}), campaign: { businessId: requireBusinessId(), status: "RUNNING", ...(insideWindow ? {} : { template: { category: { not: "MARKETING" } } }) } },
+    where: { status: "QUEUED", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }], ...(pacedOut.length || windowClosed.length ? { campaignId: { notIn: [...pacedOut, ...windowClosed] } } : {}), campaign: { businessId: requireBusinessId(), status: "RUNNING" } },
     orderBy: [{ nextAttemptAt: "asc" }, { id: "asc" }], take: 50, include: { campaign: { select: { channel: true } } },
   });
   let processed = 0;

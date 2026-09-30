@@ -70,6 +70,7 @@ export function smsFooter(marketing: boolean, sender: SmsSender, url: string) {
 }
 
 export async function sendChannelMessage(input: ChannelSendInput): Promise<{ message: Message }> {
+  (await import("@/lib/restore-mode")).assertNotRestoreMode("שליחת הודעות");
   const businessId = requireBusinessId();
   const existing = await prisma.message.findUnique({ where: { requestKey: input.requestKey } });
   if (existing) {
@@ -103,6 +104,11 @@ export async function sendChannelMessage(input: ChannelSendInput): Promise<{ mes
   }
   try { await consumeQuota(businessId, "messages_sent"); }
   catch (err) { await releaseSlot(); if (err instanceof ApiError) throw new QuotaExceededError(err.message); throw err; }
+  // Budget (paid subscription): SMS / email reserve their estimated cost (WhatsApp is billed by Meta to the business directly).
+  {
+    try { await (await import("@/server/billing/budget")).reserveBudget(businessId, { service: input.channel === "sms" ? "sms_segment" : "email_send", units: input.channel === "sms" ? smsMetrics(template.body ?? "").segments : 1, key: `msg:${input.requestKey}` }); }
+    catch (err) { await releaseSlot(); if (err instanceof ApiError) throw new QuotaExceededError(err.message); throw err; }
+  }
 
   const conversation = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "contacts" WHERE id = ${contact.id} FOR UPDATE`;
@@ -237,6 +243,7 @@ export async function sendChannelTest(user: { id: string; businessId: string; fu
  * requestKey idempotency, persist-before-provider, timeout → UNKNOWN.
  */
 export async function sendServiceSms(input: { conversationId: string; body: string; sentByUserId: string; requestKey?: string }): Promise<{ message: Message }> {
+  (await import("@/lib/restore-mode")).assertNotRestoreMode("שליחת הודעות");
   const businessId = requireBusinessId();
   if (input.requestKey) {
     const existing = await prisma.message.findUnique({ where: { requestKey: input.requestKey } });
@@ -254,6 +261,8 @@ export async function sendServiceSms(input: { conversationId: string; body: stri
   if (m.segments > SMS_MAX_SEGMENTS) throw new MessagePolicyError(`ההודעה ארוכה מדי (${m.segments} מקטעים)`);
   const blocked = await sendBlockReason(businessId, conversation.contactId, "service");
   if (blocked) throw new MessagePolicyError(blocked);
+  try { await (await import("@/server/billing/budget")).reserveBudget(businessId, { service: "sms_segment", units: m.segments, key: `msg:${input.requestKey ?? `svc:${conversation.id}:${Date.now()}`}` }); }
+  catch (err) { if (err instanceof ApiError) throw new QuotaExceededError(err.message); throw err; }
   const credential = await activeChannelCredential("sms", conversation.providerCredentialId);
   // Reply from the sender the customer wrote to; fall back to the first inbound-capable sender.
   const lastInbound = await prisma.message.findFirst({ where: { conversationId: conversation.id, direction: "INBOUND" }, orderBy: { createdAt: "desc" }, select: { toIdentifier: true } });

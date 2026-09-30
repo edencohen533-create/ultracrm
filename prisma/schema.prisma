@@ -3758,3 +3758,269 @@ model CrmReviewItem {
   @@index([businessId, status])
   @@map("crm_review_items")
 }
+
+/// Versioned price book of UltraCRM itself (not the businesses' own selling). A published version is never edited –
+/// a price change is a new version; subscriptions and documents keep the version they were priced with.
+model PriceBookVersion {
+  id           String    @id @default(cuid())
+  version      Int       @unique
+  currency     String    @default("ILS")
+  /// [{ code, module, name, kind: per_license | per_business, unitPriceMinor }] – monthly, before tax and usage
+  licenseItems Json      @map("license_items")
+  /// [{ service, unit, unitPriceMinor | null, billingIncrementSec?, note }] – a service without a price is NOT free:
+  /// commercial use of it is blocked until a rate is set
+  usageRates   Json      @default("[]") @map("usage_rates")
+  taxRateBps   Int       @default(1800) @map("tax_rate_bps")
+  status       String    @default("draft")
+  publishedAt  DateTime? @map("published_at")
+  createdById  String?   @map("created_by_id")
+  note         String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  @@map("price_book_versions")
+}
+
+/// The business's subscription to UltraCRM (platform billing – separate from the businesses' payments to their customers).
+model Subscription {
+  id                     String    @id @default(cuid())
+  businessId             String    @unique @map("business_id")
+  /// none | pending_payment | active | past_due | grace | canceled
+  status                 String    @default("none")
+  priceBookVersionId     String?   @map("price_book_version_id")
+  /// billing provider key (sandbox until a real one is connected)
+  provider               String    @default("sandbox")
+  providerCustomerId     String?   @map("provider_customer_id")
+  /// Tokenized payment method reference at the provider – never card numbers / CVV.
+  paymentMethodRef       String?   @map("payment_method_ref")
+  paymentMethodLabel     String?   @map("payment_method_label")
+  currentPeriodStart     DateTime? @map("current_period_start")
+  currentPeriodEnd       DateTime? @map("current_period_end")
+  cancelAtPeriodEnd      Boolean   @default(false) @map("cancel_at_period_end")
+  canceledAt             DateTime? @map("canceled_at")
+  graceUntil             DateTime? @map("grace_until")
+  failedAttempts         Int       @default(0) @map("failed_attempts")
+  nextRetryAt            DateTime? @map("next_retry_at")
+  /// last provider event applied (occurredAt) – an older event never overrides a newer state
+  lastEventAt            DateTime? @map("last_event_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  items     SubscriptionItem[]
+  documents BillingDocument[]
+  @@map("subscriptions")
+}
+
+model SubscriptionItem {
+  id               String   @id @default(cuid())
+  businessId       String   @map("business_id")
+  subscriptionId   String   @map("subscription_id")
+  code             String
+  module           String
+  kind             String
+  quantity         Int
+  /// Reduction scheduled for the next renewal (never mid-period).
+  pendingQuantity  Int?     @map("pending_quantity")
+  /// Price at purchase (from the subscription's price book version).
+  unitPriceMinor   Int      @map("unit_price_minor")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  @@unique([subscriptionId, code])
+  @@map("subscription_items")
+}
+
+/// A charge document (initial / renewal / proration / credit). Lines and totals are frozen once issued – a later
+/// correction is a new credit document, never an edit. A provider payment confirmation is not an accounting receipt.
+model BillingDocument {
+  id                 String    @id @default(cuid())
+  businessId         String    @map("business_id")
+  subscriptionId     String    @map("subscription_id")
+  number             String    @unique
+  /// initial | renewal | proration | credit | usage
+  kind               String
+  periodStart        DateTime? @map("period_start")
+  periodEnd          DateTime? @map("period_end")
+  lines              Json
+  currency           String    @default("ILS")
+  subtotalMinor      Int       @map("subtotal_minor")
+  taxMinor           Int       @map("tax_minor")
+  totalMinor         Int       @map("total_minor")
+  /// open | paid | failed | void
+  status             String    @default("open")
+  /// what it changes once paid: { items: [{ code, quantity }] } etc.
+  effect             Json      @default("{}")
+  idempotencyKey     String    @map("idempotency_key")
+  providerPaymentRef String?   @map("provider_payment_ref")
+  checkoutUrl        String?   @map("checkout_url")
+  attempts           Int       @default(0)
+  issuedAt           DateTime  @default(now()) @map("issued_at")
+  paidAt             DateTime? @map("paid_at")
+  failedAt           DateTime? @map("failed_at")
+  correctsDocumentId String?   @map("corrects_document_id")
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, issuedAt])
+  @@map("billing_documents")
+}
+
+/// Every billing-provider webhook – dedupe by event id, applied at most once, order-safe.
+model BillingEvent {
+  id          String    @id @default(cuid())
+  provider    String
+  eventId     String    @map("event_id")
+  type        String
+  businessId  String?   @map("business_id")
+  occurredAt  DateTime  @map("occurred_at")
+  payload     Json
+  /// applied | duplicate | stale | ignored | failed
+  result      String?
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  @@unique([provider, eventId])
+  @@map("billing_events")
+}
+
+/// Usage ledger – append only (a database trigger refuses UPDATE / DELETE of amounts). Corrections and credits are
+/// new rows pointing at the row they correct. One charge per idempotency key: a retried operation is never billed twice;
+/// its extra provider cost is recorded as a non-billable cost row.
+model UsageEvent {
+  id                String   @id @default(cuid())
+  businessId        String   @map("business_id")
+  userId            String?  @map("user_id")
+  module            String
+  service           String
+  provider          String?
+  providerRef       String?  @map("provider_ref")
+  idempotencyKey    String   @map("idempotency_key")
+  /// charge | adjustment | credit | cost_only
+  kind              String   @default("charge")
+  occurredAt        DateTime @map("occurred_at")
+  unit              String
+  quantity          Decimal  @db.Decimal(18, 6)
+  /// what the provider bills in (after its rounding), when different from quantity
+  billedQuantity    Decimal? @map("billed_quantity") @db.Decimal(18, 6)
+  priceBookVersion  Int?     @map("price_book_version")
+  currency          String   @default("ILS")
+  providerCostMinor Int?     @map("provider_cost_minor")
+  providerCurrency  String?  @map("provider_currency")
+  priceMinor        Int?     @map("price_minor")
+  /// estimated | final | failed | credited | not_billable | unrated
+  status            String
+  /// the customer pays this provider directly (e.g. Meta for their own WhatsApp account) – never billed again here
+  billedByProvider  Boolean  @default(false) @map("billed_by_provider")
+  correctsEventId   String?  @map("corrects_event_id")
+  details           Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at")
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, occurredAt])
+  @@index([businessId, module, occurredAt])
+  @@map("usage_events")
+}
+
+/// Monthly budget cap and alert thresholds of a business (in the billing currency, minor units).
+model BudgetPolicy {
+  id               String   @id @default(cuid())
+  businessId       String   @unique @map("business_id")
+  monthlyCapMinor  Int?     @map("monthly_cap_minor")
+  alertPercents    Int[]    @default([50, 80, 100]) @map("alert_percents")
+  /// stop new outbound paid actions at the cap (inbound, opt-outs, active calls and logging always continue)
+  hardStop         Boolean  @default(true) @map("hard_stop")
+  alertsSent       Json     @default("{}") @map("alerts_sent")
+  updatedById      String?  @map("updated_by_id")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  @@map("budget_policies")
+}
+
+/// Held budget for an action in flight (so parallel queues can't overrun the cap together). Released or committed.
+model BudgetReservation {
+  id          String   @id @default(cuid())
+  businessId  String   @map("business_id")
+  key         String
+  service     String
+  amountMinor Int      @map("amount_minor")
+  /// held | committed | released
+  status      String   @default("held")
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  @@unique([businessId, key])
+  @@index([businessId, status])
+  @@map("budget_reservations")
+}
+
+/// Unified platform alert – one row per fingerprint (same problem = same row, counted), so a recurring failure never floods.
+model PlatformAlert {
+  id           String    @id @default(cuid())
+  fingerprint  String    @unique
+  /// info | warning | critical
+  severity     String
+  category     String
+  businessId   String?   @map("business_id")
+  title        String
+  details      Json      @default("{}")
+  count        Int       @default(1)
+  firstSeenAt  DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt   DateTime  @default(now()) @map("last_seen_at")
+  /// open | acknowledged | resolved
+  status       String    @default("open")
+  resolvedAt   DateTime? @map("resolved_at")
+  @@index([status, lastSeenAt])
+  @@map("platform_alerts")
+}
+
+/// "דווח על תקלה" from inside the app – incident code + technical context (never secrets).
+model SupportTicket {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  businessId  String   @map("business_id")
+  userId      String   @map("user_id")
+  message     String
+  context     Json     @default("{}")
+  /// open | in_progress | resolved
+  status      String   @default("open")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  @@index([businessId, createdAt])
+  @@map("support_tickets")
+}
+
+/// Operational drills (restore from backup into an isolated environment) – their real result and time are shown;
+/// "backup OK" is never claimed from configuration alone.
+model OpsDrill {
+  id          String    @id @default(cuid())
+  kind        String
+  environment String
+  /// ok | failed | partial
+  result      String
+  details     Json      @default("{}")
+  startedAt   DateTime  @map("started_at")
+  finishedAt  DateTime  @map("finished_at")
+  performedBy String?   @map("performed_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  @@map("ops_drills")
+}
+
+/// Comparison of the usage ledger with a provider's report (uploaded CSV). Findings never change issued documents.
+model ReconciliationRun {
+  id          String   @id @default(cuid())
+  provider    String
+  periodStart DateTime @map("period_start")
+  periodEnd   DateTime @map("period_end")
+  currency    String
+  summary     Json     @default("{}")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  items ReconciliationItem[]
+  @@map("reconciliation_runs")
+}
+model ReconciliationItem {
+  id          String  @id @default(cuid())
+  runId       String  @map("run_id")
+  /// missing_internal | missing_provider | duplicate | quantity_diff | price_diff | unassigned
+  kind        String
+  providerRef String? @map("provider_ref")
+  businessId  String? @map("business_id")
+  details     Json    @default("{}")
+  /// open | explained | adjusted
+  status      String  @default("open")
+  run ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@index([runId, kind])
+  @@map("reconciliation_items")
+}

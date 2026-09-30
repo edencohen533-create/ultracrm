@@ -57,6 +57,7 @@ async function contactForPhone(businessId: string, userId: string, phoneE164: st
 }
 
 export async function startCall(user: SessionUser, input: StartCallInput): Promise<CallWithRefs> {
+  (await import("@/lib/restore-mode")).assertNotRestoreMode("חיוג");
   // Idempotency: the same key always returns the same call (double-click / retry / timeout safe).
   const existing = await prisma.call.findUnique({ where: { idempotencyKey: input.idempotencyKey }, include: CALL_INCLUDE });
   if (existing) {
@@ -160,15 +161,24 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
     sessionId = s.id;
   }
 
+  // Budget (paid subscription): an outbound call reserves its estimated cost under the business lock, so parallel
+  // agents / queues can't overrun the monthly cap together; released if the call never starts.
+  const budgetKey = `call:${input.idempotencyKey}`;
+  const budget = await import("@/server/billing/budget");
+  await budget.reserveBudget(user.businessId, { service: "call_minute", units: 5, key: budgetKey, ttlMinutes: 180 });
+
   let call: CallWithRefs;
   let createdHere = false;
   try {
     call = await prisma.$transaction(async (tx) => {
       await lockAgent(tx, user.id);
       // A transaction-scoped destination lock closes the race between different agents.
-      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${user.businessId + ":" + toE164}, 0))`);
+      // Try (never wait): an agent blocked on another agent's lock would hold a pooled connection while waiting – a burst
+      // of simultaneous dials to one person could starve the pool. Someone else holding it means "already being dialed".
+      const tryLock = async (key: string) => (await tx.$queryRaw<Array<{ ok: boolean }>>(Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) AS ok`))[0]?.ok;
+      if (!(await tryLock(user.businessId + ":" + toE164))) throw new ApiError("המספר נמצא כרגע בחיוג אצל נציג אחר", 409, "number_in_call");
       // …and per person: two agents on two numbers of the same contact are serialized too.
-      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${user.businessId + ":contact:" + contactId}, 0))`);
+      if (!(await tryLock(user.businessId + ":contact:" + contactId))) throw new ApiError("איש הקשר נמצא כרגע בחיוג אצל נציג אחר", 409, "contact_in_call");
       const duplicate = await tx.call.findUnique({ where: { idempotencyKey: input.idempotencyKey }, include: CALL_INCLUDE });
       if (duplicate) {
         if (duplicate.userId !== user.id || duplicate.businessId !== user.businessId) throw new ApiError("מפתח בקשה לא תקין", 400, "bad_idempotency_key");
@@ -249,6 +259,7 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
       return created;
     });
   } catch (err) {
+    await budget.settleReservation(user.businessId, budgetKey, "released").catch(() => undefined);
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       const again = await prisma.call.findUnique({ where: { idempotencyKey: input.idempotencyKey }, include: CALL_INCLUDE });
       if (again && again.userId === user.id && again.businessId === user.businessId) return again;
@@ -281,6 +292,7 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
       data: { status: "failed", endedAt: new Date(), telephonyResult: "failed", failureReason: String((err as Error).message).slice(0, 300), activeForUser: null, talkSeconds: 0 },
       include: CALL_INCLUDE,
     });
+    await budget.settleReservation(user.businessId, budgetKey, "released").catch(() => undefined);
     await afterCallFinalized(call.id);
   }
   return call;

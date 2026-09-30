@@ -16,6 +16,7 @@ import type { ModuleKey } from "@/lib/modules";
 import type { EffectiveModule } from "@/lib/access/engine";
 import { Lock, Menu, Shield } from "lucide-react";
 import { resetLeadStatusesCache } from "@/lib/client/use-lead-statuses";
+import { ReportProblem } from "@/components/layout/ReportProblem";
 
 type Role = "owner" | "manager" | "agent";
 /** need = "module.action" strings; the item is shown when ANY of them is allowed for this user. */
@@ -138,6 +139,7 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
           </div>
         )}
         <LanguageToggle className="w-full justify-center h-8 rounded-md text-muted hover:text-text hover:bg-panel-2" />
+        <div className="text-center"><ReportProblem /></div>
         <button onClick={logout} data-testid="nav-logout" className="w-full h-8 rounded-md text-xs text-muted hover:text-text hover:bg-panel-2">{t("התנתקות", "Log out")}</button>
       </div>
     </aside>

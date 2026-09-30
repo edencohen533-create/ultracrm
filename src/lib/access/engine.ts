@@ -24,6 +24,8 @@ export interface BusinessEntitlement {
   suspended: boolean;
   modules: Record<ModuleKey, ModuleEntitlement>;
   quotas: Record<QuotaMetric, number | null>;
+  /** Paid subscription (platform billing) when the business has one – it then defines modules and licenses. */
+  subscription: { status: string; billed: boolean } | null;
 }
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const cache = new Map<string, { at: number; value: BusinessEntitlement }>();
@@ -36,16 +38,45 @@ export async function businessEntitlement(businessId: string, now = new Date()):
   const b = await db.business.findUnique({ where: { id: businessId }, select: { modules: true, accessStatus: true, accessUntil: true, billingStatus: true, plan: { select: { key: true, name: true, modules: true, quotas: true } }, planVersion: { select: { id: true, version: true, name: true, modules: true, quotas: true } } } });
   if (!b) throw new ApiError("עסק לא נמצא", 404, "not_found");
   const grants = await db.entitlementGrant.findMany({ where: { businessId, revokedAt: null, startsAt: { lte: now }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } });
-  const modules = computeModules(b.planVersion ? b.planVersion.modules : null, b.plan?.modules ?? null, b.modules, grants);
+  // A business on a paid subscription gets exactly what it bought: purchased licenses are the seats (legacy / manual
+  // businesses without a subscription keep their package as before). Before the first payment nothing is included.
+  const sub = await db.subscription.findUnique({ where: { businessId }, select: { status: true, items: { select: { module: true, kind: true, quantity: true } } } });
+  const subModules = sub ? subscriptionModules(sub.status, sub.items) : null;
+  const modules = computeModules(subModules ?? (b.planVersion ? b.planVersion.modules : null), b.plan?.modules ?? null, b.modules, grants);
   const q = rec(b.planVersion ? b.planVersion.quotas : b.plan?.quotas);
   const quotas = Object.fromEntries(QUOTA_METRICS.map((k) => [k, typeof q[k] === "number" ? (q[k] as number) : null])) as Record<QuotaMetric, number | null>;
   const expired = (b.accessStatus === "trial" || b.accessStatus === "grace") && b.accessUntil !== null && b.accessUntil <= now;
   const value: BusinessEntitlement = {
     planName: b.planVersion?.name ?? b.plan?.name ?? null, planVersion: b.planVersion?.version ?? null, planVersionId: b.planVersion?.id ?? null, planKey: b.plan?.key ?? null,
     accessStatus: b.accessStatus, accessUntil: b.accessUntil, billingStatus: b.billingStatus, suspended: b.accessStatus === "suspended" || b.accessStatus === "cancelled" || expired, modules, quotas,
+    subscription: sub ? { status: sub.status, billed: true } : null,
   };
   cache.set(businessId, { at: Date.now(), value });
   return value;
+}
+
+/** Modules bought on a subscription: { module: { included, seats } } – per-license items give seats, per-business none. */
+export function subscriptionModules(status: string, items: Array<{ module: string; kind: string; quantity: number }>) {
+  const out: Record<string, { included: boolean; seats: number | null }> = {};
+  if (status === "none" || status === "pending_payment") return out;
+  for (const it of items) for (const m of it.module.split(",")) {
+    if (it.quantity <= 0) continue;
+    const prev = out[m];
+    out[m] = { included: true, seats: it.kind === "per_business" ? null : (prev?.seats ?? 0) + it.quantity };
+  }
+  return out;
+}
+
+/** What the owner may do in a module WITHOUT holding a license there (manage, view, bill) – agent work needs one. */
+export const OWNER_UNLICENSED_ACTIONS: Record<ModuleKey, string[]> = {
+  crm: ["view", "export", "marketing_view", "marketing_connect"],
+  telephony: ["team_settings", "recordings"],
+  whatsapp: ["view", "assign", "automations", "campaign_draft", "campaign_send", "connect"],
+  sms: ["view", "draft", "send"], email: ["view", "draft", "send"],
+};
+/** Licenses the owner holds (only meaningful on a subscription): permissions.ownerLicenses = ["telephony", …]. */
+export function ownerLicenses(permissions: unknown): string[] {
+  const p = rec(permissions); return Array.isArray(p.ownerLicenses) ? (p.ownerLicenses as unknown[]).filter((x): x is string => typeof x === "string") : [];
 }
 
 /**
@@ -117,6 +148,8 @@ export async function userPermissions(businessId: string, u: UserRow, ent?: Busi
   const t = TEMPLATES[key];
   const modules: UserPermissions["modules"] = {};
   for (const m of MODULES) if (e.modules[m].included) {
+    // On a paid subscription a licensed module (seats) is never implied by role – a license is assigned explicitly.
+    if (e.subscription && e.modules[m].seats !== null) continue;
     // Agents never had the campaign screens (the menu showed them to managers only) → no SMS / email seat.
     if (u.role === "agent" && (m === "sms" || m === "email")) continue;
     // Managers could do everything in every module before (only their data scope differed).
@@ -145,7 +178,12 @@ export async function effectiveAccess(businessId: string, userId: string): Promi
   for (const m of MODULES) {
     if (!ent.modules[m].included) { modules[m] = { state: "not_in_package", actions: [] }; continue; }
     if (ent.suspended) { modules[m] = { state: "suspended", actions: [] }; continue; }
-    if (isOwner) { modules[m] = { state: "active", actions: Object.keys(ACTIONS[m]) }; continue; }
+    if (isOwner) {
+      // On a paid subscription the owner manages / views / bills without a license; agent work needs one (bought seats).
+      const licensed = !ent.subscription || ownerLicenses(u.permissions).includes(m) || !OWNER_UNLICENSED_ACTIONS[m];
+      modules[m] = { state: "active", actions: licensed ? Object.keys(ACTIONS[m]) : Object.keys(ACTIONS[m]).filter((a) => OWNER_UNLICENSED_ACTIONS[m].includes(a)) };
+      continue;
+    }
     // Platform support: every purchased module, view actions only (mutations are refused in requireUser anyway).
     if (u.isSupport) { modules[m] = { state: "active", actions: Object.keys(ACTIONS[m]).filter((a) => /view|read|list|report/i.test(a)) }; continue; }
     const g = perms.modules[m];
@@ -199,7 +237,8 @@ export async function seatHolders(businessId: string, m: ModuleKey, tx: Prisma.T
   const ent = await businessEntitlement(businessId);
   const out: string[] = [];
   for (const u of users) {
-    if (u.role === "owner") { if (ent.modules[m].included) out.push(u.id); continue; }
+    // The owner holds a seat only when licensed (on a subscription); legacy packages count the owner as before.
+    if (u.role === "owner") { if (ent.modules[m].included && (!ent.subscription || ownerLicenses(u.permissions).includes(m))) out.push(u.id); continue; }
     const p = await userPermissions(businessId, u, ent);
     if (p.modules[m]?.enabled) out.push(u.id);
   }

@@ -51,7 +51,7 @@ export default function SettingsPage() {
       {tab === "business" && <><BusinessTab isAdmin={isAdmin} /><p className="text-xs text-muted">{t("סיסמה, שפה ופרטים אישיים נמצאים ב", "Password, language and personal details are in ")}<a href="/account" className="underline" data-testid="settings-my-account">{t("החשבון שלי", "My account")}</a>{t(" – הם שייכים לך בכל העסקים, לא לעסק הזה.", " – they belong to you across businesses, not to this business.")}</p></>}
       {tab === "account" && <AccountDeletion isOwner={isAdmin} />}
       {tab === "connections" && <ConnectionsTab modules={modules} />}
-      {tab === "plan" && <PlanOverview />}
+      {tab === "plan" && <><a href="/settings/billing" className="block rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm mb-3" data-testid="open-billing">{t("חיוב ושימוש – רישיונות, מסמכים, שימוש ותקציב ←", "Billing & usage – licenses, documents, usage and budget →")}</a><PlanOverview /></>}
       {tab === "access" && <AccessMatrix />}
       {tab === "automations" && <AutomationsTab isAdmin={isAdmin} messaging={modules.messaging} />}
       {tab === "marketing" && <MarketingTab isAdmin={isAdmin} />}

@@ -63,6 +63,8 @@ export function parseQuery<T extends ZodTypeAny>(req: NextRequest, schema: T): z
 
 /** Authenticate a background job route: `Authorization: Bearer <CRON_SECRET>` (Vercel Cron sends it automatically). */
 export function requireCronSecret(req: Request) {
+  // A restored copy never runs scheduled work (campaigns, retries, billing, sync…).
+  if (process.env.RESTORE_MODE === "1") throw new ApiError("סביבת שחזור – משימות מתוזמנות כבויות", 423, "restore_mode");
   const secret = process.env.CRON_SECRET;
   if (!secret) throw new ApiError("CRON_SECRET is not configured", 500, "cron_not_configured");
   if (req.headers.get("authorization") !== `Bearer ${secret}`) throw new ApiError("לא מורשה", 401, "unauthorized");

@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   graph: vi.fn(),
   switchRole: vi.fn(async () => {}),
 }));
-vi.mock("@/lib/meta/graph", () => ({ graph: mocks.graph }));
+vi.mock("@/lib/meta/graph", async (orig) => ({ ...(await orig<typeof import("@/lib/meta/graph")>()), graph: mocks.graph }));
 vi.mock("@/lib/telephony", () => {
   // Actions on an existing call go through adapterFor(call.provider) since the provider layer (PR #20).
   const adapter = () => ({ switchSupervisorRole: mocks.switchRole, simulation: true, capabilities: { supervisorMonitor: true, serverHangup: true, dtmf: true, dialModel: "agent_then_lead" } });

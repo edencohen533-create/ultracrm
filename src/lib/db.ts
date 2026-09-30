@@ -40,7 +40,7 @@ const TENANT_MODELS = new Set<string>([
   "ProviderCredential", "Conversation", "Message", "ConversationDraft", "CannedReply", "Template",
   "AutomationRule", "AutomationRun", "DistributionList", "Campaign", "WhatsAppSignupSession",
   "MarketingSequence", "SequenceRun", "NumberOrder",
-  "CoachKnowledge", "CoachSession", "CoachSegment", "CoachRecommendation", "CoachExample", "CoachChatMessage", "CampaignDraft", "StoreConnection", "Cart", "AssistantLink", "AssistantMessage", "AssistantDelivery", "ApiKey", "WebhookEndpoint", "WebhookDelivery", "DealItem", "AiConversation", "AiMessage", "AiAction", "AiIncident", "KnowledgeSource", "KnowledgeChunk", "DialerQueueAlert", "CallbackSignal", "MetaAdConnection", "SalesOffer", "SalesQuote", "OpsRule", "OpsRecommendation", "AssignmentOverride", "MediaAsset", "MediaProviderUpload", "PaymentProviderConnection", "PaymentRequest", "PaymentEvent", "StoreOrder", "ServiceCase", "StoreEvent", "StoreCustomer", "StoreProduct",
+  "CoachKnowledge", "CoachSession", "CoachSegment", "CoachRecommendation", "CoachExample", "CoachChatMessage", "CampaignDraft", "StoreConnection", "Cart", "AssistantLink", "AssistantMessage", "AssistantDelivery", "ApiKey", "WebhookEndpoint", "WebhookDelivery", "DealItem", "AiConversation", "AiMessage", "AiAction", "AiIncident", "KnowledgeSource", "KnowledgeChunk", "DialerQueueAlert", "CallbackSignal", "MetaAdConnection", "MetaAdAccount", "MetaAdEntity", "MetaAdInsightDaily", "MetaSyncRun", "LeadTouchpoint", "SalesOffer", "SalesQuote", "OpsRule", "OpsRecommendation", "AssignmentOverride", "MediaAsset", "MediaProviderUpload", "PaymentProviderConnection", "PaymentRequest", "PaymentEvent", "StoreOrder", "ServiceCase", "StoreEvent", "StoreCustomer", "StoreProduct",
 ]);
 
 /**

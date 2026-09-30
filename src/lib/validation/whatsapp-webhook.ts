@@ -9,6 +9,8 @@ const message = z.object({
   audio: media.optional(), document: media.optional(),
   button: z.object({ text: z.string() }).optional(),
   interactive: z.object({ button_reply: z.object({ title: z.string() }).optional(), list_reply: z.object({ title: z.string() }).optional() }).optional(),
+  // Click-to-WhatsApp ads: the first message carries the ad (source_type "ad", source_id = the ad id) and ctwa_clid.
+  referral: z.object({ source_url: z.string().max(2000).optional(), source_id: z.string().max(64).optional(), source_type: z.string().max(40).optional(), headline: z.string().max(500).optional(), ctwa_clid: z.string().max(500).optional() }).passthrough().optional(),
 });
 export const metaWebhookSchema = z.object({
   object: z.literal("whatsapp_business_account"),

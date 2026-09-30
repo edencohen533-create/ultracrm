@@ -1,8 +1,8 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 import { Button, Input, Panel, Textarea } from "@/components/ui";
-import { MetaAdSettings } from "./MetaAdSettings";
 import { toast } from "sonner";
 type Offer = {
   id: string;
@@ -120,7 +120,7 @@ export function SalesWorkspace({ initialLeadId }: { initialLeadId: string }) {
       )}
       {d && (
         <>
-          <MetaAdSettings />
+          <p className="text-sm">חיבור Meta Ads (לפרטי המודעה של ליד ולדוח שיווק ומכירות) נמצא ב<Link href="/settings?tab=connections" className="underline text-accent">הגדרות ← חיבורים ← Meta Ads</Link>.</p>
           <p>{d.payments.message}</p>
           {d.canManage && (
             <Panel title="קטלוג מאושר">

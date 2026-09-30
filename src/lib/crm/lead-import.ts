@@ -25,6 +25,9 @@ export const leadImportSchema = z.object({
     product: z.string().trim().max(160).optional(),
     campaign: z.string().trim().max(160).optional(),
     ad: z.string().trim().max(160).optional(),
+    /** Meta ids when the file has them (ad_id / adset_id / campaign_id columns) – names alone never attribute to an ad. */
+    adId: z.string().trim().max(40).optional(), adsetId: z.string().trim().max(40).optional(), campaignId: z.string().trim().max(40).optional(),
+    utmSource: z.string().trim().max(200).optional(), utmCampaign: z.string().trim().max(300).optional(),
     notes: z.string().trim().max(2000).optional(),
   })).min(1).max(500),
   /** "auto" = distribution policy; otherwise an active user id of the business. */
@@ -63,7 +66,7 @@ export async function importLeads(user: SessionUser, input: z.infer<typeof leadI
         }
         continue;
       }
-      const lead = await createLead(user, { contactId: contact.id, source, notes: r.notes || undefined, ...(ownerId ? { ownerUserId: ownerId } : {}) }, "import");
+      const lead = await createLead(user, { contactId: contact.id, source, notes: r.notes || undefined, ...(ownerId ? { ownerUserId: ownerId } : {}) }, "import", { touch: { adId: r.adId, adsetId: r.adsetId, campaignId: r.campaignId, utm: { source: r.utmSource, campaign: r.utmCampaign ?? r.campaign } }, channel: "import", dataSource: "import" });
       result.created++;
       if (lead.existingCustomer) result.existingCustomers++;
       if (lead.routedTo) result.routedToHandler++;

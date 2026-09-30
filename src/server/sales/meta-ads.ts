@@ -1,91 +1,28 @@
-import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { graph } from "@/lib/meta/graph";
-import { sealSecret, openSecret, encryptionConfigured } from "@/lib/crypto";
+import { openSecret, encryptionConfigured } from "@/lib/crypto";
 import { ApiError } from "@/lib/response";
-import { audit } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { leadFor } from "./quotes";
-const owner = (u: SessionUser) => {
-  if (u.role !== "owner")
-    throw new ApiError("רק בעל העסק יכול לשנות חיבור פרסום", 403, "forbidden");
-};
+/** Legacy endpoints (/api/sales/meta) – now served by the Meta Ads connection of the marketing report. */
 export async function metaAdStatus(user: SessionUser) {
-  const c = await prisma.metaAdConnection.findUnique({
-    where: { businessId: user.businessId },
-    select: { accountId: true, accountName: true, verifiedAt: true },
-  });
+  const { connectionStatus } = await import("@/server/marketing/meta-connection");
+  const st = await connectionStatus(user);
+  const first = st.accounts.find((a) => a.status !== "disconnected") ?? null;
   return {
-    connection: c,
-    canManage: user.role === "owner",
+    connection: st.connection ? { accountId: first?.accountId ?? st.connection.accountId, accountName: first?.name ?? st.connection.accountName, verifiedAt: st.connection.verifiedAt, status: st.connection.status } : null,
+    canManage: st.canManage,
     encryptionReady: encryptionConfigured(),
   };
 }
 export async function connectMetaAds(user: SessionUser, input: unknown) {
-  owner(user);
-  const b = z
-    .object({
-      accountId: z.string().regex(/^(act_)?\d{3,30}$/),
-      accessToken: z.string().min(10).max(4096),
-    })
-    .parse(input);
-  if (!encryptionConfigured())
-    throw new ApiError(
-      "יש להגדיר הצפנת חיבורים בשרת לפני חיבור חשבון",
-      409,
-      "encryption_missing",
-    );
-  const accountId = b.accountId.replace(/^act_/, "");
-  let account: { account_id: string; name: string };
-  try {
-    account = await graph(`act_${accountId}`, {
-      token: b.accessToken,
-      query: { fields: "account_id,name" },
-    });
-  } catch {
-    throw new ApiError(
-      "Meta לא אישרה גישה לחשבון. בדוק מזהה חשבון, תוקף אסימון והרשאת ads_read.",
-      400,
-      "meta_access",
-    );
-  }
-  if (account.account_id !== accountId)
-    throw new ApiError("החשבון שהוחזר אינו תואם", 400, "account_mismatch");
-  const data = {
-    accountId,
-    accountName: String(account.name ?? accountId).slice(0, 200),
-    tokenSealed: sealSecret(b.accessToken),
-    verifiedAt: new Date(),
-  };
-  await prisma.metaAdConnection.upsert({
-    where: { businessId: user.businessId },
-    create: { businessId: user.businessId, ...data },
-    update: data,
-  });
-  await audit(
-    user.businessId,
-    user.id,
-    "business",
-    user.businessId,
-    "sales.meta_connected",
-    { accountId },
-  );
+  const { connectManualToken } = await import("@/server/marketing/meta-connection");
+  await connectManualToken(user, input);
   return metaAdStatus(user);
 }
 export async function disconnectMetaAds(user: SessionUser) {
-  owner(user);
-  await prisma.metaAdConnection.deleteMany({
-    where: { businessId: user.businessId },
-  });
-  await audit(
-    user.businessId,
-    user.id,
-    "business",
-    user.businessId,
-    "sales.meta_disconnected",
-    {},
-  );
-  return { disconnected: true };
+  const { disconnect } = await import("@/server/marketing/meta-connection");
+  return disconnect(user);
 }
 function imageUrl(value: unknown) {
   if (typeof value !== "string") return null;
@@ -115,6 +52,8 @@ export async function leadAdvertisement(user: SessionUser, leadId: string) {
   const conn = await prisma.metaAdConnection.findUnique({
     where: { businessId: user.businessId },
   });
+  const accountIds = new Set((await prisma.metaAdAccount.findMany({ where: { businessId: user.businessId, status: { not: "disconnected" } }, select: { accountId: true } })).map((x) => x.accountId));
+  if (conn?.accountId) accountIds.add(conn.accountId);
   if (!conn)
     return {
       status: "not_connected",
@@ -139,7 +78,7 @@ export async function leadAdvertisement(user: SessionUser, leadId: string) {
           "id,name,account_id,creative{title,body,image_url,thumbnail_url,video_id}",
       },
     });
-    if (ad.account_id !== conn.accountId || ad.id !== id)
+    if (!accountIds.has(ad.account_id) || ad.id !== id)
       return {
         status: "account_mismatch",
         message: "המודעה אינה שייכת לחשבון הפרסום שחובר לעסק.",

@@ -47,7 +47,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {session.support && <SupportBanner businessName={session.support.businessName} expiresAt={session.support.expiresAt} />}
           {dialer && <CallBar />}
           {dialer && <HotLeadsBanner />}
-          <OpsAgentRequests />
+          {access.modules.crm.state === "active" && access.modules.crm.actions.includes("view") && <OpsAgentRequests />}
           <main className="flex-1 min-w-0 min-h-0"><AccessGate access={access.modules}>{children}</AccessGate></main>
         </div>
       </div>

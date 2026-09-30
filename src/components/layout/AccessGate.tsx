@@ -20,7 +20,8 @@ const SCREENS: Array<{ match: (p: string) => boolean; need: string[] }> = [
 export function AccessGate({ access, children }: { access: Record<ModuleKey, EffectiveModule>; children: ReactNode }) {
   const pathname = usePathname();
   const t = useT();
-  const screen = SCREENS.find((s) => s.match(pathname));
+  // Shift readiness explains a missing license itself (as a blocker with its fix) instead of a bare "no access".
+  const screen = pathname === "/calling/ready" ? undefined : SCREENS.find((s) => s.match(pathname));
   if (!screen) return <>{children}</>;
   const ok = screen.need.some((n) => { const [m, a] = n.split(".") as [ModuleKey, string]; return access[m]?.state === "active" && access[m].actions.includes(a); });
   if (ok) return <>{children}</>;

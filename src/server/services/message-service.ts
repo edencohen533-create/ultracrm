@@ -139,6 +139,7 @@ export class FrequencyCapError extends MessagePolicyError {}
 export class QuotaExceededError extends MessagePolicyError {}
 
 export async function createOutboundMessage(input: CreateOutboundMessageInput) {
+  (await import("@/lib/restore-mode")).assertNotRestoreMode("שליחת הודעות");
   let release: () => Promise<void>;
   try { release = await acquireSendLease(input.conversationId); }
   catch (error) { if (error instanceof SendConflictError) throw new MessagePolicyError(error.message); throw error; }

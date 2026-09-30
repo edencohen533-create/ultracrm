@@ -14,6 +14,7 @@ export function DialerHubNav({ showLive }: { showLive: boolean }) {
   const pathname = usePathname();
   const items = [
     { href: "/calling/lists", label: t("רשימות חיוג", "Dial lists"), testid: "hub-tab-lists" },
+    { href: "/calling/ready", label: t("פתיחת משמרת", "Start of shift"), testid: "hub-tab-ready" },
     { href: "/calling/history", label: t("היסטוריית שיחות", "Call history"), testid: "hub-tab-history" },
     ...(showLive ? [{ href: "/calling/live", label: t("שיחות פעילות", "Active calls"), testid: "hub-tab-live" }] : []),
   ];

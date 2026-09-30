@@ -38,6 +38,14 @@
     {
       "path": "/api/jobs/crm-sync",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/jobs/billing",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/jobs/ops",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

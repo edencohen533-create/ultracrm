@@ -13,6 +13,14 @@ export class ApiClientError extends Error {
   }
 }
 
+/** Last API errors (code / path / status only – no bodies, no query strings) for "דווח על תקלה". */
+export function recordClientError(e: { status?: number; code?: string; path?: string; message?: string }) {
+  if (typeof window === "undefined") return;
+  const w = window as unknown as { __ucrmErrors?: unknown[] };
+  w.__ucrmErrors = [...(w.__ucrmErrors ?? []), { at: new Date().toISOString(), ...e }].slice(-20);
+}
+export function recentClientErrors() { return typeof window === "undefined" ? [] : (((window as unknown as { __ucrmErrors?: unknown[] }).__ucrmErrors ?? []) as Array<{ at: string; status?: number; code?: string; path?: string; message?: string }>); }
+
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init.headers ?? {}) }, cache: "no-store" });
   let json: { success?: boolean; data?: T; error?: string; code?: string; details?: unknown } = {};
@@ -25,6 +33,7 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
     if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
       window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
     }
+    recordClientError({ status: res.status, code: json.code ?? "error", path: url.replace(/\?.*$/, ""), message: (json.error ?? "").slice(0, 200) });
     throw new ApiClientError(json.error ?? (uiLang() === "en" ? `Error (${res.status})` : `שגיאה (${res.status})`), res.status, json.code ?? "error", json.details);
   }
   return json.data as T;

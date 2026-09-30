@@ -28,6 +28,7 @@
     "cn": "^0.3.0",
     "date-fns": "^4.4.0",
     "dotenv": "^18.0.3",
+    "fflate": "^0.8.3",
     "jose": "^6.2.12",
     "libphonenumber-js": "^1.13.13",
     "lucide-react": "^1.47.0",

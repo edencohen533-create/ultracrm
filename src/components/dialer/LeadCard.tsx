@@ -1,6 +1,7 @@
 "use client";
 
 import { ContactBlockNotice, type BlockSummary } from "@/components/contacts/ContactBlockNotice";
+import { CustomerBanner, type CustomerSummary } from "@/components/contacts/CustomerBanner";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -27,6 +28,7 @@ interface ContactFull extends ContactLite {
   queueLeads?: Array<{ id: string; status: string; list: { id: string; name: string } }>;
   isDnc: boolean;
   suppression?: BlockSummary;
+  customer?: CustomerSummary | null;
 }
 
 const outcomeLabel = (k: string | null) => OUTCOMES.find((o) => o.key === k)?.label ?? k ?? "—";
@@ -137,6 +139,7 @@ export function LeadCard({
             ) : (
               <h2 className="text-xl font-semibold truncate">{contact.fullName}</h2>
             )}
+            <CustomerBanner customer={contact.customer} className="mt-2" />
             {contact.suppression && <div className="mt-2"><ContactBlockNotice summary={contact.suppression} isDnc={contact.isDnc} /></div>}
             <div className="flex items-center gap-3 mt-1 text-sm">
               <Phone value={formatPhone(contact.phoneE164)} className="text-accent underline text-base font-medium" />

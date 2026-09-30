@@ -6,7 +6,7 @@ import { api } from "@/lib/client/api";
 import { Button, Input, Modal, Select } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
 
-interface ListRef { id: string; name: string; isActive: boolean }
+interface ListRef { id: string; name: string; isActive: boolean; audience?: string }
 
 /** "העבר לידים" – selected rows (leadIds) or all rows of `from` to another list of the business. */
 export function MoveLeadsDialog({ from, lists, leadIds, onClose, onDone }: { from: ListRef; lists: ListRef[]; leadIds?: string[]; onClose: () => void; onDone: () => void }) {
@@ -44,6 +44,11 @@ export function ListAdminActions({ list, lists, onChanged }: { list: ListRef; li
   const [del, setDel] = useState<null | { leads: number; callsInProgress: number; openSessions: number; system: string | null }>(null);
   const [confirmName, setConfirmName] = useState("");
   const [busy, setBusy] = useState(false);
+  async function setAudience(audience: string) {
+    setBusy(true);
+    try { await api.patch(`/api/lists/${list.id}`, { audience }); toast.success(t("מטרת הקמפיין עודכנה – התור מתעדכן מיד", "Campaign purpose updated – the queue follows at once")); onChanged(); }
+    catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  }
   async function toggle() {
     setBusy(true);
     try {
@@ -69,6 +74,11 @@ export function ListAdminActions({ list, lists, onChanged }: { list: ListRef; li
         <input type="checkbox" role="switch" aria-checked={list.isActive} checked={list.isActive} disabled={busy} onChange={toggle} className="h-4 w-4 accent-[var(--accent)]" data-testid="list-active-toggle" />
         {list.isActive ? t("פעילה", "Active") : t("לא פעילה", "Inactive")}
       </label>
+      {list.audience && list.audience !== "personal" && <select aria-label={t("מטרת הקמפיין", "Campaign purpose")} value={list.audience} disabled={busy} onChange={(e) => void setAudience(e.target.value)} className="rounded-md border border-line bg-transparent px-2 py-1 text-xs" data-testid={`list-audience-${list.id}`}>
+        <option value="new_prospects">{t("גיוס – ללא לקוחות קיימים", "Acquisition – no existing customers")}</option>
+        <option value="existing_customers">{t("חידושים – לקוחות קיימים בלבד", "Renewals – existing customers only")}</option>
+        <option value="all">{t("כולם", "Everyone")}</option>
+      </select>}
       <Button size="sm" variant="ghost" className="ms-auto" onClick={() => setMoving(true)} data-testid="list-move-all">{t("העבר לידים", "Move leads")}</Button>
       <Button size="sm" variant="ghost" className="text-bad" onClick={openDelete} data-testid="list-delete">{t("מחק רשימה", "Delete list")}</Button>
       {moving && <MoveLeadsDialog from={list} lists={lists} onClose={() => setMoving(false)} onDone={onChanged} />}

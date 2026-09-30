@@ -216,7 +216,7 @@ describe("telephony provider routing", { timeout: 600_000 }, () => {
     const att = await db.callAttempt.findFirstOrThrow({ where: { callId: call.id } });
     expect(att.status).toBe("uncertain");
     // While uncertain, nobody can dial the same number – on either provider.
-    await expect(dial(agent2, call.contactId!)).rejects.toMatchObject({ code: "number_in_call" });
+    await expect(dial(agent2, call.contactId!)).rejects.toMatchObject({ code: expect.stringMatching(/^(number_in_call|contact_in_call)$/) });
     primary.lookup = "found";
     await db.call.update({ where: { id: call.id }, data: { dialPendingSince: new Date(Date.now() - 20_000) } });
     const after = await run(owner, () => reconcileCall(call.id));

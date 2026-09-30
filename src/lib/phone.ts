@@ -32,3 +32,18 @@ export function formatPhoneDisplay(e164: string): string {
 export function phoneDigits(input: string): string {
   return input.replace(/\D/g, "");
 }
+
+/**
+ * A number as a telephony / messaging provider sends it: international digits, usually without "+" (WhatsApp wa_id,
+ * caller ID). Read as international first, so "14155552671" is a US number and not "+972 14155552671"; a national
+ * form ("050…") still resolves with the default country.
+ */
+export function normalizeProviderNumber(input: string): string | null {
+  if (!input) return null;
+  const digits = input.replace(/\D/g, "");
+  if (!input.trim().startsWith("+") && !digits.startsWith("0") && digits.length >= 10) {
+    const intl = normalizePhone(`+${digits}`);
+    if (intl) return intl;
+  }
+  return normalizePhone(input);
+}

@@ -153,6 +153,8 @@ export interface BusinessSettings {
   allowedCountries: string[];
   /** Per-agent outbound dial rate limit. 0 = unlimited. */
   maxDialsPerMinute: number;
+  /** Automatic dialing waits this long after ANOTHER agent talked with the person (answered call / live WhatsApp). 0 = off. */
+  contactCooldownMinutes: number;
   /** Cross-module automations (events → actions). */
   automations: {
     /** Minutes until the "first contact" task of a new lead is due. */
@@ -217,6 +219,7 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   dialWindow: { start: "09:00", end: "20:00", days: [0, 1, 2, 3, 4], timezone: "Asia/Jerusalem" },
   prioritization: DEFAULT_PRIORITIZATION,
   stickyOwner: false,
+  contactCooldownMinutes: 0,
   removeFromOtherListsOnSale: true,
   dialingPaused: false,
   allowedCountries: ["IL"],

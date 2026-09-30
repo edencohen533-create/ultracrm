@@ -9,7 +9,7 @@ import { useT } from "@/components/i18n/LangProvider";
 import { ListAdminActions } from "@/components/lists/ListAdminActions";
 
 interface ListRow {
-  id: string; name: string; description: string | null; isActive: boolean; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null;
+  id: string; name: string; description: string | null; isActive: boolean; priority: number; audience?: string; maxAttempts: number | null; retryIntervalMinutes: number | null;
   agents: Array<{ user: { id: string; fullName: string } }>;
   script: { id: string; title: string } | null;
   stats: { byStatus: Record<string, number>; dueNow: number; total: number };
@@ -22,7 +22,7 @@ export default function ListsPage() {
   const [users, setUsers] = useState<Array<{ id: string; fullName: string; role: string }>>([]);
   const [scripts, setScripts] = useState<Array<{ id: string; title: string }>>([]);
   const [me, setMe] = useState<{ role: string } | null>(null);
-  const [form, setForm] = useState({ name: "", description: "", priority: 0, maxAttempts: "", unansweredLimit: "", access: "all" as "all" | "selected", retryIntervalMinutes: "", scriptId: "", phoneNumberId: "", isDynamic: false, agentIds: [] as string[], start: "09:00", end: "20:00", days: [0, 1, 2, 3, 4], filterSource: "", filterNeverCalled: false });
+  const [form, setForm] = useState({ name: "", description: "", priority: 0, maxAttempts: "", unansweredLimit: "", access: "all" as "all" | "selected", retryIntervalMinutes: "", scriptId: "", phoneNumberId: "", isDynamic: false, agentIds: [] as string[], start: "09:00", end: "20:00", days: [0, 1, 2, 3, 4], filterSource: "", filterNeverCalled: false, audience: "new_prospects" as "new_prospects" | "existing_customers" | "all" });
   const [numbers, setNumbers] = useState<Array<{ id: string; e164: string; label: string | null }>>([]);
 
   const load = useCallback(async () => {
@@ -45,7 +45,7 @@ export default function ListsPage() {
       const r = await api.post<{ added: number }>("/api/lists", {
         name: form.name, description: form.description || undefined, priority: form.priority,
         maxAttempts: form.maxAttempts ? Number(form.maxAttempts) : null, unansweredLimit: form.unansweredLimit === "" ? null : Number(form.unansweredLimit), retryIntervalMinutes: form.retryIntervalMinutes ? Number(form.retryIntervalMinutes) : null,
-        dialWindow: { start: form.start, end: form.end, days: form.days }, scriptId: form.scriptId || null, phoneNumberId: form.phoneNumberId || null, isDynamic: form.isDynamic, agentIds: form.access === "all" ? [] : form.agentIds,
+        dialWindow: { start: form.start, end: form.end, days: form.days }, scriptId: form.scriptId || null, phoneNumberId: form.phoneNumberId || null, isDynamic: form.isDynamic, audience: form.audience, agentIds: form.access === "all" ? [] : form.agentIds,
         filter: form.filterSource || form.filterNeverCalled ? { source: form.filterSource || undefined, neverCalled: form.filterNeverCalled ? "true" : undefined } : undefined,
       });
       toast.success(t(`הרשימה נוצרה${r.added ? ` עם ${r.added} לידים` : ""}`, `List created${r.added ? ` with ${r.added} leads` : ""}`));
@@ -81,7 +81,7 @@ export default function ListsPage() {
                   <div key={k as string} className="bg-white/4 rounded-md py-1.5"><p className="text-base font-semibold tabular">{v as number}</p><p className="text-[10px] text-muted">{k as string}</p></div>
                 ))}
               </div>
-              <p className="text-[11px] text-muted mt-3 truncate">{t("נציגים:", "Agents:")} {l.agents.length ? l.agents.map((a) => a.user.fullName).join(", ") : t("כולם", "All")} · {t("עדיפות", "Priority")} {l.priority}</p>
+              <p className="text-[11px] text-muted mt-3 truncate">{t("נציגים:", "Agents:")} {l.agents.length ? l.agents.map((a) => a.user.fullName).join(", ") : t("כולם", "All")} · {t("עדיפות", "Priority")} {l.priority} · {l.audience === "existing_customers" ? t("לקוחות קיימים", "Existing customers") : l.audience === "all" ? t("כולם", "Everyone") : t("גיוס", "Acquisition")}</p>
             </Link>
             {isManager && <ListAdminActions list={l} lists={lists} onChanged={load} />}
             </div>
@@ -94,6 +94,12 @@ export default function ListsPage() {
           <Input label={t("שם", "Name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="col-span-2" />
           <Textarea label={t("תיאור", "Description")} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="col-span-2" />
           <Input label={t("עדיפות (0–100)", "Priority (0–100)")} type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })} />
+          <Select label={t("מטרת הקמפיין", "Campaign purpose")} value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value as typeof form.audience })} data-testid="list-audience">
+            <option value="new_prospects">{t("גיוס לקוחות חדשים", "New customer acquisition")}</option>
+            <option value="existing_customers">{t("חידושים / מכירה נוספת ללקוחות קיימים", "Renewals / upsell to existing customers")}</option>
+            <option value="all">{t("כולם (לידים ולקוחות)", "Everyone (leads and customers)")}</option>
+          </Select>
+          <p className="col-span-2 -mt-2 text-xs text-muted">{t("בגיוס לקוחות חדשים לקוחות קיימים לא נכנסים לחיוג. לחידושים / מכירה נוספת – רק לקוחות קיימים, אצל הנציג המטפל.", "In acquisition, existing customers are never dialed. Renewals / upsell – existing customers only, by their handling agent.")}</p>
           <Select label={t("תסריט", "Script")} value={form.scriptId} onChange={(e) => setForm({ ...form, scriptId: e.target.value })}>
             <option value="">{t("ברירת מחדל של העסק", "Business default")}</option>
             {scripts.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}

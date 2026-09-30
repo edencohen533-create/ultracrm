@@ -20,7 +20,7 @@ export const POST = withAuth(async ({ user }) => {
   let list = await prisma.dialList.findFirst({ where: { businessId: user.businessId, isDynamic: true, filterJson: { path: ["leadOwnerUserId"], equals: user.id } }, select: { id: true, name: true, isActive: true, isPaused: true, archivedAt: true } });
   if (!list) {
     list = await prisma.dialList.create({
-      data: { businessId: user.businessId, name, description: "תור אישי – נבנה אוטומטית מהלידים הפתוחים של הנציג", isDynamic: true, filterJson: filter as unknown as Prisma.InputJsonValue, agents: { create: [{ userId: user.id }] } },
+      data: { businessId: user.businessId, name, description: "תור אישי – נבנה אוטומטית מהלידים הפתוחים של הנציג", isDynamic: true, audience: "all", filterJson: filter as unknown as Prisma.InputJsonValue, agents: { create: [{ userId: user.id }] } },
       select: { id: true, name: true, isActive: true, isPaused: true, archivedAt: true },
     });
   } else if (!list.isActive || list.archivedAt) {

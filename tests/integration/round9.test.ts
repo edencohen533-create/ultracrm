@@ -126,16 +126,18 @@ describe("round 9", { timeout: 1_800_000 }, () => {
     expect(calls.filter((c) => c.url.endsWith("/bad") && String(c.init?.body).includes(leadId))).toHaveLength(1);
   });
 
-  it("Excel import: rows become leads for the chosen agent; existing open lead is not duplicated (moved to the agent); bad phones reported", async () => {
+  it("Excel import: rows become leads for the chosen agent; an existing open lead is not duplicated and NOT moved (conflict); bad phones reported", async () => {
+    const apiLead = await db.lead.findFirstOrThrow({ where: { businessId: a.business.id, contact: { phoneE164: "+972521112233" }, status: { in: ["new", "contacted", "follow_up", "qualified"] } } });
     const r = await run(a.session, () => importLeads(a.session, { owner: agent2.id, source: "excel", offset: 0, rows: [
       { fullName: "יבוא אחד", phone: "0523330001", product: "מנוי", campaign: "אביב" },
       { fullName: "יבוא שניים", phone: "052-333-0002", email: "two@import.test" },
       { fullName: "ליד API", phone: "0521112233" },
       { fullName: "שבור", phone: "12" },
     ] }));
-    expect(r).toMatchObject({ created: 2, exists: 1, invalid: 1 }); expect(r.errors[0]).toMatchObject({ row: 5 });
-    const leads = await db.lead.findMany({ where: { businessId: a.business.id, contact: { phoneE164: { in: ["+972523330001", "+972523330002", "+972521112233"] } } }, include: { contact: true } });
+    expect(r).toMatchObject({ created: 2, exists: 1, invalid: 1, conflicts: apiLead.ownerUserId && apiLead.ownerUserId !== agent2.id ? 1 : 0 }); expect(r.errors.find((e) => e.row === 5)).toBeTruthy();
+    const leads = await db.lead.findMany({ where: { businessId: a.business.id, contact: { phoneE164: { in: ["+972523330001", "+972523330002"] } } }, include: { contact: true } });
     expect(leads.every((l) => l.ownerUserId === agent2.id)).toBe(true);
+    expect((await db.lead.findUniqueOrThrow({ where: { id: apiLead.id } })).ownerUserId).toBe(apiLead.ownerUserId); // an import never moves an owned lead
     expect((leads.find((l) => l.contact.phoneE164 === "+972523330001")!.contact.customFields as Record<string, string>).product).toBe("מנוי");
     const auto = await run(a.session, () => importLeads(a.session, { owner: "auto", offset: 0, rows: [{ fullName: "חלוקה", phone: "0523330009" }] }));
     expect(auto.created).toBe(1); await events();

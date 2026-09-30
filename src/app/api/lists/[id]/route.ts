@@ -33,6 +33,7 @@ const patchSchema = z.object({
   phoneNumberId: z.string().nullable().optional(),
   isDynamic: z.boolean().optional(),
   isPaused: z.boolean().optional(),
+  audience: z.enum(["new_prospects", "existing_customers", "all"]).optional(),
   archived: z.boolean().optional(),
 });
 
@@ -60,6 +61,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
       ...(b.phoneNumberId !== undefined ? { phoneNumberId: b.phoneNumberId } : {}),
       ...(b.isDynamic !== undefined ? { isDynamic: b.isDynamic } : {}),
       ...(b.isPaused !== undefined ? { isPaused: b.isPaused } : {}),
+      ...(b.audience !== undefined ? { audience: b.audience } : {}),
       ...(b.archived !== undefined ? { archivedAt: b.archived ? new Date() : null, isActive: b.archived ? false : list.isActive } : {}),
     },
   });

@@ -83,6 +83,11 @@ const leadCreated: EventHandler = {
     const lead = await prisma.lead.findUnique({ where: { id: leadId }, include: { contact: { select: { ownerUserId: true, fullName: true } } } });
     if (!lead) return { skipped: "lead missing" };
     let ownerUserId = lead.ownerUserId;
+    // An existing customer without an active handling agent waits for a manager – never round robin.
+    if (!ownerUserId && lead.reviewReason) {
+      await audit(event.businessId, null, "lead", lead.id, "automation.lead_review", { reason: lead.reviewReason, existingCustomer: lead.existingCustomer });
+      return { skipped: `review: ${lead.reviewReason}` };
+    }
     if (!ownerUserId) {
       const picked = await pickOwner(event.businessId, lead.contact.ownerUserId, lead.source);
       ownerUserId = picked.owner;
@@ -157,6 +162,7 @@ const outcomeFollowUp: EventHandler = {
       const contact = await prisma.contact.findUnique({ where: { id: event.contactId }, select: { fullName: true } });
       const deal = await prisma.deal.create({ data: { businessId: event.businessId, contactId: event.contactId, leadId: openLead?.id, title: `מכירה טלפונית – ${contact?.fullName ?? ""}`.trim(), stage: "won", status: "won", ownerUserId: userId, closedAt: new Date(), notes: `נוצר אוטומטית מתוצאת שיחה ${callId}` } });
       if (openLead) await prisma.lead.update({ where: { id: openLead.id }, data: { status: "converted", dealId: deal.id, closedAt: new Date() } });
+      await (await import("@/lib/crm/customer-identity")).markPurchase(prisma, { businessId: event.businessId, contactId: event.contactId, actorUserId: userId, via: "call_outcome_sale" });
       result.dealId = deal.id;
     }
     await audit(event.businessId, null, "automation", callId, "automation.outcome_follow_up", { trigger: event.type, outcome, ...result, result: "ok" });

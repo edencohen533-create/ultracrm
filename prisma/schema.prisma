@@ -767,6 +767,10 @@ model Lead {
   pendingTransferToUserId String?   @map("pending_transfer_to_user_id")
   pendingTransferById     String?   @map("pending_transfer_by_id")
   pendingTransferAt       DateTime? @map("pending_transfer_at")
+  /// Opened for someone who had already bought (a new opportunity of an existing customer – never "a new lead").
+  existingCustomer        Boolean   @default(false) @map("existing_customer")
+  /// Set when the lead needs a person (e.g. an existing customer whose handling agent is no longer active).
+  reviewReason            String?   @map("review_reason")
 
   contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
   owner   User?   @relation("LeadOwner", fields: [ownerUserId], references: [id])
@@ -1040,6 +1044,9 @@ model DialList {
   /// Dynamic lists re-apply filterJson on refresh; frozen lists keep their membership.
   isDynamic            Boolean   @default(false) @map("is_dynamic")
   isPaused             Boolean   @default(false) @map("is_paused")
+  /// Who this campaign is for: new_prospects (acquisition – existing customers never enter), existing_customers
+  /// (renewals / upsell – only customers), all. Personal lead queues are "all" (ownership rules apply there).
+  audience             String    @default("new_prospects")
   archivedAt           DateTime? @map("archived_at")
   lastRefreshedAt      DateTime? @map("last_refreshed_at")
   createdAt            DateTime  @default(now()) @map("created_at")

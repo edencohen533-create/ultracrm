@@ -27,6 +27,7 @@ export const POST = withAuth(async ({ req, user, params }) => {
       scriptId: src.scriptId,
       phoneNumberId: src.phoneNumberId,
       isDynamic: src.isDynamic,
+      audience: src.audience,
       agents: { create: src.agents.map((a) => ({ userId: a.userId })) },
     },
   });

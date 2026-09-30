@@ -19,6 +19,8 @@ const CONSENT_LABELS: Record<string, [string, string]> = {
   UNKNOWN: ["לא ידוע", "Unknown"],
 };
 
+const CASE_LABEL: Record<string, string> = { not_ordered: "המוצר לא הוזמן", ordered_not_received: "בירור חוסר באספקה", partial: "כמות חלקית – בירור", shipped_separately: "נשלח בנפרד – בירור", promised: "טענה להבטחה", conflict: "סתירה בין מקורות", needs_info: "חסר מידע" };
+
 /** "תיק לקוח" – fixed on the conversation's side on wide screens (the left side in RTL). */
 export function ContactProfilePanel({ file, extra }: { file: CustomerFile; extra: Extra }) {
   const t = useT();
@@ -155,11 +157,26 @@ function FileBody({ file, extra }: { file: CustomerFile; extra: Extra }) {
                   <div className="flex justify-between gap-2"><span className="font-medium">{o.orderId ? t(`הזמנה ${o.orderId}`, `Order ${o.orderId}`) : t("הזמנה (מספר חסר)", "Order (number missing)")}</span><span className="shrink-0">{money(o.total, o.currency) ?? missing}</span></div>
                   <p className="text-xs text-muted">{date(o.at) ?? t("תאריך חסר", "Date missing")} · {o.store}</p>
                   {o.items.length > 0 && <ul className="mt-1 space-y-0.5 text-xs">{o.items.map((i, n) => <li key={n} dir="auto">{i.name}{i.quantity != null ? ` × ${i.quantity}` : ""}{i.price != null ? ` · ${money(i.price, o.currency)}` : ""}</li>)}</ul>}
+                  {o.status && <p className="mt-1 text-[11px] text-muted">{t("סטטוס", "Status")}: {o.status}</p>}
+                  {o.shipments && o.shipments.length > 0 && <ul className="mt-1 space-y-0.5 text-[11px] text-muted">{o.shipments.map((sh, n) => <li key={n} dir="auto">📦 {sh}</li>)}</ul>}
+                  {o.receiptUrl && <a href={o.receiptUrl} target="_blank" rel="noreferrer noopener" className="mt-1 inline-block text-xs text-accent underline" data-testid="order-receipt">{t("קבלה", "Receipt")}</a>}
                 </li>
               ))}</ul>
             </Section>
           )}
         </>
+      )}
+
+      {file.cases.length > 0 && (
+        <Section title={t("בירורים", "Inquiries")}>
+          <ul className="space-y-2" data-testid="service-cases">{file.cases.map((k) => (
+            <li key={k.id} className="rounded-md border border-line p-2 text-xs" data-testid={`service-case-${k.id}`}>
+              <div className="flex justify-between gap-2"><span className="font-medium">{CASE_LABEL[k.finding] ?? k.finding}{k.orderNumber ? ` · ${t("הזמנה", "Order")} ${k.orderNumber}` : ""}</span><span className={k.status === "open" ? "text-warn" : "text-muted"}>{k.status === "open" ? t("פתוח", "Open") : k.status === "resolved" ? t("טופל", "Resolved") : t("הוסבר ללקוח", "Explained")}</span></div>
+              <p className="mt-1 whitespace-pre-wrap" dir="auto">{k.summary}</p>
+              {k.sources.length > 0 && <details className="mt-1"><summary className="cursor-pointer text-muted">{t("מקורות", "Sources")} ({k.sources.length})</summary><ul className="mt-1 space-y-0.5">{k.sources.map((src, n) => <li key={n} dir="auto">• {src.label}{src.at ? ` · ${date(src.at) ?? ""}` : ""}</li>)}</ul></details>}
+            </li>
+          ))}</ul>
+        </Section>
       )}
 
       <Section title={t("קבלות ומסמכים", "Receipts & documents")}>

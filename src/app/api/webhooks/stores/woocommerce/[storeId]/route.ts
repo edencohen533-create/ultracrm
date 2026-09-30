@@ -26,7 +26,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ storeId
         items: (o.line_items ?? []).map((i: { name?: string; quantity?: number; price?: number | string }) => ({ name: i.name ?? "", quantity: i.quantity ?? 1, price: i.price !== undefined ? Number(i.price) : undefined })),
         checkoutUrl: o.payment_url || undefined,
       });
-    } else if (PAID.includes(o.status)) {
+    }
+    // Every placed order (paid, changed, cancelled, refunded) is kept as a snapshot – items as sold, bundles, gifts.
+    if (!OPEN.includes(o.status)) {
+      const { upsertStoreOrder, wooOrderSnapshot } = await import("@/server/services/store-order-service");
+      await upsertStoreOrder(store.businessId, "woocommerce", wooOrderSnapshot(o), { storeId: store.id });
+    }
+    if (PAID.includes(o.status)) {
       await ingestOrder(store, { orderId: String(o.number ?? o.id), externalId: `order:${o.id}`, email: b.email || undefined, phone: b.phone || undefined, total: o.total !== undefined ? Number(o.total) : undefined, currency: o.currency });
     }
   });

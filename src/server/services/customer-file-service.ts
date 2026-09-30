@@ -25,7 +25,9 @@ export interface CustomerFile {
   hiddenLeads: number;
   purchases: Array<{ id: string; title: string; amount: number; currency: string; closedAt: string | null; owner: string | null; items: Array<{ name: string; quantity: number; unitPrice: number; startsAt: string; endsAt: string | null }> }>;
   opportunities: Array<{ id: string; title: string; amount: number; currency: string; stage: string; owner: string | null; expectedCloseAt: string | null }>;
-  orders: Array<{ id: string; orderId: string | null; total: number | null; currency: string | null; at: string | null; store: string; items: Array<{ name: string; quantity: number | null; price: number | null }> }>;
+  orders: Array<{ id: string; orderId: string | null; total: number | null; currency: string | null; at: string | null; store: string; items: Array<{ name: string; quantity: number | null; price: number | null }>; status?: string; shipments?: string[]; receiptUrl?: string | null }>;
+  /** Checked complaints (e.g. missing item) – claim, order checked, finding, next step, sources. */
+  cases: Array<{ id: string; kind: string; finding: string; status: string; summary: string; orderNumber: string | null; createdAt: string; sources: Array<{ type: string; id: string; label: string; at?: string }> }>;
   documents: Array<{ id: string; fileName: string | null; mimeType: string; url: string; createdAt: string }>;
 }
 
@@ -35,7 +37,7 @@ export async function customerFile(user: SessionUser, contactId: string, opts: {
   const cf = (c.customFields && typeof c.customFields === "object" ? c.customFields : {}) as Record<string, unknown>;
   const base: CustomerFile = {
     contact: { id: c.id, name: c.fullName, phone: c.phoneE164, email: c.email, product: str(cf.product), campaign: str(cf.campaign), ad: str(cf.ad), source: c.source, owner: c.owner?.fullName ?? null },
-    restricted: null, leads: [], hiddenLeads: 0, purchases: [], opportunities: [], orders: [], documents: [],
+    restricted: null, leads: [], hiddenLeads: 0, purchases: [], opportunities: [], orders: [], cases: [], documents: [],
   };
   // Documents from the conversations this user can open with this contact (never other contacts' threads).
   const docs = await prisma.messageAttachment.findMany({
@@ -63,5 +65,23 @@ export async function customerFile(user: SessionUser, contactId: string, opts: {
     id: o.id, orderId: o.orderId, total: o.orderTotal != null ? Number(o.orderTotal) : o.total != null ? Number(o.total) : null, currency: o.currency, at: o.convertedAt?.toISOString() ?? null, store: o.store.name,
     items: (Array.isArray(o.items) ? o.items : []).map((i) => { const r = (i ?? {}) as Record<string, unknown>; return { name: str(r.name) ?? "—", quantity: num(r.quantity), price: num(r.price) }; }),
   }));
+  // Orders as sold (store / order API snapshots) replace the cart view of the same order.
+  const [storeOrders, cases] = await Promise.all([
+    prisma.storeOrder.findMany({ where: { businessId: user.businessId, contactId: c.id }, orderBy: { placedAt: "desc" }, take: 20 }),
+    prisma.serviceCase.findMany({ where: { businessId: user.businessId, contactId: c.id }, orderBy: { createdAt: "desc" }, take: 20, include: { order: { select: { orderNumber: true } } } }),
+  ]);
+  if (storeOrders.length) {
+    const { describeOrder } = await import("@/server/ai/missing-items");
+    const snap = new Set(storeOrders.map((o) => o.orderNumber));
+    base.orders = [
+      ...storeOrders.map((o) => {
+        const items = describeOrder({ items: o.items as never });
+        const ships = ((o.shipments ?? []) as Array<{ status: string; carrier?: string; tracking?: string; items?: Array<{ name: string; quantity: number }> }>).map((s) => `${s.carrier ?? "משלוח"} ${s.tracking ?? ""} – ${s.status}${s.items?.length ? ` (${s.items.map((i) => `${i.quantity} ${i.name}`).join(", ")})` : ""}`.replace(/\s+/g, " "));
+        return { id: o.id, orderId: o.orderNumber, total: o.total != null ? Number(o.total) : null, currency: o.currency, at: o.placedAt?.toISOString() ?? null, store: o.source, status: o.status, items: items.map((line) => ({ name: line, quantity: null, price: null })), shipments: ships, receiptUrl: ((o.receipt ?? null) as { url?: string } | null)?.url ?? null };
+      }),
+      ...base.orders.filter((o) => !o.orderId || !snap.has(o.orderId)),
+    ];
+  }
+  base.cases = cases.map((k) => ({ id: k.id, kind: k.kind, finding: k.finding, status: k.status, summary: k.summary, orderNumber: k.order?.orderNumber ?? null, createdAt: k.createdAt.toISOString(), sources: (k.sources ?? []) as never }));
   return base;
 }

@@ -453,6 +453,8 @@ model Business {
   assistantMessages      AssistantMessage[]
   assistantDeliveries    AssistantDelivery[]
   carts                  Cart[]
+  storeOrders            StoreOrder[]
+  serviceCases           ServiceCase[]
   conversationDrafts     ConversationDraft[]
   marketingSequences     MarketingSequence[]
   sequenceRuns           SequenceRun[]
@@ -665,6 +667,8 @@ model Contact {
   campaignRecipients CampaignRecipient[]
   sequenceRuns       SequenceRun[]
   carts              Cart[]
+  storeOrders        StoreOrder[]
+  serviceCases       ServiceCase[]
 
   @@unique([businessId, phoneE164])
   @@index([businessId, fullName])
@@ -3231,4 +3235,79 @@ model PaymentEvent {
   @@unique([provider, eventKey])
   @@index([paymentRequestId])
   @@map("payment_events")
+}
+
+/// A purchased order as its source recorded it (store webhook / order API) – the facts for "missing item" complaints:
+/// line items AS SOLD (bundles with their components at purchase time, gifts / benefits), changes, refunds, split
+/// shipments and the receipt when an invoicing source sends one. An order proves what was recorded / charged – not
+/// what was packed; "delivered" does not prove every item arrived.
+model StoreOrder {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  storeId     String?   @map("store_id")
+  contactId   String?   @map("contact_id")
+  /// shopify | woocommerce | api
+  source      String
+  externalId  String    @map("external_id")
+  /// The number the customer sees (#1001).
+  orderNumber String    @map("order_number")
+  /// pending | paid | processing | completed | on_hold | cancelled | refunded | partially_refunded
+  status      String
+  phoneE164   String?   @map("phone_e164")
+  email       String?
+  currency    String?
+  total       Decimal?  @db.Decimal(14, 2)
+  placedAt    DateTime? @map("placed_at")
+  /// [{ key, name, sku?, quantity, refundedQuantity?, price?, kind: product|bundle|component|gift|benefit, parentKey?, components?: [{ name, sku?, quantity }] }]
+  items       Json      @default("[]")
+  /// [{ at, kind: created|item_added|item_removed|quantity_changed|cancelled|refunded, name?, from?, to? }]
+  changes     Json      @default("[]")
+  /// [{ key, status: pending|shipped|delivered|returned|failed, carrier?, tracking?, shippedAt?, deliveredAt?, items: [{ key?, name, quantity }] }]
+  shipments   Json      @default("[]")
+  /// { number?, issuedAt?, total?, url?, items: [{ name, sku?, quantity, price? }] } – as the invoicing source sent it
+  receipt     Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact  Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  cases    ServiceCase[]
+
+  @@unique([businessId, source, externalId])
+  @@index([businessId, contactId, placedAt])
+  @@index([businessId, phoneE164])
+  @@map("store_orders")
+}
+
+/// A checked customer complaint ("בירור חוסר במשלוח" etc.) kept in the customer file – one per claim (dedupeKey).
+model ServiceCase {
+  id             String      @id @default(cuid())
+  businessId     String      @map("business_id")
+  contactId      String      @map("contact_id")
+  conversationId String?     @map("conversation_id")
+  orderId        String?     @map("order_id")
+  kind           String      @default("missing_item")
+  /// not_ordered | ordered_not_received | partial | shipped_separately | promised | conflict | needs_info
+  finding        String
+  /// open | informed | resolved
+  status         String      @default("open")
+  /// { product, quantity?, text, promised? }
+  claim          Json
+  summary        String
+  /// [{ type: order|receipt|shipment|change|message|note|call, id, label, at? }]
+  sources        Json        @default("[]")
+  suggestedReply String?     @map("suggested_reply")
+  dedupeKey      String      @map("dedupe_key")
+  createdBy      String      @default("ai") @map("created_by")
+  resolvedAt     DateTime?   @map("resolved_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  business Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact  Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  order    StoreOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, dedupeKey])
+  @@index([businessId, contactId, createdAt])
+  @@map("service_cases")
 }

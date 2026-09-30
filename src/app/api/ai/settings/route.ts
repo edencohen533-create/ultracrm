@@ -27,7 +27,7 @@ const schema = z.object({
   name: z.string().trim().min(1).max(40), language: z.enum(["he", "en"]), tone: z.enum(["friendly", "formal", "short"]), length: z.enum(["short", "normal", "detailed"]),
   agentsCanChat: z.boolean(), managerIds: z.array(z.string()).max(100), autoRepairs: z.boolean(),
   actions: z.object({ create_task: policy, set_follow_up: policy, change_lead_status: policy, transfer_lead: policy }),
-  service: z.object({ enabled: z.boolean(), credentialIds: z.array(z.string()).max(20), hours: z.object({ start: hhmm, end: hhmm, days: z.array(z.number().int().min(0).max(6)).max(7) }), qualificationQuestions: z.array(z.string().trim().max(200)).max(8).transform(q=>[...new Set(q.filter(Boolean))]).optional(), handoffTopics: z.array(z.string().trim().min(1).max(60)).max(30), allowOrderStatus: z.boolean(), maxRepliesPerConversationPerHour: z.number().int().min(1).max(60), dailyReplyLimit: z.number().int().min(1).max(20000), offHoursMessage: z.string().max(500) }),
+  service: z.object({ enabled: z.boolean(), credentialIds: z.array(z.string()).max(20), hours: z.object({ start: hhmm, end: hhmm, days: z.array(z.number().int().min(0).max(6)).max(7) }), qualificationQuestions: z.array(z.string().trim().max(200)).max(8).transform(q=>[...new Set(q.filter(Boolean))]).optional(), handoffTopics: z.array(z.string().trim().min(1).max(60)).max(30), allowOrderStatus: z.boolean(), maxRepliesPerConversationPerHour: z.number().int().min(1).max(60), dailyReplyLimit: z.number().int().min(1).max(20000), offHoursMessage: z.string().max(500), replyMode: z.enum(["auto", "suggest"]).optional(), allowMissingItemCheck: z.boolean().optional() }),
   limits: z.object({ dailyChatMessagesPerUser: z.number().int().min(10).max(5000) }),
 }).partial();
 

@@ -42,7 +42,7 @@ export const CUSTOMERS_LIST_NAME = "לקוחות קיימים – חידושים
 export async function customersListId(db: Db, businessId: string) {
   const found = await db.dialList.findFirst({ where: { businessId, filterJson: { path: ["system"], equals: "customers" } }, select: { id: true } });
   if (found) return found.id;
-  return (await db.dialList.create({ data: { businessId, name: CUSTOMERS_LIST_NAME, description: "לקוחות שסגרו עסקה. החייגן מחייג רק ללקוחות שהמוצר שלהם הסתיים (לפי תאריך הסיום).", filterJson: { system: "customers" }, isDynamic: false } })).id;
+  return (await db.dialList.create({ data: { businessId, name: CUSTOMERS_LIST_NAME, description: "לקוחות שסגרו עסקה. החייגן מחייג רק ללקוחות שהמוצר שלהם הסתיים (לפי תאריך הסיום).", filterJson: { system: "customers" }, isDynamic: false, audience: "existing_customers" } })).id;
 }
 
 /** Queue row of a customer: due at the earliest un-renewed end date; no end date → kept but never auto-dialed. */

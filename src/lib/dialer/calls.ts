@@ -109,8 +109,9 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
     throw new ApiError("חסר יעד לחיוג", 400, "missing_destination");
   }
 
-  // Ownership / transfer / follow-up time are re-checked at the moment of dialing (the lead may have moved since the claim).
-  try { await assertDialAllowed(user, contactId, input.mode !== "manual"); }
+  // Ownership / existing customer vs. campaign / someone else on the person / follow-up time – the central check,
+  // at the moment of dialing (the lead may have moved, or the person bought, since the queue was built).
+  try { await assertDialAllowed(user, contactId, input.mode !== "manual", listId); }
   catch (e) { if (leadId) await releaseLead(user.id, leadId, "dial_guard").catch(() => undefined); throw e; }
 
   // DNC / do-not-contact is checked again at the moment of dialing – for every mode.
@@ -166,6 +167,8 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
       await lockAgent(tx, user.id);
       // A transaction-scoped destination lock closes the race between different agents.
       await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${user.businessId + ":" + toE164}, 0))`);
+      // …and per person: two agents on two numbers of the same contact are serialized too.
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${user.businessId + ":contact:" + contactId}, 0))`);
       const duplicate = await tx.call.findUnique({ where: { idempotencyKey: input.idempotencyKey }, include: CALL_INCLUDE });
       if (duplicate) {
         if (duplicate.userId !== user.id || duplicate.businessId !== user.businessId) throw new ApiError("מפתח בקשה לא תקין", 400, "bad_idempotency_key");
@@ -173,6 +176,7 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
       }
       if (await tx.call.findUnique({ where: { activeForUser: user.id } })) throw new ApiError("יש שיחה פעילה", 409, "call_active");
       if (await tx.call.findFirst({ where: { businessId: user.businessId, toE164, endedAt: null } })) throw new ApiError("המספר כבר בשיחה", 409, "number_in_call");
+      if (await tx.call.findFirst({ where: { businessId: user.businessId, contactId, endedAt: null } })) throw new ApiError("איש הקשר כבר בשיחה או בחיוג אצל נציג אחר", 409, "contact_in_call");
       if (await tx.call.findFirst({ where: { userId: user.id, endedAt: { not: null }, outcomeSavedAt: null } })) throw new ApiError("נדרש תיעוד שיחה", 409, "outcome_required");
       if (!sessionId && await tx.dialerSession.findFirst({ where: { userId: user.id, status: "paused" } })) throw new ApiError("הסשן מושהה", 409, "session_paused");
       if (sessionId) {

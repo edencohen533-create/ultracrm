@@ -12,7 +12,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { ConversationSource, MessageStatus, MessageType } from "@/generated/prisma/client";
 import { createInboundMessage } from "@/server/services/message-service";
-import { normalizePhone } from "@/lib/phone";
+import { normalizeProviderNumber } from "@/lib/phone";
 import type {
   MessageStatusResult,
   OutboundMessagePayload,
@@ -300,7 +300,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
   }
 
   private async handleInboundMessage(message: MetaInboundMessage, contactName: string | undefined) {
-    const phone = normalizePhone(`+${message.from}`) ?? `+${message.from}`;
+    const phone = normalizeProviderNumber(message.from ?? "") ?? `+${message.from}`;
 
     // A phone linked to the owner's WhatsApp AI assistant is handled there (verification / CRM questions) and never
     // becomes a customer conversation. Unlinked or revoked phones fall through to the normal inbox unchanged.

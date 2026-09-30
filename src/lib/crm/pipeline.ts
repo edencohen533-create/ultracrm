@@ -99,22 +99,51 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
   };
 }
 
+/**
+ * Every lead enters here (screen, public API / forms, import, WhatsApp assistant). Intake rules – one identity per person:
+ * - an open lead already exists → no second lead: channels / import reuse it (recorded as a repeat inquiry, owner
+ *   untouched); the screen gets a clear 409.
+ * - an existing customer (bought before) → a new opportunity marked "existing customer", routed to the handling
+ *   agent; with no active handler it waits for a manager (review) – never round robin.
+ * - a person owned by an active agent → that agent. Another owner only by an explicit choice of a user who may
+ *   transfer leads, from the screen – and it is recorded.
+ */
 export async function createLead(user: SessionUser, input: z.infer<typeof leadInputSchema>, source: "user" | "import" | "webhook" = "user") {
   const contact = await prisma.contact.findFirst({ where: { id: input.contactId, businessId: user.businessId }, select: { id: true, ownerUserId: true, source: true, customFields: true } });
   if (!contact || !(await canAccessContact(user, contact))) throw new ApiError("איש קשר לא נמצא", 404, "not_found");
   if (input.ownerUserId) await assertCanSeeUser(user, input.ownerUserId);
   if (input.ownerUserId) await assertTenantReferences(user.businessId, { userIds: [input.ownerUserId] });
+  const { customerFactsOne } = await import("./customer-identity");
+  const facts = await customerFactsOne(user.businessId, contact.id);
+  if (facts?.openLeads.length) {
+    const open = facts.openLeads[0];
+    if (source === "user") throw new ApiError(`לאיש הקשר כבר יש ליד פתוח${open.ownerName ? ` אצל ${open.ownerName}` : ""} – אין צורך בליד נוסף`, 409, "open_lead_exists", { leadId: open.id });
+    await audit(user.businessId, user.id, "lead", open.id, "lead.repeat_inquiry", { via: source, source: input.source ?? null, requestedOwner: input.ownerUserId ?? null });
+    const existing = await prisma.lead.findUniqueOrThrow({ where: { id: open.id }, include: LEAD_INCLUDE });
+    return Object.assign(existing, { reused: true as boolean, routedTo: null as string | null });
+  }
+  let ownerUserId: string | null = input.ownerUserId === undefined ? null : input.ownerUserId;
+  let reviewReason: string | null = null;
+  let routedTo: string | null = null;
+  const handler = facts?.handler ?? null;
+  if (handler && handler.id !== ownerUserId) {
+    const explicit = ownerUserId !== null && source === "user" && (await canTransferLeads(user));
+    if (!explicit) { routedTo = ownerUserId && ownerUserId !== handler.id ? handler.id : null; ownerUserId = handler.id; }
+  } else if (!handler && facts?.isCustomer && ownerUserId === null) {
+    reviewReason = facts.handlerInactive ? "handler_inactive" : "no_handler";
+  }
+  const existingCustomer = Boolean(facts?.isCustomer);
   const lead = await prisma.$transaction(async (tx) => {
     const l = await tx.lead.create({
-      data: { sourceAttribution:adAttribution(contact.customFields), businessId: user.businessId, contactId: contact.id, title: input.title || null, status: input.status ?? "new", source: input.source ?? contact.source ?? null, ownerUserId: input.ownerUserId === undefined ? null : input.ownerUserId, priority: input.priority ?? 0, notes: input.notes || null },
+      data: { sourceAttribution:adAttribution(contact.customFields), businessId: user.businessId, contactId: contact.id, title: input.title || null, status: input.status ?? "new", source: input.source ?? contact.source ?? null, ownerUserId, priority: input.priority ?? 0, notes: input.notes || null, existingCustomer, reviewReason },
       include: LEAD_INCLUDE,
     });
-    await audit(user.businessId, user.id, "lead", l.id, "lead.created", { contactId: contact.id, ownerUserId: l.ownerUserId }, tx);
-    await emitEvent(tx, { businessId: user.businessId, type: "lead.created", contactId: contact.id, actorUserId: user.id, source, dedupeKey: `lead.created:${l.id}`, payload: { leadId: l.id, ownerUserId: l.ownerUserId, source: l.source } });
+    await audit(user.businessId, user.id, "lead", l.id, "lead.created", { contactId: contact.id, ownerUserId: l.ownerUserId, via: source, existingCustomer, reviewReason, routedToHandler: routedTo, requestedOwner: input.ownerUserId ?? null }, tx);
+    await emitEvent(tx, { businessId: user.businessId, type: "lead.created", contactId: contact.id, actorUserId: user.id, source, dedupeKey: `lead.created:${l.id}`, payload: { leadId: l.id, ownerUserId: l.ownerUserId, source: l.source, existingCustomer, reviewReason } });
     return l;
   });
   kickEventProcessing(user.businessId);
-  return lead;
+  return Object.assign(lead, { reused: false as boolean, routedTo });
 }
 
 export async function updateLead(user: SessionUser, id: string, input: z.infer<typeof leadPatchSchema>) {
@@ -255,6 +284,7 @@ export async function createDeal(user: SessionUser, input: z.infer<typeof dealIn
       include: DEAL_INCLUDE,
     });
     if (input.leadId) await tx.lead.update({ where: { id: input.leadId }, data: { status: "converted", dealId: d.id, closedAt: new Date() } });
+    if (stage === "won") await (await import("./customer-identity")).markPurchase(tx, { businessId: user.businessId, contactId: contact.id, actorUserId: user.id, via: "deal_created_won" });
     await audit(user.businessId, user.id, "deal", d.id, "deal.created", { contactId: contact.id, amount: d.amount.toString() }, tx);
     await emitEvent(tx, { businessId: user.businessId, type: stage === "won" ? "deal.won" : "deal.created", contactId: contact.id, actorUserId: user.id, source: "user", dedupeKey: `deal.created:${d.id}`, payload: { dealId: d.id, amount: Number(d.amount), stage } });
     return d;
@@ -286,6 +316,7 @@ export async function updateDeal(user: SessionUser, id: string, input: z.infer<t
     });
     await audit(user.businessId, user.id, "deal", deal.id, "deal.updated", { fields: Object.keys(input), stage }, tx);
     if (stage === "won" && deal.stage !== "won") {
+      await (await import("./customer-identity")).markPurchase(tx, { businessId: user.businessId, contactId: deal.contactId, actorUserId: user.id, via: "deal_won" });
       await emitEvent(tx, { businessId: user.businessId, type: "deal.won", contactId: deal.contactId, actorUserId: user.id, source: "user", dedupeKey: `deal.won:${deal.id}`, payload: { dealId: deal.id, amount: Number(u.amount) } });
     }
     if (stage === "lost" && deal.stage !== "lost") {

@@ -82,6 +82,15 @@ export async function ingestCart(store: StoreConnection, raw: CartInput) {
   return cart;
 }
 
+/** A paid order makes its contact an existing customer (out of acquisition campaigns). */
+async function purchased<T extends { businessId: string; contactId: string | null; status: string } | null>(cart: T): Promise<T> {
+  if (cart?.contactId && (cart.status === "converted" || cart.status === "recovered")) {
+    const { markPurchase } = await import("@/lib/crm/customer-identity");
+    await markPurchase(prisma, { businessId: cart.businessId, contactId: cart.contactId, via: "store_order" });
+  }
+  return cart;
+}
+
 export async function ingestOrder(store: StoreConnection, raw: OrderInput) {
   const input = orderInputSchema.parse(raw);
   const email = input.email?.includes("@") ? input.email : undefined;
@@ -95,11 +104,11 @@ export async function ingestOrder(store: StoreConnection, raw: OrderInput) {
     // Paid before its "created" webhook arrived (out of order): record it as converted so the late "created"
     // never reopens it as an open cart (which would later be "abandoned" and message a customer who already paid).
     const paid = { status: "converted", convertedAt: new Date(), orderId: input.orderId, orderTotal: input.total !== undefined ? new Prisma.Decimal(input.total) : null };
-    return prisma.cart.upsert({ where: { storeId_externalId: { storeId: store.id, externalId: input.externalId } }, create: { businessId: store.businessId, storeId: store.id, externalId: input.externalId, email: email ?? null, phoneE164: e164, currency: input.currency ?? null, lastActivityAt: new Date(), ...paid }, update: paid });
+    return purchased(await prisma.cart.upsert({ where: { storeId_externalId: { storeId: store.id, externalId: input.externalId } }, create: { businessId: store.businessId, storeId: store.id, externalId: input.externalId, email: email ?? null, phoneE164: e164, currency: input.currency ?? null, lastActivityAt: new Date(), ...paid }, update: paid }));
   }
   if (!cart || cart.status === "converted" || cart.status === "recovered") return cart;
   const recovered = cart.status === "abandoned" && Boolean(cart.recoveryMessageAt);
-  return prisma.cart.update({ where: { id: cart.id }, data: { status: recovered ? "recovered" : "converted", convertedAt: new Date(), orderId: input.orderId, orderTotal: input.total !== undefined ? new Prisma.Decimal(input.total) : cart.total } });
+  return purchased(await prisma.cart.update({ where: { id: cart.id }, data: { status: recovered ? "recovered" : "converted", convertedAt: new Date(), orderId: input.orderId, orderTotal: input.total !== undefined ? new Prisma.Decimal(input.total) : cart.total } }));
 }
 
 /** Cron: open carts with contact details and no activity for the store's threshold → abandoned (+ event). */

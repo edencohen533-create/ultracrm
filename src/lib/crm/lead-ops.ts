@@ -416,19 +416,10 @@ export async function waitingToday(user: SessionUser, agent?: string | null) {
  *    an unassigned lead is never auto-dialed before it is assigned,
  *  • auto dialer only: never before the follow-up time, and never a follow-up that has no time.
  */
-export async function assertDialAllowed(user: SessionUser, contactId: string, auto: boolean) {
-  const leads = await prisma.lead.findMany({ where: { businessId: user.businessId, contactId, status: { in: [...OPEN_LEAD_STATUSES] } }, select: { ownerUserId: true, status: true, pendingTransferToUserId: true } });
-  if (leads.some((l) => l.pendingTransferToUserId)) throw new ApiError("הליד בהעברה לנציג אחר – אי אפשר לחייג אליו עד שההעברה תושלם", 409, "transfer_pending");
-  if (leads.length) {
-    const ids = auto ? [user.id] : await visibleUserIds(user);
-    const allowed = leads.some((l) => (l.ownerUserId ? !ids || ids.includes(l.ownerUserId) : !auto));
-    if (!allowed) throw new ApiError(leads.every((l) => !l.ownerUserId) ? "ליד ללא שיוך לא נכנס לחיוג אוטומטי – יש לשייך אותו לנציג" : "הליד משויך לנציג אחר", 409, "lead_not_assigned_to_you");
-  }
-  if (auto) {
-    const open = await prisma.task.findMany({ where: { businessId: user.businessId, contactId, status: "open", type: "callback" }, select: { dueAt: true } });
-    if (open.some((t) => t.dueAt.getTime() > Date.now())) throw new ApiError("מועד הפולואפ עוד לא הגיע", 409, "follow_up_not_due");
-    if (!open.length && leads.some((l) => l.status === "follow_up")) throw new ApiError("לפולואפ אין מועד – נדרש תזמון לפני חיוג", 409, "follow_up_unscheduled");
-  }
+/** Kept for callers / tests: the central dial eligibility check (src/lib/dialer/eligibility.ts). */
+export async function assertDialAllowed(user: SessionUser, contactId: string, auto: boolean, listId?: string | null) {
+  const { dialEligibility } = await import("@/lib/dialer/eligibility");
+  await dialEligibility(user, { contactId, auto, listId });
 }
 
 // ─── Lead history (the lead's own record: owner changes, reopen, status changes) ────────────────────────────────

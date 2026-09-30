@@ -17,6 +17,7 @@ import { explainScore, scoreSql } from "@/lib/dialer/prioritization";
 import { getAgentSettings } from "@/lib/agent-settings";
 import { retryRule } from "@/lib/agent-settings-schema";
 import { businessDayStart } from "@/lib/business-day";
+import { customerFactsOne, handlerSql, isCustomerSql } from "@/lib/crm/customer-identity";
 
 const CALLBACK_GRACE_MINUTES = 60;
 
@@ -55,19 +56,20 @@ export async function currentLockedLead(userId: string, db: Prisma.TransactionCl
 
 const QT = (t: string) => Prisma.raw(`"${dbSchema()}"."${t}"`);
 
-export interface QueueParams { businessId: string; userId: string; listId: string; personal: Awaited<ReturnType<typeof getAgentSettings>>; maxAttempts: number; newMax: number; followMax: number; dayStart: Date }
+export interface QueueParams { businessId: string; userId: string; listId: string; personal: Awaited<ReturnType<typeof getAgentSettings>>; maxAttempts: number; newMax: number; followMax: number; dayStart: Date; audience: string; cooldownMinutes: number }
 
 /** Everything the eligibility filter needs for one agent in one list (list/business/agent attempt caps). */
 export async function queueParams(businessId: string, userId: string, listId: string, db: Prisma.TransactionClient = prisma): Promise<QueueParams> {
   const settings = await getBusinessSettings(businessId, db);
   const personal = await getAgentSettings(businessId, userId, db);
-  const list = await db.dialList.findUniqueOrThrow({ where: { id: listId }, select: { maxAttempts: true } });
+  const list = await db.dialList.findUniqueOrThrow({ where: { id: listId }, select: { maxAttempts: true, audience: true } });
   const maxAttempts = list.maxAttempts ?? settings.maxAttempts;
   return {
     businessId, userId, listId, personal, maxAttempts,
     newMax: personal ? Math.min(maxAttempts, retryRule(personal, false, 0).maxAttempts) : maxAttempts,
     followMax: personal ? Math.min(maxAttempts, retryRule(personal, true, 0).maxAttempts) : maxAttempts,
     dayStart: businessDayStart(settings.timezone),
+    audience: list.audience, cooldownMinutes: settings.contactCooldownMinutes,
   };
 }
 
@@ -78,7 +80,26 @@ export async function queueParams(businessId: string, userId: string, listId: st
  * Expects the aliases `l` (list_leads) and `c` (contacts).
  */
 export function queueFilter(q: QueueParams, opts: { timeAware: boolean }) {
-  const { businessId, userId, listId, personal, maxAttempts, newMax, followMax, dayStart } = q;
+  const { businessId, userId, listId, personal, maxAttempts, newMax, followMax, dayStart, audience, cooldownMinutes } = q;
+  const customer = isCustomerSql(Prisma.sql`c.id`, Prisma.sql`c.business_id`);
+  // Same rules as dialEligibility (src/lib/dialer/eligibility.ts) – the queue never hands out what dialing would refuse.
+  const identity = Prisma.sql`
+          -- No open lead: only the handling agent (contact owner agent / seller of the last purchase) works the person;
+          -- a customer without an active handler waits for a manager – never picked up from another agent's campaign.
+          AND (
+            EXISTS (SELECT 1 FROM ${QT("leads")} ol WHERE ol.business_id = l.business_id AND ol.contact_id = l.contact_id AND ol.status::text IN ('new', 'contacted', 'follow_up', 'qualified'))
+            OR ${handlerSql("c")} = ${userId}
+            OR (${handlerSql("c")} IS NULL AND NOT ${customer})
+          )
+          ${audience === "new_prospects" ? Prisma.sql`AND NOT ${customer}` : audience === "existing_customers" ? Prisma.sql`AND ${customer}` : Prisma.empty}
+          -- Nobody else is dialing / talking to the person or holding them in another queue.
+          AND NOT EXISTS (SELECT 1 FROM ${QT("calls")} lc WHERE lc.business_id = l.business_id AND lc.contact_id = l.contact_id AND lc.ended_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM ${QT("list_leads")} hl WHERE hl.business_id = l.business_id AND hl.contact_id = l.contact_id AND hl.id <> l.id
+            AND hl.locked_by_user_id IS DISTINCT FROM ${userId} AND (hl.status::text = 'in_call' OR (hl.status::text = 'locked' AND hl.lock_expires_at > timezone('UTC', now()))))
+          ${cooldownMinutes > 0 ? Prisma.sql`AND NOT EXISTS (SELECT 1 FROM ${QT("calls")} rc WHERE rc.business_id = l.business_id AND rc.contact_id = l.contact_id AND rc.user_id <> ${userId}
+            AND rc.answered_at >= timezone('UTC', now()) - (${cooldownMinutes} || ' minutes')::interval)
+          AND NOT EXISTS (SELECT 1 FROM ${QT("conversations")} rv WHERE rv.business_id = l.business_id AND rv.contact_id = l.contact_id AND rv.assigned_agent_id IS NOT NULL
+            AND rv.assigned_agent_id <> ${userId} AND rv.status::text IN ('OPEN', 'PENDING') AND rv.last_inbound_at >= timezone('UTC', now()) - (${cooldownMinutes} || ' minutes')::interval)` : Prisma.empty}`;
   const E = Prisma.raw(`"${dbSchema()}"."QueueLeadStatus"`);
   const OPEN_LEADS = Prisma.sql`('new', 'contacted', 'follow_up', 'qualified')`;
   const time = opts.timeAware ? Prisma.sql`
@@ -122,6 +143,7 @@ export function queueFilter(q: QueueParams, opts: { timeAware: boolean }) {
             OR EXISTS (SELECT 1 FROM ${QT("leads")} ol WHERE ol.business_id = l.business_id AND ol.contact_id = l.contact_id AND ol.status::text IN ${OPEN_LEADS} AND ol.owner_user_id = ${userId})
           )
           AND NOT EXISTS (SELECT 1 FROM ${QT("leads")} pl WHERE pl.business_id = l.business_id AND pl.contact_id = l.contact_id AND pl.pending_transfer_to_user_id IS NOT NULL)
+          ${identity}
           -- Follow-ups without any time are never dialed.
           AND NOT EXISTS (
             SELECT 1 FROM ${QT("leads")} sl WHERE sl.business_id = l.business_id AND sl.contact_id = l.contact_id AND sl.status = 'follow_up'
@@ -190,7 +212,10 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
     const claimed = await tx.listLead.findUnique({ where: { id: rows[0].id }, include: { contact: true } });
     const scored = explainScore(settings.prioritization, claimed!, userId);
     const { score } = scored;
-    const reason = strategy === "business" ? scored.reason : `אסטרטגיה אישית: ${strategy}`;
+    // Never label someone who already bought as "ליד חדש" – say who they are (facts, not the attempt count).
+    const facts = await customerFactsOne(businessId, claimed!.contactId, tx);
+    const base = strategy === "business" ? scored.reason : `אסטרטגיה אישית: ${strategy}`;
+    const reason = facts?.isCustomer ? `לקוח קיים (${facts.purchases === 1 ? "רכישה אחת" : `${facts.purchases} רכישות`}) · ${base.replace(/ליד חדש/g, "פנייה חדשה")}` : base;
     const lead = await tx.listLead.update({
       where: { id: rows[0].id },
       data: { claimReason: reason, claimScore: score },

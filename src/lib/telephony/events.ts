@@ -284,6 +284,20 @@ export async function dialLeadLeg(callId: string) {
     await afterCallFinalized(call.id);
     return;
   }
+  // The full eligibility check again (ownership, existing customer vs. campaign, someone else on the person, follow-up):
+  // a transfer or a purchase may have happened while the agent's leg was connecting.
+  if (call.contactId) {
+    const { dialEligibility } = await import("@/lib/dialer/eligibility");
+    const actor = await prisma.user.findUnique({ where: { id: call.userId }, select: { id: true, businessId: true, role: true, teamId: true } });
+    const refused = actor ? await withBusiness(call.businessId, () => dialEligibility(actor, { contactId: call.contactId!, auto: call.mode !== "manual", listId: call.listId, exceptCallId: call.id })).then(() => null, (e: Error) => e.message) : "משתמש לא נמצא";
+    if (refused) {
+      await prisma.call.update({ where: { id: call.id }, data: { status: "failed", endedAt: new Date(), telephonyResult: "failed", failureReason: `refused before ringing: ${refused}`.slice(0, 300), activeForUser: null, talkSeconds: 0 } });
+      const { audit } = await import("@/lib/audit");
+      await audit(call.businessId, call.userId, "call", call.id, "call.refused_before_ring", { reason: refused.slice(0, 300) });
+      await afterCallFinalized(call.id);
+      return;
+    }
+  }
   const settings = await getBusinessSettings(call.businessId);
   try {
     // The answered agent leg becomes the first participant of a conference so supervisors can join later.

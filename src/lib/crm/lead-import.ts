@@ -2,7 +2,9 @@
  * CRM lead import (Excel / CSV parsed in the browser → rows). Each row: contact matched by phone (created if new),
  * email / product / campaign / ad filled when missing, and a lead opened – assigned to the chosen agent or, with
  * "auto", to the business's distribution policy (round robin / least loaded). A contact that already has an open
- * lead is not duplicated (reported as "exists"; with an agent chosen it is transferred to that agent).
+ * lead is not duplicated and never moved by an import (reported as "exists" – when it belongs to another agent than the
+ * chosen one it is a "conflict": transfers go through "העבר ליד" only). An existing customer / a person owned by an active
+ * agent opens with that handling agent (createLead intake), whatever agent the file names.
  */
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -13,7 +15,6 @@ import { visibleUserIds, type SessionUser } from "@/lib/auth";
 import { findOrCreateContactByPhone } from "./contacts";
 import { createLead } from "./pipeline";
 import { OPEN_LEAD_STATUSES } from "./labels";
-import { transferLeads } from "./lead-ops";
 
 export const leadImportSchema = z.object({
   rows: z.array(z.object({
@@ -41,7 +42,7 @@ export async function importLeads(user: SessionUser, input: z.infer<typeof leadI
     if (!u || (ids && !ids.includes(u.id))) throw new ApiError("יש לבחור נציג פעיל בעסק", 400, "invalid_agent");
     ownerId = u.id;
   }
-  const result = { created: 0, exists: 0, invalid: 0, errors: [] as Array<{ row: number; phone: string; reason: string }> };
+  const result = { created: 0, exists: 0, invalid: 0, conflicts: 0, existingCustomers: 0, routedToHandler: 0, review: 0, errors: [] as Array<{ row: number; phone: string; reason: string }> };
   for (let i = 0; i < input.rows.length; i++) {
     const r = input.rows[i]; const rowNo = input.offset + i + 2; // +1 header, +1 human numbering
     const e164 = normalizePhone(r.phone);
@@ -56,11 +57,17 @@ export async function importLeads(user: SessionUser, input: z.infer<typeof leadI
       const open = await prisma.lead.findFirst({ where: { businessId: user.businessId, contactId: contact.id, status: { in: [...OPEN_LEAD_STATUSES] } }, select: { id: true, ownerUserId: true } });
       if (open) {
         result.exists++;
-        if (ownerId && open.ownerUserId !== ownerId) await transferLeads(user, { leadIds: [open.id], toUserId: ownerId });
+        if (ownerId && open.ownerUserId && open.ownerUserId !== ownerId) {
+          result.conflicts++;
+          result.errors.push({ row: rowNo, phone: r.phone, reason: "לאיש הקשר יש ליד פתוח אצל נציג אחר – לא הועבר (העברה דרך \"העבר ליד\" בלבד)" });
+        }
         continue;
       }
-      await createLead(user, { contactId: contact.id, source, notes: r.notes || undefined, ...(ownerId ? { ownerUserId: ownerId } : {}) }, "import");
+      const lead = await createLead(user, { contactId: contact.id, source, notes: r.notes || undefined, ...(ownerId ? { ownerUserId: ownerId } : {}) }, "import");
       result.created++;
+      if (lead.existingCustomer) result.existingCustomers++;
+      if (lead.routedTo) result.routedToHandler++;
+      if (lead.reviewReason) result.review++;
     } catch (e) {
       result.invalid++; result.errors.push({ row: rowNo, phone: r.phone, reason: (e as Error).message.slice(0, 200) });
     }

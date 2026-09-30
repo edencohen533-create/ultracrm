@@ -7,9 +7,13 @@ import { useT } from "@/components/i18n/LangProvider";
  * "?" next to a section: opens a short explanation on click / tap / Enter / Space (not hover only), closes on
  * Escape, a second click or a click outside. The text is linked to the button for screen readers.
  */
-export function HelpTip({ label, children, testId }: { label: string; children: React.ReactNode; testId?: string }) {
+export function HelpTip({ label, children, testId, hover = false }: { label: string; children: React.ReactNode; testId?: string; hover?: boolean }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  // `hover`: also shown while the pointer is over the button or it has keyboard focus (click still pins it open).
+  const [peek, setPeek] = useState(false);
+  const open = pinned || peek;
+  const toggle = () => { if (pinned) { setPinned(false); setPeek(false); } else setPinned(true); };
   const id = useId();
   const box = useRef<HTMLSpanElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
@@ -29,15 +33,16 @@ export function HelpTip({ label, children, testId }: { label: string; children: 
   }, [open]);
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    const onDown = (e: PointerEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setPinned(false); setPeek(false); } };
+    const onDown = (e: PointerEvent) => { if (box.current && !box.current.contains(e.target as Node)) { setPinned(false); setPeek(false); } };
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onDown);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onDown); };
   }, [open]);
   return (
-    <span ref={box} className="relative inline-flex align-middle">
-      <button ref={btn} type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((o) => !o); }} aria-expanded={open} aria-controls={id}
+    <span ref={box} className="relative inline-flex align-middle" onMouseEnter={hover ? () => setPeek(true) : undefined} onMouseLeave={hover ? () => setPeek(false) : undefined}>
+      <button ref={btn} type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(); }} aria-expanded={open} aria-controls={id}
+        onFocus={hover ? () => setPeek(true) : undefined} onBlur={hover ? () => setPeek(false) : undefined}
         aria-label={t(`הסבר: ${label}`, `Help: ${label}`)} data-testid={testId}
         className="relative ms-1 inline-flex h-5 w-5 items-center before:absolute before:-inset-3 before:content-[''] justify-center rounded-full border border-line text-[11px] font-semibold text-muted hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">?</button>
       {open && (

@@ -390,6 +390,11 @@ export const waitingFilterSchema = z.object({ agent: z.string().optional() });
  * The same function feeds the card and the filtered list, so the numbers always match the list that opens.
  */
 export async function waitingToday(user: SessionUser, agent?: string | null) {
+  // "כל העסק" / another agent / unassigned are the business owner's; everyone else sees only their own (server-side).
+  if (user.role !== "owner") {
+    if (agent && agent !== user.id) throw new ApiError("הנתון זמין לבעל העסק בלבד – מוצגים הנתונים שלך", 403, "owner_only");
+    agent = user.id;
+  }
   const ids = await visibleUserIds(user);
   if (agent && agent !== "unassigned" && ids && !ids.includes(agent)) throw new ApiError("אין הרשאה לנתוני נציג זה", 403, "forbidden");
   const settings = await getBusinessSettings(user.businessId);

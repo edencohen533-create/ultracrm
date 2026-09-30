@@ -109,7 +109,8 @@ export async function listLeads(user: SessionUser, f: z.infer<typeof leadFilterS
     byStatus: byStatus.reduce<Record<string, number>>((m, s) => { m[s.status] = (m[s.status] ?? 0) + s._count._all; return m; }, {}),
     /** Per status id (custom statuses apart from the system status of the same meaning). */
     byStatusId: await (async () => { const defs = await listStatuses(user.businessId, { includeDeleted: true }); return byStatus.reduce<Record<string, number>>((m, s) => { const id = s.statusDefId ?? defs.find((d) => d.isSystem && d.kind === s.status)?.id ?? s.status; m[id] = (m[id] ?? 0) + s._count._all; return m; }, {}); })(),
-    byOwner: byOwner.map((g) => ({ id: g.ownerUserId, name: owners.find((o) => o.id === g.ownerUserId)?.fullName ?? "ללא שיוך", count: g._count._all })),
+    // "לידים לפי נציג" is the owner's table; everyone else gets only their own row.
+    byOwner: byOwner.filter((g) => user.role === "owner" || g.ownerUserId === user.id).map((g) => ({ id: g.ownerUserId, name: owners.find((o) => o.id === g.ownerUserId)?.fullName ?? "ללא שיוך", count: g._count._all })),
     sources: sources.map((s) => s.source!).filter(Boolean),
     metrics: { leads: total, deals: deals._count._all, revenue: Number(deals._sum.amount ?? 0), conversion: total ? converted / total * 100 : 0 },
   };

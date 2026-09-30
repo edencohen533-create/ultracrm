@@ -53,6 +53,8 @@ export const desiredSchema = z.record(z.string().regex(/^[a-z_]{2,40}$/), z.numb
 export async function quote(businessId: string, desired: Record<string, number>, now = new Date()) {
   const sub = await subOf(businessId);
   const { version, items } = await priceItems(sub);
+  // A custom unit price set by the platform for this business wins over the price book (src/server/billing/pricing.ts).
+  const custom = await (await import("./pricing")).termsAt(businessId, now);
   const active = sub && ["active", "past_due", "grace"].includes(sub.status) && sub.currentPeriodStart && sub.currentPeriodEnd;
   const periodStart = active ? sub!.currentPeriodStart! : now; const periodEnd = active ? sub!.currentPeriodEnd! : addMonths(now, 1);
   const ratio = active ? Math.max(0, (periodEnd.getTime() - now.getTime()) / (periodEnd.getTime() - periodStart.getTime())) : 1;
@@ -64,7 +66,7 @@ export async function quote(businessId: string, desired: Record<string, number>,
     const cur = sub?.items.find((x) => x.code === code);
     const current = cur?.quantity ?? 0;
     // Existing lines keep the price they were bought at; new lines take the subscription's price book version.
-    const unit = cur?.unitPriceMinor ?? it.unitPriceMinor;
+    const unit = custom.terms.licensePrices[code] ?? cur?.unitPriceMinor ?? it.unitPriceMinor;
     const add = Math.max(0, qty - current);
     lines.push({ code, name: it.name, kind: it.kind, unitPriceMinor: unit, current, next: qty, chargeNowQty: add, chargeNowMinor: Math.round(unit * add * ratio), changeAtRenewal: qty < current ? qty : null });
   }
@@ -261,11 +263,21 @@ export async function runBillingCycle(now = new Date()) {
         else await (await import("@/server/ops/alerts")).raiseAlert({ fingerprint: `billing:reduction_blocked:${sub.businessId}:${it.code}`, severity: "info", category: "billing", businessId: sub.businessId, title: "הפחתת רישיונות לא בוצעה – רישיונות עדיין מוקצים", details: { code: it.code, inUse, requested: it.pendingQuantity } });
         await db.subscriptionItem.update({ where: { id: it.id }, data: { quantity: qty, pendingQuantity: null } });
       }
-      if (qty > 0) lines.push({ code: it.code, name: catalog.find((c) => c.code === it.code)?.name ?? it.code, quantity: qty, unitPriceMinor: it.unitPriceMinor, amountMinor: it.unitPriceMinor * qty });
+      if (qty > 0) lines.push({ code: it.code, name: catalog.find((c) => c.code === it.code)?.name ?? it.code, quantity: qty, unitPriceMinor: it.unitPriceMinor });
     }
-    const subtotal = lines.reduce((s, l) => s + l.amountMinor, 0); const tax = Math.round((subtotal * (v?.taxRateBps ?? 0)) / 10000);
-    const doc = await db.billingDocument.create({ data: { businessId: sub.businessId, subscriptionId: sub.id, number: docNumber(), kind: "renewal", periodStart: start, periodEnd: end, lines: lines as unknown as Prisma.InputJsonValue, currency: v?.currency ?? "ILS", subtotalMinor: subtotal, taxMinor: tax, totalMinor: subtotal + tax, idempotencyKey: key, effect: { renewal: { start: start.toISOString(), end: end.toISOString() } } } });
+    // Custom pricing of this business (platform admin) in the fixed order: custom unit prices → recurring discount →
+    // one-time credits → VAT (src/server/billing/pricing.ts). Credits are consumed with the document, atomically.
+    const { price, documentLines, termsAt, openCredits, consumeCredits } = await import("./pricing");
+    const terms = await termsAt(sub.businessId, start);
+    const priced = price(lines, terms.terms, await openCredits(sub.businessId), v?.taxRateBps ?? 0, start);
+    const doc = await db.$transaction(async (tx) => {
+      const d = await tx.billingDocument.create({ data: { businessId: sub.businessId, subscriptionId: sub.id, number: docNumber(), kind: "renewal", periodStart: start, periodEnd: end, lines: documentLines(priced) as unknown as Prisma.InputJsonValue, currency: v?.currency ?? "ILS", subtotalMinor: priced.netMinor, taxMinor: priced.taxMinor, totalMinor: priced.totalMinor, idempotencyKey: key, effect: { renewal: { start: start.toISOString(), end: end.toISOString() }, ...(terms.version ? { pricingVersion: terms.version } : {}) } } });
+      await consumeCredits(tx, d.id, priced.creditUse);
+      return d;
+    });
     out.renewed++;
+    // Nothing to collect (discount / credit covered it) → paid without contacting the provider.
+    if (priced.totalMinor === 0) { await applyPaid(doc.id, null, now, sub.paymentMethodRef, null); continue; }
     if (sub.paymentMethodRef) { await chargeDocument(doc.id); out.charged++; } else await markPastDue(sub.id, "אין אמצעי תשלום שמור");
   }
   // Retries of failed renewals.

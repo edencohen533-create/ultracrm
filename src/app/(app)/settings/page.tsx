@@ -29,13 +29,14 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("business");
   const [me, setMe] = useState<{ user: { role: string }; modules: Record<string, boolean> } | null>(null);
   useEffect(() => { api.get<{ user: { role: string }; modules: Record<string, boolean> }>("/api/auth/me").then(setMe).catch(() => undefined); }, []);
-  useEffect(() => { const t = new URLSearchParams(window.location.search).get("tab"); if (t) setTab(t as Tab); }, []);
+  // Old links: "תעדוף לידים" now lives in "חייגן"; "הרשאות נתונים" / "מודולים והרשאות" in "משתמשים וצוותים".
+  useEffect(() => { const t = new URLSearchParams(window.location.search).get("tab"); const moved: Record<string, Tab> = { priority: "general", permissions: "users", access: "users" }; if (t) setTab((moved[t] ?? t) as Tab); }, []);
   const isAdmin = me?.user.role === "owner";
   // Server modules are crm/telephony/whatsapp/sms/email; `messaging` here means the WhatsApp module.
   const modules: Record<string, boolean> = me ? { ...me.modules, messaging: me.modules.whatsapp ?? me.modules.messaging ?? false } : { crm: true, messaging: true, telephony: true };
   const groups: Array<{ title: string; tabs: Array<[Tab, string]>; show: boolean }> = [
-    { title: t("עסק", "Business"), tabs: [["business", t("פרטי העסק", "Business details")], ["users", t("משתמשים וצוותים", "Users & Teams")], ["access", t("מודולים והרשאות", "Modules & permissions")], ["permissions", t("הרשאות נתונים", "Data permissions")], ["connections", t("חיבורים", "Connections")], ["plan", t("חבילה ומכסות", "Plan & quotas")], ["automations", t("אוטומציות", "Automations")], ["marketing", t("דיוור", "Marketing")], ["assistant", t("העוזר האישי בוואטסאפ", "WhatsApp personal assistant")], ["account", t("חשבון ומחיקה", "Account & deletion")], ["suppressions", t("הסרות מדיוור", "Unsubscribes")], ["history", t("היסטוריית שינויים", "Change history")]], show: true },
-    { title: t("טלפוניה", "Telephony"), tabs: [["general", t("חייגן", "Dialer")], ["priority", t("תעדוף לידים", "Lead prioritization")], ["safety", t("בטיחות ושיחות נכנסות", "Safety & inbound calls")], ["numbers", t("מספרים יוצאים", "Outbound numbers")], ["scripts", t("תסריטים", "Scripts")], ["dnc", t("לא ליצור קשר", "Do not contact")], ["coach", t("מאמן AI", "AI coach")]], show: modules.telephony },
+    { title: t("עסק", "Business"), tabs: [["business", t("פרטי העסק", "Business details")], ["users", t("משתמשים וצוותים", "Users & Teams")], ["connections", t("חיבורים", "Connections")], ["plan", t("חבילה ומכסות", "Plan & quotas")], ["automations", t("אוטומציות", "Automations")], ["marketing", t("דיוור", "Marketing")], ["assistant", t("העוזר האישי בוואטסאפ", "WhatsApp personal assistant")], ["account", t("חשבון ומחיקה", "Account & deletion")], ["suppressions", t("הסרות מדיוור", "Unsubscribes")], ["history", t("היסטוריית שינויים", "Change history")]], show: true },
+    { title: t("טלפוניה", "Telephony"), tabs: [["general", t("חייגן", "Dialer")], ["safety", t("בטיחות ושיחות נכנסות", "Safety & inbound calls")], ["numbers", t("מספרים יוצאים", "Outbound numbers")], ["scripts", t("תסריטים", "Scripts")], ["dnc", t("לא ליצור קשר", "Do not contact")], ["coach", t("מאמן AI", "AI coach")]], show: modules.telephony },
   ];
   return (
     <div className="p-5 space-y-4 max-w-5xl">
@@ -52,19 +53,24 @@ export default function SettingsPage() {
       {tab === "account" && <AccountDeletion isOwner={isAdmin} />}
       {tab === "connections" && <ConnectionsTab modules={modules} />}
       {tab === "plan" && <><a href="/settings/billing" className="block rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm mb-3" data-testid="open-billing">{t("חיוב ושימוש – רישיונות, מסמכים, שימוש ותקציב ←", "Billing & usage – licenses, documents, usage and budget →")}</a><PlanOverview /></>}
-      {tab === "access" && <AccessMatrix />}
       {tab === "automations" && <AutomationsTab isAdmin={isAdmin} messaging={modules.messaging} />}
       {tab === "marketing" && <MarketingTab isAdmin={isAdmin} />}
       {tab === "suppressions" && <SuppressionsTab />}
-      {tab === "general" && <GeneralTab isAdmin={isAdmin} />}
-      {tab === "priority" && <PriorityTab isAdmin={isAdmin} />}
+      {tab === "general" && <><GeneralTab isAdmin={isAdmin} /><div id="prioritization" className="mt-4"><PriorityTab isAdmin={isAdmin} /></div></>}
       {tab === "safety" && <SafetyTab isAdmin={isAdmin} />}
       {tab === "history" && <HistoryTab />}
       {tab === "coach" && <CoachAdmin isAdmin={isAdmin} />}
       {tab === "assistant" && <AssistantSettings isOwner={isAdmin} />}
-      {tab === "permissions" && <PermissionsTab isOwner={isAdmin} />}
       {tab === "numbers" && <NumbersTab isAdmin={isAdmin} />}
-      {tab === "users" && <UsersTab isAdmin={isAdmin} />}
+      {tab === "users" && <div className="space-y-4" data-testid="users-and-permissions">
+        <UsersTab isAdmin={isAdmin} />
+        <div className="rounded-lg border border-line bg-bg p-3 text-xs text-muted" data-testid="access-layers">
+          <b className="text-text">{t("שלוש שכבות נפרדות:", "Three separate layers:")}</b>{" "}
+          {t("רישיון למודול – מה שהעסק רכש ומי מחזיק רישיון (חיוב ושימוש); הרשאות פעולה – מה המשתמש רשאי לעשות בכל מודול; היקף נתונים – של מי הנתונים שהוא רואה (שלו / הצוות / כל העסק). הגישה בפועל היא החיתוך של שלושתן. זכויות של בעלים בלבד (חלוקת לידים, סטטוסים, חיוב, תפקידים) לא נפתחות דרך הרשאה רגילה, ומשתמש לא יכול להרחיב את ההרשאות של עצמו.", "Module license – what the business bought and who holds a license (billing); action permissions – what the user may do in each module; data scope – whose data they see (own / team / whole business). Effective access is the intersection of all three. Owner-only rights (lead distribution, statuses, billing, roles) are never opened by a regular permission, and nobody can widen their own permissions.")}
+        </div>
+        <AccessMatrix />
+        <PermissionsTab isOwner={isAdmin} embedded />
+      </div>}
       {tab === "scripts" && <ScriptsTab />}
       {tab === "dnc" && <DncTab />}
     </div>
@@ -162,7 +168,7 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
     <Panel title={t("משתמשים", "Users")} actions={isAdmin && <Button size="sm" onClick={() => setOpen(true)}>{t("+ משתמש", "+ User")}</Button>}>
       <p className="text-xs text-muted mb-3">{t("משתמשים מצטרפים בקישור הזמנה חד-פעמי ומגדירים סיסמה בעצמם; מי שכבר יש לו חשבון מאשר עם הסיסמה שלו (כניסה אחת לכל העסקים). תפקידים: בעלים (הכול), מנהל (ניהול צוותים, קמפיינים והגדרות תפעול), נציג.", "Users join with a one-time invite link and set their own password; someone who already has an account confirms with their password (one sign-in for every business). Roles: Owner (everything), Manager (manages teams, campaigns and operational settings), Agent.")}</p>
       <table className="w-full text-sm"><thead className="text-xs text-muted"><tr><th className="text-start h-8 font-medium">{t("שם", "Name")}</th><th className="text-start font-medium">{t("אימייל", "Email")}</th><th className="text-start font-medium">{t("תפקיד", "Role")}</th><th className="text-start font-medium">{t("צוות", "Team")}</th><th></th></tr></thead>
-        <tbody className="divide-y divide-line">{items.map((u) => <tr key={u.id}><td className="h-10">{u.fullName}{!u.isActive && (u.invitedAt ? <><Badge tone="warn" className="ms-2">{t("הזמנה ממתינה", "Invite pending")}</Badge>{isAdmin && <button type="button" className="ms-2 text-xs text-accent underline" onClick={() => reissue(u.id, u.fullName)}>{t("קישור חדש", "New link")}</button>}</> : <Badge tone="bad" className="ms-2">{t("מושבת", "Disabled")}</Badge>)}</td><td className="ltr text-start text-muted">{u.email}</td><td>{roleLabel[u.role]}</td><td className="text-muted">{u.team?.name ?? "—"}</td><td className="text-end whitespace-nowrap">{isAdmin && <><Select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value })} className="inline-block w-28 h-8 text-xs me-2"><option value="agent">{t("נציג", "Agent")}</option><option value="manager">{t("מנהל", "Manager")}</option><option value="owner">{t("בעלים", "Owner")}</option></Select><Select value={u.team ? teams.find((t) => t.name === u.team?.name)?.id ?? "" : ""} onChange={(e) => patch(u.id, { teamId: e.target.value || null })} className="inline-block w-32 h-8 text-xs me-2"><option value="">{t("ללא צוות", "No team")}</option>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select><Button size="sm" variant="ghost" onClick={() => patch(u.id, { isActive: !u.isActive })}>{u.isActive ? t("השבת", "Disable") : t("הפעל", "Enable")}</Button></>}</td></tr>)}</tbody></table>
+        <tbody className="divide-y divide-line">{items.map((u) => <tr key={u.id}><td className="h-10">{u.fullName}{!u.isActive && (u.invitedAt ? <><Badge tone="warn" className="ms-2">{t("הזמנה ממתינה", "Invite pending")}</Badge>{isAdmin && <button type="button" className="ms-2 text-xs text-accent underline" onClick={() => reissue(u.id, u.fullName)}>{t("קישור חדש", "New link")}</button>}</> : <Badge tone="bad" className="ms-2">{t("מושבת", "Disabled")}</Badge>)}</td><td className="ltr text-start text-muted">{u.email}</td><td>{isAdmin && u.isActive ? <select aria-label={t(`תפקיד ${u.fullName}`, `Role ${u.fullName}`)} className="rounded-md border border-line bg-transparent px-2 py-1 text-xs" value={u.role} onChange={(e) => void patch(u.id, { role: e.target.value })} data-testid={`user-role-${u.id}`}><option value="agent">{roleLabel.agent}</option><option value="manager">{roleLabel.manager}</option><option value="owner">{roleLabel.owner}</option></select> : roleLabel[u.role]}</td><td className="text-muted">{u.team?.name ?? "—"}</td><td className="text-end whitespace-nowrap">{isAdmin && <><Select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value })} className="inline-block w-28 h-8 text-xs me-2"><option value="agent">{t("נציג", "Agent")}</option><option value="manager">{t("מנהל", "Manager")}</option><option value="owner">{t("בעלים", "Owner")}</option></Select><Select value={u.team ? teams.find((t) => t.name === u.team?.name)?.id ?? "" : ""} onChange={(e) => patch(u.id, { teamId: e.target.value || null })} className="inline-block w-32 h-8 text-xs me-2"><option value="">{t("ללא צוות", "No team")}</option>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select><Button size="sm" variant="ghost" onClick={() => patch(u.id, { isActive: !u.isActive })}>{u.isActive ? t("השבת", "Disable") : t("הפעל", "Enable")}</Button></>}</td></tr>)}</tbody></table>
       {isAdmin && <div className="flex gap-2 mt-4 items-end"><Input label={t("צוות חדש", "New team")} value={teamName} onChange={(e) => setTeamName(e.target.value)} className="max-w-xs" /><Button variant="secondary" onClick={createTeam} disabled={!teamName.trim()}>{t("צור צוות", "Create team")}</Button></div>}
       <Modal open={Boolean(invite)} onClose={() => setInvite(null)} title={t("קישור הזמנה", "Invite link")} footer={<Button onClick={() => setInvite(null)}>{t("סגור", "Close")}</Button>}>
         {invite && <div className="space-y-2 text-sm">
@@ -366,6 +372,7 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
   useEffect(() => { fetch("/api/settings/whatsapp").then((r) => { if (r.status === 403) { setWaDenied(true); return null; } return r.ok ? r.json() : null; }).then((d) => setWa(d ?? null)).catch(() => setWaDenied(true)); }, []);
   return (
     <div className="space-y-4">
+      <p className="rounded-lg bg-bg p-2 text-xs text-muted" data-testid="meta-two-connections">{t("שני חיבורים נפרדים ל-Meta: WhatsApp Business לשליחת וקבלת הודעות (בערוצי דיוור למטה), ו-Meta Ads לפרטי המודעה של כל ליד ולדוח שיווק ומכירות. ניתוק אחד לא משפיע על השני.", "Two separate Meta connections: WhatsApp Business for sending and receiving messages (messaging channels below), and Meta Ads for each lead's ad details and the marketing & sales report. Disconnecting one doesn't affect the other.")}</p>
       <Suspense fallback={null}><MetaAdsPanel /></Suspense>
       <Panel title={t("CRM חיצוני", "External CRM")}>
         <div className="flex flex-wrap items-center gap-3 text-sm" data-testid="external-crm-panel">
@@ -376,7 +383,7 @@ function ConnectionsTab({ modules }: { modules: Record<string, boolean> }) {
       <Panel title={t("ערוצי דיוור", "Messaging channels")}>
         <ul className="text-sm space-y-3">
           <li className="flex flex-wrap items-center gap-2">
-            <b>WhatsApp (Meta Cloud API)</b>
+            <b>{t("Meta – WhatsApp Business (Cloud API)", "Meta – WhatsApp Business (Cloud API)")}</b>
             {!modules.messaging ? <Badge tone="neutral">{t("המודול כבוי בחבילה", "Module disabled in plan")}</Badge> : waDenied ? <Badge tone="neutral">{t("פרטי החיבור זמינים לבעלים בלבד", "Connection details are available to the owner only")}</Badge> : wa ? (wa.provider === "mock" ? <Badge tone="warn">{t("מצב הדגמה – אין שליחה אמיתית", "Demo mode – no real sending")}</Badge> : wa.sendingBlocked ? <Badge tone="bad">{t("חסום – בדוק Token", "Blocked – check Token")}</Badge> : <Badge tone="good">{t("מחובר", "Connected")}</Badge>) : <Spinner className="w-4 h-4" />}
             {modules.messaging && <a href="/settings/whatsapp" className="text-accent underline hover:underline ms-auto text-xs">{t("ניהול חיבור וואטסאפ →", "Manage WhatsApp connection →")}</a>}
           </li>

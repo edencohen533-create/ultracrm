@@ -14,7 +14,7 @@ const ROLE: Record<User["role"], [string, string]> = { owner: ["בעלים", "Ow
  * "הרשאות": who sees what by role, plus per-user role assignment. Enforced on the server (every list, card, report,
  * search and API uses the same visibility) – the screen only edits the policy.
  */
-export function PermissionsTab({ isOwner }: { isOwner: boolean }) {
+export function PermissionsTab({ isOwner, embedded = false }: { isOwner: boolean; /** Inside "משתמשים וצוותים": the role policy only (roles are set in the users table). */ embedded?: boolean }) {
   const t = useT();
   const [p, setP] = useState<Perms | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -37,7 +37,7 @@ export function PermissionsTab({ isOwner }: { isOwner: boolean }) {
   const agents = users.filter((u) => u.role === "agent" && u.isActive);
   return (
     <div className="space-y-4" data-testid="permissions-tab">
-      <Panel title={t("מה כל תפקיד רואה", "What each role sees")}>
+      <Panel title={embedded ? t("היקף נתונים לפי תפקיד", "Data scope by role") : t("מה כל תפקיד רואה", "What each role sees")}>
         <table className="w-full text-sm perm-table"><thead><tr><th className="text-start">{t("תפקיד", "Role")}</th><th className="text-start">{t("לידים, אנשי קשר, שיחות, משימות ודוחות", "Leads, contacts, calls, tasks and reports")}</th><th className="text-start">{t("פעולות", "Actions")}</th></tr></thead><tbody>
           <tr><td><Badge tone="accent">{t("בעלים", "Owner")}</Badge></td><td>{t("כל הנתונים של כל המשתמשים בעסק", "All data of all users in the business")}</td><td>{t("הכול, כולל הגדרות, הרשאות וחיבורים", "Everything, including settings, permissions and integrations")}</td></tr>
           <tr><td><Badge tone="info">{t("מנהל", "Manager")}</Badge></td><td><Select aria-label={t("היקף המנהלים", "Manager scope")} value={p.managerScope} disabled={!isOwner} onChange={(e) => setP({ ...p, managerScope: e.target.value as Perms["managerScope"] })} data-testid="perm-manager-scope"><option value="business">{t("הנתונים של כל הנציגים בעסק", "Data of all agents in the business")}</option><option value="team">{t("רק הצוות שהוא מנהל + הנתונים שלו", "Only the team they manage + their own data")}</option></Select></td><td>{t("שיוך והעברת לידים, דוחות, רשימות חיוג, קמפיינים ואוטומציות", "Assigning and transferring leads, reports, dial lists, campaigns and automations")}</td></tr>
@@ -48,13 +48,13 @@ export function PermissionsTab({ isOwner }: { isOwner: boolean }) {
         <p className="text-xs text-muted mt-2">{t("ההרשאות נאכפות בשרת בכל מסך, חיפוש, קישור ישיר ו-API. נציג לא יכול לראות נתונים של נציג אחר גם אם יש לו את הקישור.", "Permissions are enforced on the server in every screen, search, direct link and API. An agent cannot see another agent's data even with the link.")}</p>
         {isOwner ? <div className="flex justify-end mt-2"><Button onClick={save} loading={saving} data-testid="perm-save">{t("שמור הרשאות", "Save permissions")}</Button></div> : <p className="text-xs text-muted mt-2">{t("רק בעל העסק יכול לשנות הרשאות.", "Only the business owner can change permissions.")}</p>}
       </Panel>
-      <Panel title={t("משתמשים ותפקידים", "Users and roles")}>
+      {!embedded && <Panel title={t("משתמשים ותפקידים", "Users and roles")}>
         <table className="w-full text-sm"><thead className="text-xs text-muted"><tr><th className="text-start h-8">{t("שם", "Name")}</th><th className="text-start">{t("אימייל", "Email")}</th><th className="text-start">{t("צוות", "Team")}</th><th className="text-start">{t("תפקיד", "Role")}</th></tr></thead><tbody className="divide-y divide-line">
           {users.map((u) => <tr key={u.id} className={u.isActive ? "" : "opacity-50"}><td className="h-10">{u.fullName}</td><td className="ltr text-start text-muted">{u.email}</td><td className="text-muted">{u.team?.name ?? "—"}</td>
             <td>{isOwner ? <Select aria-label={t(`תפקיד ${u.fullName}`, `Role ${u.fullName}`)} value={u.role} onChange={(e) => setRole(u, e.target.value as User["role"])} className="w-32" data-testid={`perm-role-${u.id}`}><option value="agent">{t("נציג", "Agent")}</option><option value="manager">{t("מנהל", "Manager")}</option><option value="owner">{t("בעלים", "Owner")}</option></Select> : t(...ROLE[u.role])}</td></tr>)}
         </tbody></table>
         <p className="text-xs text-muted mt-2">{t("הוספת משתמשים חדשים והשבתה – בלשונית \"משתמשים וצוותים\".", "Add and deactivate users in the \"Users & Teams\" tab.")}</p>
-      </Panel>
+      </Panel>}
     </div>
   );
 }

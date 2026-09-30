@@ -63,15 +63,18 @@ export function StatusesEditor({ compact = false }: { compact?: boolean }) {
       {!statuses.items.length ? <div className="flex justify-center p-6"><Spinner /></div> : (
         <ul className="divide-y divide-line rounded-lg border border-line">
           {activeRows.map((s, i) => (
-            <li key={s.id} className="flex flex-wrap items-center gap-2 px-2 py-1.5" data-testid={`status-row-${s.id}`}>
-              <Input value={s.label} disabled={!owner} onChange={(e) => setRows((r) => r.map((x) => (x.id === s.id ? { ...x, label: e.target.value } : x)))} aria-label={t(`שם הסטטוס ${s.label}`, `Status name ${s.label}`)} className="min-w-[10rem] flex-1" data-testid={`status-label-${s.id}`} />
-              <span title={t(STATUS_KIND_HELP[s.kind].he, STATUS_KIND_HELP[s.kind].en)}><Badge tone="neutral">{kindTitle(s.kind)}</Badge></span>
-              {s.isSystem ? <span className="text-[11px] text-muted" title={t("סטטוס מערכת – אפשר לשנות שם, לא למחוק", "System status – can be renamed, not deleted")}>{t("מערכת", "System")}</span> : <span className="text-[11px] text-muted">{t("מותאם", "Custom")}</span>}
-              {owner && <>
+            <li key={s.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5" data-testid={`status-row-${s.id}`}>
+              <div className="min-w-0 basis-full sm:basis-auto sm:min-w-[10rem] flex-1"><Input value={s.label} disabled={!owner} onChange={(e) => setRows((r) => r.map((x) => (x.id === s.id ? { ...x, label: e.target.value } : x)))} aria-label={t(`שם הסטטוס ${s.label}`, `Status name ${s.label}`)} data-testid={`status-label-${s.id}`} /></div>
+              {/* meaning + origin together, actions always at the row's end – the same position on every row and screen size */}
+              <span className="flex min-w-0 items-center gap-2">
+                <span title={t(STATUS_KIND_HELP[s.kind].he, STATUS_KIND_HELP[s.kind].en)}><Badge tone="neutral">{kindTitle(s.kind)}</Badge></span>
+                {s.isSystem ? <span className="text-[11px] text-muted whitespace-nowrap" title={t("סטטוס מערכת – אפשר לשנות שם, לא למחוק", "System status – can be renamed, not deleted")}>{t("מערכת", "System")}</span> : <span className="text-[11px] text-muted whitespace-nowrap">{t("מותאם", "Custom")}</span>}
+              </span>
+              {owner && <span className="ms-auto flex items-center gap-1">
                 <Button size="sm" variant="ghost" onClick={() => move(s.id, -1)} disabled={i === 0} aria-label={t("הזז למעלה", "Move up")}>↑</Button>
                 <Button size="sm" variant="ghost" onClick={() => move(s.id, 1)} disabled={i === activeRows.length - 1} aria-label={t("הזז למטה", "Move down")}>↓</Button>
                 {!s.isSystem && <Button size="sm" variant="ghost" className="text-bad" onClick={() => setDeleting(s)} data-testid={`status-delete-${s.id}`}>{t("מחק", "Delete")}</Button>}
-              </>}
+              </span>}
             </li>
           ))}
         </ul>

@@ -958,3 +958,70 @@ button.seg-item { width: 100%; }
   .rep-filters select { width: 100%; }
   .rep-metric strong { font-size: 18px; }
 }
+
+/* ───────── Per-agent report table: one row per agent, name pinned on the right (RTL), sideways scroll ───────── */
+.agt-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.agt-export { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 13px; }
+.agt-export:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); } .agt-export:disabled { opacity: .5; }
+.agt-scroll { overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+.agt-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; color: var(--text); }
+.agt-table th, .agt-table td { padding: 10px 14px; text-align: start; white-space: nowrap; border-bottom: 1px solid var(--line); background: var(--panel); }
+.agt-table thead th { position: sticky; top: 0; z-index: 1; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--bg); }
+.agt-table thead th button { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: inherit; }
+.agt-table .agt-num { font-variant-numeric: tabular-nums; }
+.agt-table .agt-sticky { position: sticky; inset-inline-start: 0; z-index: 2; min-width: 150px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; box-shadow: -1px 0 0 var(--line) inset; font-weight: 600; }
+.agt-table thead .agt-sticky { z-index: 3; }
+.agt-table tbody tr:hover > * { background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
+.agt-table tfoot th, .agt-table tfoot td { font-weight: 700; background: var(--bg); border-bottom: 0; border-top: 2px solid var(--line); }
+.agt-table .performance-agent { font-weight: 600; text-align: start; }
+.performance-page.embedded { min-height: 0; background: transparent; color: var(--text); }
+.performance-page.embedded .performance-content { padding: 0; }
+.performance-page.embedded .performance-caption { padding: 0 16px 12px; color: var(--muted); }
+/* Broadcasts: on small screens the status filter is one compact scrollable row (this must come after the base rules above). */
+@media (max-width: 900px) {
+  .cmp { grid-template-rows: auto 1fr; align-content: start; }
+  .cmp-side { display: flex; align-items: center; gap: 4px; overflow-x: auto; padding: 6px 8px; min-height: 0; height: auto; border-inline-end: 0; border-bottom: 1px solid var(--line); }
+  .cmp-side h3 { display: none; }
+  .cmp-side button { flex: none; width: auto; white-space: nowrap; padding: 6px 10px; border-inline-start: 0; border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0; }
+  .cmp-side button.active { border-bottom-color: var(--accent); }
+}
+
+/* ───────── Dialer settings (inside the CRM): the system's tokens, type scale and switch (overrides the earlier blue theme) ───────── */
+.crm-settings-shell { color: var(--text); }
+.crm-settings-shell header { padding: 16px 20px; border-bottom-color: var(--line); }
+.crm-settings-shell h1 { font-size: 18px; font-weight: 700; }
+.crm-settings-shell header p, .crm-settings-agent span, .crm-carousel>p, .crm-carousel small, .crm-setting-field, .crm-retry-delay>span, .crm-retry-stage>button { color: var(--muted); }
+.crm-settings-shell header a { font-size: 24px; color: var(--muted); }
+.crm-settings-agent { padding: 12px 20px; font-size: 13px; }
+.crm-settings-shell select, .crm-settings-shell input[type=number] { border-color: var(--input); border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 14px; background: var(--panel); }
+.crm-settings-shell select:focus, .crm-settings-shell input:focus-visible { outline-color: var(--accent); }
+.crm-settings-shell nav { background: var(--panel); border-block-color: var(--line); }
+.crm-settings-shell nav button { min-width: 110px; padding: 12px 10px; font-size: 14px; color: var(--muted); border-bottom-width: 2px; }
+.crm-settings-shell nav button[aria-selected=true] { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+.crm-settings-shell main { padding: 20px; min-height: 0; }
+.crm-settings-shell h2 { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+.crm-setting-toggle { gap: 12px; margin: 14px 0; font-size: 14px; line-height: 1.5; }
+.crm-switch { width: 36px; height: 20px; background: color-mix(in srgb, var(--text) 22%, transparent); }
+.crm-switch:after { top: 2px; right: 2px; width: 16px; height: 16px; box-shadow: 0 1px 2px #0003; }
+.crm-setting-toggle input:checked + .crm-switch { background: var(--accent); }
+.crm-setting-toggle input:checked + .crm-switch:after { background: #fff; transform: translateX(-16px); }
+.crm-setting-toggle input:focus-visible + .crm-switch { outline-color: var(--accent); outline-offset: 3px; }
+.crm-settings-help { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 10px 0; }
+.crm-carousel { border-top-color: var(--line); padding-top: 20px; margin-top: 20px; }
+.crm-carousel th, .crm-carousel td { border-color: var(--line); padding: 10px; }
+.crm-add-number, .crm-settings-shell footer button { border-color: var(--accent); color: var(--accent); font-size: 14px; padding: 10px; border-radius: 8px; }
+.crm-setting-field { gap: 6px; margin: 16px 0; font-size: 13px; }
+.crm-setting-field select { font-size: 14px; }
+.crm-retry-marker { background: var(--muted-bg); color: var(--muted); padding: 10px; border-radius: 8px; font-size: 13px; }
+.crm-retry-stage { border-color: var(--line); box-shadow: none; border-radius: 8px; padding: 10px; margin: 10px 0; }
+.crm-retry-range { font-size: 14px; }
+.crm-add-stage { color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); padding: 8px; }
+.crm-strategies label { border-color: var(--line); border-radius: 8px; padding: 14px; }
+.crm-strategies label.selected { border-color: var(--accent); box-shadow: none; background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
+.crm-strategies input { accent-color: var(--accent); width: 16px; height: 16px; }
+.crm-strategies p { font-size: 14px; line-height: 1.6; }
+.crm-settings-shell footer { padding: 12px 20px; gap: 10px; background: var(--panel); border-top-color: var(--line); }
+.crm-settings-shell footer .crm-settings-save { background: var(--accent); color: #fff; }
+.crm-follow-ups button { color: var(--accent); }
+.crm-follow-ups>div { border-bottom-color: var(--line); }
+@media (max-width: 760px) { .crm-settings-shell header, .crm-settings-shell main, .crm-settings-agent { padding: 14px; } .crm-settings-shell h1 { font-size: 16px; } .crm-settings-shell nav button { min-width: 96px; } }

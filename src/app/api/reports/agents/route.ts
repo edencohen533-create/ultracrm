@@ -38,6 +38,18 @@ export const GET = withAuth(async ({ req, user }) => {
       avgTalkSeconds: m?.outboundAnswered ? Math.round((m.outboundTalkSeconds ?? 0) / m.outboundAnswered) : null,
       quality: quality[a.id] ?? { responseMinutes: null, notCalled: 0, newLeads: 0, newWon: 0, transferred: 0, transferredWon: 0, allLeads: 0, allWon: 0, avgDealValue: null, wonDeals: 0 } };
   });
+  // Full-business view: what has no agent row (won deals without an owner, calls of support / removed users) is one
+  // explicit row, so the table totals equal the page's summary figures – nothing is dropped or double counted.
+  if (!f.userId && !ids) {
+    const listed = new Set(agents.map((a) => a.id));
+    const other = Object.entries(metrics.perUser).filter(([id]) => !listed.has(id)).map(([, m]) => m);
+    const noOwner = deals.find((d) => d.ownerUserId === null)?._count._all ?? 0;
+    const sum = (k: "outboundAttempts" | "outboundAnswered" | "outboundHandled" | "outboundManual" | "dialSeconds" | "outboundTalkSeconds") => other.reduce((t, m) => t + (m?.[k] ?? 0), 0);
+    if (other.length || noOwner) {
+      const answered = sum("outboundAnswered"), talk = sum("outboundTalkSeconds");
+      rows.push({ id: "__unassigned", fullName: "ללא נציג משויך", presence: "offline", presenceAt: null as never, outbound: sum("outboundAttempts"), answered, handled: sum("outboundHandled"), manual: sum("outboundManual"), closed: noOwner, dialSeconds: sum("dialSeconds"), talkSeconds: talk, avgTalkSeconds: answered ? Math.round(talk / answered) : null, quality: { responseMinutes: null, notCalled: 0, newLeads: 0, newWon: 0, transferred: 0, transferredWon: 0, allLeads: 0, allWon: 0, avgDealValue: null, wonDeals: 0 } });
+    }
+  }
   const totals = rows.reduce((t, r) => ({ outbound: t.outbound + r.outbound, answered: t.answered + r.answered, handled: t.handled + r.handled, closed: t.closed + r.closed, talkSeconds: t.talkSeconds + r.talkSeconds }), { outbound: 0, answered: 0, handled: 0, closed: 0, talkSeconds: 0 });
   return ok({ rows, totals, agents: agents.map(a => ({ id: a.id, fullName: a.fullName })), from: from.toISOString(), to: to.toISOString(), timezone: settings.timezone });
 }, { minRole: "manager", module: "telephony" });

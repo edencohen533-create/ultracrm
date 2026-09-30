@@ -367,6 +367,8 @@ it("expert requests require the caller, target a permitted recently active manag
 });
 it("lead attribution is a creation snapshot and survives later contact edits", async () => {
   const { createLead } = await import("@/lib/crm/pipeline");
+  // One open lead per person: close the one opened earlier in this file (this test is about the attribution snapshot).
+  await db.lead.updateMany({ where: { contactId, status: { in: ["new", "contacted", "follow_up", "qualified"] } }, data: { status: "lost", closedAt: new Date() } });
   const l = await run(() =>
     createLead(a.session, {
       contactId,

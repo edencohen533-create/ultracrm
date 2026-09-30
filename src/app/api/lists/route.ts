@@ -36,6 +36,8 @@ const createSchema = z.object({
   scriptId: z.string().nullable().optional(),
   phoneNumberId: z.string().nullable().optional(),
   isDynamic: z.boolean().optional(),
+  /** new_prospects = acquisition (existing customers never dialed), existing_customers = renewals / upsell, all. */
+  audience: z.enum(["new_prospects", "existing_customers", "all"]).optional(),
   agentIds: z.array(z.string()).optional(),
   /** Build the list from a saved CRM filter right away. */
   filter: contactFilterSchema.optional(),
@@ -58,6 +60,7 @@ export const POST = withAuth(async ({ req, user }) => {
       scriptId: b.scriptId ?? null,
       phoneNumberId: b.phoneNumberId ?? null,
       isDynamic: Boolean(b.isDynamic && b.filter),
+      audience: b.audience ?? "new_prospects",
       filterJson: (b.filter as Prisma.InputJsonValue | undefined) ?? undefined,
       agents: b.agentIds?.length ? { create: b.agentIds.map((userId) => ({ userId })) } : undefined,
     },

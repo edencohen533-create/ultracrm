@@ -8,7 +8,7 @@
  * separate features that require product decisions – see CAPABILITIES.md).
  */
 import { prisma } from "@/lib/db";
-import { normalizePhone } from "@/lib/phone";
+import { normalizePhone, normalizeProviderNumber } from "@/lib/phone";
 import { adapterFor } from "@/lib/telephony";
 import type { ProviderEvent } from "@/lib/telephony/types";
 import { getBusinessSettings, isWithinDialWindow } from "@/lib/settings";
@@ -34,7 +34,7 @@ export async function handleInboundInitiated(ev: ProviderEvent) {
   const businessId = number.businessId;
   const telephony = adapterFor(ev.provider);
   const settings = await getBusinessSettings(businessId);
-  const fromE164 = normalizePhone(ev.from ?? "") ?? null;
+  const fromE164 = normalizeProviderNumber(ev.from ?? "") ?? null;
   const idempotencyKey = `inbound-${ev.provider}-${ev.legId}`;
 
   const existing = await prisma.call.findUnique({ where: { idempotencyKey } });

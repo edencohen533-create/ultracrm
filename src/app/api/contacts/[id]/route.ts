@@ -36,7 +36,11 @@ export const GET = withAuth(async ({ user, params }) => {
     suppressionSummary(user.businessId, c.id),
     prisma.note.findMany({ where: { contactId: c.id, ...noteScope(user, ids) }, orderBy: { createdAt: "desc" }, take: 20, include: { author: { select: { id: true, fullName: true } } } }),
   ]);
-  return ok({ ...c, tags: c.tags.map((t) => t.tag), tasks, calls, conversations, noteItems: notes, isDnc: Boolean(dnc), dncReason: dnc?.reason ?? null, suppression });
+  // "לקוח קיים" before dialing: from the purchase facts (not a tag) – purchases, last purchase, handler, open inquiries.
+  const { customerFactsOne } = await import("@/lib/crm/customer-identity");
+  const f = await customerFactsOne(user.businessId, c.id);
+  const customer = f ? { isCustomer: f.isCustomer, purchases: f.purchases, firstPurchaseAt: f.firstPurchaseAt, lastPurchaseAt: f.lastPurchaseAt, handler: f.handler, handlerInactive: f.handlerInactive, openInquiries: f.openLeads.map((l) => ({ id: l.id, status: l.status, owner: l.ownerName })) } : null;
+  return ok({ ...c, tags: c.tags.map((t) => t.tag), tasks, calls, conversations, noteItems: notes, isDnc: Boolean(dnc), dncReason: dnc?.reason ?? null, suppression, customer });
 }, { perm: ["crm.view", "telephony.use", "whatsapp.view", "sms.view", "email.view"] });
 
 export const PATCH = withAuth(async ({ req, user, params }) => {

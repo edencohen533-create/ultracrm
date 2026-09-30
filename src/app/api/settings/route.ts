@@ -39,6 +39,7 @@ const schema = z.object({
       dialingPaused: z.boolean().optional(),
       allowedCountries: z.array(z.string().length(2)).max(50).optional(),
       maxDialsPerMinute: z.number().int().min(0).max(120).optional(),
+      contactCooldownMinutes: z.number().int().min(0).max(10080).optional(),
       prioritization: z.object({
         callbackDue: z.number().min(0).max(1000), priority: z.number().min(0).max(100), newLeadPerHour: z.number().min(0).max(100), newLeadMaxHours: z.number().min(0).max(720),
         agingPerHour: z.number().min(0).max(100), agingMaxHours: z.number().min(0).max(2000), attemptPenalty: z.number().min(0).max(1000), ownerMatch: z.number().min(0).max(1000),

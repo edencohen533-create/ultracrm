@@ -254,6 +254,7 @@ async function createLeadFromDraft(user: SessionUser, d: LeadDraft): Promise<{ r
   const saved = await prisma.lead.findUnique({ where: { id: lead.id }, select: { source: true, owner: { select: { fullName: true } } } });
   const lines = [
     "✅ הליד נשמר",
+    ...(lead.existingCustomer ? [lead.reviewReason ? "👤 לקוח קיים – אין נציג מטפל פעיל, ממתין לשיוך על ידי מנהל" : "👤 לקוח קיים – נפתחה הזדמנות חדשה אצל הנציג המטפל (לא ליד חדש)"] : []),
     `שם: ${contact.fullName}${existing && existing.fullName !== d.name ? ` (איש קשר קיים; נכתב: ${d.name})` : ""}`,
     `טלפון: ${shown}`,
     `מוצר: ${d.product ?? "לא צוין"}`,

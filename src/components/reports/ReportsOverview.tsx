@@ -29,7 +29,12 @@ function presetRange(p: Preset, today: string): [string, string] {
     default: return [today, today];
   }
 }
-const KEY = ["answerRate", "leadCloseRate", "dealsWon", "revenue"];
+/** Order = right to left in Hebrew. */
+const KEY = ["revenue", "dealsWon", "leadCloseRate", "newLeads"];
+const CALLS = ["outbound", "answered", "answerRate", "talkSeconds", "avgTalkSeconds"];
+const LEADS = ["notCalled", "responseMinutes", "avgDeal"];
+/** Volume metrics: more calls isn't necessarily better, so their change is shown without good/bad colour. */
+const VOLUME = new Set(["outbound", "answered"]);
 /** Call metrics that open "חייגן → היסטוריית שיחות" with the same period / agent / list (the same rows they count). */
 const CALL_METRIC: Record<string, "outbound" | "answered"> = { outbound: "outbound", answered: "answered", answerRate: "outbound", talkSeconds: "answered", avgTalkSeconds: "answered" };
 
@@ -76,35 +81,65 @@ export function ReportsOverview() {
   };
   const detailRange = useMemo(() => (curStart && curEnd ? { from: curStart, to: curEnd, userId: userId || null } : undefined), [curStart, curEnd, userId]);
 
+  const [more, setMore] = useState(false);
+  const listName = opts?.lists.find((l) => l.id === listId)?.name;
+  const agentName = opts?.agents.find((a) => a.id === userId)?.fullName;
+  const chips = [
+    userId && { key: "agent", text: t(`נציג: ${agentName ?? "…"}`, `Agent: ${agentName ?? "…"}`), clear: () => setUserId("") },
+    listId && { key: "list", text: t(`רשימת חיוג: ${listName ?? "…"}`, `Dial list: ${listName ?? "…"}`), clear: () => setListId("") },
+    product && { key: "product", text: t(`מוצר: ${product}`, `Product: ${product}`), clear: () => setProduct("") },
+  ].filter(Boolean) as Array<{ key: string; text: string; clear: () => void }>;
+  const extraActive = Number(Boolean(listId)) + Number(Boolean(product));
+  // One shared message instead of "no data" on every metric when the comparison period has nothing at all.
+  const noCompareData = Boolean(data?.periods.compare && data.metrics.every((m) => m.change.previous === null || m.change.previous === 0));
+  const byId = (id: string) => data?.metrics.find((m) => m.id === id);
+  const group = (ids: string[]) => ids.map(byId).filter((m): m is Metric => Boolean(m));
+  const periodsText = data ? { current: range(data.periods.current), compare: data.periods.compare ? range(data.periods.compare) : null } : null;
+
   return (
     <div className="space-y-4 p-4 md:p-5" data-testid="reports-overview">
-      {/* 1. Filters and dates */}
+      {/* 1. Filters and dates – period, agent and comparison always visible; the rest under "more filters" */}
       <section className="rounded-xl border border-line bg-panel p-3" aria-label={t("סינון ותאריכים", "Filters and dates")}>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-          <Select label={t("תקופה", "Period")} value={preset} onChange={(e) => setPreset(e.target.value as Preset)} data-testid="rep-preset">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-[calc(50%-4px)] sm:w-44"><Select label={t("תקופה", "Period")} value={preset} onChange={(e) => setPreset(e.target.value as Preset)} data-testid="rep-preset">
             <option value="today">{t("היום", "Today")}</option><option value="yesterday">{t("אתמול", "Yesterday")}</option><option value="last7">{t("7 הימים האחרונים", "Last 7 days")}</option>
             <option value="last30">{t("30 הימים האחרונים", "Last 30 days")}</option><option value="thisMonth">{t("החודש", "This month")}</option><option value="lastMonth">{t("החודש הקודם", "Last month")}</option><option value="custom">{t("טווח מותאם", "Custom range")}</option>
-          </Select>
-          <Select label={t("השוואה", "Compare with")} value={compare} onChange={(e) => setCompare(e.target.value as typeof compare)} data-testid="rep-compare">
-            <option value="previous">{t("התקופה הקודמת (אותו אורך)", "Previous period (same length)")}</option><option value="custom">{t("טווח מותאם", "Custom range")}</option><option value="none">{t("ללא השוואה", "No comparison")}</option>
-          </Select>
-          <Select label={t("נציג", "Agent")} value={userId} onChange={(e) => setUserId(e.target.value)} data-testid="rep-agent"><option value="">{t("כל הנציגים", "All agents")}</option>{opts?.agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}</Select>
-          <Select label={t("רשימת חיוג", "Dial list")} value={listId} onChange={(e) => setListId(e.target.value)} data-testid="rep-list"><option value="">{t("כל רשימות החיוג", "All dial lists")}</option>{opts?.lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select>
-          {(opts?.products.length ?? 0) > 0 && <Select label={t("מוצר", "Product")} value={product} onChange={(e) => setProduct(e.target.value)} data-testid="rep-product"><option value="">{t("כל המוצרים", "All products")}</option>{opts!.products.map((p) => <option key={p} value={p}>{p}</option>)}</Select>}
+          </Select></div>
+          <div className="w-[calc(50%-4px)] sm:w-44"><Select label={t("נציג", "Agent")} value={userId} onChange={(e) => setUserId(e.target.value)} data-testid="rep-agent"><option value="">{t("כל הנציגים", "All agents")}</option>{opts?.agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}</Select></div>
+          <div className="w-[calc(50%-4px)] sm:w-40"><Select label={t("השוואה", "Compare")} value={compare} onChange={(e) => setCompare(e.target.value as typeof compare)} data-testid="rep-compare" title={t("השוואה לתקופה אחרת", "Compare with another period")}>
+            <option value="previous">{t("לתקופה הקודמת", "Previous period")}</option><option value="custom">{t("לטווח מותאם", "Custom range")}</option><option value="none">{t("ללא השוואה", "No comparison")}</option>
+          </Select></div>
+          <button type="button" className={cx("h-10 rounded-lg border border-line px-3 text-sm", (more || extraActive > 0) && "border-accent text-accent")} aria-expanded={more} aria-controls="rep-more" onClick={() => setMore((v) => !v)} data-testid="rep-more-toggle">
+            {t("סינון נוסף", "More filters")}{extraActive > 0 && <span className="ms-1 rounded-full bg-accent px-1.5 text-xs text-white">{extraActive}</span>}
+          </button>
         </div>
+        {more && (
+          <div id="rep-more" className="mt-2 flex flex-wrap gap-2 border-t border-line pt-2" data-testid="rep-more">
+            <div className="w-full sm:w-52"><Select label={t("רשימת חיוג", "Dial list")} value={listId} onChange={(e) => setListId(e.target.value)} data-testid="rep-list"><option value="">{t("כל רשימות החיוג", "All dial lists")}</option>{opts?.lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></div>
+            {(opts?.products.length ?? 0) > 0 ? <div className="w-full sm:w-52"><Select label={t("מוצר", "Product")} value={product} onChange={(e) => setProduct(e.target.value)} data-testid="rep-product"><option value="">{t("כל המוצרים", "All products")}</option>{opts!.products.map((p) => <option key={p} value={p}>{p}</option>)}</Select></div> : <p className="self-end pb-2 text-xs text-muted">{t("אין מוצרים לסינון.", "No products to filter by.")}</p>}
+          </div>
+        )}
+        {chips.length > 0 && (
+          <ul className="mt-2 flex flex-wrap gap-1.5" aria-label={t("סינונים פעילים", "Active filters")} data-testid="rep-chips">
+            {chips.map((c) => <li key={c.key} className="inline-flex items-center gap-1 rounded-full border border-line bg-bg py-0.5 pe-1 ps-2.5 text-xs">{c.text}<button type="button" onClick={c.clear} className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted hover:bg-line hover:text-text" aria-label={t(`הסרת סינון: ${c.text}`, `Remove filter: ${c.text}`)} data-testid={`rep-chip-${c.key}`}>×</button></li>)}
+          </ul>
+        )}
         {(preset === "custom" || compare === "custom") && (
           <div className="mt-2 flex flex-wrap gap-3 text-sm">
             {preset === "custom" && <fieldset className="flex flex-wrap items-end gap-2"><legend className="text-xs text-muted">{t("תקופה", "Period")}</legend><input type="date" className="h-9 rounded-md border border-line bg-bg px-2" aria-label={t("מתאריך", "From")} value={custom[0]} max={opts?.today} onChange={(e) => setCustom([e.target.value, custom[1]])} data-testid="rep-from" /><input type="date" className="h-9 rounded-md border border-line bg-bg px-2" aria-label={t("עד תאריך", "To")} value={custom[1]} max={opts?.today} min={custom[0] || undefined} onChange={(e) => setCustom([custom[0], e.target.value])} data-testid="rep-to" /></fieldset>}
             {compare === "custom" && <fieldset className="flex flex-wrap items-end gap-2"><legend className="text-xs text-muted">{t("טווח להשוואה", "Comparison range")}</legend><input type="date" className="h-9 rounded-md border border-line bg-bg px-2" aria-label={t("השוואה מתאריך", "Compare from")} value={cmp[0]} max={opts?.today} onChange={(e) => setCmp([e.target.value, cmp[1]])} data-testid="rep-cfrom" /><input type="date" className="h-9 rounded-md border border-line bg-bg px-2" aria-label={t("השוואה עד תאריך", "Compare to")} value={cmp[1]} max={opts?.today} min={cmp[0] || undefined} onChange={(e) => setCmp([cmp[0], e.target.value])} data-testid="rep-cto" /></fieldset>}
           </div>
         )}
-        {data && (
-          <p className="mt-2 text-xs text-muted" data-testid="rep-periods">
-            {t("תקופה:", "Period:")} <b>{range(data.periods.current)}</b>{data.periods.current.partial && t(` (עד עכשיו, ${time(data.periods.current.end)})`, ` (so far, ${time(data.periods.current.end)})`)}
-            {data.periods.compare && <> · {t("מול:", "vs:")} <b>{range(data.periods.compare)}</b>{data.periods.compare.partial && data.periods.mode === "previous" && t(" (עד אותה שעה)", " (up to the same time)")}</>}
-            {" · "}{t(`אזור זמן: ${data.timezone}`, `Time zone: ${data.timezone}`)}
-            {data.periods.partialCompare && <span className="ms-2 rounded bg-warn/15 px-1.5 py-0.5 text-warn" data-testid="rep-partial">{t("השוואה חלקית – התקופה עוד לא הסתיימה", "Partial comparison – the period hasn't ended")}</span>}
-            {data.periods.lengthMismatch && <span className="ms-2 rounded bg-warn/15 px-1.5 py-0.5 text-warn" data-testid="rep-mismatch">{t(`טווחים באורכים שונים (${data.periods.current.days} מול ${data.periods.compare!.days} ימים) – ספירות אינן ברות השוואה ישירה`, `Ranges of different length (${data.periods.current.days} vs ${data.periods.compare!.days} days) – counts aren't directly comparable`)}</span>}
+        {data && periodsText && (
+          <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted" data-testid="rep-periods">
+            <span><b className="text-text">{periodsText.current}</b>{periodsText.compare && <> {t("מול", "vs")} <b className="text-text">{periodsText.compare}</b></>}</span>
+            {data.periods.current.partial && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-warn" data-testid="rep-partial">{t(`תקופה חלקית – עד ${time(data.periods.current.end)}`, `Partial period – up to ${time(data.periods.current.end)}`)}</span>}
+            {data.periods.lengthMismatch && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-warn" data-testid="rep-mismatch">{t(`טווחים באורכים שונים (${data.periods.current.days} מול ${data.periods.compare!.days} ימים)`, `Different lengths (${data.periods.current.days} vs ${data.periods.compare!.days} days)`)}</span>}
+            <HelpTip label={t("טווח התאריכים", "Date range")} testId="rep-periods-help" hover>
+              {t(`אזור זמן: ${data.timezone}. הימים נספרים לפי שעון העסק.`, `Time zone: ${data.timezone}. Days follow the business's clock.`)}
+              {data.periods.current.partial && <><br />{t(`התקופה עוד לא הסתיימה – הנתונים עד ${time(data.periods.current.end)}.`, `The period hasn't ended – data up to ${time(data.periods.current.end)}.`)}{data.periods.compare?.partial && data.periods.mode === "previous" && t(" תקופת ההשוואה נספרת עד אותה שעה, כדי להשוות באופן שווה.", " The comparison period is counted up to the same hour, like for like.")}</>}
+              {data.periods.lengthMismatch && <><br />{t("הטווחים באורכים שונים – ספירות אינן ברות השוואה ישירה.", "The ranges differ in length – counts aren't directly comparable.")}</>}
+            </HelpTip>
           </p>
         )}
       </section>
@@ -114,21 +149,24 @@ export function ReportsOverview() {
 
       {data && (
         <>
-          {/* 2. Key metrics */}
-          <section aria-label={t("מדדים מרכזיים", "Key metrics")} className={cx("grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4", loading && "opacity-60")} data-testid="rep-kpis">
-            {data.metrics.filter((m) => KEY.includes(m.id)).map((m) => <MetricCard key={m.id} m={m} big href={historyHref(m.id)} />)}
+          {noCompareData && <p className="rounded-lg border border-line bg-panel px-3 py-2 text-xs text-muted" role="status" data-testid="rep-no-compare">{t("אין נתונים בתקופת ההשוואה – שינויים לא מוצגים.", "No data in the comparison period – changes aren't shown.")}</p>}
+          {/* 2. Key metrics – four compact cards */}
+          <section aria-label={t("מדדים מרכזיים", "Key metrics")} className={cx("grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4", loading && "opacity-60")} data-testid="rep-kpis">
+            {group(KEY).map((m) => <MetricCard key={m.id} m={m} href={historyHref(m.id)} hideChange={noCompareData} periods={periodsText!} />)}
           </section>
-          <section aria-label={t("מדדים נוספים", "More metrics")} className={cx("grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4", loading && "opacity-60")}>
-            {data.metrics.filter((m) => !KEY.includes(m.id)).map((m) => <MetricCard key={m.id} m={m} href={historyHref(m.id)} />)}
-          </section>
+          {/* 3. Secondary metrics – two compact groups, no card per number */}
+          <div className={cx("grid gap-3 lg:grid-cols-[3fr_2fr]", loading && "opacity-60")}>
+            <MetricGroup title={t("פעילות שיחות", "Call activity")} testId="rep-group-calls" metrics={group(CALLS)} href={historyHref} hideChange={noCompareData} periods={periodsText!} />
+            <MetricGroup title={t("טיפול בלידים וערך עסקה", "Lead handling & deal value")} testId="rep-group-leads" metrics={group(LEADS)} href={historyHref} hideChange={noCompareData} periods={periodsText!} />
+          </div>
 
-          {/* 3. Charts */}
+          {/* 4. Charts */}
           <div className="grid min-w-0 gap-3 lg:grid-cols-2">
             <Panel className="min-w-0" title={t("שיחות יוצאות לפי יום", "Outbound calls per day")}><DailyBars cur={data.series.current} prev={data.series.compare} field="outbound" /></Panel>
             <Panel className="min-w-0" title={t("עסקאות שנסגרו לפי יום", "Deals won per day")}><DailyBars cur={data.series.current} prev={data.series.compare} field="dealsWon" /></Panel>
           </div>
 
-          {/* 4. Detail per agent (same period / agent) */}
+          {/* 5. Detail per agent (same period / agent) */}
           <div className="rounded-xl border border-line bg-panel">
             <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">{t("פירוט לפי נציג", "Detail by agent")}{listId || product ? <span className="ms-2 text-xs font-normal text-muted">{t("(הטבלה מסוננת לפי תקופה ונציג בלבד)", "(the table is filtered by period and agent only)")}</span> : null}</h2>
             <AgentPerformance range={detailRange} />
@@ -149,28 +187,94 @@ function fmt(v: number | null, kind: MetricKind, lang: string) {
   return v.toLocaleString(loc);
 }
 
-function MetricCard({ m, big = false, href }: { m: Metric; big?: boolean; href?: string }) {
-  const t = useT();
+type T = ReturnType<typeof useT>;
+const sign = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
+
+/** The short comparison line (or null) and its colour. Rates change in percentage points; from a zero base → absolute. */
+function shortChange(m: Metric, t: T): { text: string; suffix?: string; tone: string; arrow: string; sr: string } | null {
   const c = m.change;
-  const sign = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
-  const abs = (n: number) => Math.abs(n);
-  let change: string;
-  if (c.note === "no_compare") change = "";
-  else if (c.note === "no_data") change = t("אין נתונים להשוואה", "No data to compare");
-  else if (c.note === "both_zero") change = t("ללא שינוי (0 בשתי התקופות)", "No change (0 in both periods)");
-  else if (m.kind === "rate") change = t(`${sign(c.points!)}${abs(c.points!).toFixed(1)} נק׳ אחוז`, `${sign(c.points!)}${abs(c.points!).toFixed(1)} pp`) + (c.note === "from_zero" ? t(" (מ-0%)", " (from 0%)") : c.relative !== null ? t(` · יחסי ${sign(c.relative)}${abs(c.relative).toFixed(1)}%`, ` · relative ${sign(c.relative)}${abs(c.relative).toFixed(1)}%`) : "");
-  else if (c.note === "from_zero") change = t(`${sign(c.delta!)}${fmt(abs(c.delta!), m.kind, t.lang)} (לא היה בתקופה הקודמת)`, `${sign(c.delta!)}${fmt(abs(c.delta!), m.kind, t.lang)} (none in the previous period)`);
-  else change = `${sign(c.delta!)}${fmt(abs(c.delta!), m.kind, t.lang)} (${sign(c.relative!)}${abs(c.relative!).toFixed(1)}%)`;
-  const tone = c.trend === "better" ? "text-good" : c.trend === "worse" ? "text-bad" : "text-muted";
-  const arrow = c.trend === "better" ? "▲" : c.trend === "worse" ? "▼" : c.trend === "neutral" ? "↕" : "";
+  if (c.note === "no_compare") return null;
+  if (c.note === "no_data") return { text: t("אין בסיס להשוואה", "No basis to compare"), tone: "text-muted", arrow: "", sr: "" };
+  if (c.note === "both_zero" || c.trend === "same") return { text: t("ללא שינוי", "No change"), tone: "text-muted", arrow: "", sr: "" };
+  const up = (c.delta ?? 0) > 0;
+  // The number is shown left-to-right, the words around it follow the page direction.
+  let text: string; let suffix: string | undefined;
+  if (m.kind === "rate") { text = `${sign(c.points!)}${Math.abs(c.points!).toFixed(1)}`; suffix = t("נק׳ אחוז", "pp"); }
+  else if (c.note === "from_zero") { text = `${sign(c.delta!)}${fmt(Math.abs(c.delta!), m.kind, t.lang)}`; suffix = t("(מ-0)", "(from 0)"); }
+  else text = `${sign(c.relative!)}${Math.abs(c.relative!).toFixed(1)}%`;
+  const judged = !VOLUME.has(m.id) && (c.trend === "better" || c.trend === "worse");
+  return { text, suffix, tone: judged ? (c.trend === "better" ? "text-good" : "text-bad") : "text-muted", arrow: up ? "↑" : "↓", sr: judged ? (c.trend === "better" ? t(" – שיפור", " – improvement") : t(" – הרעה", " – decline")) : "" };
+}
+
+/** Full definition + calculation, in the metric's explanation (click, hover, keyboard focus). */
+function MetricDetails({ m, periods }: { m: Metric; periods: { current: string; compare: string | null } }) {
+  const t = useT(); const c = m.change; const f = (v: number | null) => fmt(v, m.kind, t.lang);
   return (
-    <article className="rounded-xl border border-line bg-panel p-3" data-testid={`rep-metric-${m.id}`}>
-      <div className="flex items-center gap-1 text-xs text-muted">{t(m.label, m.en)}<HelpTip label={t(m.label, m.en)} testId={`rep-help-${m.id}`}>{t(m.definition, m.definitionEn)}{m.direction === "neutral" ? t(" שינוי במדד זה אינו מסומן כטוב או רע.", " A change here is not marked good or bad.") : ""}</HelpTip></div>
-      <p className={cx("mt-1 font-bold tabular-nums", big ? "text-2xl" : "text-xl")} dir="ltr" style={{ textAlign: "start" }} data-testid="rep-value">{fmt(c.current, m.kind, t.lang)}</p>
-      {c.note !== "no_compare" && <p className="text-xs text-muted" data-testid="rep-prev">{t("לעומת", "vs")} <span dir="ltr">{fmt(c.previous, m.kind, t.lang)}</span></p>}
+    <>
+      <span className="block">{t(m.definition, m.definitionEn)}</span>
+      {c.note !== "no_compare" && (
+        <span className="mt-2 block border-t border-line pt-2" dir="auto">
+          <span className="block">{periods.current}: <b dir="ltr">{f(c.current)}</b></span>
+          <span className="block">{periods.compare}: <b dir="ltr">{f(c.previous)}</b></span>
+          {c.note === "no_data" ? <span className="block">{t("לא ניתן לחשב את המדד באחת התקופות (למשל אין בסיס לחישוב האחוז) – לכן אין השוואה.", "The metric can't be calculated for one of the periods (e.g. no base for the rate) – so there's no comparison.")}</span>
+            : c.note === "both_zero" ? <span className="block">{t("0 בשתי התקופות.", "0 in both periods.")}</span>
+            : <>
+                <span className="block">{m.kind === "rate" ? t(`שינוי: ${sign(c.points!)}${Math.abs(c.points!).toFixed(1)} נקודות אחוז`, `Change: ${sign(c.points!)}${Math.abs(c.points!).toFixed(1)} percentage points`) : t(`שינוי מוחלט: ${sign(c.delta!)}${f(Math.abs(c.delta!))}`, `Absolute change: ${sign(c.delta!)}${f(Math.abs(c.delta!))}`)}</span>
+                <span className="block">{c.relative !== null ? t(`שינוי יחסי: ${sign(c.relative)}${Math.abs(c.relative).toFixed(1)}%`, `Relative change: ${sign(c.relative)}${Math.abs(c.relative).toFixed(1)}%`) : t("שינוי יחסי לא מחושב – הערך הקודם הוא 0.", "Relative change not calculated – the previous value is 0.")}</span>
+              </>}
+        </span>
+      )}
+      {(m.direction === "neutral" || VOLUME.has(m.id)) && <span className="mt-1 block text-muted">{t("שינוי במדד זה אינו מסומן כטוב או רע.", "A change here is not marked good or bad.")}</span>}
+    </>
+  );
+}
+
+function ChangeLine({ m, hide, small = false }: { m: Metric; hide: boolean; small?: boolean }) {
+  const t = useT();
+  const ch = hide ? null : shortChange(m, t);
+  if (!ch) return null;
+  return (
+    <p className={cx("mt-0.5 flex flex-wrap items-baseline gap-x-1.5", small ? "text-[11px]" : "text-xs")}>
+      <span className={cx("font-medium", ch.tone)} data-testid="rep-change"><span aria-hidden="true">{ch.arrow}</span>{ch.arrow && " "}<span dir="ltr">{ch.text}</span>{ch.suffix && ` ${ch.suffix}`}{ch.sr && <span className="sr-only">{ch.sr}</span>}</span>
+      {m.change.note !== "no_data" && <span className="text-muted" data-testid="rep-prev">{t("לעומת", "vs")} <span dir="ltr">{fmt(m.change.previous, m.kind, t.lang)}</span></span>}
+    </p>
+  );
+}
+
+function MetricCard({ m, href, hideChange, periods }: { m: Metric; href?: string; hideChange: boolean; periods: { current: string; compare: string | null } }) {
+  const t = useT();
+  return (
+    <article className="min-w-0 rounded-xl border border-line bg-panel px-3 py-2.5" data-testid={`rep-metric-${m.id}`}>
+      <div className="flex items-center gap-1 text-xs text-muted"><span className="min-w-0">{t(m.label, m.en)}</span><HelpTip label={t(m.label, m.en)} testId={`rep-help-${m.id}`} hover><MetricDetails m={m} periods={periods} /></HelpTip></div>
+      <p className="mt-0.5 text-2xl font-bold tabular-nums" dir="ltr" style={{ textAlign: "start" }} data-testid="rep-value">{fmt(m.change.current, m.kind, t.lang)}</p>
+      <ChangeLine m={m} hide={hideChange} />
       {href && <Link href={href} className="mt-1 inline-block text-xs text-accent underline" data-testid={`rep-open-${m.id}`}>{t("לשיחות בהיסטוריה ←", "Open in call history →")}</Link>}
-      {change && <p className={cx("mt-1 text-xs font-medium", tone)} data-testid="rep-change"><span aria-hidden="true">{arrow} </span>{change}{c.trend === "better" ? <span className="sr-only">{t(" – שיפור", " – improvement")}</span> : c.trend === "worse" ? <span className="sr-only">{t(" – ירידה", " – decline")}</span> : null}</p>}
     </article>
+  );
+}
+
+/** Several metrics in one compact box, separated by hairlines (no card per number). */
+function MetricGroup({ title, metrics, href, hideChange, periods, testId }: { title: string; metrics: Metric[]; href: (id: string) => string | undefined; hideChange: boolean; periods: { current: string; compare: string | null }; testId: string }) {
+  const t = useT();
+  const cols = metrics.length >= 5 ? "sm:grid-cols-5" : metrics.length === 4 ? "sm:grid-cols-4" : "sm:grid-cols-3";
+  return (
+    <section className="min-w-0 overflow-hidden rounded-xl border border-line bg-panel" aria-label={title} data-testid={testId}>
+      <h2 className="border-b border-line px-3 py-1.5 text-xs font-semibold">{title}</h2>
+      <div className={cx("grid grid-cols-2 gap-px bg-line [&>*:last-child:nth-child(odd)]:col-span-2 sm:[&>*:last-child:nth-child(odd)]:col-span-1", cols)}>
+        {metrics.map((m) => {
+          const link = href(m.id);
+          return (
+            <div key={m.id} className="min-w-0 bg-panel px-3 py-2" data-testid={`rep-metric-${m.id}`}>
+              <div className="flex items-center gap-1 text-[11px] leading-tight text-muted"><span className="min-w-0">{t(m.label, m.en)}</span><HelpTip label={t(m.label, m.en)} testId={`rep-help-${m.id}`} hover><MetricDetails m={m} periods={periods} /></HelpTip></div>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums" dir="ltr" style={{ textAlign: "start" }} data-testid="rep-value">
+                {link ? <Link href={link} className="hover:underline" title={t("לשיחות בהיסטוריה", "Open in call history")} data-testid={`rep-open-${m.id}`}>{fmt(m.change.current, m.kind, t.lang)}</Link> : fmt(m.change.current, m.kind, t.lang)}
+              </p>
+              <ChangeLine m={m} hide={hideChange} small />
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

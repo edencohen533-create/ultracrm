@@ -11,8 +11,10 @@ import { LEAD_STATUS_LABEL, formatDateTime, formatPhone } from "@/lib/client/for
 import { OUTCOMES } from "@/lib/outcomes";
 import { useT } from "@/components/i18n/LangProvider";
 import { MoveLeadsDialog } from "./ListAdminActions";
+import { HelpTip } from "@/components/ai/HelpTip";
+import { BusinessDialingNote, ListActiveSwitch, listHelp } from "./ListHelp";
 
-interface ListFull { id: string; name: string; unansweredLimit?: number | null; description: string | null; isActive: boolean; isPaused: boolean; isDynamic: boolean; archivedAt: string | null; lastRefreshedAt: string | null; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null; dialWindowJson: { start: string; end: string; days: number[] } | null; agents: Array<{ user: { id: string; fullName: string } }>; stats: { byStatus: Record<string, number>; dueNow: number; total: number; unavailable: { notDueYet: number; inProgress: number; exhausted: number; completed: number; dnc: number; removed: number; outsideDialWindow: boolean; listPaused: boolean; listInactive: boolean } } }
+interface ListFull { id: string; name: string; unansweredLimit?: number | null; description: string | null; isActive: boolean; isPaused: boolean; isDynamic: boolean; archivedAt: string | null; lastRefreshedAt: string | null; priority: number; maxAttempts: number | null; retryIntervalMinutes: number | null; agents: Array<{ user: { id: string; fullName: string } }>; stats: { byStatus: Record<string, number>; dueNow: number; total: number; unavailable: { notDueYet: number; inProgress: number; exhausted: number; completed: number; dnc: number; removed: number; outsideDialWindow: boolean; listPaused: boolean; listInactive: boolean; businessPaused?: boolean }; businessHours: { start: string; end: string; days: number[]; nextOpening: string | null } | null } }
 interface LeadRow { id: string; status: string; attempts: number; priority: number; lastAttemptAt: string | null; nextAttemptAt: string | null; lastOutcome: string | null; lastSkipReason: string | null; contact: { id: string; fullName: string; phoneE164: string; source: string | null }; lockedBy: { fullName: string } | null }
 
 /**
@@ -59,6 +61,7 @@ export function ListQueuePanel({ id }: { id: string }) {
   }, []);
 
   const isManager = me?.role !== "agent";
+  const help = listHelp(t);
   const [moveLists, setMoveLists] = useState<Array<{ id: string; name: string; isActive: boolean }> | null>(null);
   async function openMove() { try { setMoveLists(await api.get<Array<{ id: string; name: string; isActive: boolean }>>("/api/lists")); } catch (e) { toast.error((e as Error).message); } }
   async function bulk(action: "remove" | "requeue") {
@@ -68,10 +71,6 @@ export function ListQueuePanel({ id }: { id: string }) {
       setSel(new Set());
       load();
     } catch (e) { toast.error((e as Error).message); }
-  }
-  async function toggleActive() {
-    if (!list) return;
-    try { await api.patch(`/api/lists/${id}`, { isActive: !list.isActive }); load(); } catch (e) { toast.error((e as Error).message); }
   }
   async function addFromFilter() {
     try {
@@ -106,8 +105,7 @@ export function ListQueuePanel({ id }: { id: string }) {
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold">{list.name}</h1>
-        <Badge tone={list.isActive ? "good" : "neutral"}>{list.isActive ? t("פעילה", "Active") : t("לא פעילה", "Inactive")}</Badge>
-        {list.dialWindowJson && <span className="text-xs text-muted ltr">{list.dialWindowJson.start}–{list.dialWindowJson.end}</span>}
+        {isManager ? <ListActiveSwitch list={list} onChanged={load} /> : <Badge tone={list.isActive ? "good" : "neutral"}>{list.isActive ? t("פעילה", "Active") : t("לא פעילה", "Inactive")}</Badge>}
         {list.isPaused && <Badge tone="bad">{t("מושהית", "Paused")}</Badge>}
         {list.archivedAt && <Badge tone="neutral">{t("בארכיון", "Archived")}</Badge>}
         <Badge tone="neutral">{list.isDynamic ? t("דינמית", "Dynamic") : t("מוקפאת", "Frozen")}</Badge>
@@ -120,18 +118,17 @@ export function ListQueuePanel({ id }: { id: string }) {
             <Button size="sm" variant="secondary" onClick={() => setAgentsOpen(true)} data-testid="campaign-access-open">{t("למי רשימת החיוג פתוחה", "Who the dial list is open to")} ({list.agents.length || t("כולם", "All")})</Button>
             <Button size="sm" variant="secondary" onClick={() => setLimitOpen(true)} data-testid="campaign-limit-open">{t("מכסת ניסיונות ללא מענה", "Unanswered attempts limit")} ({list.unansweredLimit === null || list.unansweredLimit === undefined ? t("לפי העסק", "Business default") : list.unansweredLimit || t("כבוי", "Off")})</Button>
             <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>{t("+ הוסף לידים מסינון", "+ Add leads from filter")}</Button>
-            <Button size="sm" variant={list.isActive ? "danger" : "good"} onClick={toggleActive}>{list.isActive ? t("השבת רשימה", "Deactivate list") : t("הפעל רשימה", "Activate list")}</Button>
           </div>
         )}
       </div>
       <p className="text-xs text-muted">
-        {t("לא זמינים עכשיו: ממתינים לניסיון חוזר/חלון", "Not available now: waiting for retry/window")} <b className="text-text tabular">{s.unavailable.notDueYet}</b> · {t("בטיפול", "In progress")} <b className="text-text tabular">{s.unavailable.inProgress}</b> · {t("מוצו", "Exhausted")} <b className="text-text tabular">{s.unavailable.exhausted}</b> · {t("הושלמו", "Completed")} <b className="text-text tabular">{s.unavailable.completed}</b> · DNC <b className="text-text tabular">{s.unavailable.dnc}</b> · {t("הוסרו", "Removed")} <b className="text-text tabular">{s.unavailable.removed}</b>
-        {s.unavailable.outsideDialWindow && <Badge tone="warn" className="ms-2">{t("מחוץ לחלון החיוג", "Outside dial window")}</Badge>}
+        {t("לא זמינים עכשיו: ממתינים לניסיון חוזר או לחזרה", "Not available now: waiting for a retry or callback")} <b className="text-text tabular">{s.unavailable.notDueYet}</b> · {t("בטיפול", "In progress")} <b className="text-text tabular">{s.unavailable.inProgress}</b> · {t("מוצו", "Exhausted")} <b className="text-text tabular">{s.unavailable.exhausted}</b> · {t("הושלמו", "Completed")} <b className="text-text tabular">{s.unavailable.completed}</b> · DNC <b className="text-text tabular">{s.unavailable.dnc}</b> · {t("הוסרו", "Removed")} <b className="text-text tabular">{s.unavailable.removed}</b>
         {s.unavailable.listPaused && <Badge tone="bad" className="ms-2">{t("הרשימה מושהית", "List paused")}</Badge>}
       </p>
+      <BusinessDialingNote stats={s} isManager={isManager} />
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-        <Stat label={t("בתור עכשיו", "In queue now")} value={s.dueNow} tone="good" />
-        <Stat label={t("ממתינים", "Pending")} value={s.byStatus.pending ?? 0} />
+        <HelpStat label={t("בתור עכשיו", "In queue now")} value={s.dueNow} good help={help.queue} testId="list-help-queue" />
+        <HelpStat label={t("ממתינים", "Pending")} value={s.byStatus.pending ?? 0} help={help.pending} testId="list-help-pending" />
         <Stat label={t("חזרות", "Callbacks")} value={s.byStatus.callback ?? 0} tone="warn" />
         <Stat label={t("הושלמו", "Completed")} value={s.byStatus.completed ?? 0} />
         <Stat label={t("מוצו", "Exhausted")} value={s.byStatus.exhausted ?? 0} />
@@ -224,6 +221,16 @@ export function ListQueuePanel({ id }: { id: string }) {
           <ExhaustionPreview listId={id} />
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/** A counter with its "?" explanation (hover / focus on desktop, tap on phones). */
+function HelpStat({ label, value, help, good = false, testId }: { label: string; value: number; help: string; good?: boolean; testId: string }) {
+  return (
+    <div className="bg-panel-2 border border-line rounded-lg px-3 py-2 min-w-0">
+      <p className="flex items-center text-[11px] text-muted"><span className="truncate">{label}</span><HelpTip label={label} hover testId={testId}>{help}</HelpTip></p>
+      <p className={`text-xl font-semibold tabular leading-tight${good ? " text-good" : ""}`}>{value}</p>
     </div>
   );
 }

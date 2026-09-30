@@ -26,12 +26,12 @@ export async function isDnc(businessId: string, phoneE164: string) {
   return Boolean(hit);
 }
 
-export async function listDialWindow(businessId: string, listId: string | null): Promise<DialWindow> {
-  const settings = await getBusinessSettings(businessId);
-  if (!listId) return settings.dialWindow;
-  const list = await prisma.dialList.findUnique({ where: { id: listId }, select: { dialWindowJson: true } });
-  const w = list?.dialWindowJson as Partial<DialWindow> | null;
-  return { ...settings.dialWindow, ...(w ?? {}) };
+/**
+ * The hours a list may be dialed = the business's dialing hours (settings → dialer). Lists have no window of their
+ * own any more – a list can be activated at any time; an old `dialWindowJson` on a list is ignored.
+ */
+export async function listDialWindow(businessId: string, _listId: string | null): Promise<DialWindow> {
+  return (await getBusinessSettings(businessId)).dialWindow;
 }
 
 /** Make sure the agent may work this list. */
@@ -172,7 +172,7 @@ export async function claimNextLead(businessId: string, userId: string, listId: 
   const window = await listDialWindow(businessId, listId);
   if (!isWithinDialWindow(window)) {
     const next = nextDialWindowOpening(window);
-    throw new ApiError("מחוץ לחלון החיוג של הרשימה", 409, "outside_dial_window", { nextOpening: next?.toISOString() ?? null, window });
+    throw new ApiError("מחוץ לשעות החיוג של העסק", 409, "outside_dial_window", { nextOpening: next?.toISOString() ?? null, window });
   }
   const personal = await getAgentSettings(businessId, userId);
   return prisma.$transaction(async (tx) => {
@@ -312,7 +312,7 @@ export async function applyOutcomeToLead(opts: {
   const rule = personal ? retryRule(personal, lead.followUpAttempts !== null, attemptCount) : null;
   const businessMax = lead.list.maxAttempts ?? settings.maxAttempts;
   const maxAttempts = rule ? Math.min(businessMax, rule.maxAttempts) : businessMax;
-  const window = { ...settings.dialWindow, ...((lead.list.dialWindowJson as Partial<DialWindow> | null) ?? {}) };
+  const window = settings.dialWindow;
 
   const release = { lockedByUserId: null, lockToken: null, lockExpiresAt: null, preferredUserId: null as string | null };
   let data: Prisma.ListLeadUpdateInput = { lastOutcome: outcome, ...release };
@@ -382,11 +382,12 @@ export async function listQueueStats(listId: string) {
     prisma.listLead.count({ where: { listId, status: { in: ["pending", "callback"] }, OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] } }),
     prisma.listLead.count({ where: { listId, status: { in: ["pending", "callback"] }, nextAttemptAt: { gt: now } } }),
     prisma.listLead.count({ where: { listId, status: "locked", lockExpiresAt: { gt: now } } }),
-    prisma.dialList.findUnique({ where: { id: listId }, select: { businessId: true, dialWindowJson: true, isPaused: true, archivedAt: true, isActive: true } }),
+    prisma.dialList.findUnique({ where: { id: listId }, select: { businessId: true, isPaused: true, archivedAt: true, isActive: true } }),
   ]);
   const byStatus: Record<string, number> = {};
   for (const g of grouped) byStatus[g.status] = g._count._all;
-  const window = list ? await listDialWindow(list.businessId, listId) : null;
+  const settings = list ? await getBusinessSettings(list.businessId) : null;
+  const window = settings?.dialWindow ?? null;
   const inWindow = window ? isWithinDialWindow(window, now) : true;
   const unavailable = {
     notDueYet: notDue,
@@ -398,8 +399,11 @@ export async function listQueueStats(listId: string) {
     outsideDialWindow: !inWindow,
     listPaused: Boolean(list?.isPaused),
     listInactive: Boolean(list && (!list.isActive || list.archivedAt)),
+    /** Business-wide rules that stop dialing (shown in the UI with where to change them). */
+    businessPaused: Boolean(settings?.dialingPaused),
   };
-  return { byStatus, dueNow: inWindow && !unavailable.listPaused && !unavailable.listInactive ? due : 0, dueIgnoringWindow: due, unavailable, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
+  const businessHours = window ? { start: window.start, end: window.end, days: window.days, nextOpening: inWindow ? null : nextDialWindowOpening(window, now)?.toISOString() ?? null } : null;
+  return { byStatus, businessHours, dueNow: inWindow && !unavailable.listPaused && !unavailable.listInactive && !unavailable.businessPaused ? due : 0, dueIgnoringWindow: due, unavailable, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
 }
 
 /** Manager: move a held/pending lead to another agent (sets preference, releases any lock, audited). */

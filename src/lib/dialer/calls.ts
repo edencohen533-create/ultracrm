@@ -89,7 +89,7 @@ export async function startCall(user: SessionUser, input: StartCallInput): Promi
     await assertListAccess(user.businessId, user.id, user.role, lead.listId);
     const window = await listDialWindow(user.businessId, lead.listId);
     if (!isWithinDialWindow(window)) {
-      throw new ApiError("מחוץ לחלון החיוג של הרשימה", 409, "outside_dial_window", { window });
+      throw new ApiError("מחוץ לשעות החיוג של העסק", 409, "outside_dial_window", { window });
     }
     contactId = lead.contactId;
     toE164 = lead.contact.phoneE164;

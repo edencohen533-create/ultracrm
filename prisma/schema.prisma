@@ -1037,7 +1037,8 @@ model DialList {
   name                 String
   description          String?
   isActive             Boolean   @default(true) @map("is_active")
-  priority             Int       @default(0)
+  /// 1 (lowest) … 10 (highest): orders lists, not the leads inside one.
+  priority             Int       @default(5)
   /// Saved CRM filter used to build/refresh this list (source, city, owner, createdAfter …)
   filterJson           Json?     @map("filter_json")
   maxAttempts          Int?      @map("max_attempts")

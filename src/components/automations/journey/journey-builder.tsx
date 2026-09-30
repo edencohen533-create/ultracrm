@@ -2,20 +2,22 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Bell, Clock, GitBranch, ListMinus, ListPlus, Mail, MessageCircle, Plus, Smartphone, Tag, Tags, Trash2, Webhook, X, ArrowUp, ArrowDown } from "lucide-react";
+import { Bell, Clock, FlaskConical, GitBranch, Sparkles, ListMinus, ListPlus, Mail, MessageCircle, Plus, Smartphone, Tag, Tags, Trash2, Webhook, X, ArrowUp, ArrowDown } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { useT } from "@/components/i18n/LangProvider";
+import { JourneyAiPanel, type Interpretation } from "./journey-ai";
+import { PublishDialog, SimulateDialog } from "./journey-dialogs";
 
 type Channel = "whatsapp" | "sms" | "email";
 type Action = "send" | "task" | "wait" | "condition" | "add_tag" | "remove_tag" | "add_to_list" | "remove_from_list" | "webhook";
 export interface JourneyStep { action: Action; channel: Channel; templateId?: string; waitMinutes: number; variables: Record<string, string>; condition: { requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; consent?: string }; taskTitle?: string; taskDueHours?: number; actionTag?: string; listId?: string; webhookUrl?: string }
-export interface Journey { id?: string; name: string; isActive: boolean; trigger: string; triggerConfig: Record<string, unknown>; stopOn: string[]; steps: JourneyStep[] }
+export interface Journey { id?: string; name: string; status: "draft" | "active" | "paused"; version: number; hasDraft: boolean; trigger: string; triggerConfig: Record<string, unknown>; stopOn: string[]; steps: JourneyStep[] }
 type Opt = { id: string; name: string; channel?: string };
 type T = (he: string, en: string) => string;
 
-const TRIGGERS: Record<string, [string, string]> = { CART_ABANDONED: ["עגלה ננטשה באתר", "Cart abandoned on the site"], CONTACT_CREATED: ["איש קשר חדש נוצר", "New contact created"], TAG_ADDED: ["תגית נוספה לאיש קשר", "Tag added to contact"], LEAD_STATUS_CHANGED: ["סטטוס ליד השתנה", "Lead status changed"], DELIVERY_FAILED: ["הודעה שיווקית נכשלה במסירה", "Marketing message delivery failed"], SENT_NO_REPLY: ["הודעה שיווקית נשלחה ואין תשובה", "Marketing message sent, no reply"] };
+export const TRIGGERS: Record<string, [string, string]> = { CALL_UNANSWERED: ["ליד לא ענה לשיחה", "Lead did not answer a call"], CART_ABANDONED: ["עגלה ננטשה באתר", "Cart abandoned on the site"], CONTACT_CREATED: ["איש קשר חדש נוצר", "New contact created"], TAG_ADDED: ["תגית נוספה לאיש קשר", "Tag added to contact"], LEAD_STATUS_CHANGED: ["סטטוס ליד השתנה", "Lead status changed"], DELIVERY_FAILED: ["הודעה שיווקית נכשלה במסירה", "Marketing message delivery failed"], SENT_NO_REPLY: ["הודעה שיווקית נשלחה ואין תשובה", "Marketing message sent, no reply"] };
 const LEAD_STATUS: Record<string, [string, string]> = { new: ["חדש", "New"], contacted: ["נוצר קשר", "Contacted"], qualified: ["מתאים", "Qualified"], unqualified: ["לא מתאים", "Unqualified"], converted: ["הומר לעסקה", "Converted to deal"], lost: ["אבוד", "Lost"] };
 const ls = (t: T, k: string) => (LEAD_STATUS[k] ? t(...LEAD_STATUS[k]) : k);
 const PALETTE: Array<{ key: string; label: string; en: string; Icon: typeof Clock; make: (t: T) => JourneyStep }> = [
@@ -35,11 +37,18 @@ const fmtWait = (m: number, t: T) => m >= 1440 && m % 1440 === 0 ? (m === 1440 ?
 function stepTitle(s: JourneyStep, t: T) { const p = PALETTE.find((x) => x.key === s.action); return s.action === "send" ? (s.channel === "email" ? t("שליחת תבנית דוא״ל", "Send email template") : s.channel === "sms" ? t("שליחת הודעת SMS", "Send SMS message") : t("שליחת הודעת WhatsApp", "Send WhatsApp message")) : p ? t(p.label, p.en) : s.action; }
 function stepIcon(s: JourneyStep) { return (s.action === "send" ? PALETTE.find((p) => p.key === s.channel) : PALETTE.find((p) => p.key === s.action))?.Icon ?? Clock; }
 
+/** The definition sent to the server (the same shape the AI produces and the engine validates). */
+export function toDef(j: Journey) {
+  return { name: j.name, trigger: j.trigger, triggerConfig: j.triggerConfig, stopOn: j.stopOn, steps: j.steps.map((s) => ({ ...s, templateId: s.action === "send" ? s.templateId || undefined : undefined })) };
+}
+
 /**
- * Customer-journey builder (Flashy-style canvas): trigger → steps → exit. Linear journeys on top of the existing
- * sequence engine (consent / unsubscribe / frequency re-checked before every send; a reply or conversion can stop it).
+ * Customer-journey builder: trigger → steps → exit, linear on top of the sequence engine (consent / unsubscribe /
+ * frequency re-checked before every send; a reply or conversion can stop it).
+ * "שמירה" never publishes: a new journey is a draft, an active one keeps running its published version.
+ * "שמירה והפעלה" shows the server checks + what will happen, and publishes a new version only on approval.
  */
-export function JourneyBuilder({ initial, templates, tags, lists }: { initial: Journey; templates: Opt[]; tags: string[]; lists: Opt[] }) {
+export function JourneyBuilder({ initial, templates, tags, lists, openPublish = false }: { initial: Journey; templates: Opt[]; tags: string[]; lists: Opt[]; openPublish?: boolean }) {
   const router = useRouter();
   const t = useT();
   const [j, setJ] = useState<Journey>(initial);
@@ -47,35 +56,59 @@ export function JourneyBuilder({ initial, templates, tags, lists }: { initial: J
   const [sel, setSel] = useState<number | "trigger" | "exit" | null>(initial.id ? null : "trigger");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [panel, setPanel] = useState<"ai" | null>(initial.id ? null : "ai");
+  const [publishing, setPublishing] = useState(openPublish && initial.steps.length > 0); // "שמירה והפעלה" from the single-rule screen
+  const [simulating, setSimulating] = useState(false);
   const set = (patch: Partial<Journey>) => { setJ((x) => ({ ...x, ...patch })); setDirty(true); };
   const setStep = (i: number, patch: Partial<JourneyStep>) => set({ steps: j.steps.map((s, k) => k === i ? { ...s, ...patch } : s) });
   const insert = (at: number, s: JourneyStep) => { const steps = [...j.steps]; steps.splice(at, 0, s); set({ steps }); setAdding(null); setSel(at); };
   const move = (i: number, to: number) => { if (to < 0 || to >= j.steps.length) return; const steps = [...j.steps]; const [x] = steps.splice(i, 1); steps.splice(to, 0, x); set({ steps }); setSel(to); };
   const remove = (i: number) => { set({ steps: j.steps.filter((_, k) => k !== i) }); setSel(null); };
-  async function save(active?: boolean) {
-    if (!j.steps.length) { toast.error(t("יש להוסיף לפחות פעולה אחת", "Add at least one action")); return; }
+  // Closing the tab with unsaved changes asks the browser to confirm.
+  useEffect(() => { if (!dirty) return; const h = (e: BeforeUnloadEvent) => e.preventDefault(); window.addEventListener("beforeunload", h); return () => window.removeEventListener("beforeunload", h); }, [dirty]);
+  /** "שמירה": a draft only – never publishes, never stops the live version. Returns the id. */
+  async function saveDraft(quiet = false): Promise<string | null> {
     setBusy(true);
     try {
-      const body = { ...j, isActive: active ?? j.isActive, steps: j.steps.map((s) => ({ ...s, templateId: s.action === "send" ? s.templateId || undefined : undefined })) };
-      const r = j.id ? await api.put<{ id: string }>(`/api/sequences/${j.id}`, body) : await api.post<{ id: string }>("/api/sequences", body);
-      setJ((x) => ({ ...x, id: r.id, isActive: body.isActive })); setDirty(false);
-      toast.success(t("האוטומציה נשמרה", "Automation saved"));
-      if (!j.id) router.replace(`/automations/journeys/${r.id}`);
-    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+      const r = j.id ? await api.put<{ id: string }>(`/api/sequences/${j.id}/draft`, toDef(j)) : await api.post<{ id: string }>("/api/sequences/draft", toDef(j));
+      setJ((x) => ({ ...x, id: r.id, hasDraft: x.status !== "draft" })); setDirty(false);
+      if (!quiet) toast.success(j.status === "active" ? t("הטיוטה נשמרה – הגרסה הפעילה ממשיכה לרוץ ללא שינוי", "Draft saved – the live version keeps running unchanged") : t("נשמר כטיוטה – לא פעיל עד \"שמירה והפעלה\"", "Saved as a draft – not running until \"Save & activate\""));
+      // A new journey moves to its own URL – after publishing when this save is part of "שמירה והפעלה".
+      if (!j.id && !quiet) router.replace(`/automations/journeys/${r.id}`);
+      return r.id;
+    } catch (e) { toast.error((e as Error).message); return null; } finally { setBusy(false); }
   }
+  function exit() { if (dirty) setLeaving(true); else router.push("/automations"); }
+  function applyAi(r: Interpretation) {
+    if (!r.definition) return;
+    const d = r.definition;
+    set({ name: j.id ? j.name : d.name, trigger: d.trigger, triggerConfig: d.triggerConfig, stopOn: d.stopOn.filter((x) => x !== "unsubscribe"), steps: d.steps as JourneyStep[] });
+    setSel(null);
+    toast.success(t("הטיוטה עודכנה בתרשים – אפשר לערוך ידנית ולשמור", "The draft was applied to the diagram – edit it manually and save"));
+  }
+  const statusLabel = j.status === "active" ? t(`פעיל · גרסה ${j.version}`, `Active · v${j.version}`) : j.status === "paused" ? t("מושהה", "Paused") : t("טיוטה", "Draft");
   const selected = typeof sel === "number" ? j.steps[sel] : null;
   const tpl = (ch: Channel) => templates.filter((x) => x.channel === ch);
   return (
     <div className="jr" data-testid="journey-builder">
       <header className="jr-head">
-        <Link href="/automations" className="jr-back">{t("← אוטומציות", "← Automations")}</Link>
+        <Link href="/automations" className="jr-back" onClick={(e) => { if (dirty) { e.preventDefault(); setLeaving(true); } }}>{t("→ אוטומציות", "← Automations")}</Link>
         <input className="jr-name" value={j.name} onChange={(e) => set({ name: e.target.value })} aria-label={t("שם האוטומציה", "Automation name")} data-testid="journey-name" />
+        <span className={`jr-status s-${j.status}`} data-testid="journey-status">{statusLabel}</span>
+        {(dirty || (j.hasDraft && j.status !== "draft")) && <span className="jr-dirty" data-testid="journey-dirty">{dirty ? t("שינויים לא שמורים", "Unsaved changes") : t("יש טיוטה שלא הופעלה", "Unpublished draft")}</span>}
         <div className="jr-head-actions">
-          <label className="jr-active"><input type="checkbox" checked={j.isActive} onChange={(e) => set({ isActive: e.target.checked })} data-testid="journey-active" /> {j.isActive ? t("פעיל", "Active") : t("לא פעיל", "Inactive")}</label>
-          {dirty && <span className="jr-dirty">{t("שינויים לא שמורים", "Unsaved changes")}</span>}
-          <button className="wz-btn primary" onClick={() => save()} disabled={busy} data-testid="journey-save">{busy ? t("שומר…", "Saving…") : t("שמירת אוטומציה", "Save automation")}</button>
+          <button className="wz-btn ghost" onClick={exit} disabled={busy} data-testid="journey-exit-nosave">{t("יציאה ללא שמירה", "Exit without saving")}</button>
+          <button className="wz-btn outline" onClick={() => void saveDraft()} disabled={busy || !dirty && Boolean(j.id)} data-testid="journey-save">{busy ? t("שומר…", "Saving…") : t("שמירה", "Save")}</button>
+          <button className="wz-btn primary" onClick={() => j.steps.length ? setPublishing(true) : toast.error(t("יש להוסיף לפחות פעולה אחת", "Add at least one action"))} disabled={busy} data-testid="journey-publish">{t("שמירה והפעלה", "Save & activate")}</button>
         </div>
       </header>
+      <div className="jr-tools">
+        <button className={panel === "ai" ? "on" : ""} onClick={() => setPanel(panel === "ai" ? null : "ai")} aria-expanded={panel === "ai"} data-testid="journey-ai-toggle"><Sparkles size={15} /> {t("תיאור בשפה חופשית", "Describe in plain language")}</button>
+        <button onClick={() => setSimulating(true)} disabled={!j.steps.length} data-testid="journey-simulate"><FlaskConical size={15} /> {t("סימולציה", "Simulate")}</button>
+        {j.status === "active" && <span className="jr-hint">{t("שינויים נשמרים כטיוטה; הגרסה הפעילה ממשיכה לרוץ עד \"שמירה והפעלה\". השהיה – מרשימת האוטומציות.", "Changes are saved as a draft; the live version keeps running until \"Save & activate\". Pause from the automations list.")}</span>}
+      </div>
+      {panel === "ai" && <JourneyAiPanel mode="journey" current={j.steps.length ? toDef(j) : null} onApply={applyAi} onClose={() => setPanel(null)} />}
       <div className="jr-body">
         <div className="jr-canvas">
           <button className={`jr-node trigger ${sel === "trigger" ? "sel" : ""} ${j.trigger ? "set" : ""}`} onClick={() => setSel("trigger")} data-testid="journey-trigger">{j.trigger ? <><strong>{t("טריגר", "Trigger")}</strong><span>{TRIGGERS[j.trigger] ? t(...TRIGGERS[j.trigger]) : j.trigger}{j.trigger === "TAG_ADDED" && j.triggerConfig.tagName ? `: ${j.triggerConfig.tagName}` : ""}{j.trigger === "LEAD_STATUS_CHANGED" && j.triggerConfig.leadStatus ? `: ${ls(t, String(j.triggerConfig.leadStatus))}` : ""}</span></> : t("הוספת טריגרים", "Add trigger")}</button>
@@ -99,6 +132,7 @@ export function JourneyBuilder({ initial, templates, tags, lists }: { initial: J
             {j.trigger === "LEAD_STATUS_CHANGED" && <label>{t("לסטטוס", "To status")}<select value={String(j.triggerConfig.leadStatus ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, leadStatus: e.target.value || undefined } })}><option value="">{t("כל שינוי", "Any change")}</option>{Object.entries(LEAD_STATUS).map(([k, v]) => <option key={k} value={k}>{t(...v)}</option>)}</select></label>}
             {(j.trigger === "DELIVERY_FAILED" || j.trigger === "SENT_NO_REPLY") && <label>{t("ערוץ", "Channel")}<select value={String(j.triggerConfig.channel ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, channel: e.target.value || undefined } })}><option value="">{t("כל הערוצים", "All channels")}</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">{t("אימייל", "Email")}</option></select></label>}
             {j.trigger === "CONTACT_CREATED" && <label>{t("מקור (אופציונלי)", "Source (optional)")}<input value={String(j.triggerConfig.contactSource ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, contactSource: e.target.value || undefined } })} placeholder={t("למשל facebook", "e.g. facebook")} /></label>}
+            {j.trigger === "CALL_UNANSWERED" && <label>{t("אחרי כמה ניסיונות ללא מענה", "After how many unanswered attempts")}<input type="number" min={1} max={50} value={Number(j.triggerConfig.minAttempts ?? 1)} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, minAttempts: Math.max(1, Number(e.target.value) || 1) } })} /></label>}
             {j.trigger === "SENT_NO_REPLY" && <p className="jr-hint">{t("השלב הראשון חייב להתחיל אחרי המתנה של 30 דקות לפחות.", "The first step must start after a wait of at least 30 minutes.")}</p>}
             {j.trigger === "CART_ABANDONED" && <p className="jr-hint">{t("מתחיל כשעגלה עם פרטי לקוח ננטשת בחנות מחוברת", "Starts when a cart with customer details is abandoned in a connected store")} (<Link href="/automations/carts">{t("עגלות נטושות", "Abandoned carts")}</Link>). {t("בהודעות:", "In messages:")} {"{{cart_url}}"}, {"{{cart_total}}"}, {"{{cart_items}}"}; {t("במשתני WhatsApp:", "In WhatsApp variables:")} {"{cart_url}"}. {t("המסע נעצר כשהעגלה נרכשת.", "The journey stops when the cart is purchased.")}</p>}
           </div>}
@@ -129,6 +163,12 @@ export function JourneyBuilder({ initial, templates, tags, lists }: { initial: J
       {adding !== null && <div className="wz-modal" role="dialog" aria-label={t("הוספת פעולה", "Add action")} onClick={(e) => e.target === e.currentTarget && setAdding(null)}><div className="wz-modal-box jr-palette"><header><strong>{t("הוספת פעולה", "Add action")}</strong><button onClick={() => setAdding(null)} aria-label={t("סגור", "Close")}><X size={18} /></button></header>
         <div className="jr-palette-grid">{PALETTE.map((p) => <button key={p.key} onClick={() => insert(adding, p.make(t))} data-testid={`journey-palette-${p.key}`}><p.Icon size={30} strokeWidth={1.5} /><span>{t(p.label, p.en)}</span></button>)}</div>
       </div></div>}
+      {leaving && <div className="wz-modal" role="dialog" aria-modal="true" aria-labelledby="jr-leave-title" data-testid="journey-discard"><div className="wz-modal-box small"><header><strong id="jr-leave-title">{t("לצאת בלי לשמור?", "Leave without saving?")}</strong></header>
+        <p className="jr-modal-text">{t("השינויים שלא נשמרו יאבדו. הגרסה השמורה (והגרסה הפעילה, אם יש) לא משתנה.", "Unsaved changes will be lost. The saved version (and the live one, if any) is not changed.")}</p>
+        <div className="wz-modal-actions"><button className="wz-btn ghost" onClick={() => setLeaving(false)} autoFocus data-testid="journey-discard-stay">{t("להישאר", "Stay")}</button><button className="wz-btn danger" onClick={() => { setDirty(false); router.push("/automations"); }} data-testid="journey-discard-confirm">{t("יציאה בלי לשמור", "Discard and leave")}</button></div>
+      </div></div>}
+      {publishing && <PublishDialog def={toDef(j)} status={j.status} onClose={() => setPublishing(false)} saveFirst={() => saveDraft(true)} onPublished={(version, id) => { const isNew = !initial.id; setJ((x) => ({ ...x, id, status: "active", version, hasDraft: false })); setDirty(false); setPublishing(false); if (isNew) router.replace(`/automations/journeys/${id}`); else router.refresh(); }} />}
+      {simulating && <SimulateDialog def={toDef(j)} onClose={() => setSimulating(false)} />}
     </div>
   );
 }

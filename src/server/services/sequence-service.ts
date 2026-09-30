@@ -94,11 +94,21 @@ export async function saveSequence(user: SessionUser, input: SequenceInput, id?:
       ? await tx.marketingSequence.update({ where: { id }, data })
       : await tx.marketingSequence.create({ data: { ...data, businessId: user.businessId, createdById: user.id } });
     await tx.sequenceStep.deleteMany({ where: { sequenceId: seq.id } });
-    await tx.sequenceStep.createMany({ data: input.steps.map((s, position) => ({ sequenceId: seq.id, position, action: s.action, channel: s.channel, templateId: s.action === "send" ? s.templateId! : null, waitMinutes: s.waitMinutes, variables: { ...s.variables, ...(s.taskTitle ? { __taskTitle: s.taskTitle, __taskDueHours: String(s.taskDueHours ?? 24) } : {}), ...(s.actionTag ? { __tag: s.actionTag } : {}), ...(s.listId ? { __listId: s.listId } : {}), ...(s.webhookUrl ? { __webhook: s.webhookUrl } : {}) } as Prisma.InputJsonValue, condition: s.condition as Prisma.InputJsonValue })) });
+    const rows = stepRows(seq.id, input);
+    await tx.sequenceStep.createMany({ data: rows as Prisma.SequenceStepCreateManyInput[] });
+    // Every direct save of a live journey is a published version too (runs keep the version they started with).
+    const version = id ? seq.version + 1 : 1;
+    await tx.marketingSequence.update({ where: { id: seq.id }, data: { version, status: input.isActive ? "active" : "paused", publishedAt: new Date(), draft: Prisma.DbNull } });
+    await tx.sequenceVersion.create({ data: { businessId: user.businessId, sequenceId: seq.id, version, definition: { name: input.name, trigger: input.trigger, triggerConfig: input.triggerConfig, stopOn, steps: rows } as Prisma.InputJsonValue, publishedById: user.id } });
     return seq;
   });
   await audit(user.businessId, user.id, "sequence", row.id, id ? "sequence.updated" : "sequence.created", { trigger: input.trigger, steps: input.steps.length });
   return row;
+}
+
+/** The rows a definition is stored / executed as (also the steps inside a published version). */
+export function stepRows(sequenceId: string, input: SequenceInput) {
+  return input.steps.map((s, position) => ({ sequenceId, position, action: s.action, channel: s.channel, templateId: s.action === "send" ? s.templateId! : null, waitMinutes: s.waitMinutes, variables: { ...s.variables, ...(s.taskTitle ? { __taskTitle: s.taskTitle, __taskDueHours: String(s.taskDueHours ?? 24) } : {}), ...(s.actionTag ? { __tag: s.actionTag } : {}), ...(s.listId ? { __listId: s.listId } : {}), ...(s.webhookUrl ? { __webhook: s.webhookUrl } : {}) }, condition: s.condition }));
 }
 
 export async function deleteSequence(user: SessionUser, id: string) {
@@ -145,7 +155,9 @@ export async function startSequencesForEvent(event: DomainEvent) {
     // "no answer after N attempts" fires once per contact (not on every later unanswered call).
     const sourceKey = trigger === "CALL_UNANSWERED" ? `unanswered:${event.contactId}` : typeof p.cartId === "string" ? `cart:${p.cartId}` : typeof p.messageId === "string" ? `message:${p.messageId}` : `event:${event.id}`;
     try {
-      await prisma.sequenceRun.create({ data: { businessId: event.businessId, sequenceId: seq.id, contactId: event.contactId, sourceKey, nextAt: new Date(Date.now() + seq.steps[0].waitMinutes * 60_000), log: [] } });
+      // The run follows the version published now, even if a newer version is published while it is running.
+      const pinned = await prisma.sequenceVersion.findFirst({ where: { sequenceId: seq.id, version: seq.version }, select: { id: true } });
+      await prisma.sequenceRun.create({ data: { businessId: event.businessId, sequenceId: seq.id, contactId: event.contactId, sourceKey, versionId: pinned?.id ?? null, nextAt: new Date(Date.now() + seq.steps[0].waitMinutes * 60_000), log: [] } });
       started++;
     } catch (err) {
       if ((err as { code?: string }).code === "P2002") continue; // duplicate event → run already exists
@@ -155,7 +167,7 @@ export async function startSequencesForEvent(event: DomainEvent) {
   return { started };
 }
 
-async function stepSkipReason(run: SequenceRun, cond: { requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; customKey?: string; customValue?: string; consent?: string }) {
+export async function stepSkipReason(run: Pick<SequenceRun, "contactId" | "startedAt">, cond: { requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; customKey?: string; customValue?: string; consent?: string }) {
   if (cond.requireNoReply !== false && await prisma.message.findFirst({ where: { direction: "INBOUND", createdAt: { gt: run.startedAt }, conversation: { contactId: run.contactId } }, select: { id: true } })) return "reply received";
   if (cond.tagName || cond.notTagName || cond.leadStatus || cond.customKey || cond.consent) {
     const c = await prisma.contact.findUniqueOrThrow({ where: { id: run.contactId }, select: { consentStatus: true, customFields: true, tags: { select: { tag: { select: { name: true } } } }, leads: { select: { status: true }, orderBy: { createdAt: "desc" }, take: 1 } } });
@@ -199,8 +211,11 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
     const finish = (status: "COMPLETED" | "STOPPED" | "FAILED" | "PENDING", extra: Partial<Prisma.SequenceRunUncheckedUpdateInput> = {}) =>
       prisma.sequenceRun.update({ where: { id: run.id }, data: { status, ...(status !== "PENDING" ? { completedAt: new Date() } : {}), ...extra } });
     try {
-      const seq = await prisma.marketingSequence.findUnique({ where: { id: run.sequenceId }, include: { steps: { orderBy: { position: "asc" } } } });
-      if (!seq || !seq.isActive) { await finish("STOPPED", { stopReason: "sequence inactive" }); continue; }
+      const loaded = await prisma.marketingSequence.findUnique({ where: { id: run.sequenceId }, include: { steps: { orderBy: { position: "asc" } } } });
+      if (!loaded || !loaded.isActive) { await finish("STOPPED", { stopReason: "sequence inactive" }); continue; }
+      // A run keeps the steps of the version it started with (a newer published version applies to new runs only).
+      const pinnedDef = run.versionId ? (await prisma.sequenceVersion.findUnique({ where: { id: run.versionId }, select: { definition: true } }))?.definition as { steps?: typeof loaded.steps } | undefined : undefined;
+      const seq = pinnedDef?.steps ? { ...loaded, steps: pinnedDef.steps } : loaded;
       const step = seq.steps[run.stepIndex];
       if (!step) { await finish("COMPLETED"); continue; }
       // Abandoned-cart journeys: stop as soon as the cart was bought; expose cart values to the messages.

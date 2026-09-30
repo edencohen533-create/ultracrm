@@ -7,15 +7,17 @@ import { ALLOWED_AUTONOMY, parseConfig, type RuleKind } from "@/server/ops/rules
 
 const patch = z.object({ name: z.string().trim().min(2).max(120).optional(), status: z.enum(["active", "paused"]).optional(), autonomy: z.enum(["insight", "recommend", "auto"]).optional(), priority: z.number().int().min(1).max(1000).optional(), config: z.record(z.string(), z.unknown()).optional(), expiresAt: z.string().datetime().nullable().optional() });
 
-async function load(businessId: string, id: string) {
+async function load(businessId: string, id: string, role?: string) {
   const r = await prisma.opsRule.findFirst({ where: { id, businessId } });
   if (!r) throw new ApiError("הכלל לא נמצא", 404, "not_found");
+  // Distribution rules: the owner only, from the distribution screen (/api/distribution/rules).
+  if (r.kind === "performance_bonus") throw new ApiError(role === "owner" ? "כללי חלוקה מנוהלים במסך חלוקת הלידים" : "הכלל לא נמצא", role === "owner" ? 409 : 404, role === "owner" ? "use_distribution" : "not_found");
   return r;
 }
 
 /** Edit / pause / resume a rule. Pausing never undoes what already happened. */
 export const PATCH = withAuth(async ({ req, user, params }) => {
-  const r = await load(user.businessId, params.id);
+  const r = await load(user.businessId, params.id, user.role);
   const b = await parseBody(req, patch);
   if (b.autonomy && !ALLOWED_AUTONOMY[r.kind as RuleKind].includes(b.autonomy)) throw new ApiError("רמת האוטונומיה לא מתאימה לסוג הכלל", 400, "validation");
   const config = b.config ? parseConfig(r.kind as RuleKind, { ...(r.config as object), ...b.config }) : undefined;
@@ -25,7 +27,7 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
 }, { minRole: "manager", module: "crm" });
 
 export const DELETE = withAuth(async ({ user, params }) => {
-  const r = await load(user.businessId, params.id);
+  const r = await load(user.businessId, params.id, user.role);
   await prisma.opsRule.delete({ where: { id: r.id } });
   await audit(user.businessId, user.id, "ops_rule", r.id, "ops_rule.deleted", { kind: r.kind, name: r.name });
   return ok({ deleted: true });

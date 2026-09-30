@@ -43,6 +43,10 @@ export interface LeadAssignmentSettings {
   perAgentMax: Record<string, number>;
   /** Round-robin pointer: the user who received the previous lead. */
   lastAssignedUserId: string | null;
+  /** Only agents connected to the dialer now (heartbeat in the last 5 minutes) receive new leads. */
+  requireOnline?: boolean;
+  /** With `requireOnline`, when nobody is connected: leave the lead unassigned, or give it to anyone otherwise eligible. */
+  whenNoneOnline?: "unassigned" | "any_eligible";
   /** WhatsApp to the agent's personal phone when a lead is assigned to them (approved template, business number). */
   notifyWhatsApp?: { enabled: boolean; templateId: string | null };
 }

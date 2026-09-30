@@ -10,7 +10,7 @@ import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/response";
 import { aiConnected } from "@/server/ai/settings";
 
-export const RULE_KINDS = ["momentum", "extra_leads_policy", "availability", "lead_response_sla", "followup_checkin", "load_cap", "approval_policy"] as const;
+export const RULE_KINDS = ["momentum", "extra_leads_policy", "availability", "lead_response_sla", "followup_checkin", "load_cap", "approval_policy", "performance_bonus"] as const;
 export type RuleKind = (typeof RULE_KINDS)[number];
 export type Autonomy = "insight" | "recommend" | "auto";
 
@@ -45,15 +45,34 @@ export const followupCheckinConfig = z.object({
 });
 export const loadCapConfig = z.object({ maxUntouched: z.number().int().min(1).max(500).default(15) });
 export const approvalPolicyConfig = z.object({ actions: z.array(z.enum(["assignment", "ownership"])).min(1).default(["assignment", "ownership"]) });
+/**
+ * Distribution rule (owner): when an agent's close rate TODAY passes a threshold (with a minimum sample), give them a
+ * one-time bonus of N new leads that day, taken from the regular distribution ("extra": other agents' turns, the
+ * round-robin pointer does not move). Once per business day; executed by the allocation engine, never by the model.
+ */
+export const performanceBonusConfig = z.object({
+  agentId: z.string().min(1),
+  metric: z.literal("close_rate_today").default("close_rate_today"),
+  /** Strictly above this share (0.17 = 17%). */
+  threshold: z.number().min(0.01).max(1),
+  /** Leads handled today (contacts really dialed) before the rate counts. */
+  minHandled: z.number().int().min(1).max(500).default(10),
+  bonusCount: z.number().int().min(1).max(50).default(7),
+  frequency: z.literal("once_per_day").default("once_per_day"),
+  source: z.string().max(120).nullable().default(null),
+  listId: z.string().max(60).nullable().default(null),
+  /** Also take leads that are already waiting unassigned (never another agent's). Default: only leads arriving from now. */
+  fromUnassigned: z.boolean().default(false),
+});
 
-export const CONFIG_SCHEMAS = { momentum: momentumConfig, extra_leads_policy: extraLeadsPolicyConfig, availability: availabilityConfig, lead_response_sla: leadResponseSlaConfig, followup_checkin: followupCheckinConfig, load_cap: loadCapConfig, approval_policy: approvalPolicyConfig } as const;
+export const CONFIG_SCHEMAS = { momentum: momentumConfig, extra_leads_policy: extraLeadsPolicyConfig, availability: availabilityConfig, lead_response_sla: leadResponseSlaConfig, followup_checkin: followupCheckinConfig, load_cap: loadCapConfig, approval_policy: approvalPolicyConfig, performance_bonus: performanceBonusConfig } as const;
 export type RuleConfig<K extends RuleKind> = z.infer<(typeof CONFIG_SCHEMAS)[K]>;
 
-export const KIND_LABEL: Record<RuleKind, string> = { momentum: "נציג במומנטום", extra_leads_policy: "לידים נוספים באישור נציג", availability: "זמינות מוואטסאפ", lead_response_sla: "יעד זמן לחיוג ראשון", followup_checkin: "פולואפ לנציג שאינו מחובר", load_cap: "עצירת הקצאה בעומס", approval_policy: "מדיניות אישור" };
+export const KIND_LABEL: Record<RuleKind, string> = { momentum: "נציג במומנטום", extra_leads_policy: "לידים נוספים באישור נציג", availability: "זמינות מוואטסאפ", lead_response_sla: "יעד זמן לחיוג ראשון", followup_checkin: "פולואפ לנציג שאינו מחובר", load_cap: "עצירת הקצאה בעומס", approval_policy: "מדיניות אישור", performance_bonus: "תוספת לידים לפי ביצועים" };
 export const AUTONOMY_LABEL: Record<Autonomy, string> = { insight: "תובנה בלבד", recommend: "המלצה באישור", auto: "ביצוע אוטומטי בגבולות" };
-const DEFAULT_AUTONOMY: Record<RuleKind, Autonomy> = { momentum: "recommend", extra_leads_policy: "auto", availability: "auto", lead_response_sla: "insight", followup_checkin: "recommend", load_cap: "auto", approval_policy: "auto" };
+const DEFAULT_AUTONOMY: Record<RuleKind, Autonomy> = { momentum: "recommend", extra_leads_policy: "auto", availability: "auto", lead_response_sla: "insight", followup_checkin: "recommend", load_cap: "auto", approval_policy: "auto", performance_bonus: "auto" };
 /** Which autonomy levels make sense per kind. */
-export const ALLOWED_AUTONOMY: Record<RuleKind, Autonomy[]> = { momentum: ["insight", "recommend", "auto"], extra_leads_policy: ["auto"], availability: ["recommend", "auto"], lead_response_sla: ["insight", "auto"], followup_checkin: ["recommend", "auto"], load_cap: ["insight", "auto"], approval_policy: ["auto"] };
+export const ALLOWED_AUTONOMY: Record<RuleKind, Autonomy[]> = { momentum: ["insight", "recommend", "auto"], extra_leads_policy: ["auto"], availability: ["recommend", "auto"], lead_response_sla: ["insight", "auto"], followup_checkin: ["recommend", "auto"], load_cap: ["insight", "auto"], approval_policy: ["auto"], performance_bonus: ["recommend", "auto"] };
 
 export function parseConfig<K extends RuleKind>(kind: K, raw: unknown): RuleConfig<K> {
   const r = CONFIG_SCHEMAS[kind].safeParse(raw ?? {});
@@ -89,8 +108,21 @@ export async function requiresManager(businessId: string, action: "assignment" |
 }
 
 // ─── plain language ───────────────────────────────────────────────────────────────────────────────────────────────
-export function describeRule(kind: RuleKind, config: unknown, autonomy: Autonomy): { trigger: string; conditions: string; action: string; scope: string; validity: string; limits: string; approval: string } {
+export function describeRule(kind: RuleKind, config: unknown, autonomy: Autonomy, names: Record<string, string> = {}): { trigger: string; conditions: string; action: string; scope: string; validity: string; limits: string; approval: string } {
   const a = AUTONOMY_LABEL[autonomy];
+  if (kind === "performance_bonus") {
+    const c = parseConfig("performance_bonus", config);
+    const who = names[c.agentId] ?? "הנציג";
+    return {
+      trigger: "בדיקה אוטומטית כל 2 דקות, לפי השעון ואזור הזמן של העסק",
+      conditions: `יחס הסגירה של ${who} היום גבוה מ-${Math.round(c.threshold * 1000) / 10}%. יחס סגירה = עסקאות שנסגרו בזכייה היום ÷ לידים שטופלו היום (אנשי קשר שחויגו בפועל). נבדק רק אחרי לפחות ${c.minHandled} לידים שטופלו היום (מדגם מינימלי) – לפני זה התנאי לא נחשב מתקיים.`,
+      action: `תוספת חד-פעמית של ${c.bonusCount} לידים חדשים שטרם הוקצו היום – על חשבון החלוקה הרגילה: הלידים האלה עוברים ל${who} במקום לנציג שהיה בתור, והסבב הרגיל לא מתקדם בזמן התוספת. אחרי ${c.bonusCount} הלידים (או בסוף היום) חוזרים לחלוקה הרגילה.`,
+      scope: `${c.source ? `לידים ממקור "${c.source}"` : "כל הלידים החדשים"}${c.listId ? " + הוספה לקמפיין שנבחר" : ""}${c.fromUnassigned ? "; כולל לידים שכבר ממתינים ללא שיוך" : "; רק לידים שנכנסים מרגע ההפעלה"}`,
+      validity: "פעם אחת ביום עסקים (מתאפס בחצות לפי אזור הזמן של העסק); התוספת בתוקף עד סוף המשמרת או היום. לא מופעלת שוב באותו יום גם אם התנאי ממשיך להתקיים.",
+      limits: "לא עוקף מכסות, כלל עומס, זמינות, קיבולת הנציג, הרשאות ושיוך לקמפיין; לידים שכבר שייכים לנציג אחר לא מועברים. כשהקיבולת לא ידועה או לא מספיקה – מוקצה רק מה שיש לו מקום לטפל בו, או כלום, והסיבה מתועדת. בהתנגשות עם הקצאה אחרת לאותו נציג – הכלל בעדיפות הגבוהה קודם, והשני לא פועל באותו יום.",
+      approval: autonomy === "recommend" ? "בכל פעם – אישור מנהל, ואז אישור הנציג לפי מדיניות ״לידים נוספים״" : "לפי מדיניות האישור של העסק (ברירת מחדל: אישור מנהל) ואישור הנציג לפי מדיניות ״לידים נוספים״",
+    };
+  }
   if (kind === "lead_response_sla") {
     const c = parseConfig("lead_response_sla", config);
     return { trigger: "ליד חדש שנכנס אחרי יצירת הכלל או עדכונו; בדיקה כל 2 דקות", conditions: "ליד פתוח, ללא חסימה או הסרה", action: `יעד לחיוג ראשון: ${c.minutes} דקות מקבלת הליד. בחריגה: התראה לנציג ולמנהל ומעקב עד ניסיון חיוג בפועל.`, scope: "כל הלידים החדשים בעסק", validity: c.businessHoursOnly ? "זמן עבודה בלבד, לפי חלון החיוג של העסק כפי שהיה בעת כניסת הליד" : "דקות שעון, כולל מחוץ לשעות העבודה; הכלל פועל רק כשמנהל AI פעיל", limits: "נמדד ניסיון חיוג ולא מענה או מכירה. שינוי סטטוס אינו חיוג. העברה, אם נבחרה, אפשרית פעם אחת בלבד לנציג מחובר ופנוי עם קיבולת ובהתאם למדיניות אישור בעלות. אחרת נשלחת התראה.", approval: c.onBreach === "transfer_to_available" ? "נבחרה העברה: נדרש מצב אוטומטי והיתר במדיניות הבעלות; אחרת טיפול מנהל" : "התראה ומדידה בלבד" };
@@ -124,13 +156,33 @@ export function describeRule(kind: RuleKind, config: unknown, autonomy: Autonomy
 // ─── free text → rule ───────────────────────────────────────────────────────────────────────────────────────────
 export interface Interpretation {
   allowedAutonomy?: Autonomy[]; kind: RuleKind | null; name: string; config: Record<string, unknown>; autonomy: Autonomy;
-  questions: Array<{ field: string; question: string; proposed: number | string | boolean }>;
+  questions: Array<{ field: string; question: string; proposed: number | string | boolean; options?: Array<{ value: string; label: string }> }>;
+  /** A hint for the regular policy found in the text (e.g. "חלק שווה" → round robin). */
+  policyHint?: "round_robin" | "least_loaded" | null;
   summary: ReturnType<typeof describeRule> | null; analyzer: "ai" | "rules"; note: string | null;
 }
 const VAGUE = /(חזק|חזקים|הרבה|מעט|קצת|גבוה|נמוך|טוב במיוחד|מהר|לאט|מדי)/;
 const num = (s: string, re: RegExp) => { const m = s.match(re); return m ? Number(m[1]) : null; };
 
-export function parseRuleBasic(text: string): Omit<Interpretation, "summary" | "analyzer"> {
+export interface RuleContext { agents: Array<{ id: string; fullName: string }> }
+/** A name as written ("אבי", "אבי כהן") → exactly one agent, or null (ambiguous / unknown). */
+export function matchAgent(name: string | null | undefined, agents: RuleContext["agents"]) {
+  const n = (name ?? "").trim(); if (!n) return null;
+  const exact = agents.filter((a) => a.fullName.trim() === n); if (exact.length === 1) return exact[0];
+  const first = agents.filter((a) => a.fullName.trim().split(/\s+/)[0] === n.split(/\s+/)[0]);
+  return first.length === 1 ? first[0] : null;
+}
+function bonusQuestions(cfg: Record<string, unknown>, stated: { minHandled: boolean; frequency: boolean }, agentName: string | null, ctx?: RuleContext) {
+  const q: Interpretation["questions"] = [];
+  if (!cfg.agentId) q.push({ field: "agentId", question: agentName ? `לא מצאתי נציג אחד בשם "${agentName}". לאיזה נציג הכוונה?` : "לאיזה נציג הכלל מתייחס?", proposed: "", options: (ctx?.agents ?? []).map((a) => ({ value: a.id, label: a.fullName })) });
+  if (cfg.threshold === undefined) q.push({ field: "threshold", question: "מאיזה יחס סגירה (באחוזים) התוספת מופעלת?", proposed: 0.17 });
+  if (!stated.minHandled) q.push({ field: "minHandled", question: "מהו המדגם המינימלי? יחס סגירה על מעט לידים מטעה (למשל 1 מתוך 2 = 50%). מוצע: לפחות 10 לידים שטופלו היום לפני שהתנאי נבדק.", proposed: 10 });
+  if (!stated.frequency) q.push({ field: "frequency", question: "התוספת תינתן פעם אחת ביום (ולא בכל בדיקה כל עוד התנאי מתקיים) – זה מה שהתכוונת?", proposed: "once_per_day" });
+  if (cfg.bonusCount === undefined) q.push({ field: "bonusCount", question: "כמה לידים נוספים?", proposed: 7 });
+  return q;
+}
+
+export function parseRuleBasic(text: string, ctx?: RuleContext): Omit<Interpretation, "summary" | "analyzer"> {
   const t = text.replace(/[״"]/g, "").trim();
   const q: Interpretation["questions"] = [];
   const minutes = num(t, /(\d+)\s*דק/) ?? (/עשר דקות/.test(t) ? 10 : /חמש דקות/.test(t) ? 5 : /רבע שעה/.test(t) ? 15 : /חצי שעה/.test(t) ? 30 : null);
@@ -164,6 +216,21 @@ export function parseRuleBasic(text: string): Omit<Interpretation, "summary" | "
   if (cap && /(עצור|תעצור|הפסק|לא לתת|אל תקצה|תפסיק)/.test(t)) {
     return { kind: "load_cap", name: `עצירת הקצאה מעל ${cap} לידים שטרם טופלו`, config: { maxUntouched: cap }, autonomy: "auto", questions: [], note: null };
   }
+  // "…אם יחס הסגירה של אבי היום עולה על 17%, תן לו 7 לידים נוספים…" → performance bonus for one named agent.
+  if (/(יחס|אחוז|שיעור)\s*(ה)?סגירה/.test(t) && /(לידים|ליד)/.test(t) && /\d+(?:\.\d+)?\s*%|אחוז/.test(t) && /של\s+\S+/.test(t)) {
+    const pctM = t.match(/(\d+(?:\.\d+)?)\s*%/);
+    const nameM = t.match(/סגירה\s+של\s+([^\s,.]+(?:\s+(?!היום|עולה|מעל|גבוה|יותר)[^\s,.]+)?)/) ?? t.match(/של\s+([^\s,.]+)/);
+    const agent = matchAgent(nameM?.[1] ?? null, ctx?.agents ?? []);
+    const bonus = count(new RegExp(`(?:תן|תני|תנו|להוסיף|תוסיף|הוסף|לתת)\\s*(?:לו|לה)?\\s*${W}\\s*לידים`)) ?? count(new RegExp(`${W}\\s*לידים\\s*(?:נוספים|נוסף|חדשים)`));
+    const minH = count(new RegExp(`(?:לפחות|מינימום|אחרי)\\s*${W}\\s*(?:לידים|שיחות)`));
+    const cfg: Record<string, unknown> = { ...(agent ? { agentId: agent.id } : {}), ...(pctM ? { threshold: Number(pctM[1]) / 100 } : {}), ...(bonus ? { bonusCount: bonus } : {}), ...(minH ? { minHandled: minH } : {}), frequency: "once_per_day" };
+    const questions = bonusQuestions(cfg, { minHandled: Boolean(minH), frequency: /(פעם אחת|פעם ביום|חד.?פעמי)/.test(t) }, nameM?.[1] ?? null, ctx);
+    return {
+      kind: "performance_bonus", name: `תוספת ${bonus ?? 7} לידים ל${agent?.fullName ?? nameM?.[1] ?? "נציג"} ביחס סגירה מעל ${pctM?.[1] ?? "?"}%`, config: cfg, autonomy: "auto", questions,
+      policyHint: /(שווה|באופן שווה|בצורה שווה|לפי התור|סבב|ראונד|round.?robin)/i.test(t) ? "round_robin" : null,
+      note: "״על חשבון החלוקה הרגילה״ = הלידים הנוספים נלקחים מתורם של הנציגים האחרים; כשהתוספת מסתיימת החלוקה חוזרת לסבב הרגיל. הביצוע במנוע הכללים – לא החלטה של המודל בכל הקצאה.",
+    };
+  }
   if (/(סוגר|סגירות|ביצועים|מומנטום)/.test(t) && /(לידים|הקצ)/.test(t)) {
     const pending = count(new RegExp(`(?:פחות מ|עד)[-־\\s]*${W}\\s*לידים`));
     const cfg: Record<string, unknown> = {};
@@ -178,7 +245,7 @@ export function parseRuleBasic(text: string): Omit<Interpretation, "summary" | "
   return { kind: null, name: "", config: {}, autonomy: "recommend", questions: [{ field: "kind", question: "לא הצלחתי להבין את הכלל. אפשר לנסח מחדש: מתי (טריגר), באיזה מצב (תנאי), ומה לעשות (פעולה)?", proposed: "" }], note: null };
 }
 
-async function parseRuleAi(text: string): Promise<Omit<Interpretation, "summary" | "analyzer"> | null> {
+async function parseRuleAi(text: string, ctx?: RuleContext): Promise<Omit<Interpretation, "summary" | "analyzer"> | null> {
   const system = [
     "אתה מתרגם כללי תפעול של מנהל מכירות לכלל מובנה אחד. החזר JSON בלבד. אל תמציא ערכים לביטויים עמומים (חזק, הרבה, מעט) – במקום זה הוסף שאלה עם סף מוצע.",
     "סוגים ושדות config (השמט שדה שלא נאמר):",
@@ -189,6 +256,8 @@ async function parseRuleAi(text: string): Promise<Omit<Interpretation, "summary"
     "followup_checkin: {requestMinutes(2..120),connectMinutes(1..60)} – פולואפ מתוזמן שהגיע כשהנציג אינו מחובר; שואלים אותו אם מתחבר או להעביר. אין תשובה אינה אישור העברה.",
     "load_cap: {maxUntouched}",
     "approval_policy: {actions:[assignment|ownership]}",
+    "performance_bonus: {agentName(כפי שנכתב),threshold(0..1, למשל 0.17),minHandled,bonusCount,source} – תוספת לידים חד-פעמית ביום לנציג מסוים כשיחס הסגירה שלו היום עובר סף. אם לא נאמר מדגם מינימלי או תדירות – אל תנחש, השמט אותם.",
+    'אפשר גם "policyHint":"round_robin" כשהבקשה מתארת חלוקה שווה / לפי התור.',
     'פורמט: {"kind":..., "name":"שם קצר בעברית", "config":{...}, "autonomy":"insight|recommend|auto", "questions":[{"field","question","proposed"}], "note":null}. אם אין התאמה: kind=null ושאלה.',
   ].join("\n");
   const res = await fetch(`${process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com"}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: process.env.AI_SERVICE_MODEL ?? "claude-sonnet-5", max_tokens: 600, temperature: 0, system, messages: [{ role: "user", content: `<rule>${text.slice(0, 1000)}</rule>` }] }), signal: AbortSignal.timeout(20_000) });
@@ -197,20 +266,38 @@ async function parseRuleAi(text: string): Promise<Omit<Interpretation, "summary"
   const j = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)) as Partial<Interpretation>;
   const kind = RULE_KINDS.includes(j.kind as RuleKind) ? (j.kind as RuleKind) : null;
   const autonomy = (["insight", "recommend", "auto"].includes(String(j.autonomy)) ? j.autonomy : "recommend") as Autonomy;
-  return { kind, name: String(j.name ?? "").slice(0, 120), config: (j.config ?? {}) as Record<string, unknown>, autonomy, questions: Array.isArray(j.questions) ? j.questions.slice(0, 5) : [], note: j.note ?? null };
+  const config = (j.config ?? {}) as Record<string, unknown>;
+  let questions = Array.isArray(j.questions) ? j.questions.slice(0, 5) : [];
+  if (kind === "performance_bonus") {
+    // The model returns a name; the id comes from this business's agents only (never trusted from the model).
+    const agent = matchAgent(String(config.agentName ?? ""), ctx?.agents ?? []);
+    const agentName = config.agentName ? String(config.agentName) : null;
+    delete config.agentName; delete config.agentId;
+    if (agent) config.agentId = agent.id;
+    config.frequency = "once_per_day";
+    questions = bonusQuestions(config, { minHandled: config.minHandled !== undefined, frequency: /(פעם אחת|פעם ביום|חד.?פעמי)/.test(text) }, agentName, ctx);
+  }
+  return { kind, name: String(j.name ?? "").slice(0, 120), config, autonomy, questions, note: j.note ?? null, policyHint: j.policyHint === "round_robin" || j.policyHint === "least_loaded" ? j.policyHint : null };
 }
 
 /** Translate a manager's sentence into a rule proposal (not saved). */
-export async function interpretRule(text: string): Promise<Interpretation> {
+export async function interpretRule(text: string, ctx?: RuleContext): Promise<Interpretation> {
   const gap = knownProductGap(text);
   if (gap) return { kind: null, name: "", config: {}, autonomy: "recommend", questions: [], summary: null, analyzer: "rules", note: UNSUPPORTED_REQUEST + " חסר: " + gap + "." };
   let r: Omit<Interpretation, "summary" | "analyzer"> | null = null; let analyzer: Interpretation["analyzer"] = "rules";
-  if (aiConnected()) { try { r = await parseRuleAi(text); if (r) analyzer = "ai"; } catch { r = null; } }
+  if (aiConnected()) { try { r = await parseRuleAi(text, ctx); if (r) analyzer = "ai"; } catch { r = null; } }
   // Respect an explicit model refusal: a keyword fallback could silently drop unsupported clauses.
-  if (!r) { r = parseRuleBasic(text); analyzer = "rules"; }
+  if (!r) { r = parseRuleBasic(text, ctx); analyzer = "rules"; }
   if (!r.kind) return { ...r, summary: null, analyzer, note: r.note ?? "אין כרגע כלל נתמך שמתאים לבקשה הזו. לא נשמר ולא הופעל דבר. אם זו הפעולה שהתכוונת אליה, נדרש לפתח תמיכה בה; אם חסר פרט אפשר לנסח מחדש." };
-  // Keep only what the schema knows; a value the schema rejects becomes a question instead of a guess.
   const kind = r.kind;
+  if (kind === "performance_bonus") {
+    // Missing pieces stay questions (with proposed values) – the summary is shown with the proposals filled in.
+    const withProposals = { ...Object.fromEntries(r.questions.filter((q) => q.proposed !== "").map((q) => [q.field, q.proposed])), ...r.config };
+    const full = performanceBonusConfig.safeParse(withProposals);
+    const names = Object.fromEntries((ctx?.agents ?? []).map((a) => [a.id, a.fullName]));
+    return { ...r, kind, config: r.config, autonomy: r.autonomy === "recommend" ? "recommend" : "auto", allowedAutonomy: ALLOWED_AUTONOMY[kind], name: r.name || KIND_LABEL[kind], summary: full.success ? describeRule(kind, full.data, r.autonomy === "recommend" ? "recommend" : "auto", names) : null, analyzer };
+  }
+  // Keep only what the schema knows; a value the schema rejects becomes a question instead of a guess.
   let config: Record<string, unknown>;
   try { config = parseConfig(kind, r.config) as Record<string, unknown>; }
   catch (e) { config = parseConfig(kind, {}) as Record<string, unknown>; r.questions.push({ field: "config", question: `ערך לא תקין: ${(e as Error).message}. יוצגו ערכי ברירת המחדל לאישור.`, proposed: "" }); }

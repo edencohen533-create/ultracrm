@@ -360,23 +360,19 @@ export async function cancelRecommendation(user: SessionUser, id: string) {
  * the pool, under their cap and load rules); `regular` = who the regular policy picked. Returns the final owner and
  * whether the regular round-robin pointer should move (it does not when the lead was taken for an "extra" lead).
  */
-export async function applyAllocation(tx: Prisma.TransactionClient, businessId: string, eligible: string[], regular: string, source: string | null) {
+export async function activeOverride(tx: Prisma.TransactionClient, businessId: string, source: string | null) {
   const now = new Date();
   await tx.assignmentOverride.updateMany({ where: { businessId, status: "active", expiresAt: { lte: now } }, data: { status: "expired", endedAt: now, endedReason: "פג תוקף – חזרה לחלוקה הרגילה" } });
-  const ov = await tx.assignmentOverride.findFirst({ where: { businessId, status: "active", expiresAt: { gt: now }, OR: [{ source: null }, ...(source ? [{ source }] : [])] }, orderBy: { createdAt: "asc" } });
-  if (!ov || !eligible.includes(ov.agentId)) return { owner: regular, movePointer: true, overrideId: null as string | null, listId: null as string | null };
-  let owner = regular; let movePointer = true; let toAgent = false;
-  if (ov.mode === "priority") { owner = ov.agentId; toAgent = true; movePointer = regular === ov.agentId; }
-  else if (ov.mode === "extra") { if (regular !== ov.agentId) { owner = ov.agentId; toAgent = true; movePointer = false; } }
-  else {
-    const due = Math.round((ov.sharePct / 100) * (ov.total + 1));
-    if (ov.assigned < due) { owner = ov.agentId; toAgent = true; movePointer = regular === ov.agentId; }
-    else if (regular === ov.agentId) { const others = eligible.filter((x) => x !== ov.agentId); if (others.length) owner = others[(ov.total) % others.length]; }
-  }
-  const assigned = ov.assigned + (toAgent ? 1 : 0); const total = ov.total + 1;
-  const done = ov.mode === "share" ? total >= ov.leadLimit : assigned >= ov.leadLimit;
-  await tx.assignmentOverride.update({ where: { id: ov.id }, data: { assigned, total, ...(done ? { status: "completed", endedAt: now, endedReason: "הושלמה הכמות שאושרה – חזרה לחלוקה הרגילה" } : {}) } });
-  return { owner, movePointer, overrideId: toAgent ? ov.id : null, listId: toAgent ? ov.listId : null };
+  return tx.assignmentOverride.findFirst({ where: { businessId, status: "active", expiresAt: { gt: now }, OR: [{ source: null }, ...(source ? [{ source }] : [])] }, orderBy: { createdAt: "asc" } });
+}
+
+/** Count one distributed lead against the active allocation (decided by src/lib/crm/distribution.ts). Returns its list. */
+export async function recordOverride(tx: Prisma.TransactionClient, ov: NonNullable<Awaited<ReturnType<typeof activeOverride>>>, d: { owner: string | null; reason: { regular: string | null } }, eligible: string[]) {
+  if (!eligible.includes(ov.agentId) || !d.reason.regular) return null;
+  const { applyOverridePure } = await import("@/lib/crm/distribution");
+  const o = applyOverridePure(ov, eligible, d.reason.regular);
+  await tx.assignmentOverride.update({ where: { id: ov.id }, data: { assigned: o.assigned, total: o.total, ...(o.done ? { status: "completed", endedAt: new Date(), endedReason: "הושלמה הכמות שאושרה – חזרה לחלוקה הרגילה" } : {}) } });
+  return o.toAgent ? ov.listId : null;
 }
 
 // ─── availability: agent not connected → alert / propose transfer ───────────────────────────────────────────────
@@ -437,18 +433,21 @@ async function approveAvailabilityTransfer(user: SessionUser | null, rec: OpsRec
 // ─── tick (automations cron) ────────────────────────────────────────────────────────────────────────────────────
 export async function runOpsTick(businessId: string, now = new Date()) {
   const s = await getBusinessSettings(businessId);
-  if (!s.aiOps.enabled) return { processed: 0 };
-  await ensureDefaultRules(businessId);
-  let processed = await (await import("./followup-checkin")).runFollowupCheckins(businessId, now);
-  processed += await (await import("./lead-response-sla")).runLeadResponseSla(businessId, now);
-  // Expired requests (no reply is never an approval).
+  let processed = 0;
+  // Housekeeping for every request / allocation (also those of owner-approved distribution rules), even when the rest
+  // of "מנהל AI" is off: expired requests (no reply is never an approval) and allocations that ended.
   for (const rec of await prisma.opsRecommendation.findMany({ where: { businessId, kind: { not: "followup_checkin" }, status: { in: ["pending_manager", "pending_agent", "needs_adjustment"] }, expiresAt: { lte: now } } })) { await expireRec(rec, rec.status === "pending_agent" ? "לא התקבלה תשובה מהנציג בזמן" : "לא התקבלה החלטה בזמן"); processed++; }
-  // Allocations that ended (expired / completed / cancelled) → the recommendation is completed; regular policy is back.
   await prisma.assignmentOverride.updateMany({ where: { businessId, status: "active", expiresAt: { lte: now } }, data: { status: "expired", endedAt: now, endedReason: "פג תוקף – חזרה לחלוקה הרגילה" } });
   for (const ov of await prisma.assignmentOverride.findMany({ where: { businessId, status: { in: ["completed", "expired"] }, recommendationId: { not: null }, updatedAt: { gte: new Date(now.getTime() - 24 * 3600_000) } } })) {
     const r = await prisma.opsRecommendation.updateMany({ where: { id: ov.recommendationId!, status: "active" }, data: { status: "completed" } });
     if (r.count) { processed++; await audit(businessId, null, "ai_ops", ov.recommendationId!, "ai_ops.allocation_ended", { overrideId: ov.id, reason: ov.endedReason, assigned: ov.assigned, total: ov.total }); }
   }
+  // Distribution rules approved by the owner run whether or not the rest of "מנהל AI" is on.
+  processed += (await (await import("./distribution")).evaluateDistributionRules(businessId, now)).created;
+  if (!s.aiOps.enabled) return { processed };
+  await ensureDefaultRules(businessId);
+  processed += await (await import("./followup-checkin")).runFollowupCheckins(businessId, now);
+  processed += await (await import("./lead-response-sla")).runLeadResponseSla(businessId, now);
   processed += (await evaluateMomentum(businessId, now)).created;
   processed += await checkUnattendedAvailability(businessId, now);
   processed += await trackAllocatedLeads(businessId, now);

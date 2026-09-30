@@ -1,5 +1,6 @@
 "use client";
 
+import { AiSegmentAssistant } from "./ai-segment-assistant";
 import { AudienceEditor, AudiencePreview, type AudienceOptions } from "./audience-editor";
 import { audienceSchema, defaultAudience, type AudienceNode } from "@/lib/audiences";
 import { parseCsv } from "@/lib/contact-csv";
@@ -67,6 +68,7 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
   const [providerCredentialId, setProviderCredentialId] = useState(senders.find((sender) => sender.isDefault)?.id || senders[0]?.id || "");
   const [senderId, setSenderId] = useState(channels.sms?.senders[0]?.value ?? "");
   const [segment, setSegment] = useState<AudienceNode | null>(null);
+  const [draftVersion, setDraftVersion] = useState(0);
   const [excludedListIds, setExcludedListIds] = useState<string[]>([]);
   const [listId, setListId] = useState("");
   const [templateId, setTemplateId] = useState("");
@@ -209,7 +211,7 @@ export function CampaignDashboard({ initialCampaigns, lists, contacts, templates
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!segment} onChange={(event) => setSegment(event.target.checked ? defaultAudience() : null)} />{t("קהל שמור לפי תנאים", "Saved audience by conditions")}</label>
         <p className="text-xs text-muted-foreground">{t("תנאים מחושבים ביצירת טיוטת קמפיין. רשימת הנמענים מוקפאת בטיוטה; חסימות והסרות נבדקות שוב בכל שליחה. עד 10,000 נמענים בקמפיין.", "Conditions are evaluated when a campaign draft is created. The recipient list is frozen in the draft; blocks and unsubscribes are re-checked on every send. Up to 10,000 recipients per campaign.")}</p>
         {segmentInvalid && <p role="alert" className="text-sm text-destructive">{t("יש להשלים ערכים תקינים בכל התנאים. מותר לשמור עד 50 תנאים וקבוצות, בשלוש רמות, וטקסט עד 200 תווים.", "Fill in valid values for all conditions. Up to 50 conditions and groups, three levels deep, and text up to 200 characters.")}</p>}
-        {segment ? <><AudienceEditor value={segment} onChange={setSegment} options={audienceOptions} /><AudiencePreview segment={segment} /></> : <>
+        {segment ? <><AiSegmentAssistant onDraft={(d) => { setSegment(d.segment); setDraftVersion((v) => v + 1); if (!listName.trim()) setListName(d.name); }} /><AudienceEditor key={draftVersion} value={segment} onChange={setSegment} options={audienceOptions} /><AudiencePreview segment={segment} /></> : <>
         <Input aria-label={t("חיפוש אנשי קשר", "Search contacts")} placeholder={t("חיפוש לפי שם או טלפון", "Search by name or phone")} value={search} onChange={(e) => setSearch(e.target.value)} />
         <p className="text-sm text-muted-foreground">{t(`${selected.length} נבחרו. רק נמענים עם הסכמה פעילה יקבלו הודעות. מוצגים עד 1,000 אנשי קשר.`, `${selected.length} selected. Only recipients with active consent will receive messages. Up to 1,000 contacts are shown.`)}</p>
         <Button variant="outline" onClick={() => setSelected([...new Set([...selected, ...filtered.filter((c) => c.consentStatus === "OPTED_IN").map((c) => c.id)])])}>{t("בחר את כל המסכימים בתוצאות", "Select all opted-in in results")}</Button>

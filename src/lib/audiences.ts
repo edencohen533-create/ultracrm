@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const text = z.string().trim().min(1).max(200);
+const productTerms = z.array(z.string().trim().min(2).max(80)).max(10);
+const days = z.number().int().min(1).max(3650);
 const leafSchema = z.discriminatedUnion("field", [
   z.object({ field: z.literal("tag"), operator: z.enum(["is", "is_not"]), value: text }).strict(),
   z.object({ field: z.literal("source"), operator: z.enum(["equals", "contains"]), value: text }).strict(),
@@ -15,6 +17,16 @@ const leafSchema = z.discriminatedUnion("field", [
   z.object({ field: z.literal("marketingEligible"), operator: z.literal("is"), value: z.boolean() }).strict(),
   z.object({ field: z.enum(["lastMessage", "lastInbound", "lastOutbound"]), operator: z.enum(["before", "after", "never"]), value: z.iso.datetime({ offset: true }).optional() }).strict().refine((rule) => rule.operator === "never" || !!rule.value, "נדרש תאריך להשוואה"),
   z.object({ field: z.literal("campaign"), operator: z.literal("is"), value: text, result: z.enum(["ANY", "QUEUED", "PROCESSING", "SENT", "FAILED", "SKIPPED", "UNKNOWN", "DELIVERED", "READ", "REPLIED", "NOT_DELIVERED"]) }).strict(),
+  /** Bought (or not) – from real purchases: store orders as sold, phone sales with items, paid carts. `products` are
+   *  name fragments (any matches; empty = any product); `withinDays` empty = ever. */
+  z.object({ field: z.literal("purchase"), operator: z.enum(["did", "did_not"]), products: productTerms, withinDays: days.optional() }).strict(),
+  /** Bought one of `first.products` within `first.withinDays`, and LATER (at least `minDaysAfter`, at most
+   *  `maxDaysAfter` days after that purchase) bought `then.products` – or any product other than the first. */
+  z.object({ field: z.literal("purchaseSequence"),
+    first: z.object({ products: productTerms.refine((p) => p.length > 0, "יש לציין מוצר ראשון"), withinDays: days }).strict(),
+    then: z.object({ products: productTerms, otherThanFirst: z.boolean(), minDaysAfter: z.number().int().min(0).max(3650), maxDaysAfter: z.number().int().min(0).max(3650).optional() }).strict()
+      .refine((t) => t.otherThanFirst || t.products.length > 0, "יש לציין מוצר שני או 'מוצר אחר'").refine((t) => t.maxDaysAfter === undefined || t.maxDaysAfter >= t.minDaysAfter, "טווח הימים אינו תקין"),
+  }).strict(),
 ]);
 export type AudienceRule = z.infer<typeof leafSchema>;
 export type AudienceNode = AudienceRule | { operator: "AND" | "OR"; conditions: AudienceNode[] };

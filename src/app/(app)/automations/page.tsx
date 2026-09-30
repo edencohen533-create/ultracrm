@@ -38,7 +38,7 @@ export default organizationRequest(async function AutomationsPage() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold">{t("אוטומציות", "Automations")}</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" render={<Link href="/automations/history">{t("היסטוריית הרצות", "Run history")}</Link>} />
+          <Button variant="outline" nativeButton={false} render={<Link href="/automations/history">{t("היסטוריית הרצות", "Run history")}</Link>} />
           <StopAutomationsButton />
           <RuleBuilder
             conversations={conversations.map((c) => ({ id: c.id, label: `${c.contact.fullName} (${c.contact.phoneE164})` }))}

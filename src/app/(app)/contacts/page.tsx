@@ -61,7 +61,8 @@ export default function ContactsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [allFiltered, setAllFiltered] = useState(false);
   const [lists, setLists] = useState<Array<{ id: string; name: string; segment: unknown }>>([]);
-  useEffect(() => { api.get<{ lists: Array<{ id: string; name: string; segment: unknown }> }>("/api/distribution-lists").then((r) => setLists(r.lists)).catch(() => undefined); }, []);
+  // /api/distribution-lists answers { lists } (not the { success, data } envelope the api client unwraps).
+  useEffect(() => { fetch("/api/distribution-lists", { cache: "no-store" }).then((r) => (r.ok ? r.json() : { lists: [] })).then((r: { lists?: Array<{ id: string; name: string; segment: unknown }> }) => setLists(r.lists ?? [])).catch(() => undefined); }, []);
   // A new filter / list is a new result set – a previous "all filtered" choice never carries over.
   useEffect(() => { setAllFiltered(false); setSelected(new Set()); }, [filter, segmentId]);
   const [tags, setTags] = useState<Array<{ id: string; name: string }>>([]);
@@ -210,7 +211,7 @@ export default function ContactsPage() {
                     <Link href={`/contacts/${c.id}`} className="font-medium hover:underline">{c.fullName}</Link>
                     <span className="block text-[11px] text-muted truncate">{[c.company, c.city].filter(Boolean).join(" · ")}{c._count.leads ? t(` · ${c._count.leads} לידים פתוחים`, ` · ${c._count.leads} open leads`) : ""}</span>
                   </td>
-                  <td className="px-3"><Phone value={formatPhone(c.phoneE164)} />{c.isDnc && <Badge tone="bad" className="ms-2">DNC</Badge>}</td>
+                  <td className="px-3 whitespace-nowrap"><Phone value={formatPhone(c.phoneE164)} />{c.isDnc && <Badge tone="bad" className="ms-2">DNC</Badge>}</td>
                   <td className="px-3"><div className="flex flex-wrap gap-1">{c.tags.slice(0, 3).map((tg) => <span key={tg.id} className="px-1.5 h-5 rounded text-[11px] inline-flex items-center" style={{ background: `${tg.color}33`, color: tg.color }}>{tg.name}</span>)}{c.tags.length > 3 && <span className="text-[11px] text-muted">+{c.tags.length - 3}</span>}</div></td>
                   <td className="px-3 text-muted">{c.source ?? "—"}</td>
                   <td className="px-3">{c.suppression === "all" ? <Badge tone="bad">{t("לא ליצור קשר", "Do not contact")}</Badge> : c.suppression === "marketing" ? <Badge tone="bad">{t("הוסר מדיוור", "Unsubscribed")}</Badge> : <Badge tone={CONSENT[c.consentStatus]?.tone ?? "neutral"}>{CONSENT[c.consentStatus] ? t(CONSENT[c.consentStatus].label, CONSENT[c.consentStatus].en) : c.consentStatus}</Badge>}</td>

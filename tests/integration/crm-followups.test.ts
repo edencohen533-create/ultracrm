@@ -181,6 +181,30 @@ describe("CRM follow-ups, transfer and attempts", { timeout: 1_800_000 }, () => 
     expect(await db.auditLog.count({ where: { entityId: l.id, action: "lead.transferred" } })).toBe(1);
   });
 
+  it("a follow-up that comes due while the agent is in another call: no parallel call, it stays due and is served right after", async () => {
+    const listId = await personalList(yossi);
+    await db.listLead.updateMany({ where: { listId }, data: { status: "completed" } });
+    const busyWith = await lead(yossi.id, "contacted", "1"); // simulated busy → the call ends by itself
+    const due = await lead(yossi.id, "contacted", "4");
+    const fu = await run(yossi, () => scheduleFollowUp(yossi, due.id, later(20)));
+    await personalList(yossi);
+    const live = await run(yossi, () => startCall(yossi, { idempotencyKey: crypto.randomUUID(), mode: "manual", contactId: busyWith.contactId }));
+    // …the follow-up's time arrives during the call
+    await db.task.update({ where: { id: fu.taskId }, data: { dueAt: new Date(Date.now() - 60_000) } });
+    await db.listLead.updateMany({ where: { listId, contactId: due.contactId }, data: { nextAttemptAt: new Date(Date.now() - 60_000) } });
+    await expect(run(yossi, () => startCall(yossi, { idempotencyKey: crypto.randomUUID(), mode: "manual", contactId: due.contactId }))).rejects.toMatchObject({ status: 409 });
+    const row = await db.listLead.findUniqueOrThrow({ where: { listId_contactId: { listId, contactId: due.contactId } } });
+    expect(row.status).toBe("callback"); // not dropped, not expired, not given to someone else
+    expect((await db.task.findUniqueOrThrow({ where: { id: fu.taskId } })).status).toBe("open");
+    expect((await db.lead.findUniqueOrThrow({ where: { id: due.id } })).ownerUserId).toBe(yossi.id);
+    await endCall(live.id);
+    await run(yossi, () => saveOutcome(yossi, { callId: live.id, outcome: "busy" }));
+    const next = await run(yossi, () => claimNextLead(a.business.id, yossi.id, listId));
+    expect(next?.contactId).toBe(due.contactId); // first in line once the agent is free
+    await run(yossi, () => releaseLead(yossi.id, next!.id, "test"));
+    await run(yossi, () => cancelFollowUp(yossi, due.id));
+  });
+
   it("after a due follow-up is attempted with no answer it moves to the retry time instead of looping", async () => {
     const listId = await personalList(yossi);
     await db.listLead.updateMany({ where: { listId }, data: { status: "completed" } });

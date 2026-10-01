@@ -95,8 +95,8 @@ describe("CRM statuses as the wrap-up source of truth", { timeout: 900_000 }, ()
     await expect(run(A.session, () => deleteStatus(A.session, hot.id, {}))).rejects.toMatchObject({ code: "replacement_required" });
     const lostDef = (await run(A.session, () => listStatuses(A.business.id))).find((s) => s.kind === "lost")!;
     await expect(run(A.session, () => deleteStatus(A.session, hot.id, { replacementId: lostDef.id }))).rejects.toMatchObject({ code: "invalid_replacement" });
-    const systemQualified = (await run(A.session, () => listStatuses(A.business.id))).find((s) => s.isSystem && s.kind === "qualified")!;
-    await expect(run(A.session, () => deleteStatus(A.session, systemQualified.id, { replacementId: warm.id }))).rejects.toMatchObject({ code: "system_status" });
+    // The only status of a meaning (here: the system "lost") can't go – the system relies on one per meaning.
+    await expect(run(A.session, () => deleteStatus(A.session, lostDef.id, {}))).rejects.toMatchObject({ code: "only_of_kind" });
     const r = await run(A.session, () => deleteStatus(A.session, hot.id, { replacementId: warm.id }));
     expect(r).toMatchObject({ leadsMoved: 1, automationsMoved: 1 });
     expect(await db.lead.findUniqueOrThrow({ where: { id: l.id } })).toMatchObject({ status: "qualified", statusDefId: warm.id });

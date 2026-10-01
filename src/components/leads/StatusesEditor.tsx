@@ -9,7 +9,7 @@ import { STATUS_KIND_HELP, type LeadStatusItem, type LeadStatusKey } from "@/lib
 import { useT } from "@/components/i18n/LangProvider";
 
 const KINDS = Object.keys(STATUS_KIND_HELP) as LeadStatusKey[];
-interface Impact { status: LeadStatusItem; deletable: boolean; leads: number; openLeads: number; automations: Array<{ id: string; name: string; isActive: boolean }>; needsReplacement: boolean; replacements: LeadStatusItem[] }
+interface Impact { status: LeadStatusItem; deletable: boolean; blockedReason: "only_of_kind" | null; leads: number; openLeads: number; automations: Array<{ id: string; name: string; isActive: boolean; draftOnly?: boolean }>; capiRules: Array<{ id: string; name: string }>; needsReplacement: boolean; replacements: LeadStatusItem[] }
 
 /**
  * The one status editor (from "עריכת סטטוסים" and from "הגדרות"): rename, reorder, add (name + meaning), delete a
@@ -68,12 +68,12 @@ export function StatusesEditor({ compact = false }: { compact?: boolean }) {
               {/* meaning + origin together, actions always at the row's end – the same position on every row and screen size */}
               <span className="flex min-w-0 items-center gap-2">
                 <span title={t(STATUS_KIND_HELP[s.kind].he, STATUS_KIND_HELP[s.kind].en)}><Badge tone="neutral">{kindTitle(s.kind)}</Badge></span>
-                {s.isSystem ? <span className="text-[11px] text-muted whitespace-nowrap" title={t("סטטוס מערכת – אפשר לשנות שם, לא למחוק", "System status – can be renamed, not deleted")}>{t("מערכת", "System")}</span> : <span className="text-[11px] text-muted whitespace-nowrap">{t("מותאם", "Custom")}</span>}
+                {s.isSystem ? <span className="text-[11px] text-muted whitespace-nowrap" title={t("הסטטוס הראשי של המשמעות הזו – אפשר למחוק אותו כשקיים סטטוס נוסף באותה משמעות", "The main status of this meaning – can be deleted when another status of the same meaning exists")}>{t("מערכת", "System")}</span> : <span className="text-[11px] text-muted whitespace-nowrap">{t("מותאם", "Custom")}</span>}
               </span>
               {owner && <span className="ms-auto flex items-center gap-1">
                 <Button size="sm" variant="ghost" onClick={() => move(s.id, -1)} disabled={i === 0} aria-label={t("הזז למעלה", "Move up")}>↑</Button>
                 <Button size="sm" variant="ghost" onClick={() => move(s.id, 1)} disabled={i === activeRows.length - 1} aria-label={t("הזז למטה", "Move down")}>↓</Button>
-                {!s.isSystem && <Button size="sm" variant="ghost" className="text-bad" onClick={() => setDeleting(s)} data-testid={`status-delete-${s.id}`}>{t("מחק", "Delete")}</Button>}
+                <Button size="sm" variant="ghost" className="text-bad" onClick={() => setDeleting(s)} data-testid={`status-delete-${s.id}`}>{t("מחק", "Delete")}</Button>
               </span>}
             </li>
           ))}
@@ -104,33 +104,37 @@ export function StatusesEditor({ compact = false }: { compact?: boolean }) {
   );
 }
 
-/** Deleting a custom status: what it affects (leads, automations) and, when used, the replacement (same meaning). */
+/** Deleting a status: what it affects (leads, automations, Meta rules) and, when used, the replacement (same meaning). */
 function DeleteStatusDialog({ status, onClose, onDone }: { status: LeadStatusItem; onClose: () => void; onDone: () => void }) {
   const t = useT();
   const [impact, setImpact] = useState<Impact | null>(null);
   const [replacementId, setReplacementId] = useState("");
+  const kindTitle = (k: LeadStatusKey) => t(STATUS_KIND_HELP[k].title, STATUS_KIND_HELP[k].titleEn);
   const [busy, setBusy] = useState(false);
   useEffect(() => { api.get<Impact>(`/api/lead-statuses/${status.id}`).then((r) => { setImpact(r); setReplacementId(r.replacements[0]?.id ?? ""); }).catch((e) => toast.error((e as Error).message)); }, [status.id]);
   async function confirm() {
     setBusy(true);
     try {
-      const r = await api.delete<{ leadsMoved: number; automationsMoved: number }>(`/api/lead-statuses/${status.id}`, impact?.needsReplacement ? { replacementId } : {});
-      toast.success(t(`הסטטוס נמחק${r.leadsMoved ? ` · ${r.leadsMoved} לידים הועברו` : ""}${r.automationsMoved ? ` · ${r.automationsMoved} אוטומציות עודכנו` : ""}`, `Status deleted${r.leadsMoved ? ` · ${r.leadsMoved} leads moved` : ""}${r.automationsMoved ? ` · ${r.automationsMoved} automations updated` : ""}`));
+      const r = await api.delete<{ leadsMoved: number; automationsMoved: number; capiRulesMoved: number }>(`/api/lead-statuses/${status.id}`, impact?.needsReplacement ? { replacementId } : {});
+      toast.success(t(`הסטטוס נמחק${r.leadsMoved ? ` · ${r.leadsMoved} לידים הועברו` : ""}${r.automationsMoved ? ` · ${r.automationsMoved} אוטומציות עודכנו` : ""}${r.capiRulesMoved ? ` · ${r.capiRulesMoved} כללי המרות עודכנו` : ""}`, `Status deleted${r.leadsMoved ? ` · ${r.leadsMoved} leads moved` : ""}${r.automationsMoved ? ` · ${r.automationsMoved} automations updated` : ""}`));
       onDone();
     } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
   }
   return (
     <Modal open onClose={() => !busy && onClose()} title={t(`מחיקת הסטטוס "${status.label}"`, `Delete status "${status.label}"`)}
-      footer={<><Button variant="ghost" onClick={onClose} disabled={busy}>{t("ביטול", "Cancel")}</Button><Button variant="danger" onClick={confirm} loading={busy} disabled={!impact || (impact.needsReplacement && !replacementId)} data-testid="status-delete-confirm">{t("מחק סטטוס", "Delete status")}</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose} disabled={busy}>{t("ביטול", "Cancel")}</Button><Button variant="danger" onClick={confirm} loading={busy} disabled={!impact || !impact.deletable || (impact.needsReplacement && !replacementId)} data-testid="status-delete-confirm">{t("מחק סטטוס", "Delete status")}</Button></>}>
       {!impact ? <div className="flex justify-center p-6"><Spinner /></div> : (
         <div className="space-y-3 text-sm" data-testid="status-delete-impact">
           <p>{impact.leads ? t(`${impact.leads} לידים בסטטוס הזה (${impact.openLeads} פתוחים).`, `${impact.leads} leads are in this status (${impact.openLeads} open).`) : t("אין לידים בסטטוס הזה.", "No leads are in this status.")}</p>
-          {impact.automations.length > 0 && <div><p>{t(`${impact.automations.length} אוטומציות מופעלות מהסטטוס הזה:`, `${impact.automations.length} automations are triggered by this status:`)}</p><ul className="list-disc ps-5 text-xs">{impact.automations.map((a) => <li key={a.id}>{a.name}{a.isActive ? "" : t(" (כבויה)", " (off)")}</li>)}</ul></div>}
-          {impact.needsReplacement ? <>
+          {impact.automations.length > 0 && <div><p>{t(`${impact.automations.length} אוטומציות / מסעות מופעלים מהסטטוס הזה:`, `${impact.automations.length} automations / journeys are triggered by this status:`)}</p><ul className="list-disc ps-5 text-xs">{impact.automations.map((a) => <li key={a.id}>{a.name}{a.draftOnly ? t(" (טיוטה)", " (draft)") : a.isActive ? "" : t(" (כבויה)", " (off)")}</li>)}</ul></div>}
+          {impact.capiRules.length > 0 && <div><p>{t(`${impact.capiRules.length} כללי המרות למטא משתמשים בסטטוס הזה:`, `${impact.capiRules.length} Meta conversion rules use this status:`)}</p><ul className="list-disc ps-5 text-xs">{impact.capiRules.map((r) => <li key={r.id}>{r.name}</li>)}</ul></div>}
+          {!impact.deletable ? (
+            <p className="rounded-md border border-warn/40 bg-warn/10 p-2 text-xs" role="alert" data-testid="status-delete-blocked">{impact.status.kind === "new" ? t("זה הסטטוס שבו כל ליד חדש נכנס למערכת, ולכן אי אפשר למחוק אותו. אפשר לשנות את שמו.", "Every new lead enters the system in this status, so it can't be deleted. You can rename it.") : t(`זה הסטטוס היחיד עם המשמעות "${kindTitle(impact.status.kind)}", והמערכת נשענת עליו (יצירת לידים, סיום שיחה בחייגן, אוטומציות). כדי למחוק אותו – הוסף קודם סטטוס נוסף באותה משמעות, ואז הלידים יועברו אליו.`, `This is the only status with the meaning "${kindTitle(impact.status.kind)}", and the system relies on it (new leads, dialer wrap-up, automations). To delete it, first add another status with the same meaning – the leads will then move to it.`)}</p>
+          ) : impact.needsReplacement ? <>
             <Select label={t("לאיזה סטטוס להעביר אותם", "Move them to status")} value={replacementId} onChange={(e) => setReplacementId(e.target.value)} data-testid="status-delete-replacement">
               {impact.replacements.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
             </Select>
-            <p className="text-xs text-muted">{t("רק סטטוס עם אותה משמעות – כך שלא ייפתחו או ייסגרו פולואפים ועסקאות בטעות. כל ליד שמועבר מקבל רישום בהיסטוריה; האוטומציות יופעלו מהסטטוס החלופי.", "Only a status with the same meaning – so no follow-ups or deals open or close by accident. Each moved lead gets a history entry; the automations will run from the replacement status.")}</p>
+            <p className="text-xs text-muted">{t("רק סטטוס עם אותה משמעות – כך שלא ייפתחו או ייסגרו פולואפים ועסקאות בטעות. כל ליד שמועבר מקבל רישום בהיסטוריה; אוטומציות וכללי המרות יופעלו מהסטטוס החלופי. לידים לא נמחקים.", "Only a status with the same meaning – so no follow-ups or deals open or close by accident. Each moved lead gets a history entry; automations and conversion rules will run from the replacement status. No lead is deleted.")}</p>{impact.status.isSystem && <p className="text-xs text-muted">{t("הסטטוס החלופי יהפוך לסטטוס הראשי של המשמעות הזו.", "The replacement becomes the main status of this meaning.")}</p>}
           </> : <p className="text-xs text-muted">{t("שיחות ורשומות קודמות ימשיכו להציג את השם הזה בהיסטוריה.", "Earlier calls and records keep showing this name in their history.")}</p>}
         </div>
       )}

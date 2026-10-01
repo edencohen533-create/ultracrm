@@ -68,6 +68,16 @@ export async function authenticateApiKey(req: Request) {
   return { business, keyId: row.id, keyName: row.name, session, scopes: row.scopes, connectionId: row.connectionId };
 }
 
+/**
+ * The general API (/api/v1/leads, /orders, /orders/receipts) – a general API key only. An integration key of a CRM
+ * connection is limited to its scopes, rate limit and connection, and works only on its own endpoints (/api/v1/crm/*).
+ */
+export async function authenticateGeneralApiKey(req: Request) {
+  const a = await authenticateApiKey(req);
+  if (a.scopes.length || a.connectionId) throw new ApiError("מפתח אינטגרציה של חיבור CRM מוגבל להרשאות שלו – לנקודה זו נדרש מפתח API כללי", 403, "general_key_required");
+  return a;
+}
+
 // ─── Integration keys (scoped, rate limited, rotatable) ─────────────────────────────────────────────────────────
 export const INTEGRATION_SCOPES = { "contacts:write": "יצירה ועדכון אנשי קשר", "leads:write": "יצירה ועדכון פניות, שיוך, סטטוס ופולואפ", "blocks:write": "העברת בקשות חסימה", "events:read": "קריאת אירועי שיחות, הודעות ותוצאות" } as const;
 export type IntegrationScope = keyof typeof INTEGRATION_SCOPES;

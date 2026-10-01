@@ -4,7 +4,7 @@ import { ok, handleError, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { withBusiness } from "@/lib/tenant";
 import { audit } from "@/lib/audit";
-import { authenticateApiKey } from "@/server/services/integrations";
+import { authenticateGeneralApiKey } from "@/server/services/integrations";
 import { receiptSchema } from "@/server/services/store-order-service";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request) {
   try {
-    const a = await authenticateApiKey(req);
+    const a = await authenticateGeneralApiKey(req);
     let body: unknown; try { body = await req.json(); } catch { throw new ApiError("גוף הבקשה אינו JSON תקין", 400, "invalid_json"); }
     const p = z.object({ orderNumber: z.string().trim().min(1).max(120), storeId: z.string().trim().max(60).optional(), receipt: receiptSchema, source: z.string().trim().max(80).optional() }).safeParse(body);
     if (!p.success) throw new ApiError("נתונים לא תקינים", 400, "validation", p.error.flatten());

@@ -47,6 +47,10 @@ export function patchClient(client: pg.Client) {
   let inTx = false;
   let applied = false;
   let applying: Promise<unknown> | null = null;
+  // The COMMIT of a read-only autocommit statement is not awaited by the caller (see below); the next statement on
+  // this client waits for it instead – pg must never be handed a query while another is still executing (deprecated
+  // in pg 8, removed in pg 9).
+  let pendingCommit: Promise<unknown> | null = null;
   const patched = function (this: pg.Client, ...args: QueryArgs) {
     const cb = typeof args[args.length - 1] === "function" ? (args.pop() as (err: Error | null, res?: pg.QueryResult) => void) : null;
     const first = args[0];
@@ -56,6 +60,7 @@ export function patchClient(client: pg.Client) {
     }
     const sql = typeof first === "string" ? first : String((first as { text?: string } | undefined)?.text ?? "");
     const run = async () => {
+      if (pendingCommit) await pendingCommit;
       const kind = classify(sql);
       if (kind === "begin") { const r = await orig(...args); inTx = true; applied = false; return r; }
       if (kind === "commit" || kind === "rollback") { try { return await orig(...args); } finally { inTx = false; applied = false; applying = null; } }
@@ -74,10 +79,11 @@ export function patchClient(client: pg.Client) {
       try {
         const r = await orig(...args);
         if (/^\s*SELECT\b/i.test(sql)) {
-          // Read-only statement: the result is already in hand and COMMIT of a read cannot change data, so do not
-          // wait for its round trip. pg serialises queries per client, so anything queued next on this connection
-          // (including another tenant's BEGIN) runs strictly after this COMMIT.
-          void orig("COMMIT").catch(() => undefined);
+          // Read-only statement: the result is already in hand and COMMIT of a read cannot change data, so the caller
+          // doesn't wait for its round trip; the next statement on this connection does (pendingCommit), so another
+          // tenant's BEGIN still runs strictly after this COMMIT.
+          const c: Promise<unknown> = orig("COMMIT").catch(() => undefined).finally(() => { if (pendingCommit === c) pendingCommit = null; });
+          pendingCommit = c;
           return r;
         }
         await orig("COMMIT");

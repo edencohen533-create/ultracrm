@@ -4,6 +4,7 @@ import { getBusinessSettings } from "@/lib/settings";
 import { adapterFor } from "@/lib/telephony";
 import { audit } from "@/lib/audit";
 import { withBusiness } from "@/lib/tenant";
+import { requireCronSecret } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,11 +15,8 @@ export const maxDuration = 60;
  * Protected by CRON_SECRET (Vercel sets the Authorization header automatically).
  */
 export async function GET(req: NextRequest) {
-  // Always protected: without a configured secret the job refuses to run (never open to anonymous callers).
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  // The shared cron check: refuses without a configured secret, with a wrong one, and on a restored copy (RESTORE_MODE).
+  try { requireCronSecret(req); } catch (e) { const err = e as { status?: number; code?: string; message: string }; return NextResponse.json({ error: err.code ?? "unauthorized", message: err.message }, { status: err.status ?? 401 }); }
   const deadline = Date.now() + 45_000;
   // Businesses whose owner asked to delete everything come first: that obligation must not wait behind the others.
   const { purgeDueBusinesses } = await import("@/server/services/account-deletion-service");

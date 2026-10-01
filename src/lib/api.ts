@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { z, type ZodTypeAny } from "zod";
 import { requireUser, requireRole, type SessionUser } from "@/lib/auth";
@@ -67,7 +68,8 @@ export function requireCronSecret(req: Request) {
   if (process.env.RESTORE_MODE === "1") throw new ApiError("סביבת שחזור – משימות מתוזמנות כבויות", 423, "restore_mode");
   const secret = process.env.CRON_SECRET;
   if (!secret) throw new ApiError("CRON_SECRET is not configured", 500, "cron_not_configured");
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) throw new ApiError("לא מורשה", 401, "unauthorized");
+  const got = Buffer.from(req.headers.get("authorization") ?? ""), want = Buffer.from(`Bearer ${secret}`);
+  if (got.length !== want.length || !timingSafeEqual(got, want)) throw new ApiError("לא מורשה", 401, "unauthorized");
 }
 
 export const dynamic = "force-dynamic";

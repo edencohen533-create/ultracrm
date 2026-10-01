@@ -84,7 +84,8 @@ describe("unsubscribe detection", () => {
   it("clear vs ambiguous", () => {
     expect(isUnsubscribe("הסר")).toBe(true);
     expect(isUnsubscribe("STOP")).toBe(true);
-    expect(isAmbiguousUnsubscribe("תפסיקו לשלוח לי הודעות")).toBe(true);
+    expect(isUnsubscribe("תפסיקו לשלוח לי הודעות")).toBe(true);
+    expect(isAmbiguousUnsubscribe("תפסיקו לשלוח לי הודעות")).toBe(false);
     expect(isAmbiguousUnsubscribe("not interested, thanks")).toBe(true);
     expect(isAmbiguousUnsubscribe("הסר")).toBe(false);
     expect(isAmbiguousUnsubscribe("מעולה, אשמח לפרטים")).toBe(false);

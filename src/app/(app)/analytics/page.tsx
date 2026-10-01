@@ -5,5 +5,5 @@ import { redirect } from "next/navigation";
  * שיווק ומכירות ← ביצועי דיוור. Old links land on the WhatsApp view of the merged report.
  */
 export default function AnalyticsPage() {
-  redirect("/reports?channel=whatsapp");
+  redirect("/reports/whatsapp");
 }

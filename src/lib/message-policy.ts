@@ -1,16 +1,15 @@
+import { classifyContactRequest } from "@/lib/contact-requests";
 /** Application policy, not a claim about a provider's marketing limit. */
 export const MARKETING_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** Business setting (marketing.minHoursBetweenMarketing) → ms; the same value drives preflight and the send-time reservation. */
 export function marketingIntervalMs(hours?: number) { return (hours && hours > 0 ? hours : 24) * 3600_000; }
 export function isUnsubscribe(text: string) {
-  const normalized = text.normalize("NFKC").trim().toLowerCase().replace(/[.!?]+$/u, "").trim();
-  return ["הסר", "הסרה", "הסר אותי", "הסירו אותי", "הפסק", "stop", "unsubscribe", "stop all", "cancel", "remove me"].includes(normalized);
+  const kind = classifyContactRequest(text).kind;
+  return kind === "unsubscribe" || kind === "do_not_call" || kind === "wrong_person";
 }
-/** Not a clear opt-out, but likely one: marketing is HELD and a manager decides. */
+/** Uncertain requests pause outreach for review, without claiming a confirmed opt-out. */
 export function isAmbiguousUnsubscribe(text: string) {
-  const t = text.normalize("NFKC").trim().toLowerCase();
-  if (!t || isUnsubscribe(t)) return false;
-  return [/תפסיק/, /אל תשלח/, /לא מעוניי/, /מספיק/, /תורידו אותי/, /להוריד אותי/, /הסירו/, /הסר אותי/, /למה אתם שולחים/, /stop/, /unsubscribe/, /remove me/, /not interested/, /leave me alone/, /opt ?out/].some((r) => r.test(t));
+  return classifyContactRequest(text).kind === "unclear";
 }
 export function eligibilityError(contact: { consentStatus: string; isBlocked?: boolean }, marketing: boolean, serviceWindow: boolean) {
   if (contact.isBlocked) return "איש הקשר חסום לכל שליחה";

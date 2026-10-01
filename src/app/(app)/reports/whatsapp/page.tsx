@@ -8,12 +8,11 @@ import { ReportsNav } from "@/components/reports/ReportsNav";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ channel?: string }> }) {
-  if ((await searchParams).channel === "whatsapp") redirect("/reports/whatsapp");
+export default async function WhatsAppReportsPage() {
   const session = await getValidSession();
   if (!session) redirect("/login");
   if (session.role === "agent") redirect("/leads");
   const ent = await getEntitlements(session.businessId);
-  if (!ent.modules.telephony) redirect(ent.modules.whatsapp ? "/reports/whatsapp" : ent.modules.crm ? "/reports/marketing" : "/leads");
-  return <><ReportsNav /><Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}><ReportsOverview channel="telephony" /></Suspense></>;
+  if (!ent.modules.whatsapp) redirect(ent.modules.telephony ? "/reports" : ent.modules.crm ? "/reports/marketing" : "/leads");
+  return <><ReportsNav /><Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}><ReportsOverview channel="whatsapp" /></Suspense></>;
 }

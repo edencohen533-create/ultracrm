@@ -71,35 +71,36 @@ export function RuleList({ rules: initialRules }: { rules: Rule[] }) {
   }
 
   return (
-    <div className="overflow-auto rounded-md border">
-      <Table>
+    <div className="min-w-0 max-w-full overflow-hidden rounded-xl border border-line bg-panel">
+      <Table className="min-w-[640px] table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead>{t("שם", "Name")}</TableHead>
+            <TableHead className="w-[32%]">{t("שם", "Name")}</TableHead>
             <TableHead>{t("טריגר", "Trigger")}</TableHead>
             <TableHead>{t("פעולה", "Action")}</TableHead>
-            <TableHead>{t("פעיל", "Active")}</TableHead>
-            <TableHead className="w-24">{t("מחיקה", "Delete")}</TableHead>
+            <TableHead className="w-20 text-center">{t("פעיל", "Active")}</TableHead>
+            <TableHead className="w-20 text-center">{t("מחיקה", "Delete")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rules.map((rule) => (
             <TableRow key={rule.id}>
-              <TableCell className="font-medium">{rule.name}</TableCell>
+              <TableCell className="whitespace-normal break-words font-medium">{rule.name}</TableCell>
               <TableCell>
                 <Badge variant="outline">{TRIGGER_LABELS[rule.trigger] ? t(...TRIGGER_LABELS[rule.trigger]) : rule.trigger}</Badge>
               </TableCell>
               <TableCell>
                 <Badge variant="secondary">{ACTION_LABELS[rule.actionType] ? t(...ACTION_LABELS[rule.actionType]) : rule.actionType}</Badge>
               </TableCell>
-              <TableCell>
+              <TableCell className="text-center">
                 <Switch
+                  aria-label={t(`הפעלת ${rule.name}`, `Enable ${rule.name}`)}
                   checked={rule.isActive}
                   disabled={pending !== null}
                   onCheckedChange={(checked) => toggleActive(rule.id, checked)}
                 />
               </TableCell>
-              <TableCell>
+              <TableCell className="text-center">
                 <button type="button" className="text-xs text-bad underline disabled:opacity-40" disabled={pending === rule.id} onClick={() => remove(rule)} data-testid={`rule-delete-${rule.id}`}>{t("מחק", "Delete")}</button>
               </TableCell>
             </TableRow>

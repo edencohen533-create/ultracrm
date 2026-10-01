@@ -12,6 +12,10 @@ const SCREENS: Array<{ match: (p: string) => boolean; need: string[] }> = [
   { match: (p) => p.startsWith("/sales") || p === "/leads" || p.startsWith("/leads/") || p.startsWith("/deals") || p.startsWith("/tasks"), need: ["crm.view"] },
   { match: (p) => p.startsWith("/dialer") || p.startsWith("/calling") || p.startsWith("/lists") || p.startsWith("/calls"), need: ["telephony.use"] },
   { match: (p) => p.startsWith("/manager") || p.startsWith("/numbers"), need: ["telephony.team_settings"] },
+  // A channel's own campaign screen needs THAT channel (a removed module stays closed even if another channel is on).
+  { match: (p) => p.startsWith("/campaigns/sms"), need: ["sms.view"] },
+  { match: (p) => p.startsWith("/campaigns/email"), need: ["email.view"] },
+  { match: (p) => p.startsWith("/campaigns/whatsapp"), need: ["whatsapp.campaign_draft", "whatsapp.campaign_send"] },
   { match: (p) => p.startsWith("/campaigns"), need: ["whatsapp.campaign_draft", "whatsapp.campaign_send", "sms.view", "email.view"] },
   { match: (p) => p.startsWith("/audiences") || p === "/contacts" || p.startsWith("/contacts/"), need: ["crm.view", "sms.draft", "email.draft", "whatsapp.campaign_draft", "telephony.use", "whatsapp.view"] },
   { match: (p) => p.startsWith("/carts"), need: ["whatsapp.automations", "sms.send", "email.send"] },

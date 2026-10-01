@@ -134,6 +134,7 @@ export async function deleteContacts(user: SessionUser, sel: Selection & { confi
       await skipFutureSends(tx, user.businessId, ok, "איש הקשר נמחק");
       await tx.listLead.updateMany({ where: { contactId: { in: ok }, status: { notIn: ["in_call"] } }, data: { status: "removed", lockedByUserId: null, lockToken: null, lockExpiresAt: null, nextAttemptAt: null } });
       await tx.task.updateMany({ where: { contactId: { in: ok }, status: "open" }, data: { status: "cancelled" } });
+      await tx.sequenceRun.updateMany({ where: { contactId: { in: ok }, status: { in: ["PENDING", "RUNNING"] } }, data: { status: "STOPPED", stopReason: "איש הקשר נמחק", completedAt: now } });
       await tx.lead.updateMany({ where: { contactId: { in: ok }, status: { in: ["new", "contacted", "follow_up", "qualified"] } }, data: { status: "lost", closedAt: now, closeReason: "איש הקשר נמחק" } });
       for (const id of ok) {
         // Scrub personal details; the phone becomes a non-dialable token (unique per business) so the number can be

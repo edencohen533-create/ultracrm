@@ -17,4 +17,4 @@ export const GET = withAuth(async ({ user }) => {
     conditions: DEAL_CONDITION_TEXT, selection: CALL_SELECTION_TEXT, providers: providerStatus(),
     deals: rows.map((r) => ({ ...r, deal: deals.find((d) => d.id === r.dealId) ?? null })),
   });
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", module: "telephony", perm: "telephony.recordings" });

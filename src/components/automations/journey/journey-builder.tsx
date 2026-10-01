@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Bell, Clock, FlaskConical, GitBranch, Sparkles, ListMinus, ListPlus, Mail, MessageCircle, Plus, Smartphone, Tag, Tags, Trash2, Webhook, X, ArrowUp, ArrowDown } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { useT } from "@/components/i18n/LangProvider";
+import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 import { JourneyAiPanel, type Interpretation } from "./journey-ai";
 import { PublishDialog, SimulateDialog } from "./journey-dialogs";
 
@@ -52,6 +53,7 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
   const router = useRouter();
   const t = useT();
   const [j, setJ] = useState<Journey>(initial);
+  const statuses = useLeadStatuses(); // the business's statuses: system ones by meaning, custom ones by id (as the rule builder)
   const [adding, setAdding] = useState<number | null>(null);
   const [sel, setSel] = useState<number | "trigger" | "exit" | null>(initial.id ? null : "trigger");
   const [busy, setBusy] = useState(false);
@@ -111,7 +113,7 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
       {panel === "ai" && <JourneyAiPanel mode="journey" current={j.steps.length ? toDef(j) : null} onApply={applyAi} onClose={() => setPanel(null)} />}
       <div className="jr-body">
         <div className="jr-canvas">
-          <button className={`jr-node trigger ${sel === "trigger" ? "sel" : ""} ${j.trigger ? "set" : ""}`} onClick={() => setSel("trigger")} data-testid="journey-trigger">{j.trigger ? <><strong>{t("טריגר", "Trigger")}</strong><span>{TRIGGERS[j.trigger] ? t(...TRIGGERS[j.trigger]) : j.trigger}{j.trigger === "TAG_ADDED" && j.triggerConfig.tagName ? `: ${j.triggerConfig.tagName}` : ""}{j.trigger === "LEAD_STATUS_CHANGED" && j.triggerConfig.leadStatus ? `: ${ls(t, String(j.triggerConfig.leadStatus))}` : ""}</span></> : t("הוספת טריגרים", "Add trigger")}</button>
+          <button className={`jr-node trigger ${sel === "trigger" ? "sel" : ""} ${j.trigger ? "set" : ""}`} onClick={() => setSel("trigger")} data-testid="journey-trigger">{j.trigger ? <><strong>{t("טריגר", "Trigger")}</strong><span>{TRIGGERS[j.trigger] ? t(...TRIGGERS[j.trigger]) : j.trigger}{j.trigger === "TAG_ADDED" && j.triggerConfig.tagName ? `: ${j.triggerConfig.tagName}` : ""}{j.trigger === "LEAD_STATUS_CHANGED" && j.triggerConfig.leadStatus ? `: ${statuses.items.find((st) => st.id === j.triggerConfig.leadStatus)?.label ?? ls(t, String(j.triggerConfig.leadStatus))}` : ""}</span></> : t("הוספת טריגרים", "Add trigger")}</button>
           <Connector onAdd={() => setAdding(0)} testid="journey-add-0" />
           {j.steps.map((s, i) => { const I = stepIcon(s); return (
             <div key={i} className="jr-item">
@@ -129,7 +131,7 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
           {sel === "trigger" && <div className="jr-form">
             <label>{t("מה מתחיל את המסע", "What starts the journey")}<select value={j.trigger} onChange={(e) => set({ trigger: e.target.value, triggerConfig: {} })} data-testid="journey-trigger-select">{Object.entries(TRIGGERS).map(([k, v]) => <option key={k} value={k}>{t(...v)}</option>)}</select></label>
             {j.trigger === "TAG_ADDED" && <label>{t("תגית", "Tag")}<input list="jr-tags" value={String(j.triggerConfig.tagName ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, tagName: e.target.value } })} /></label>}
-            {j.trigger === "LEAD_STATUS_CHANGED" && <label>{t("לסטטוס", "To status")}<select value={String(j.triggerConfig.leadStatus ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, leadStatus: e.target.value || undefined } })}><option value="">{t("כל שינוי", "Any change")}</option>{Object.entries(LEAD_STATUS).map(([k, v]) => <option key={k} value={k}>{t(...v)}</option>)}</select></label>}
+            {j.trigger === "LEAD_STATUS_CHANGED" && <label>{t("לסטטוס", "To status")}<select value={String(j.triggerConfig.leadStatus ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, leadStatus: e.target.value || undefined } })}><option value="">{t("כל שינוי", "Any change")}</option>{statuses.items.filter((st) => st.active || (st.isSystem ? st.kind : st.id) === j.triggerConfig.leadStatus).map((st) => <option key={st.id} value={st.isSystem ? st.kind : st.id}>{st.label}</option>)}</select></label>}
             {(j.trigger === "DELIVERY_FAILED" || j.trigger === "SENT_NO_REPLY") && <label>{t("ערוץ", "Channel")}<select value={String(j.triggerConfig.channel ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, channel: e.target.value || undefined } })}><option value="">{t("כל הערוצים", "All channels")}</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">{t("אימייל", "Email")}</option></select></label>}
             {j.trigger === "CONTACT_CREATED" && <label>{t("מקור (אופציונלי)", "Source (optional)")}<input value={String(j.triggerConfig.contactSource ?? "")} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, contactSource: e.target.value || undefined } })} placeholder={t("למשל facebook", "e.g. facebook")} /></label>}
             {j.trigger === "CALL_UNANSWERED" && <label>{t("אחרי כמה ניסיונות ללא מענה", "After how many unanswered attempts")}<input type="number" min={1} max={50} value={Number(j.triggerConfig.minAttempts ?? 1)} onChange={(e) => set({ triggerConfig: { ...j.triggerConfig, minAttempts: Math.max(1, Number(e.target.value) || 1) } })} /></label>}

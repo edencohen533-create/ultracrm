@@ -74,6 +74,13 @@ export async function publishChecks(user: SessionUser, raw: unknown) {
   // Lists: exist and are static.
   const listIds = [...new Set(def.steps.flatMap((s) => (s.listId ? [s.listId] : [])))];
   if (listIds.length) { const lists = await prisma.distributionList.findMany({ where: { id: { in: listIds } }, select: { id: true, segment: true } }); add("lists", "רשימות", lists.length === listIds.length && lists.every((l) => l.segment === null), lists.length !== listIds.length ? "רשימה שנבחרה אינה קיימת" : lists.some((l) => l.segment !== null) ? "אפשר לעבוד רק עם רשימה רגילה (לא דינמית)" : "תקין"); }
+  // A CRM status trigger: a system meaning or an active status of this business (custom statuses are chosen by id).
+  if (def.trigger === "LEAD_STATUS_CHANGED" && def.triggerConfig.leadStatus) {
+    const v = def.triggerConfig.leadStatus;
+    const kinds = ["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost"];
+    const known = kinds.includes(v) || Boolean(await prisma.leadStatusDef.findFirst({ where: { id: v, deletedAt: null }, select: { id: true } }));
+    add("status", "סטטוס CRM", known, known ? "תקין" : "הסטטוס שנבחר אינו קיים יותר – יש לבחור סטטוס אחר");
+  }
   // Loops: a step that re-fires the trigger of the same journey.
   const loop = def.trigger === "TAG_ADDED" && def.steps.some((s) => s.action === "add_tag" && s.actionTag && s.actionTag === def.triggerConfig.tagName);
   add("loops", "ללא לולאות", !loop, loop ? `הפעולה "הוספת תגית ${def.triggerConfig.tagName}" מפעילה שוב את אותו מסע – יש לבחור תגית אחרת` : "אין פעולה שמפעילה מחדש את אותו מסע; הודעה שנשלחה ממסע לעולם לא מתחילה מסע נוסף");
@@ -107,14 +114,27 @@ export async function publish(user: SessionUser, id: string, raw?: unknown) {
   const stopOn = [...new Set([...d.stopOn, "unsubscribe"])];
   const version = seq.version + 1;
   const rows = stepRows(seq.id, d);
-  await prisma.$transaction(async (tx) => {
+  try { await prisma.$transaction(async (tx) => {
     await tx.sequenceStep.deleteMany({ where: { sequenceId: seq.id } });
     await tx.sequenceStep.createMany({ data: rows as Prisma.SequenceStepCreateManyInput[] });
     await tx.marketingSequence.update({ where: { id: seq.id }, data: { name: d.name, trigger: d.trigger, triggerConfig: d.triggerConfig as Prisma.InputJsonValue, stopOn, isActive: true, status: "active", version, publishedAt: new Date(), draft: Prisma.DbNull } });
     await tx.sequenceVersion.create({ data: { businessId: user.businessId, sequenceId: seq.id, version, definition: { name: d.name, trigger: d.trigger, triggerConfig: d.triggerConfig, stopOn, steps: rows } as Prisma.InputJsonValue, checks: r.checks as unknown as Prisma.InputJsonValue, publishedById: user.id } });
-  });
+  }); } catch (e) {
+    // Two publishes at the same moment: the second one meets the unique (sequence, version) – a clear message, not a crash.
+    if ((e as { code?: string }).code === "P2002") throw new ApiError("גרסה חדשה פורסמה הרגע – רעננו ונסו שוב", 409, "conflict");
+    throw e;
+  }
   await audit(user.businessId, user.id, "sequence", seq.id, "journey.published", { version, checks: r.checks.map((c) => ({ key: c.key, ok: c.ok })) });
   return { id: seq.id, version, checks: r.checks, summary: r.summary };
+}
+
+/** The live (published) steps back in the editor / checks shape. */
+export async function liveDefinition(id: string) {
+  const seq = await prisma.marketingSequence.findFirstOrThrow({ where: { id }, include: { steps: { orderBy: { position: "asc" } } } });
+  return {
+    name: seq.name, trigger: seq.trigger, triggerConfig: (seq.triggerConfig ?? {}) as Record<string, unknown>, stopOn: seq.stopOn.filter((x) => x !== "unsubscribe"),
+    steps: seq.steps.map((st) => { const v = (st.variables ?? {}) as Record<string, string>; return { action: st.action, channel: st.channel, templateId: st.templateId ?? undefined, waitMinutes: st.waitMinutes, variables: Object.fromEntries(Object.entries(v).filter(([k]) => !k.startsWith("__"))), condition: st.condition ?? {}, taskTitle: v.__taskTitle, taskDueHours: v.__taskDueHours ? Number(v.__taskDueHours) : undefined, actionTag: v.__tag, listId: v.__listId, webhookUrl: v.__webhook }; }),
+  };
 }
 
 /** Pause / resume from the list. Resume needs a published version. */
@@ -122,6 +142,12 @@ export async function setJourneyStatus(user: SessionUser, id: string, status: "a
   const seq = await prisma.marketingSequence.findFirst({ where: { id }, select: { id: true, version: true, status: true } });
   if (!seq) throw new ApiError("המסע לא נמצא", 404, "not_found");
   if (status === "active" && seq.version < 1) throw new ApiError("המסע עוד לא פורסם – יש לפתוח אותו ולבחור \"שמירה והפעלה\"", 409, "not_published");
+  if (status === "active") {
+    // Resuming re-runs the checks on the live version (a connection / permission may have changed since).
+    const r = await publishChecks(user, await liveDefinition(id));
+    const failed = r.checks.filter((c) => c.blocking && !c.ok);
+    if (failed.length) throw new ApiError(failed.map((c) => c.detail).join(" · "), 409, "checks_failed", { checks: r.checks });
+  }
   await prisma.marketingSequence.update({ where: { id }, data: { status, isActive: status === "active" } });
   await audit(user.businessId, user.id, "sequence", id, status === "paused" ? "journey.paused" : "journey.resumed", {});
   return { id, status };

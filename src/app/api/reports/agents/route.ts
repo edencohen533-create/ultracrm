@@ -43,7 +43,7 @@ export const GET = withAuth(async ({ req, user }) => {
   if (!f.userId && !ids) {
     const listed = new Set(agents.map((a) => a.id));
     const other = Object.entries(metrics.perUser).filter(([id]) => !listed.has(id)).map(([, m]) => m);
-    const noOwner = deals.find((d) => d.ownerUserId === null)?._count._all ?? 0;
+    const noOwner = deals.filter((d) => d.ownerUserId === null || !listed.has(d.ownerUserId)).reduce((t, d) => t + d._count._all, 0);
     const sum = (k: "outboundAttempts" | "outboundAnswered" | "outboundHandled" | "outboundManual" | "dialSeconds" | "outboundTalkSeconds") => other.reduce((t, m) => t + (m?.[k] ?? 0), 0);
     if (other.length || noOwner) {
       const answered = sum("outboundAnswered"), talk = sum("outboundTalkSeconds");

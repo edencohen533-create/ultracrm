@@ -22,7 +22,7 @@ export const sequenceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   isActive: z.boolean().default(true),
   trigger: z.enum(["DELIVERY_FAILED", "SENT_NO_REPLY", "TAG_ADDED", "CONTACT_CREATED", "LEAD_STATUS_CHANGED", "CART_ABANDONED", "CALL_UNANSWERED"]),
-  triggerConfig: z.object({ channel: z.enum(["whatsapp", "sms", "email"]).optional(), tagName: z.string().trim().max(40).optional(), campaignId: z.string().optional(), marketingOnly: z.boolean().default(true), leadStatus: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost"]).optional(), minAttempts: z.number().int().min(1).max(50).optional(), contactSource: z.string().trim().max(100).optional() }).default({ marketingOnly: true }),
+  triggerConfig: z.object({ channel: z.enum(["whatsapp", "sms", "email"]).optional(), tagName: z.string().trim().max(40).optional(), campaignId: z.string().optional(), marketingOnly: z.boolean().default(true), leadStatus: z.string().trim().min(1).max(64).optional(), minAttempts: z.number().int().min(1).max(50).optional(), contactSource: z.string().trim().max(100).optional() }).default({ marketingOnly: true }),
   stopOn: z.array(z.enum(["reply", "conversion", "unsubscribe"])).default(["reply", "conversion", "unsubscribe"]),
   steps: z.array(z.object({
     /** Journey actions. wait = a pause node; condition = continue only if the condition holds, otherwise exit. */
@@ -87,6 +87,13 @@ export async function saveSequence(user: SessionUser, input: SequenceInput, id?:
     if (lists.length !== listIds.length) throw new ApiError("רשימה שנבחרה אינה קיימת", 400, "list_invalid");
     if (lists.some((l) => l.segment !== null)) throw new ApiError("ניתן להוסיף/להסיר רק ברשימה רגילה (לא קהל דינמי)", 400, "list_dynamic");
   }
+  // Going live from any path (legacy API, AI tool) passes the same pre-activation checks as "שמירה והפעלה".
+  if (input.isActive) {
+    const { publishChecks } = await import("@/server/automations/journeys");
+    const r = await publishChecks(user, input);
+    const failed = r.checks.filter((c) => c.blocking && !c.ok);
+    if (failed.length) throw new ApiError(failed.map((c) => c.detail).join(" · "), 409, "checks_failed", { checks: r.checks });
+  }
   const stopOn = [...new Set([...input.stopOn, "unsubscribe"])];
   const data = { name: input.name, isActive: input.isActive, trigger: input.trigger, triggerConfig: input.triggerConfig as Prisma.InputJsonValue, stopOn };
   const row = await prisma.$transaction(async (tx) => {
@@ -98,7 +105,8 @@ export async function saveSequence(user: SessionUser, input: SequenceInput, id?:
     await tx.sequenceStep.createMany({ data: rows as Prisma.SequenceStepCreateManyInput[] });
     // Every direct save of a live journey is a published version too (runs keep the version they started with).
     const version = id ? seq.version + 1 : 1;
-    await tx.marketingSequence.update({ where: { id: seq.id }, data: { version, status: input.isActive ? "active" : "paused", publishedAt: new Date(), draft: Prisma.DbNull } });
+    // An unpublished draft someone is editing is kept – this save changes the live version only.
+    await tx.marketingSequence.update({ where: { id: seq.id }, data: { version, status: input.isActive ? "active" : "paused", publishedAt: new Date() } });
     await tx.sequenceVersion.create({ data: { businessId: user.businessId, sequenceId: seq.id, version, definition: { name: input.name, trigger: input.trigger, triggerConfig: input.triggerConfig, stopOn, steps: rows } as Prisma.InputJsonValue, publishedById: user.id } });
     return seq;
   });
@@ -142,7 +150,8 @@ export async function startSequencesForEvent(event: DomainEvent) {
     } else if (trigger === "TAG_ADDED") { if (cfg.tagName && p.tagName !== cfg.tagName) continue; }
     else if (trigger === "LEAD_STATUS_CHANGED") {
       // A custom status is matched by its id; a system status by its meaning when no custom status was chosen.
-      if (cfg.leadStatus && !(p.toStatusId ? p.toStatusId === cfg.leadStatus : p.to === cfg.leadStatus)) continue;
+      // A status chosen by id (custom or system) or by its meaning (kind) – either matches the event.
+      if (cfg.leadStatus && p.toStatusId !== cfg.leadStatus && p.to !== cfg.leadStatus) continue;
     }
     else if (trigger === "CALL_UNANSWERED") {
       // Only unanswered outcomes; the lead must have reached N unanswered attempts (counted from the call log).
@@ -215,7 +224,9 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       if (!loaded || !loaded.isActive) { await finish("STOPPED", { stopReason: "sequence inactive" }); continue; }
       // A run keeps the steps of the version it started with (a newer published version applies to new runs only).
       const pinnedDef = run.versionId ? (await prisma.sequenceVersion.findUnique({ where: { id: run.versionId }, select: { definition: true } }))?.definition as { steps?: typeof loaded.steps } | undefined : undefined;
-      const seq = pinnedDef?.steps ? { ...loaded, steps: pinnedDef.steps } : loaded;
+      const seq = pinnedDef?.steps ? { ...loaded, steps: pinnedDef.steps, stopOn: (pinnedDef as { stopOn?: string[] }).stopOn ?? loaded.stopOn } : loaded;
+      // A deleted contact never gets further journey steps.
+      if (!(await prisma.contact.findFirst({ where: { id: run.contactId, deletedAt: null }, select: { id: true } }))) { await finish("STOPPED", { stopReason: "איש הקשר נמחק" }); continue; }
       const step = seq.steps[run.stepIndex];
       if (!step) { await finish("COMPLETED"); continue; }
       // Abandoned-cart journeys: stop as soon as the cart was bought; expose cart values to the messages.

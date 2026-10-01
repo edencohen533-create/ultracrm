@@ -128,9 +128,15 @@ describe("sales coach", { timeout: 120_000 }, () => {
     const v2 = await run(a.session, () => sales.reviewInsight(a.session, objection.id, { action: "approve", body: "מבינה. מה הכי חשוב לך לקבל מהמנוי? ככה נראה אם זה שווה לך" }));
     expect(v2).toMatchObject({ version: 2, status: "approved", rootId: objection.id });
     expect((await db.salesInsight.findUniqueOrThrow({ where: { id: objection.id } })).status).toBe("superseded");
-    // Restore version 1 → version 3 (current), still traceable to the same source
-    const v3 = await run(a.session, () => sales.reviewInsight(a.session, v2.id, { action: "restore", versionId: objection.id }));
-    expect(v3.version).toBe(3);
+    // Restoring a flagged version needs the same acknowledgement as approving it; without it, it goes back to review
+    const pending = await run(a.session, () => sales.reviewInsight(a.session, v2.id, { action: "restore", versionId: objection.id }));
+    expect(pending).toMatchObject({ version: 3, status: "candidate" });
+    const v2b = await db.salesInsight.findFirstOrThrow({ where: { rootId: objection.id, status: "candidate", version: 3 } });
+    await run(a.session, () => sales.reviewInsight(a.session, v2b.id, { action: "approve", body: v2.body }));
+    const v2c = await db.salesInsight.findFirstOrThrow({ where: { rootId: objection.id, status: "approved" }, orderBy: { version: "desc" } });
+    // Restore version 1 with the acknowledgement → the current approved version, still traceable to the same source
+    const v3 = await run(a.session, () => sales.reviewInsight(a.session, v2c.id, { action: "restore", versionId: objection.id, acknowledgeFlags: true }));
+    expect(v3).toMatchObject({ version: 5, status: "approved" });
     expect(v3.body).toBe(objection.body);
     expect(v3.recordingId).toBe(recId);
     const removed = await run(a.session, () => sales.reviewInsight(a.session, v3.id, { action: "remove" }));

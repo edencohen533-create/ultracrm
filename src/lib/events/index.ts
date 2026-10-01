@@ -65,24 +65,23 @@ const LOCK_TTL_MS = 5 * 60_000;
 
 /** Insert an event (outbox). Returns null when the dedupeKey was already emitted. */
 export async function emitEvent(tx: Db, input: EmitEventInput) {
-  try {
-    return await tx.domainEvent.create({
-      data: {
-        businessId: input.businessId,
-        type: input.type,
-        contactId: input.contactId ?? null,
-        actorUserId: input.actorUserId ?? null,
-        source: input.source ?? "system",
-        depth: input.depth ?? 0,
-        dedupeKey: input.dedupeKey,
-        payload: (input.payload ?? {}) as Prisma.InputJsonValue,
-        occurredAt: input.occurredAt ?? new Date(),
-      },
-    });
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return null;
-    throw err;
-  }
+  // ON CONFLICT DO NOTHING (skipDuplicates): a duplicate dedupeKey is simply not inserted. A caught unique-violation
+  // would instead abort the caller's Postgres transaction, whose COMMIT then silently rolls back all of its work.
+  const rows = await tx.domainEvent.createManyAndReturn({
+    data: [{
+      businessId: input.businessId,
+      type: input.type,
+      contactId: input.contactId ?? null,
+      actorUserId: input.actorUserId ?? null,
+      source: input.source ?? "system",
+      depth: input.depth ?? 0,
+      dedupeKey: input.dedupeKey,
+      payload: (input.payload ?? {}) as Prisma.InputJsonValue,
+      occurredAt: input.occurredAt ?? new Date(),
+    }],
+    skipDuplicates: true,
+  });
+  return rows[0] ?? null;
 }
 
 /**

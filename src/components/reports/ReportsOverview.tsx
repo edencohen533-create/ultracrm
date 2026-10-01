@@ -122,7 +122,7 @@ export function ReportsOverview() {
   const avgDeal = group(["avgDeal"]);
 
   return (
-    <div className="space-y-4 p-4 md:p-5" data-testid="reports-overview">
+    <div className="min-w-0 max-w-full space-y-4 p-4 md:p-5" data-testid="reports-overview">
       {/* 1. One filter row for the whole page – period, agent, campaign, comparison; product under "more" */}
       <section className="rounded-xl border border-line bg-panel p-3" aria-label={t("סינון ותאריכים", "Filters and dates")}>
         <div className="flex flex-wrap items-end gap-2">

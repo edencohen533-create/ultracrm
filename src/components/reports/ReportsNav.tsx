@@ -11,8 +11,7 @@ export function ReportsNav() {
   const pathname = usePathname();
   const me = useMe();
   const items = [
-    { href: "/reports", label: t("ביצועי נציגים", "Agent performance"), show: me?.modules.telephony !== false },
-    { href: "/analytics", label: t("אנליטיקה", "Analytics"), show: me?.modules.messaging !== false },
+    { href: "/reports", label: t("ביצועי נציגים", "Agent performance"), show: me?.modules.telephony !== false || me?.modules.whatsapp !== false },
     { href: "/reports/marketing", label: t("שיווק ומכירות", "Marketing & sales"), show: Boolean(me?.access?.modules.crm?.actions.includes("marketing_view") && (me.user.role === "owner" || me.access.scope === "business")) },
   ].filter((i) => i.show);
   return (

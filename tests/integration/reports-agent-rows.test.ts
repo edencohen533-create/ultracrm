@@ -54,7 +54,7 @@ describe("per-agent report rows", () => {
     const unassigned = data.rows.find((r) => r.id === "__unassigned")!;
     expect(unassigned).toMatchObject({ outbound: 1, answered: 1, closed: 1 }); // support user's call + the ownerless deal
     const sum = (k: "outbound" | "answered" | "closed" | "talkSeconds") => data.rows.reduce((t, r) => t + r[k], 0);
-    expect(data.totals).toEqual({ outbound: sum("outbound"), answered: sum("answered"), handled: expect.any(Number), closed: sum("closed"), talkSeconds: sum("talkSeconds") });
+    expect(data.totals).toEqual({ outbound: sum("outbound"), answered: sum("answered"), handled: expect.any(Number), closed: sum("closed"), talkSeconds: sum("talkSeconds"), revenue: expect.any(Number) });
     // …and equal to the page's summary figures for the same period
     const day = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(d);
     const summary = await withBusiness(a.business.id, () => comparisonReport(a.session, { from: day(new Date(Date.now() - 86400_000)), to: day(new Date()), compare: "none" }), a.session);

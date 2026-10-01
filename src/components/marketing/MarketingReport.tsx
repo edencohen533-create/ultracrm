@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { MessagingPerformance } from "./MessagingPerformance";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, X } from "lucide-react";
 import { api, qs } from "@/lib/client/api";
@@ -189,6 +190,8 @@ export function MarketingReport({ canConnect, canExport }: { canConnect: boolean
           </div>
         </>
       )}
+      {/* ביצועי דיוור – delivery per sender / channel (moved from the old Analytics tab); independent of the ad data */}
+      {from && to && from <= to && <MessagingPerformance from={from} to={to} />}
       {q.row && <RowDrawer query={apiQuery} rowKey={q.row} onClose={() => router.back()} money={money} pct={pct} mins={mins} />}
     </div>
   );

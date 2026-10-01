@@ -175,10 +175,12 @@ await step("W9 sequences: new-lead trigger + task step saved; automations builde
   await shot("automations");
 });
 
-await step("W10 analytics: range switch + per-number table", async () => {
+await step("W10 analytics merged: /analytics → reports WhatsApp view; per-number table under marketing", async () => {
   await page.goto(`${BASE}/analytics?days=7`, { waitUntil: "networkidle" });
-  const html = await page.content();
-  if (!html.includes("לפי מספר") || !html.includes("7 ימים")) throw new Error("range / per-number section missing");
+  if (!page.url().includes("/reports") || !page.url().includes("channel=whatsapp")) throw new Error(`no redirect: ${page.url()}`);
+  await page.waitForSelector('[data-testid="rep-group-wa"]', { timeout: 30000 });
+  const r = await page.request.get(`${BASE}/api/reports/messaging?from=2026-01-01&to=2026-01-07`);
+  if (r.status() !== 200 && r.status() !== 403) throw new Error(`messaging performance ${r.status()}`);
   await shot("analytics");
 });
 

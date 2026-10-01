@@ -9,7 +9,7 @@ const EMAIL = process.argv[4] ?? "owner@demo.local";
 const WIDTHS = (process.argv[5] ?? "360,390,414,768,1280").split(",").map(Number);
 const ONLY = process.env.ROUTES?.split(",");
 fs.mkdirSync(OUT, { recursive: true });
-const STATIC = ["/dashboard", "/leads", "/inbox", "/dialer", "/contacts", "/contacts/duplicates", "/deals", "/lists", "/tasks", "/calls", "/campaigns/whatsapp", "/campaigns/sms", "/campaigns/email", "/audiences", "/templates", "/automations", "/automations/carts", "/automations/history", "/automations/integrations", "/carts", "/reports", "/analytics", "/manager", "/manager/calls", "/ai", "/sales", "/numbers", "/crm-settings", "/settings", "/settings/whatsapp", "/settings/sms", "/settings/email", "/support"];
+const STATIC = ["/dashboard", "/leads", "/inbox", "/dialer", "/contacts", "/contacts/duplicates", "/deals", "/lists", "/tasks", "/calls", "/campaigns/whatsapp", "/campaigns/sms", "/campaigns/email", "/audiences", "/templates", "/automations", "/automations/carts", "/automations/history", "/automations/integrations", "/carts", "/reports", "/reports/marketing", "/manager", "/manager/calls", "/ai", "/sales", "/numbers", "/crm-settings", "/settings", "/settings/whatsapp", "/settings/sms", "/settings/email", "/support"];
 const b = await chromium.launch();
 const login = async (ctx) => { const p = await ctx.newPage(); await p.goto(`${BASE}/login`); await p.fill('input[type="email"]', EMAIL); await p.fill('input[type="password"]', process.env.PERF_PASSWORD ?? "Demo1234!"); await p.click('button[type="submit"]'); await p.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 60000 }); return p; };
 // Resolve a few detail routes from list pages.

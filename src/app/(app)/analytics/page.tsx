@@ -1,15 +1,9 @@
-import { organizationRequest } from "@/lib/auth-compat";
-import { auth } from "@/lib/auth-compat";
-import { hasRole, ROLES_ADMIN_MANAGER } from "@/lib/auth-compat";
-import { AccessDenied } from "@/components/shared/access-denied";
-import { MessagingReport, loadMessagingStats } from "@/components/reports/MessagingReport";
-import { ReportsNav } from "@/components/reports/ReportsNav";
+import { redirect } from "next/navigation";
 
-export default organizationRequest(async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ days?: string }> }) {
-  const session = await auth();
-  if (!hasRole(session, ROLES_ADMIN_MANAGER)) return <AccessDenied />;
-  const { days: rawDays } = await searchParams;
-  const days = [7, 30, 90].includes(Number(rawDays)) ? Number(rawDays) : 30;
-  const stats = await loadMessagingStats(days);
-  return <><ReportsNav /><MessagingReport days={days} stats={stats} /></>;
-}, ["whatsapp.view", "sms.view", "email.view", "whatsapp.campaign_draft"]);
+/**
+ * The old "אנליטיקה" tab was merged into דוחות ← ביצועי נציגים (WhatsApp view); its per-number delivery table moved to
+ * שיווק ומכירות ← ביצועי דיוור. Old links land on the WhatsApp view of the merged report.
+ */
+export default function AnalyticsPage() {
+  redirect("/reports?channel=whatsapp");
+}

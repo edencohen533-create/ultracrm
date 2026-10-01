@@ -263,10 +263,10 @@ function ApplyVersion({ plan, versionId, onClose }: { plan: Plan; versionId: str
 // ─── requests / history ──────────────────────────────────────────────────────────────────────────────────────────
 function Requests() {
   const t = useT(); const loc = t.lang === "en" ? "en-GB" : "he-IL";
-  const [rows, setRows] = useState<Array<{ id: string; action: string; businessName: string | null; createdAt: string; after: { module?: string; note?: string } | null }> | null>(null);
+  const [rows, setRows] = useState<Array<{ id: string; action: string; businessName: string | null; createdAt: string; after: { module?: string; modules?: string[]; note?: string } | null }> | null>(null);
   useEffect(() => { api.get<{ items: NonNullable<typeof rows> }>("/api/platform/requests").then((r) => setRows(r.items)).catch((e) => toast.error((e as Error).message)); }, []);
   if (!rows) return <Spinner />;
-  return <Panel bodyClassName="p-0"><table className="w-full text-sm" data-testid="platform-requests"><tbody className="divide-y divide-line">{rows.map((r) => <tr key={r.id}><td className="p-2 text-xs text-muted whitespace-nowrap">{new Date(r.createdAt).toLocaleString(loc)}</td><td>{r.businessName ?? t("פלטפורמה", "Platform")}</td><td>{r.action === "upgrade_requested" ? <Badge tone="info">{t("בקשת שדרוג", "Upgrade request")}</Badge> : r.action}</td><td className="text-xs">{r.after?.module ? MODULE_LABEL[r.after.module as ModuleKey] : ""} {r.after?.note ?? ""}</td></tr>)}</tbody></table></Panel>;
+  return <Panel bodyClassName="p-0"><table className="w-full text-sm" data-testid="platform-requests"><tbody className="divide-y divide-line">{rows.map((r) => <tr key={r.id}><td className="p-2 text-xs text-muted whitespace-nowrap">{new Date(r.createdAt).toLocaleString(loc)}</td><td>{r.businessName ?? t("פלטפורמה", "Platform")}</td><td>{r.action === "upgrade_requested" ? <Badge tone="info">{t("בקשת שדרוג", "Upgrade request")}</Badge> : r.action}</td><td className="text-xs">{[r.after?.module, ...(r.after?.modules ?? [])].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i).map((m) => MODULE_LABEL[m as ModuleKey] ?? m).join(", ")} {r.after?.note ?? ""}</td></tr>)}</tbody></table></Panel>;
 }
 
 /** Public support requests + Meta deletion callbacks + scheduled business deletions. */

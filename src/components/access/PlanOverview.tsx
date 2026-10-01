@@ -22,13 +22,14 @@ export function PlanOverview() {
   const [me, setMe] = useState<{ business?: { id: string } | null; platformAdmin?: boolean } | null>(null);
   useEffect(() => { api.get<{ business?: { id: string } | null; platformAdmin?: boolean }>("/api/auth/me").then(setMe).catch(() => setMe({})); }, []);
   const [dialog, setDialog] = useState<null | "manage" | "request">(null);
-  const request = (_module?: ModuleKey) => setDialog("request");
+  const [requested, setRequested] = useState<ModuleKey | null>(null);
+  const request = (module?: ModuleKey) => { setRequested(module ?? null); setDialog("request"); };
   if (!d) return <Spinner />;
   const e = d.entitlement;
   return (
     <div className="space-y-4" data-testid="plan-overview">
       {dialog === "manage" && me?.business?.id && <ModulesDialog businessId={me.business.id} onClose={() => setDialog(null)} onSaved={() => { void load(); }} />}
-      {dialog === "request" && <UpgradeRequestDialog included={Object.fromEntries(MODULES.map((m) => [m, d.entitlement.modules[m].included])) as Record<ModuleKey, boolean>} onClose={() => setDialog(null)} />}
+      {dialog === "request" && <UpgradeRequestDialog initial={requested} included={Object.fromEntries(MODULES.map((m) => [m, d.entitlement.modules[m].included])) as Record<ModuleKey, boolean>} onClose={() => setDialog(null)} />}
       <Panel title={t("החבילה של העסק", "Business plan")} actions={me?.platformAdmin && me.business?.id ? <Button size="sm" onClick={() => setDialog("manage")} data-testid="modules-manage">{t("ניהול מודולים", "Manage modules")}</Button> : <Button size="sm" variant="secondary" onClick={() => request()} data-testid="upgrade-request">{t("בקשת שדרוג", "Request upgrade")}</Button>}>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span>{t("חבילה:", "Plan:")}</span><Badge tone="accent">{e.planName ? `${e.planName}${e.planVersion ? t(` · גרסה ${e.planVersion}`, ` · Version ${e.planVersion}`) : ""}` : t("ללא חבילה מוגדרת (ברירת מחדל קודמת)", "No plan defined (legacy default)")}</Badge>

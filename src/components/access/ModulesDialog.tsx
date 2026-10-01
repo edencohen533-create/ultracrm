@@ -89,9 +89,9 @@ export function ModulesDialog({ businessId, onClose, onSaved }: { businessId: st
 }
 
 /** Business owner / manager without platform rights: ask for modules (recorded for the platform admin – the package doesn't change). */
-export function UpgradeRequestDialog({ included, onClose }: { included: Record<ModuleKey, boolean>; onClose: () => void }) {
+export function UpgradeRequestDialog({ included, onClose, initial = null }: { included: Record<ModuleKey, boolean>; onClose: () => void; initial?: ModuleKey | null }) {
   const t = useT();
-  const [pick, setPick] = useState<ModuleKey[]>([]); const [note, setNote] = useState(""); const [busy, setBusy] = useState(false);
+  const [pick, setPick] = useState<ModuleKey[]>(initial ? [initial] : []); const [note, setNote] = useState(""); const [busy, setBusy] = useState(false);
   const missing = MODULES.filter((m) => !included[m]);
   async function send() {
     setBusy(true);

@@ -100,9 +100,12 @@ describe("business modules dialog", { timeout: 300_000 }, () => {
     expect((await call(platform, P.business.id, { modules: { sms: true }, confirm: true })).status).toBe(200);
     expect((await included(P.business.id)).sms).toBe(true);
     expect(await db.entitlementGrant.count({ where: { businessId: P.business.id, module: "sms", kind: "addon", revokedAt: null } })).toBe(1);
+    // A trial that starts next week must not switch SMS back on by itself after it is switched off
+    const future = await db.entitlementGrant.create({ data: { businessId: P.business.id, module: "sms", kind: "trial", seats: null, startsAt: new Date(Date.now() + 7 * 86400_000), expiresAt: new Date(Date.now() + 14 * 86400_000) } });
     expect((await call(platform, P.business.id, { modules: { sms: false }, confirm: true })).status).toBe(200);
+    expect((await db.entitlementGrant.findUniqueOrThrow({ where: { id: future.id } })).revokedAt).not.toBeNull();
     expect((await included(P.business.id)).sms).toBe(false);
-    expect(await db.entitlementGrant.count({ where: { businessId: P.business.id, module: "sms", revokedAt: { not: null } } })).toBe(1); // kept as history
+    expect(await db.entitlementGrant.count({ where: { businessId: P.business.id, module: "sms", revokedAt: { not: null } } })).toBe(2); // add-on + the future trial, kept as history
   });
 
   it("a paid subscription defines the modules – every switch is blocked", async () => {

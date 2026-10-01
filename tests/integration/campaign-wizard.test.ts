@@ -149,6 +149,9 @@ describe("campaign builder (simulated providers, real DB)", () => {
     expect(await db.campaign.findUniqueOrThrow({ where: { id: campaignId } })).toMatchObject({ status: "SCHEDULED", templateId: tpl.id, mediaUrl: "https://cdn.example.test/promo.jpg" });
     await run(a.session, () => changeCampaignStatus(campaignId, "unschedule", undefined, a.user.id));
     expect(await db.campaignRecipient.count({ where: { campaignId, messageId: { not: null } } })).toBe(0); // no message to the audience
+    // A wizard tab opened before the change still sends step "content" – accepted as "template", data kept
+    const viaOldTab = await run(a.session, () => updateDraft(d.id, { step: "content", data: { testTo: "0509997777" } }));
+    expect(viaOldTab.step).toBe("template"); expect(viaOldTab.data.testTo).toBe("0509997777");
     // A draft saved on the removed step reopens on the template step
     await db.campaignDraft.update({ where: { id: d.id }, data: { step: "content" } });
     expect((await run(a.session, () => getDraft(d.id))).step).toBe("template");

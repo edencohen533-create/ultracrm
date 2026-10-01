@@ -45,7 +45,7 @@ export async function businessEntitlement(businessId: string, now = new Date()):
     const row = await db.business.findUnique({ where: { id: businessId }, select: { updatedAt: true } });
     if (row && row.updatedAt.getTime() === hit.stamp) return hit.value;
   }
-  const b = await db.business.findUnique({ where: { id: businessId }, select: { modules: true, accessStatus: true, accessUntil: true, billingStatus: true, plan: { select: { key: true, name: true, modules: true, quotas: true } }, planVersion: { select: { id: true, version: true, name: true, modules: true, quotas: true } } } });
+  const b = await db.business.findUnique({ where: { id: businessId }, select: { updatedAt: true, modules: true, accessStatus: true, accessUntil: true, billingStatus: true, plan: { select: { key: true, name: true, modules: true, quotas: true } }, planVersion: { select: { id: true, version: true, name: true, modules: true, quotas: true } } } });
   if (!b) throw new ApiError("עסק לא נמצא", 404, "not_found");
   const grants = await db.entitlementGrant.findMany({ where: { businessId, revokedAt: null, startsAt: { lte: now }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } });
   // A business on a paid subscription gets exactly what it bought: purchased licenses are the seats (legacy / manual
@@ -61,8 +61,8 @@ export async function businessEntitlement(businessId: string, now = new Date()):
     accessStatus: b.accessStatus, accessUntil: b.accessUntil, billingStatus: b.billingStatus, suspended: b.accessStatus === "suspended" || b.accessStatus === "cancelled" || expired, modules, quotas,
     subscription: sub ? { status: sub.status, billed: true } : null,
   };
-  const stamp = (await db.business.findUnique({ where: { id: businessId }, select: { updatedAt: true } }))?.updatedAt.getTime() ?? 0;
-  cache.set(businessId, { at: Date.now(), stamp, value });
+  // The stamp is read with the data it describes (a change committed meanwhile can't hide behind a newer stamp).
+  cache.set(businessId, { at: Date.now(), stamp: b.updatedAt.getTime(), value });
   return value;
 }
 

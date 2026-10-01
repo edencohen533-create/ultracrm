@@ -365,6 +365,8 @@ export async function compileModuleSwitches(businessId: string, desired: Partial
       } else {
         if (cur.sources.some((s) => s.type === "plan")) { blocked.push({ module: m, reason: `המודול כלול בגרסת החבילה${e.planName ? ` "${e.planName}"` : ""} – להסרה יש להעביר את העסק לגרסת חבילה אחרת (ניהול הפלטפורמה)` }); continue; }
         for (const s of cur.sources) if ("grantId" in s && s.grantId) t.revokeGrantIds!.push(s.grantId as string);
+        // …and grants that start later (a scheduled trial must not switch the module back on by itself).
+        for (const g of await db.entitlementGrant.findMany({ where: { businessId, module: m, revokedAt: null, startsAt: { gt: new Date() } }, select: { id: true } })) t.revokeGrantIds!.push(g.id);
         if (!pinned) t.legacyModules![m] = false;
       }
       changes.push({ module: m, to: want });

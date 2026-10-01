@@ -99,9 +99,13 @@ async function assertEditable(d: { campaignId: string | null }) {
   if (c && c.status !== "DRAFT") throw new CampaignError("הקמפיין כבר תוזמן או נשלח – לא ניתן לערוך אותו");
 }
 
+/** WhatsApp has no "content" step any more – a wizard tab opened before that change still sends it. */
+const normalizeStep = (channel: string, step: string) => (channel === "whatsapp" && step === "content" ? "template" : step);
+
 export async function updateDraft(id: string, patch: z.infer<typeof draftPatchSchema>) {
   const d = await prisma.campaignDraft.findUnique({ where: { id }, select: { channel: true, campaignId: true } });
   if (!d) throw new CampaignError("הטיוטה לא נמצאה");
+  if (patch.step) patch = { ...patch, step: normalizeStep(d.channel, patch.step) };
   if (patch.step && !DRAFT_STEPS[d.channel as DraftChannel].includes(patch.step)) throw new CampaignError("שלב לא תקין");
   if (patch.data || patch.name) await assertEditable(d);
   if (patch.data && Object.keys(patch.data).length) await mergeDraftData(id, patch.data as Record<string, unknown>);
@@ -121,6 +125,7 @@ export async function revertDraft(id: string, snapshot: z.infer<typeof draftReve
   const d = await prisma.campaignDraft.findUnique({ where: { id }, select: { channel: true, campaignId: true, templateId: true, name: true } });
   if (!d) throw new CampaignError("הטיוטה לא נמצאה");
   await assertEditable(d);
+  snapshot = { ...snapshot, step: normalizeStep(d.channel, snapshot.step) };
   if (!DRAFT_STEPS[d.channel as DraftChannel].includes(snapshot.step === "building" ? "review" : snapshot.step)) throw new CampaignError("שלב לא תקין");
   await prisma.$transaction(async (tx) => {
     const orphanTemplate = d.templateId && d.templateId !== snapshot.templateId ? d.templateId : null;

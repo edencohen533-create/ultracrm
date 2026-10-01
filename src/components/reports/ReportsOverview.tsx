@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, qs } from "@/lib/client/api";
 import { Panel, Select, Spinner, cx } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
@@ -44,12 +43,11 @@ const CALL_METRIC: Record<string, "outbound" | "answered"> = { outbound: "outbou
 
 /**
  * דוחות ← ביצועי נציגים: one filter row (period, agent, campaign, comparison) → 4 KPIs → activity by channel
- * (הכול | טלפוניה | וואטסאפ) → daily charts → one agent table. Every number comes from the server (business
+ * on separate telephony / WhatsApp pages → daily charts → one agent table. Every number comes from the server (business
  * timezone, the same filters for both periods, the user's scope); a value the server can't compute is null, never 0.
  */
-export function ReportsOverview() {
+export function ReportsOverview({ channel = "telephony" }: { channel?: "telephony" | "whatsapp" }) {
   const t = useT(); const loc = t.lang === "en" ? "en-GB" : "he-IL";
-  const router = useRouter(); const pathname = usePathname(); const search = useSearchParams();
   const [opts, setOpts] = useState<Filters | null>(null);
   const [preset, setPreset] = useState<Preset>("last7");
   const [custom, setCustom] = useState<[string, string]>(["", ""]);
@@ -74,13 +72,9 @@ export function ReportsOverview() {
   }, [query]);
   useEffect(() => { void load(); }, [load]);
 
-  // Channel switch – in the URL so a link (e.g. the old Analytics tab) opens the right view; unavailable → "הכול".
-  const wanted = (search.get("channel") ?? "all") as Channel;
-  const channels = data?.channels ?? { telephony: true, whatsapp: true };
-  const channel: Channel = wanted === "telephony" && channels.telephony ? "telephony" : wanted === "whatsapp" && channels.whatsapp ? "whatsapp" : "all";
-  const setChannel = (c: Channel) => { const p = new URLSearchParams(search.toString()); if (c === "all") p.delete("channel"); else p.set("channel", c); router.replace(`${pathname}${p.size ? `?${p}` : ""}`, { scroll: false }); };
-  const showTel = channels.telephony && channel !== "whatsapp";
-  const showWa = channels.whatsapp && channel !== "telephony";
+  const channels = { telephony: channel === "telephony" && data?.channels.telephony === true, whatsapp: channel === "whatsapp" && data?.channels.whatsapp === true };
+  const showTel = channels.telephony;
+  const showWa = channels.whatsapp;
 
   const d = (s: string) => new Date(`${s}T12:00:00Z`).toLocaleDateString(loc, { day: "numeric", month: "numeric", year: "2-digit", timeZone: "UTC" });
   const range = (p: PeriodView) => (p.from === p.to ? d(p.from) : `${d(p.from)} – ${d(p.to)}`);
@@ -123,6 +117,7 @@ export function ReportsOverview() {
 
   return (
     <div className="min-w-0 max-w-full space-y-4 p-4 md:p-5" data-testid="reports-overview">
+      <h1 className="text-lg font-semibold">{channel === "whatsapp" ? t("ביצועי WhatsApp", "WhatsApp performance") : t("ביצועי נציגים – טלפוניה", "Agent performance – telephony")}</h1>
       {/* 1. One filter row for the whole page – period, agent, campaign, comparison; product under "more" */}
       <section className="rounded-xl border border-line bg-panel p-3" aria-label={t("סינון ותאריכים", "Filters and dates")}>
         <div className="flex flex-wrap items-end gap-2">
@@ -175,20 +170,6 @@ export function ReportsOverview() {
       {data && periodsText && (
         <>
           {noCompareData && <p className="rounded-lg border border-line bg-panel px-3 py-2 text-xs text-muted" role="status" data-testid="rep-no-compare">{t("אין נתונים בתקופת ההשוואה – שינויים לא מוצגים.", "No data in the comparison period – changes aren't shown.")}</p>}
-          {/* 1b. Channel switch (above the table: it sets the table's activity columns) – activity areas, charts and the table's activity columns */}
-          {(channels.telephony || channels.whatsapp) && (
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-lg border border-line bg-panel p-0.5" role="group" aria-label={t("ערוץ פעילות", "Activity channel")} data-testid="rep-channel">
-                {(["all", "telephony", "whatsapp"] as Channel[]).filter((c) => c === "all" || channels[c]).map((c) => (
-                  <button key={c} type="button" aria-pressed={channel === c} onClick={() => setChannel(c)} className={cx("h-8 rounded-md px-3 text-sm", channel === c ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid={`rep-channel-${c}`}>
-                    {c === "all" ? t("הכול", "All") : c === "telephony" ? t("טלפוניה", "Telephony") : t("וואטסאפ", "WhatsApp")}
-                  </button>
-                ))}
-              </div>
-              <span className="text-xs text-muted">{t("המדדים המרכזיים לא משתנים לפי ערוץ – אין שיוך אמין של מכירה לערוץ.", "Key metrics don't change by channel – sales can't be reliably attributed to a channel.")}</span>
-            </div>
-          )}
-
           {/* 2. One row per agent – first on the page; the same filters, activity columns by channel */}
           <div className="rounded-xl border border-line bg-panel">
             <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">{t("פירוט לפי נציג", "Detail by agent")}</h2>

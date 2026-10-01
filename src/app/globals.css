@@ -886,9 +886,9 @@ button.seg-item { width: 100%; }
 .cmp-side button { color: var(--text); font-size: 14px; border-radius: 8px; border-inline-start: 3px solid transparent; padding: 8px 10px; }
 .cmp-side button:hover { background: var(--panel); }
 .cmp-side button.active { background: var(--panel); color: var(--accent); font-weight: 600; border-inline-start-color: var(--accent); box-shadow: none; }
-.cmp-main { background: var(--bg); }
+.cmp-main { background: var(--bg); container-type: inline-size; }
 .cmp-head { padding: 20px 20px 12px; }
-.cmp-head h1 { font-size: 18px; font-weight: 600; color: var(--text); }
+.cmp-head h1 { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; font-size: 18px; font-weight: 600; color: var(--text); }
 .cmp-count { color: var(--muted); font-weight: 500; font-size: 13px; }
 .cmp-search { height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); }
 .cmp-search input { color: var(--text); font-size: 14px; }
@@ -899,7 +899,15 @@ button.seg-item { width: 100%; }
 .cmp-btn.outline { background: var(--panel); border-color: var(--accent); color: var(--accent); height: 36px; }
 .cmp-main .campaigns-nav { padding: 0 20px; }
 .cmp-rows { margin: 0 20px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; border-top: 1px solid var(--line); }
-.cmp-row { padding: 14px 16px; border-bottom: 1px solid var(--line); gap: 14px; }
+.cmp-row { grid-template-columns: 32px minmax(0, 1fr) 140px 160px; padding: 14px 16px; border-bottom: 1px solid var(--line); gap: 14px; }
+.cmp-row-main { min-width: 0; overflow-wrap: anywhere; text-align: start; }
+.cmp-row-status { min-width: 0; flex-wrap: wrap; }
+.cmp-row-actions { justify-content: flex-end; }
+@container (max-width: 680px) {
+  .cmp-row { grid-template-columns: 28px minmax(0, 1fr); gap: 10px; }
+  .cmp-row-status, .cmp-row-actions { grid-column: 2; justify-content: flex-start; }
+  .cmp-row-status .cmp-progress { max-width: 180px; }
+}
 .cmp-row:last-child { border-bottom: 0; }
 .cmp-row:hover { background: var(--panel-2); }
 .cmp-row-icon { color: var(--muted); }

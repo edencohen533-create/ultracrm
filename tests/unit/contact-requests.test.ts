@@ -23,3 +23,25 @@ describe("classifyContactRequest – by context, not by a single word", () => {
     for (const t of ["אל תסירו אותי, אני רוצה לקבל עדכונים", "לא ביקשתי להסיר", "מתי אתם פתוחים?", "אפשר להתקשר אליי מחר?", "תודה רבה!", "", "   "]) expect(kind(t), t).toBe("none");
   });
 });
+
+it.each([
+  ["אל תשלחו לי הודעות יותר", "unsubscribe"],
+  ["אל תתקשרו אליי יותר", "do_not_call"],
+  ["אל תתקשרו!", "do_not_call"],
+  ["בבקשה הסר", "unsubscribe"],
+  ["הסר בבקשה, תודה", "unsubscribe"],
+  ["נא להפסיק לשלוח לי הודעות", "unsubscribe"],
+  ["נא לא לשלוח לי פרסומות", "unsubscribe"],
+  ["הסירו מרשימת התפוצה", "unsubscribe"],
+  ["אני לא רוצה יותר לקבל הודעות", "unsubscribe"],
+  ["נא לא להתקשר יותר", "do_not_call"],
+  ["אני לא מעוניינת לקבל שיחות", "do_not_call"],
+  ["אל תיצרו איתי קשר", "unsubscribe"],
+  ["הָסֵר", "unsubscribe"],
+  ["do not send me messages anymore", "unsubscribe"],
+  ["אל תפסיקו לשלוח לי עדכונים", "none"],
+  ["אני לא רוצה שתסירו אותי", "none"],
+  ["do not remove me", "none"],
+])("classifies expanded request %s without treating explicit negations as removal", (text, expected) => {
+  expect(kind(text)).toBe(expected);
+});

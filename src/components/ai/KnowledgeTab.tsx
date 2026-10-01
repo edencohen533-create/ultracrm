@@ -1,5 +1,6 @@
 "use client";
 
+import { KNOWLEDGE_MAX_TEXT, KNOWLEDGE_MAX_TITLE } from "@/lib/knowledge-limits";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/client/api";
@@ -37,7 +38,7 @@ export function KnowledgeTab() {
       </div>
       <p className="text-xs text-muted">{t.lang === "en" ? <>New knowledge is saved as a <b>draft</b> and <b>internal only</b>. The assistant uses only approved knowledge, and the customer service agent – only approved knowledge marked &quot;Allowed with customers&quot;. Live data (current price, stock, order status) is not taken from here.</> : <>ידע חדש נשמר כ<b>טיוטה</b> ו<b>פנימי בלבד</b>. העוזר משתמש רק בידע מאושר, ונציג השירות ללקוחות – רק בידע מאושר שסומן &quot;מותר מול לקוחות&quot;. נתונים חיים (מחיר עדכני, מלאי, סטטוס הזמנה) לא נלקחים מכאן.</>}</p>
       {!shown.length ? <EmptyState title={t("עדיין אין ידע", "No knowledge yet")} hint={t("הוסיפו שעות פעילות, מדיניות משלוחים והחזרות, שאלות נפוצות ומסמכים", "Add business hours, shipping and returns policies, FAQs and documents")} /> :
-        <Panel bodyClassName="p-0"><table className="w-full text-sm"><thead className="text-xs text-muted"><tr><th className="text-start p-2">{t("כותרת", "Title")}</th><th className="text-start">{t("קטגוריה", "Category")}</th><th className="text-start">{t("סוג", "Type")}</th><th className="text-start">{t("עיבוד", "Processing")}</th><th className="text-start">{t("קהל", "Audience")}</th><th className="text-start">{t("מאמן מכירות", "Sales coach")}</th><th className="text-start">{t("סטטוס", "Status")}</th><th /></tr></thead>
+        <Panel bodyClassName="p-0"><div className="overflow-x-auto" data-testid="kb-table-scroll"><table className="w-full min-w-[640px] text-sm"><thead className="text-xs text-muted"><tr><th className="text-start p-2">{t("כותרת", "Title")}</th><th className="text-start">{t("קטגוריה", "Category")}</th><th className="text-start">{t("סוג", "Type")}</th><th className="text-start">{t("עיבוד", "Processing")}</th><th className="text-start">{t("קהל", "Audience")}</th><th className="text-start">{t("מאמן מכירות", "Sales coach")}</th><th className="text-start">{t("סטטוס", "Status")}</th><th /></tr></thead>
           <tbody className="divide-y divide-line">{shown.map((s) => <tr key={s.id} data-testid="kb-row">
             <td className="p-2"><div className="font-medium">{s.title}</div>{s.kind === "conversation" && <div className="text-xs text-muted" data-testid="kb-learned-meta">{s.learnMode && MODE[s.learnMode] ? t(MODE[s.learnMode][0], MODE[s.learnMode][1]) : ""}{s.proposedBy ? ` · ${t("הציע:", "Proposed by:")} ${s.proposedBy}` : ""}{s.approvedBy ? ` · ${t("אישר:", "Approved by:")} ${s.approvedBy}` : ""}{s.sourceConversationId && <> · <a className="underline" href={`/inbox/${s.sourceConversationId}`}>{t("שיחת המקור", "Source conversation")}</a></>}</div>}{s.conflicts?.length ? <div className="text-xs text-bad" data-testid="kb-conflict">{t("סתירה אפשרית:", "Possible conflict:")} {s.conflicts.map((c) => `${c.title} – ${c.detail}`).join("; ")}</div> : null}{s.url && <div className="text-xs text-muted ltr text-start truncate max-w-xs">{s.url}</div>}{s.fileName && <div className="text-xs text-muted">{s.fileName}</div>}</td>
             <td className="text-muted">{cats[s.category] ?? s.category}</td><td>{t(KIND[s.kind][0], KIND[s.kind][1])}</td>
@@ -49,7 +50,7 @@ export function KnowledgeTab() {
               {s.status !== "approved" ? <Button size="sm" disabled={s.processing !== "ready"} onClick={() => { if (s.conflicts?.length && !confirm(t(`יש סתירה אפשרית מול ידע מאושר:\n${s.conflicts.map((c) => `${c.title} – ${c.detail}`).join("\n")}\n\nלאשר בכל זאת?`, `Possible conflict with approved knowledge:\n${s.conflicts.map((c) => `${c.title} – ${c.detail}`).join("\n")}\n\nApprove anyway?`))) return; void patch(s, { status: "approved", acknowledgeConflicts: Boolean(s.conflicts?.length) }); }} data-testid="kb-approve">{t("אשר", "Approve")}</Button> : <><Button size="sm" variant="ghost" onClick={() => patch(s, { status: "draft" })}>{t("החזר לטיוטה", "Back to draft")}</Button><Button size="sm" variant="ghost" onClick={() => patch(s, { status: "retired" })} data-testid="kb-retire">{t("הוצא משימוש", "Retire")}</Button></>}
               {s.processing === "failed" && <Button size="sm" variant="secondary" onClick={() => retry(s)} data-testid="kb-retry">{t("נסה שוב", "Retry")}</Button>}
               <Button size="sm" variant="ghost" onClick={() => remove(s)}>{t("מחק", "Delete")}</Button>
-            </td></tr>)}</tbody></table></Panel>}
+            </td></tr>)}</tbody></table></div></Panel>}
       {adding && <AddSource cats={cats} onClose={() => setAdding(false)} onDone={() => { setAdding(false); void load(); }} />}
       {testOpen && <TestAssistant onClose={() => setTestOpen(false)} />}
     </div>
@@ -60,6 +61,9 @@ function AddSource({ cats, onClose, onDone }: { cats: Record<string, string>; on
   const t = useT();
   const [kind, setKind] = useState<"text" | "file" | "link">("text"); const [title, setTitle] = useState(""); const [category, setCategory] = useState("faq");
   const [content, setContent] = useState(""); const [url, setUrl] = useState(""); const [file, setFile] = useState<File | null>(null); const [busy, setBusy] = useState(false);
+  const tooLong = kind === "text" && content.length > KNOWLEDGE_MAX_TEXT;
+  // A click outside / Escape must not lose a long text by accident.
+  const close = () => { if (busy) return; if ((content.trim() || url.trim() || file) && !window.confirm(t("לסגור בלי לשמור? התוכן שכתבתם יימחק.", "Close without saving? What you wrote will be lost."))) return; onClose(); };
   async function save() {
     setBusy(true);
     try {
@@ -75,12 +79,16 @@ function AddSource({ cats, onClose, onDone }: { cats: Record<string, string>; on
     } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
   }
   return (
-    <Modal open onClose={onClose} title={t("הוספת ידע", "Add knowledge")} footer={<><Button variant="ghost" onClick={onClose}>{t("ביטול", "Cancel")}</Button><Button onClick={save} loading={busy} data-testid="kb-save">{t("שמור", "Save")}</Button></>}>
+    <Modal open onClose={close} width="max-w-4xl" title={t("הוספת ידע", "Add knowledge")} footer={<>{tooLong && <span className="me-auto text-xs text-bad" role="alert" data-testid="kb-too-long">{t(`התוכן ארוך מהמותר ב-${(content.length - KNOWLEDGE_MAX_TEXT).toLocaleString("he-IL")} תווים – קצרו אותו או העלו אותו כקובץ`, `The content is ${(content.length - KNOWLEDGE_MAX_TEXT).toLocaleString("en-GB")} characters over the limit – shorten it or upload it as a file`)}</span>}<Button variant="ghost" onClick={close}>{t("ביטול", "Cancel")}</Button><Button onClick={save} loading={busy} disabled={busy || tooLong || !title.trim() || (kind === "text" && !content.trim())} data-testid="kb-save">{t("שמור", "Save")}</Button></>}>
       <div className="space-y-3">
         <div className="flex gap-2">{(["text", "file", "link"] as const).map((k) => <Button key={k} size="sm" variant={kind === k ? "primary" : "secondary"} onClick={() => setKind(k)}>{t(KIND[k][0], KIND[k][1])}</Button>)}</div>
-        <Input label={t("כותרת", "Title")} value={title} onChange={(e) => setTitle(e.target.value)} data-testid="kb-title" />
+        <Input label={t("כותרת", "Title")} value={title} maxLength={KNOWLEDGE_MAX_TITLE} onChange={(e) => setTitle(e.target.value)} data-testid="kb-title" />
         <Select label={t("קטגוריה", "Category")} value={category} onChange={(e) => setCategory(e.target.value)}>{Object.entries(cats).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
-        {kind === "text" && <Textarea label={t("תוכן", "Content")} rows={8} value={content} onChange={(e) => setContent(e.target.value)} data-testid="kb-content" />}
+        {kind === "text" && <div>
+          {/* Long content: a tall, resizable field; no maxLength – a pasted text is never cut silently, the limit is shown instead */}
+          <Textarea label={t("תוכן", "Content")} dir="auto" className="min-h-[14rem] h-[min(50dvh,32rem)] leading-relaxed" value={content} onChange={(e) => setContent(e.target.value)} aria-describedby="kb-content-count" data-testid="kb-content" />
+          <p id="kb-content-count" className={tooLong ? "mt-1 text-xs text-bad" : "mt-1 text-xs text-muted"} data-testid="kb-count">{t(`${content.length.toLocaleString("he-IL")} / ${KNOWLEDGE_MAX_TEXT.toLocaleString("he-IL")} תווים`, `${content.length.toLocaleString("en-GB")} / ${KNOWLEDGE_MAX_TEXT.toLocaleString("en-GB")} characters`)}</p>
+        </div>}
         {kind === "link" && <Input label={t("קישור (https ציבורי בלבד)", "Link (public https only)")} ltr value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" />}
         {kind === "file" && <div><input type="file" accept=".pdf,.txt,.md,.csv,.html,.htm,.json" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /><p className="text-xs text-muted mt-1">{t("PDF, TXT, MD, CSV, HTML עד 5MB", "PDF, TXT, MD, CSV, HTML up to 5MB")}</p></div>}
       </div>

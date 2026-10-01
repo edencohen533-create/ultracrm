@@ -43,7 +43,7 @@ export function ChatTab({ overview }: { overview: Overview }) {
   }
   const examples = (overview.role === "agent" ? EXAMPLES_AGENT : EXAMPLES_MANAGER).map(([he, en]) => t(he, en));
   return (
-    <div className="grid md:grid-cols-[220px_1fr] gap-4 min-h-[60vh]" data-testid="ai-chat">
+    <div className="grid min-w-0 md:grid-cols-[220px_minmax(0,1fr)] gap-4 min-h-[60vh]" data-testid="ai-chat">
       <aside className="space-y-2">
         <Button className="w-full" icon={<Plus size={15} />} onClick={() => { setCid(null); setMsgs([]); }} data-testid="ai-new-chat">{t("שיחה חדשה", "New conversation")}</Button>
         <div className="space-y-0.5 max-h-[60vh] overflow-y-auto" data-testid="ai-history">
@@ -54,7 +54,7 @@ export function ChatTab({ overview }: { overview: Overview }) {
           {!convs.length && <p className="text-xs text-muted px-2">{t("אין שיחות קודמות", "No previous conversations")}</p>}
         </div>
       </aside>
-      <section className="flex flex-col rounded-xl border border-line bg-panel min-h-[60vh]">
+      <section className="flex min-w-0 flex-col rounded-xl border border-line bg-panel min-h-[60vh]">
         <div className="flex-1 overflow-y-auto p-4 space-y-3" data-testid="ai-messages">
           {loading && <div className="flex justify-center py-6"><Spinner /></div>}
           {!loading && !msgs.length && <div className="text-center py-10 space-y-3">
@@ -62,8 +62,8 @@ export function ChatTab({ overview }: { overview: Overview }) {
             <div className="flex flex-wrap justify-center gap-2">{examples.map((e) => <button key={e} className="text-xs rounded-full border border-line px-3 py-1.5 hover:bg-panel-2" onClick={() => send(e)}>{e}</button>)}</div>
           </div>}
           {msgs.map((m) => <div key={m.id} className={cx("flex", m.role === "user" ? "justify-start" : "justify-end")}>
-            <div className={cx("max-w-[85%] space-y-2", m.role === "user" ? "" : "w-full md:w-auto")}>
-              <div className={cx("rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap", m.role === "user" ? "bg-accent text-white" : "bg-panel-2")} data-testid={m.role === "user" ? "ai-msg-user" : "ai-msg-assistant"}>{m.text}</div>
+            <div className={cx("min-w-0 space-y-2", m.role === "user" ? "max-w-[85%]" : "w-full")}>
+              <div dir="auto" className={cx("rounded-2xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]", m.role === "user" ? "bg-accent text-white" : "bg-panel-2")} data-testid={m.role === "user" ? "ai-msg-user" : "ai-msg-assistant"}>{m.text}</div>
               {m.actions?.map((a) => <ActionCard key={a.id} action={a} />)}
             </div>
           </div>)}
@@ -71,7 +71,7 @@ export function ChatTab({ overview }: { overview: Overview }) {
           <div ref={end} />
         </div>
         <form className="border-t border-line p-3 flex gap-2 items-end" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-          <Textarea aria-label={t("הודעה לעוזר", "Message to the assistant")} rows={2} className="flex-1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder={t("כתבו לעוזר…", "Write to the assistant…")} data-testid="ai-input" />
+          <div className="min-w-0 flex-1"><Textarea aria-label={t("הודעה לעוזר", "Message to the assistant")} rows={3} className="min-h-[4.5rem]" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder={t("כתבו לעוזר…", "Write to the assistant…")} data-testid="ai-input" /></div>
           <Button type="submit" loading={sending} icon={<Send size={15} />} data-testid="ai-send">{t("שלח", "Send")}</Button>
         </form>
       </section>

@@ -130,9 +130,9 @@ await step("C4 hang up + outcome → the call finishes normally; learning extrac
   const ex = await api("/api/coach/examples?status=pending"); throw new Error(`no example for call ${callId}: ${(ex.json?.data?.items ?? []).length} pending`);
 });
 
-await step("C5 manager: settings → מאמן AI shows knowledge, pending example with quote, approve it; metrics render", async () => {
-  await page.goto(`${BASE}/settings`, { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", {name:"מאמן AI", exact:true}).click();
+await step("C5 manager: מרכז ה־AI → מאמן מכירות shows knowledge, pending example with quote, approve it; metrics render", async () => {
+  await page.goto(`${BASE}/ai`, { waitUntil: "domcontentloaded" });
+  await page.getByTestId("ai-tab-sales").click(); await page.getByTestId("sc-tab-setup").click();
   await page.waitForSelector('[data-testid="coach-enabled"]');
   await page.waitForSelector('[data-testid="coach-example"]');
   await page.getByTestId("coach-example-approve").first().click();

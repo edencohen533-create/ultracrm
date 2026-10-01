@@ -17,7 +17,7 @@ import { AccessMatrix } from "@/components/access/AccessMatrix";
 import { useT } from "@/components/i18n/LangProvider";
 import { ProviderRoutingPanel } from "@/components/telephony/ProviderRoutingPanel";
 
-type Tab = "account" | "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "coach" | "assistant" | "permissions" | "access";
+type Tab = "account" | "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "assistant" | "permissions" | "access";
 interface Prio { callbackDue: number; priority: number; newLeadPerHour: number; newLeadMaxHours: number; agingPerHour: number; agingMaxHours: number; attemptPenalty: number; ownerMatch: number; sourceWeights: Record<string, number>; interestedBefore: number }
 interface Automations { newLeadTaskMinutes: number; followUpTaskOutcomes: string[]; followUpTaskHours: number; followUpMessage: { enabled: boolean; templateId: string | null; outcomes: string[]; variables: Record<string, string> } }
 interface Settings { whatsappAvailability: boolean; availableNowTtlMinutes: number; automations: Automations; wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; unansweredToIrrelevant: number; retryIntervalMinutes: number; busyRetryMinutes: number; technicalFailureRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; recordingRetentionDays: number; amdEnabled: boolean; stickyOwner: boolean; removeFromOtherListsOnSale: boolean; dialingPaused: boolean; allowedCountries: string[]; contactCooldownMinutes: number; maxDialsPerMinute: number; dialWindow: { start: string; end: string; days: number[] }; prioritization: Prio; inbound: { preferOwner: boolean; createCallbackTask: boolean; respectDialWindow: boolean } }
@@ -28,17 +28,24 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("business");
   const [me, setMe] = useState<{ user: { role: string }; modules: Record<string, boolean> } | null>(null);
   useEffect(() => { api.get<{ user: { role: string }; modules: Record<string, boolean> }>("/api/auth/me").then(setMe).catch(() => undefined); }, []);
-  // Old links: "תעדוף לידים" now lives in "חייגן"; "הרשאות נתונים" / "מודולים והרשאות" in "משתמשים וצוותים".
-  useEffect(() => { const t = new URLSearchParams(window.location.search).get("tab"); const moved: Record<string, Tab> = { priority: "general", permissions: "users", access: "users", marketing: "suppressions" }; if (t) setTab((moved[t] ?? t) as Tab); }, []);
+  // Old links: "תעדוף לידים" now lives in "חייגן"; "הרשאות נתונים" / "מודולים והרשאות" in "משתמשים וצוותים";
+  // the removed "מאמן AI" tab (the coach is in מרכז ה־AI) → the dialer settings. The address bar shows the real tab.
+  useEffect(() => {
+    const url = new URL(window.location.href); const t = url.searchParams.get("tab");
+    const moved: Record<string, Tab> = { priority: "general", permissions: "users", access: "users", marketing: "suppressions", coach: "general" };
+    if (!t) return;
+    setTab((moved[t] ?? t) as Tab);
+    if (moved[t]) { url.searchParams.set("tab", moved[t]); window.history.replaceState(null, "", url.toString()); }
+  }, []);
   const isAdmin = me?.user.role === "owner";
   // Server modules are crm/telephony/whatsapp/sms/email; `messaging` here means the WhatsApp module.
   const modules: Record<string, boolean> = me ? { ...me.modules, messaging: me.modules.whatsapp ?? me.modules.messaging ?? false } : { crm: true, messaging: true, telephony: true };
   const groups: Array<{ title: string; tabs: Array<[Tab, string]>; show: boolean }> = [
-    { title: t("עסק", "Business"), tabs: [["business", t("פרטי העסק", "Business details")], ["users", t("משתמשים וצוותים", "Users & Teams")], ["connections", t("חיבורים", "Connections")], ["plan", t("חבילה ומכסות", "Plan & quotas")], ["automations", t("אוטומציות", "Automations")], ["assistant", t("העוזר האישי בוואטסאפ", "WhatsApp personal assistant")], ["account", t("חשבון ומחיקה", "Account & deletion")], ["suppressions", t("הסרות והגנות דיוור", "Unsubscribes & sending protection")], ["history", t("היסטוריית שינויים", "Change history")]], show: true },
-    { title: t("טלפוניה", "Telephony"), tabs: [["general", t("חייגן", "Dialer")], ["safety", t("בטיחות ושיחות נכנסות", "Safety & inbound calls")], ["numbers", t("מספרים יוצאים", "Outbound numbers")], ["scripts", t("תסריטים", "Scripts")], ["dnc", t("לא ליצור קשר", "Do not contact")], ["coach", t("מאמן AI", "AI coach")]], show: modules.telephony },
+    { title: t("עסק", "Business"), tabs: [["business", t("פרטי העסק", "Business details")], ["users", t("משתמשים והרשאות", "Users & permissions")], ["connections", t("חיבורים", "Connections")], ["plan", t("חבילה ומכסות", "Plan & quotas")], ["automations", t("אוטומציות", "Automations")], ["assistant", t("העוזר האישי בוואטסאפ", "WhatsApp personal assistant")], ["account", t("חשבון ומחיקה", "Account & deletion")], ["suppressions", t("הסרות והגנות דיוור", "Unsubscribes & sending protection")], ["history", t("היסטוריית שינויים", "Change history")]], show: true },
+    { title: t("טלפוניה", "Telephony"), tabs: [["general", t("חייגן", "Dialer")], ["safety", t("בטיחות ושיחות נכנסות", "Safety & inbound calls")], ["numbers", t("מספרים יוצאים", "Outbound numbers")], ["scripts", t("תסריטים", "Scripts")], ["dnc", t("לא ליצור קשר", "Do not contact")]], show: modules.telephony },
   ];
   return (
-    <div className="p-5 space-y-4 max-w-5xl">
+    <div className="p-5 space-y-4 max-w-5xl min-w-0">
       <h1 className="text-lg font-semibold">{t("הגדרות", "Settings")}</h1>
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-line">
         {groups.filter((g) => g.show).map((g) => (
@@ -57,7 +64,6 @@ export default function SettingsPage() {
       {tab === "general" && <><GeneralTab isAdmin={isAdmin} /><div id="prioritization" className="mt-4"><PriorityTab isAdmin={isAdmin} /></div></>}
       {tab === "safety" && <SafetyTab isAdmin={isAdmin} />}
       {tab === "history" && <HistoryTab />}
-      {tab === "coach" && <div className="rounded-lg border border-line bg-panel p-4 text-sm space-y-2" data-testid="settings-coach-moved"><p>{t("המאמן עבר ל״מרכז ה־AI ← מאמן מכירות״ – שם נמצאים ההגדרות, הידע המאושר, ההקלטות והתובנות לסקירה.", "The coach moved to \"AI Center → Sales coach\" – settings, approved knowledge, recordings and insights for review are there.")}</p><a href="/ai?tab=sales" className="text-accent underline" data-testid="settings-coach-link">{t("למאמן המכירות", "Open the sales coach")}</a></div>}
       {tab === "assistant" && <AssistantSettings isOwner={isAdmin} />}
       {tab === "numbers" && <NumbersTab isAdmin={isAdmin} />}
       {tab === "users" && <div className="space-y-4" data-testid="users-and-permissions">
@@ -149,25 +155,21 @@ function NumbersTab({ isAdmin }: { isAdmin: boolean }) {
 
 function UsersTab({ isAdmin }: { isAdmin: boolean }) {
   const t = useT();
-  const [items, setItems] = useState<Array<{ id: string; fullName: string; email: string; role: string; isActive: boolean; invitedAt: string | null; inviteExpiresAt: string | null; team: { name: string } | null }>>([]);
+  const [items, setItems] = useState<Array<{ id: string; fullName: string; email: string; role: string; isActive: boolean; invitedAt: string | null; inviteExpiresAt: string | null }>>([]);
   const [invite, setInvite] = useState<{ name: string; url: string; expiresAt: string } | null>(null);
-  const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ fullName: "", email: "", role: "agent", teamId: "" });
-  const load = useCallback(() => api.get<{ items: typeof items; teams: typeof teams }>("/api/users").then((r) => { setItems(r.items); setTeams(r.teams); }).catch((e) => toast.error(e.message)), []);
+  const [form, setForm] = useState({ fullName: "", email: "", role: "agent" });
+  const load = useCallback(() => api.get<{ items: typeof items }>("/api/users").then((r) => { setItems(r.items); }).catch((e) => toast.error(e.message)), []);
   useEffect(() => { load(); }, [load]);
-  async function create() { try { const r = await api.post<{ fullName: string; inviteUrl: string; inviteExpiresAt: string }>("/api/users", { ...form, teamId: form.teamId || null }); setOpen(false); setForm({ fullName: "", email: "", role: "agent", teamId: "" }); setInvite({ name: r.fullName, url: r.inviteUrl, expiresAt: r.inviteExpiresAt }); load(); } catch (e) { toast.error((e as Error).message); } }
+  async function create() { try { const r = await api.post<{ fullName: string; inviteUrl: string; inviteExpiresAt: string }>("/api/users", { fullName: form.fullName.trim(), email: form.email.trim(), role: form.role }); setOpen(false); setForm({ fullName: "", email: "", role: "agent" }); setInvite({ name: r.fullName, url: r.inviteUrl, expiresAt: r.inviteExpiresAt }); load(); } catch (e) { toast.error((e as Error).message); } }
   async function reissue(id: string, name: string) { try { const r = await api.post<{ inviteUrl: string; inviteExpiresAt: string }>(`/api/users/${id}/invite`); setInvite({ name, url: r.inviteUrl, expiresAt: r.inviteExpiresAt }); load(); } catch (e) { toast.error((e as Error).message); } }
   async function patch(id: string, body: object) { try { await api.patch(`/api/users/${id}`, body); load(); } catch (e) { toast.error((e as Error).message); } }
   const roleLabel: Record<string, string> = { owner: t("בעלים", "Owner"), manager: t("מנהל", "Manager"), agent: t("נציג", "Agent") };
-  const [teamName, setTeamName] = useState("");
-  async function createTeam() { try { const r = await fetch("/api/settings/teams", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: teamName }) }); if (!r.ok) throw new Error((await r.json()).error ?? t("שגיאה", "Error")); setTeamName(""); load(); } catch (e) { toast.error((e as Error).message); } }
   return (
     <Panel title={t("משתמשים", "Users")} actions={isAdmin && <Button size="sm" onClick={() => setOpen(true)}>{t("+ משתמש", "+ User")}</Button>}>
-      <p className="text-xs text-muted mb-3">{t("משתמשים מצטרפים בקישור הזמנה חד-פעמי ומגדירים סיסמה בעצמם; מי שכבר יש לו חשבון מאשר עם הסיסמה שלו (כניסה אחת לכל העסקים). תפקידים: בעלים (הכול), מנהל (ניהול צוותים, קמפיינים והגדרות תפעול), נציג.", "Users join with a one-time invite link and set their own password; someone who already has an account confirms with their password (one sign-in for every business). Roles: Owner (everything), Manager (manages teams, campaigns and operational settings), Agent.")}</p>
-      <table className="w-full text-sm"><thead className="text-xs text-muted"><tr><th className="text-start h-8 font-medium">{t("שם", "Name")}</th><th className="text-start font-medium">{t("אימייל", "Email")}</th><th className="text-start font-medium">{t("תפקיד", "Role")}</th><th className="text-start font-medium">{t("צוות", "Team")}</th><th></th></tr></thead>
-        <tbody className="divide-y divide-line">{items.map((u) => <tr key={u.id}><td className="h-10">{u.fullName}{!u.isActive && (u.invitedAt ? <><Badge tone="warn" className="ms-2">{t("הזמנה ממתינה", "Invite pending")}</Badge>{isAdmin && <button type="button" className="ms-2 text-xs text-accent underline" onClick={() => reissue(u.id, u.fullName)}>{t("קישור חדש", "New link")}</button>}</> : <Badge tone="bad" className="ms-2">{t("מושבת", "Disabled")}</Badge>)}</td><td className="ltr text-start text-muted">{u.email}</td><td>{isAdmin && u.isActive ? <select aria-label={t(`תפקיד ${u.fullName}`, `Role ${u.fullName}`)} className="rounded-md border border-line bg-transparent px-2 py-1 text-xs" value={u.role} onChange={(e) => void patch(u.id, { role: e.target.value })} data-testid={`user-role-${u.id}`}><option value="agent">{roleLabel.agent}</option><option value="manager">{roleLabel.manager}</option><option value="owner">{roleLabel.owner}</option></select> : roleLabel[u.role]}</td><td className="text-muted">{u.team?.name ?? "—"}</td><td className="text-end whitespace-nowrap">{isAdmin && <><Select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value })} className="inline-block w-28 h-8 text-xs me-2"><option value="agent">{t("נציג", "Agent")}</option><option value="manager">{t("מנהל", "Manager")}</option><option value="owner">{t("בעלים", "Owner")}</option></Select><Select value={u.team ? teams.find((t) => t.name === u.team?.name)?.id ?? "" : ""} onChange={(e) => patch(u.id, { teamId: e.target.value || null })} className="inline-block w-32 h-8 text-xs me-2"><option value="">{t("ללא צוות", "No team")}</option>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select><Button size="sm" variant="ghost" onClick={() => patch(u.id, { isActive: !u.isActive })}>{u.isActive ? t("השבת", "Disable") : t("הפעל", "Enable")}</Button></>}</td></tr>)}</tbody></table>
-      {isAdmin && <div className="flex gap-2 mt-4 items-end"><Input label={t("צוות חדש", "New team")} value={teamName} onChange={(e) => setTeamName(e.target.value)} className="max-w-xs" /><Button variant="secondary" onClick={createTeam} disabled={!teamName.trim()}>{t("צור צוות", "Create team")}</Button></div>}
+      <p className="text-xs text-muted mb-3">{t("משתמשים מצטרפים בקישור הזמנה חד-פעמי ומגדירים סיסמה בעצמם; מי שכבר יש לו חשבון מאשר עם הסיסמה שלו (כניסה אחת לכל העסקים). תפקידים: בעלים (הכול), מנהל (ניהול נציגים, קמפיינים והגדרות תפעול), נציג. התפקיד נקבע בעמודת ״תפקיד״.", "Users join with a one-time invite link and set their own password; someone who already has an account confirms with their password (one sign-in for every business). Roles: Owner (everything), Manager (manages agents, campaigns and operational settings), Agent. The role is set in the Role column.")}</p>
+      <div className="relative overflow-x-auto"><table className="w-full min-w-[560px] text-sm" data-testid="users-table"><thead className="text-xs text-muted"><tr><th className="text-start h-8 pe-4 font-medium">{t("שם", "Name")}</th><th className="text-start pe-4 font-medium">{t("אימייל", "Email")}</th><th className="text-start font-medium">{t("תפקיד", "Role")}</th><th className="text-end font-medium"><span className="sr-only">{t("פעולות", "Actions")}</span></th></tr></thead>
+        <tbody className="divide-y divide-line">{items.map((u) => <tr key={u.id} className="align-middle" data-testid={`user-row-${u.id}`}><td className="py-2 pe-4 h-12">{u.fullName}{!u.isActive && (u.invitedAt ? <><Badge tone="warn" className="ms-2">{t("הזמנה ממתינה", "Invite pending")}</Badge>{isAdmin && <button type="button" className="ms-2 text-xs text-accent underline" onClick={() => reissue(u.id, u.fullName)}>{t("קישור חדש", "New link")}</button>}</> : <Badge tone="bad" className="ms-2">{t("מושבת", "Disabled")}</Badge>)}</td><td className="py-2 pe-4 text-start text-muted"><bdi dir="ltr" className="break-all">{u.email}</bdi></td><td>{isAdmin && u.isActive ? <select aria-label={t(`תפקיד ${u.fullName}`, `Role ${u.fullName}`)} className="h-8 min-w-[6.5rem] rounded-md border border-line bg-transparent px-2 text-xs" value={u.role} onChange={(e) => void patch(u.id, { role: e.target.value })} data-testid={`user-role-${u.id}`}><option value="agent">{roleLabel.agent}</option><option value="manager">{roleLabel.manager}</option><option value="owner">{roleLabel.owner}</option></select> : roleLabel[u.role]}</td><td className="py-2 text-end whitespace-nowrap">{isAdmin && <Button size="sm" variant="ghost" onClick={() => patch(u.id, { isActive: !u.isActive })} data-testid={`user-active-${u.id}`}>{u.isActive ? t("השבת", "Disable") : t("הפעל", "Enable")}</Button>}</td></tr>)}</tbody></table></div>
       <Modal open={Boolean(invite)} onClose={() => setInvite(null)} title={t("קישור הזמנה", "Invite link")} footer={<Button onClick={() => setInvite(null)}>{t("סגור", "Close")}</Button>}>
         {invite && <div className="space-y-2 text-sm">
           <p>{t(`העבר את הקישור ל${invite.name} (וואטסאפ / אימייל). הקישור מוצג רק עכשיו; אפשר ליצור קישור חדש מרשימת המשתמשים.`, `Send this link to ${invite.name} (WhatsApp / email). It is shown only now; you can create a new one from the user list.`)}</p>
@@ -175,13 +177,12 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
           <p className="text-xs text-muted">{t("בתוקף עד", "Valid until")} {new Date(invite.expiresAt).toLocaleString()}</p>
         </div>}
       </Modal>
-      <Modal open={open} onClose={() => setOpen(false)} title={t("משתמש חדש", "New user")} footer={<><Button variant="ghost" onClick={() => setOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={create} disabled={!form.fullName || !form.email}>{t("צור הזמנה", "Create invite")}</Button></>}>
+      <Modal open={open} onClose={() => setOpen(false)} title={t("משתמש חדש", "New user")} footer={<><Button variant="ghost" onClick={() => setOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={create} disabled={!form.fullName.trim() || !form.email.trim()} data-testid="user-create">{t("צור הזמנה", "Create invite")}</Button></>}>
         <div className="space-y-2">
           <Input label={t("שם מלא", "Full name")} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
           <Input label={t("אימייל", "Email")} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} ltr />
           <p className="text-xs text-muted">{t("המשתמש יקבל קישור הזמנה חד-פעמי (תקף 7 ימים) שתעביר לו. הוא יגדיר בעצמו את הסיסמה – או יאשר עם הסיסמה של החשבון הקיים שלו.", "The user gets a one-time invite link (valid 7 days) for you to hand over. They set their own password – or confirm with their existing account's password.")}</p>
           <Select label={t("תפקיד", "Role")} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="agent">{t("נציג", "Agent")}</option><option value="manager">{t("מנהל", "Manager")}</option><option value="owner">{t("בעלים", "Owner")}</option></Select>
-          <Select label={t("צוות", "Team")} value={form.teamId} onChange={(e) => setForm({ ...form, teamId: e.target.value })}><option value="">{t("ללא", "None")}</option>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>
         </div>
       </Modal>
     </Panel>

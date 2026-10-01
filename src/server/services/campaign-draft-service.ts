@@ -14,9 +14,10 @@ import { mergeTagsOf, validateMergeTags } from "@/lib/merge-tags";
 import { smsMetrics, SMS_MAX_SEGMENTS } from "@/lib/sms";
 import { CampaignError, createCampaign, deleteDraftCampaign, sendCampaignTest } from "./campaign-service";
 import { sendChannelTest } from "./channel-send-service";
+import { validateTemplateVariables } from "@/lib/campaign-shared";
 
 export type DraftChannel = "whatsapp" | "sms" | "email";
-export const DRAFT_STEPS: Record<DraftChannel, string[]> = { email: ["info", "audience", "template", "content", "sending", "review"], whatsapp: ["info", "audience", "template", "content", "sending", "review"], sms: ["info", "audience", "content", "sending", "review"] };
+export const DRAFT_STEPS: Record<DraftChannel, string[]> = { email: ["info", "audience", "template", "content", "sending", "review"], whatsapp: ["info", "audience", "template", "sending", "review"], sms: ["info", "audience", "content", "sending", "review"] };
 
 /** Everything the wizard may store. Partial on purpose: each step validates its own fields at build time. */
 export const draftDataSchema = z.object({
@@ -50,7 +51,7 @@ export type DraftData = z.infer<typeof draftDataSchema>;
 export const draftPatchSchema = z.object({ name: z.string().trim().min(1).max(120).optional(), step: z.string().max(20).optional(), data: draftDataSchema.optional() });
 
 function view(d: { id: string; channel: string; name: string; step: string; data: unknown; templateId: string | null; campaignId: string | null; createdAt: Date; updatedAt: Date; campaign?: { status: string; scheduledAt: Date | null } | null }) {
-  return { id: d.id, channel: d.channel as DraftChannel, name: d.name, step: d.step === "building" ? "review" : d.step, data: (d.data ?? {}) as DraftData, templateId: d.templateId, campaignId: d.campaignId, campaignStatus: d.campaign?.status ?? null, createdAt: d.createdAt, updatedAt: d.updatedAt, steps: DRAFT_STEPS[d.channel as DraftChannel] };
+  return { id: d.id, channel: d.channel as DraftChannel, name: d.name, step: d.step === "building" ? "review" : d.channel === "whatsapp" && d.step === "content" ? "template" : d.step, data: (d.data ?? {}) as DraftData, templateId: d.templateId, campaignId: d.campaignId, campaignStatus: d.campaign?.status ?? null, createdAt: d.createdAt, updatedAt: d.updatedAt, steps: DRAFT_STEPS[d.channel as DraftChannel] };
 }
 
 export async function listDrafts(channel?: DraftChannel) {
@@ -98,9 +99,13 @@ async function assertEditable(d: { campaignId: string | null }) {
   if (c && c.status !== "DRAFT") throw new CampaignError("הקמפיין כבר תוזמן או נשלח – לא ניתן לערוך אותו");
 }
 
+/** WhatsApp has no "content" step any more – a wizard tab opened before that change still sends it. */
+const normalizeStep = (channel: string, step: string) => (channel === "whatsapp" && step === "content" ? "template" : step);
+
 export async function updateDraft(id: string, patch: z.infer<typeof draftPatchSchema>) {
   const d = await prisma.campaignDraft.findUnique({ where: { id }, select: { channel: true, campaignId: true } });
   if (!d) throw new CampaignError("הטיוטה לא נמצאה");
+  if (patch.step) patch = { ...patch, step: normalizeStep(d.channel, patch.step) };
   if (patch.step && !DRAFT_STEPS[d.channel as DraftChannel].includes(patch.step)) throw new CampaignError("שלב לא תקין");
   if (patch.data || patch.name) await assertEditable(d);
   if (patch.data && Object.keys(patch.data).length) await mergeDraftData(id, patch.data as Record<string, unknown>);
@@ -120,6 +125,7 @@ export async function revertDraft(id: string, snapshot: z.infer<typeof draftReve
   const d = await prisma.campaignDraft.findUnique({ where: { id }, select: { channel: true, campaignId: true, templateId: true, name: true } });
   if (!d) throw new CampaignError("הטיוטה לא נמצאה");
   await assertEditable(d);
+  snapshot = { ...snapshot, step: normalizeStep(d.channel, snapshot.step) };
   if (!DRAFT_STEPS[d.channel as DraftChannel].includes(snapshot.step === "building" ? "review" : snapshot.step)) throw new CampaignError("שלב לא תקין");
   await prisma.$transaction(async (tx) => {
     const orphanTemplate = d.templateId && d.templateId !== snapshot.templateId ? d.templateId : null;
@@ -145,6 +151,24 @@ export async function deleteDraft(id: string, actorUserId: string) {
     await tx.campaignDraft.delete({ where: { id } });
   });
   await audit(requireBusinessId(), actorUserId, "campaign", id, "campaign.draft_deleted", { name: d.name });
+}
+
+/**
+ * WhatsApp has no content step: the message is the approved template, and what the template needs to be sent
+ * (variables, header media, dynamic button values) is set in the template step – checked there, with the same rules
+ * the campaign build enforces (campaign-service createCampaign).
+ */
+export async function draftProblems(d: ReturnType<typeof view>) {
+  const problems = draftChecks(d);
+  if (d.channel !== "whatsapp" || !d.data.templateId) return problems;
+  const tpl = await prisma.template.findFirst({ where: { id: d.data.templateId, businessId: requireBusinessId() }, select: { status: true, channel: true, body: true, headerFormat: true, headerMediaAssetId: true, buttons: true } });
+  if (!tpl || tpl.channel !== "whatsapp" || tpl.status !== "APPROVED") { problems.push({ step: "template", message: "התבנית שנבחרה אינה מאושרת או אינה קיימת – יש לבחור תבנית מאושרת" }); return problems; }
+  try { validateTemplateVariables(tpl.body, d.data.variables ?? {}); } catch (e) { problems.push({ step: "template", message: (e as Error).message }); }
+  const header = (tpl.headerFormat ?? "").toUpperCase();
+  if (["IMAGE", "VIDEO", "DOCUMENT"].includes(header) && !d.data.mediaUrl && !(header === "IMAGE" && tpl.headerMediaAssetId)) problems.push({ step: "template", message: `התבנית כוללת כותרת ${header === "IMAGE" ? "תמונה" : header === "VIDEO" ? "וידאו" : "מסמך"} – יש לצרף קישור https ציבורי לקובץ` });
+  const buttons = (tpl.buttons as Array<{ type: string; dynamic?: boolean }> | null) ?? [];
+  buttons.forEach((b, i) => { if (b.type === "URL" && b.dynamic && !d.data.buttonParams?.[String(i)]) problems.push({ step: "template", message: `לכפתור הקישור מס' ${i + 1} בתבנית נדרש ערך` }); });
+  return problems;
 }
 
 /** Per-step validation used by the review screen (each row can send the user back to its step). */
@@ -207,7 +231,7 @@ export async function buildDraft(id: string, actorUserId: string) {
 
 async function buildDraftClaimed(id: string, actorUserId: string) {
   const d = await getDraft(id);
-  const problems = draftChecks(d);
+  const problems = await draftProblems(d);
   if (problems.length) throw new ApiError(problems.map((p) => p.message).join(" · "), 400, "draft_invalid", { problems });
   const data = d.data;
   const prev = d.campaignId ? await prisma.campaign.findUnique({ where: { id: d.campaignId }, select: { status: true } }) : null;
@@ -217,7 +241,9 @@ async function buildDraftClaimed(id: string, actorUserId: string) {
   const listIds = data.listIds!;
   const campaign = await createCampaign({
     channel: d.channel, name: d.name, listId: listIds[0], listIds, excludedListIds: data.excludedListIds ?? [], templateId,
-    providerCredentialId: data.senderCredentialId ?? null, senderId: d.channel === "sms" ? data.senderId ?? null : null,
+    // WhatsApp without an explicitly chosen number → the business's default active WhatsApp connection (undefined),
+    // never "no connection" (null = demo conversation, refused when a real Meta connection exists).
+    providerCredentialId: data.senderCredentialId ?? (d.channel === "whatsapp" ? undefined : null), senderId: d.channel === "sms" ? data.senderId ?? null : null,
     variables: data.variables ?? {}, throttle: data.throttle ?? null, mediaUrl: d.channel === "whatsapp" ? data.mediaUrl ?? null : null, buttonParams: d.channel === "whatsapp" ? data.buttonParams ?? null : null,
   }, actorUserId);
   await prisma.campaignDraft.update({ where: { id }, data: { campaignId: campaign.id, templateId, step: "review" } });
@@ -227,7 +253,7 @@ async function buildDraftClaimed(id: string, actorUserId: string) {
 /** Test send from inside the builder (email/SMS render the draft; WhatsApp needs the built campaign). */
 export async function testDraft(id: string, user: { id: string; businessId: string; fullName: string }, to: string) {
   const d = await getDraft(id);
-  const problems = draftChecks(d).filter((p) => p.step !== "audience");
+  const problems = (await draftProblems(d)).filter((p) => p.step !== "audience");
   if (problems.length) throw new ApiError(problems.map((p) => p.message).join(" · "), 400, "draft_invalid", { problems });
   if (d.channel === "whatsapp") {
     if (!d.campaignId) throw new CampaignError("לשליחת בדיקה ב-WhatsApp יש לבנות את הקמפיין קודם (שלב הבקרה)");

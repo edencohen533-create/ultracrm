@@ -4,6 +4,7 @@
  * approved sources marked "customer". Retrieval is always filtered by business (and RLS underneath), and returns a
  * few relevant chunks – never the whole knowledge base. Source text is untrusted data (never instructions).
  */
+import { KNOWLEDGE_MAX_TEXT, KNOWLEDGE_MAX_TITLE } from "@/lib/knowledge-limits";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma, dbSchema } from "@/lib/db";
@@ -16,11 +17,11 @@ export const CATEGORIES = { business: "פרטי העסק ושעות פעילות
 export type Category = keyof typeof CATEGORIES;
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_LINK_BYTES = 3 * 1024 * 1024;
-const MAX_TEXT = 400_000;
+const MAX_TEXT = KNOWLEDGE_MAX_TEXT;
 const T = (t: string) => Prisma.raw(`"${dbSchema()}"."${t}"`);
 
 export const sourceInputSchema = z.object({
-  title: z.string().trim().min(1).max(200),
+  title: z.string().trim().min(1).max(KNOWLEDGE_MAX_TITLE),
   category: z.enum(Object.keys(CATEGORIES) as [Category, ...Category[]]),
   kind: z.enum(["text", "link"]),
   content: z.string().max(MAX_TEXT).optional(),

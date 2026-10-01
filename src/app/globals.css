@@ -1062,3 +1062,8 @@ button.seg-item { width: 100%; }
 .lead-notes-box{margin:10px 0 12px;padding:10px 12px;border:1px solid #f3d7a6;background:#fffaf0;border-radius:10px}
 .lead-notes-box h3{font-size:12px;font-weight:700;color:#8a4b00;margin-bottom:4px}
 .lead-notes-box p{font-size:13px;color:#2c3340;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
+/* WhatsApp campaign: template settings + preview inside the template step (no separate content step) */
+.wz-tpl-setup{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
+.wz-tpl-setup h3{font-size:14px;font-weight:700;margin-bottom:10px}
+.wz-tpl-setup .wz-content{padding:0}
+.wz-tpl-setup .wz-content{height:auto}

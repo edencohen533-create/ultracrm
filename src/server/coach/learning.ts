@@ -53,7 +53,7 @@ export async function learnFromCall(callId: string) {
   if (!settings.coach.enabled) return { skipped: "coach disabled" };
   if (providerStatus().llm === "missing") return { skipped: "no llm" };
   await endSession(callId);
-  let segments = await prisma.coachSegment.findMany({ where: { callId }, orderBy: { createdAt: "asc" } });
+  const segments = await prisma.coachSegment.findMany({ where: { callId }, orderBy: { createdAt: "asc" } });
   // Live transcript only. Recordings are learned from through the sales coach (closed deals / manager uploads).
   if (segments.length === 0) return { skipped: "no transcript" };
   if (await prisma.coachExample.count({ where: { callId } })) return { skipped: "already extracted" };

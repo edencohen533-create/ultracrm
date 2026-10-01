@@ -36,7 +36,7 @@ export function AiAssistant() {
   if (!o) return <div className="py-16 flex justify-center"><Spinner /></div>;
   const tabs = TABS.filter((x) => (!("manage" in x) || o.canManage) && (x.key !== "sales" || o.salesCoach !== false));
   return (
-    <div className="p-4 md:p-6 space-y-4 min-w-0 max-w-6xl mx-auto" data-testid="ai-page">
+    <div className="p-4 md:p-6 space-y-4 min-w-0 w-full" data-testid="ai-page">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold">{t("מרכז ה־AI", "AI Center")}</h1>
         {o.connected ? <Badge tone="good" dot>{t("מחובר למודל", "Model connected")}</Badge> : <Badge tone="warn" dot data-testid="ai-needs-connection">{t("נדרש חיבור", "Connection required")}</Badge>}

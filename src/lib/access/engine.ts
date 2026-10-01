@@ -28,14 +28,24 @@ export interface BusinessEntitlement {
   subscription: { status: string; billed: boolean } | null;
 }
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
-const cache = new Map<string, { at: number; value: BusinessEntitlement }>();
+/**
+ * Short cache of the computed entitlement. Shared by every bundle of the process (route handlers and pages are
+ * separate module graphs – a per-module Map would keep a removed module open on pages after the API invalidated it),
+ * and every hit is checked against the business row's `updatedAt` – an entitlement change bumps it – so another
+ * server instance never serves a stale package either.
+ */
+const shared = globalThis as unknown as { __entitlementCache?: Map<string, { at: number; stamp: number; value: BusinessEntitlement }> };
+const cache = (shared.__entitlementCache ??= new Map());
 const CACHE_MS = 5_000;
 export function invalidateEntitlement(businessId: string) { cache.delete(businessId); }
 
 export async function businessEntitlement(businessId: string, now = new Date()): Promise<BusinessEntitlement> {
   const hit = cache.get(businessId);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
-  const b = await db.business.findUnique({ where: { id: businessId }, select: { modules: true, accessStatus: true, accessUntil: true, billingStatus: true, plan: { select: { key: true, name: true, modules: true, quotas: true } }, planVersion: { select: { id: true, version: true, name: true, modules: true, quotas: true } } } });
+  if (hit && Date.now() - hit.at < CACHE_MS) {
+    const row = await db.business.findUnique({ where: { id: businessId }, select: { updatedAt: true } });
+    if (row && row.updatedAt.getTime() === hit.stamp) return hit.value;
+  }
+  const b = await db.business.findUnique({ where: { id: businessId }, select: { updatedAt: true, modules: true, accessStatus: true, accessUntil: true, billingStatus: true, plan: { select: { key: true, name: true, modules: true, quotas: true } }, planVersion: { select: { id: true, version: true, name: true, modules: true, quotas: true } } } });
   if (!b) throw new ApiError("עסק לא נמצא", 404, "not_found");
   const grants = await db.entitlementGrant.findMany({ where: { businessId, revokedAt: null, startsAt: { lte: now }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } });
   // A business on a paid subscription gets exactly what it bought: purchased licenses are the seats (legacy / manual
@@ -51,7 +61,8 @@ export async function businessEntitlement(businessId: string, now = new Date()):
     accessStatus: b.accessStatus, accessUntil: b.accessUntil, billingStatus: b.billingStatus, suspended: b.accessStatus === "suspended" || b.accessStatus === "cancelled" || expired, modules, quotas,
     subscription: sub ? { status: sub.status, billed: true } : null,
   };
-  cache.set(businessId, { at: Date.now(), value });
+  // The stamp is read with the data it describes (a change committed meanwhile can't hide behind a newer stamp).
+  cache.set(businessId, { at: Date.now(), stamp: b.updatedAt.getTime(), value });
   return value;
 }
 

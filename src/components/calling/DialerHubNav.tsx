@@ -13,6 +13,7 @@ export function DialerHubNav({ showLive }: { showLive: boolean }) {
   const t = useT();
   const pathname = usePathname();
   const items = [
+    { href: "/calling/start", label: t("הפעלת חייגן", "Start dialer"), testid: "hub-tab-start" },
     { href: "/calling/lists", label: t("רשימות חיוג", "Dial lists"), testid: "hub-tab-lists" },
     { href: "/calling/ready", label: t("פתיחת משמרת", "Start of shift"), testid: "hub-tab-ready" },
     { href: "/calling/history", label: t("היסטוריית שיחות", "Call history"), testid: "hub-tab-history" },

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, DollarSign, History, Info, Moon, Phone, PhoneCall } from "lucide-react";
 import { api } from "@/lib/client/api";
@@ -17,10 +17,11 @@ const hms = (s: number) => [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s
  * The dialer as its own full screen (/dialer): "הביצועים שלי" on the side and, in the middle, either the launcher
  * card ("הפעלת חייגן אוטומטי") or the live call workspace once a session/call is running.
  */
-export function DialerScreen() {
+export function DialerScreen({ inHub = false }: { inHub?: boolean } = {}) {
   const t = useT();
   const router = useRouter();
   const params = useSearchParams();
+  const pathname = usePathname();
   const { state, sessionSummary } = useDialer();
   const live = Boolean((state?.session && state.session.status !== "ended") || state?.activeCall || state?.wrapUpCall || sessionSummary);
   const [perf, setPerf] = useState<Perf | null>(null);
@@ -35,15 +36,16 @@ export function DialerScreen() {
     { label: t("סה״כ זמן בשיחה", "Total talk time"), value: <b>{hms(perf.talkSeconds)}</b>, Icon: Moon, tone: "indigo", hint: t("זמן דיבור מצטבר היום", "Cumulative talk time today") },
   ] : [];
   return (
-    <div className="dialer-screen" data-testid="dialer-screen">
+    <div className={inHub ? "dialer-screen in-hub" : "dialer-screen"} data-testid="dialer-screen">
       <main className="dialer-main">
-        <div className="dialer-topbar"><Link href="/leads" className="dialer-back" data-testid="dialer-back"><ArrowRight size={16} /> {t("חזרה ללידים", "Back to leads")}</Link>{live && <span className="dialer-live-badge">{t("החייגן פעיל", "Dialer active")}</span>}</div>
+        {/* In the "חייגן" area the tabs are the navigation; the standalone /dialer screen (from CRM) keeps its way back */}
+        {(!inHub || live) && <div className="dialer-topbar">{!inHub && <Link href="/leads" className="dialer-back" data-testid="dialer-back"><ArrowRight size={16} /> {t("חזרה ללידים", "Back to leads")}</Link>}{live && <span className="dialer-live-badge">{t("החייגן פעיל", "Dialer active")}</span>}</div>}
         {live ? (
           <section className="dialer-live" data-testid="dialer-embedded"><DialerWorkspace embedded minimal /></section>
         ) : (
           <section className="dialer-launcher" data-testid="dialer-launcher">
             <h1>{t("הפעלת חייגן אוטומטי", "Start auto-dialer")}</h1>
-            <StartSessionForm compact initialListId={params.get("listId") ?? undefined} onStarted={() => { router.replace("/dialer"); }} />
+            <StartSessionForm compact initialListId={params.get("listId") ?? undefined} onStarted={() => { router.replace(pathname); }} />
           </section>
         )}
       </main>

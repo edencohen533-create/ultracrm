@@ -36,7 +36,7 @@ await step("E3 agent: empty campaign → dialer stops with 'אין כרגע לי
   if ((await api(`/api/lists/${closed.id}`)).status !== 404) throw new Error("agent opened a campaign that is closed to them");
   await page.goto(`${BASE}/dialer?listId=${empty.id}`); await page.waitForSelector('[data-testid="dialer-launcher"]');
   await page.getByRole("button", { name: "Preview", exact: false }).first().click().catch(() => {});
-  await page.click('[data-testid="start-dialer"]');
+  await page.waitForSelector('[data-testid="launch-campaign"]:not([disabled])', { timeout: 60000 }); if (!(await page.locator('[data-testid="launch-campaign"]').inputValue())) await page.selectOption('[data-testid="launch-campaign"]', { index: (await page.locator('[data-testid="launch-campaign"] option').count()) > 2 ? 2 : 1 }); await page.click('[data-testid="start-dialer"]');
   await page.waitForSelector('[data-testid="no-leads-panel"]', { timeout: 90000 }).catch(async () => { await page.getByRole("button", { name: /חייג|הבא/ }).first().click(); await page.waitForSelector('[data-testid="no-leads-panel"]'); });
   const txt = await page.textContent('[data-testid="no-leads-panel"]');
   if (!txt.includes("אין כרגע לידים זמינים בקמפיין הזה")) throw new Error(txt.slice(0, 200));

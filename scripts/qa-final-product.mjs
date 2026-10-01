@@ -116,7 +116,7 @@ await step("F7 'הפעל חייגן' opens the full dialer screen (performance p
   if (await page.$('[data-testid="dialer-embedded"]')) throw new Error("workspace shown before a session started");
   await shot("dialer-screen");
   await page.waitForSelector('[data-testid="start-dialer"]:not([disabled])', { timeout: 60000 });
-  await page.click('[data-testid="start-dialer"]');
+  await page.waitForSelector('[data-testid="launch-campaign"]:not([disabled])', { timeout: 60000 }); if (!(await page.locator('[data-testid="launch-campaign"]').inputValue())) await page.selectOption('[data-testid="launch-campaign"]', { index: (await page.locator('[data-testid="launch-campaign"] option').count()) > 2 ? 2 : 1 }); await page.click('[data-testid="start-dialer"]');
   await page.waitForSelector('[data-testid="dialer-embedded"]', { timeout: 90000 });
   if (await page.$('[data-testid="dialer-launcher"]')) throw new Error("launcher still visible during the session");
   await shot("dialer-live");

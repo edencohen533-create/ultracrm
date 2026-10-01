@@ -62,7 +62,7 @@ await step("L4 'הפעל חייגן' shows the queue pre-flight (list, due count
   await page.waitForSelector("text=יחויגו לידים מהתור", { timeout: 60000 });
   const txt = await page.textContent('div[role="dialog"]');
   if (!/זמינים לחיוג עכשיו/.test(txt)) throw new Error("no due-count line in pre-flight");
-  await page.click('[data-testid="start-dialer"]');
+  await page.waitForSelector('[data-testid="launch-campaign"]:not([disabled])', { timeout: 60000 }); if (!(await page.locator('[data-testid="launch-campaign"]').inputValue())) await page.selectOption('[data-testid="launch-campaign"]', { index: (await page.locator('[data-testid="launch-campaign"] option').count()) > 2 ? 2 : 1 }); await page.click('[data-testid="start-dialer"]');
   await page.waitForSelector('[data-testid="dialer-embedded"]', { timeout: 90000 });
   await page.waitForSelector("text=חייגן פעיל", { timeout: 30000 });
   await shot("dialer-embedded");
@@ -119,8 +119,8 @@ await step("L7a 'הלידים שלי': the pre-flight builds a personal queue fr
   await page.goto(`${BASE}/leads`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="open-dialer"]:not([disabled])');
   await page.click('[data-testid="open-dialer"]');
-  await page.waitForSelector('[data-testid="source-mine"]', { timeout: 120000 });
-  await page.click('[data-testid="source-mine"]');
+  await page.waitForSelector('[data-testid="launch-campaign"]:not([disabled])', { timeout: 120000 });
+  await page.selectOption('[data-testid="launch-campaign"]', "__mine");
   await page.waitForFunction(() => /זמינים לחיוג עכשיו/.test(document.querySelector('div[role="dialog"]')?.textContent ?? ""), null, { timeout: 120000 });
   const txt = await page.textContent('div[role="dialog"]');
   if (!/הלידים של/.test(txt)) throw new Error("personal queue not named after the agent");

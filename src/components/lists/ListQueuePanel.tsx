@@ -9,6 +9,7 @@ import { api, qs } from "@/lib/client/api";
 import { Badge, Button, Input, Modal, Phone, Select, Spinner, Stat } from "@/components/ui";
 import { LEAD_STATUS_LABEL, formatDateTime, formatPhone } from "@/lib/client/format";
 import { OUTCOMES } from "@/lib/outcomes";
+import { ListAccessModal } from "@/components/lists/ListAccessModal";
 import { useT } from "@/components/i18n/LangProvider";
 import { MoveLeadsDialog } from "./ListAdminActions";
 import { HelpTip } from "@/components/ai/HelpTip";
@@ -36,8 +37,6 @@ export function ListQueuePanel({ id }: { id: string }) {
   const [addFilter, setAddFilter] = useState({ source: "", city: "", neverCalled: false });
   const [users, setUsers] = useState<Array<{ id: string; fullName: string; role: string }>>([]);
   const [agentsOpen, setAgentsOpen] = useState(false);
-  const [agentIds, setAgentIds] = useState<string[]>([]);
-  const [agentMode, setAgentMode] = useState<"all" | "selected">("all");
   const [limitOpen, setLimitOpen] = useState(false);
   const [limitDraft, setLimitDraft] = useState("");
 
@@ -47,8 +46,6 @@ export function ListQueuePanel({ id }: { id: string }) {
       setList(l);
       setRows(r.items);
       setTotal(r.total);
-      setAgentIds(l.agents.map((a) => a.user.id));
-      setAgentMode(l.agents.length ? "selected" : "all");
       setLimitDraft(l.unansweredLimit === null || l.unansweredLimit === undefined ? "" : String(l.unansweredLimit));
     } catch (e) {
       toast.error((e as Error).message);
@@ -89,9 +86,7 @@ export function ListQueuePanel({ id }: { id: string }) {
     const match = users.find((u) => u.id === toUserId.trim() || u.fullName === toUserId.trim());
     try { await api.post(`/api/queue/${leadId}/transfer`, { toUserId: toUserId.trim() ? match?.id ?? toUserId.trim() : null }); toast.success(t("הליד הועבר", "Lead transferred")); load(); } catch (e) { toast.error((e as Error).message); }
   }
-  async function saveAgents() {
-    try { await api.put(`/api/lists/${id}/agents`, { mode: agentMode, agentIds: agentMode === "all" ? [] : agentIds }); toast.success(agentMode === "all" ? t("רשימת החיוג פתוחה לכל הנציגים", "The dial list is open to all agents") : t(`רשימת החיוג פתוחה ל-${agentIds.length} נציגים`, `The dial list is open to ${agentIds.length} agents`)); setAgentsOpen(false); load(); } catch (e) { toast.error((e as Error).message); }
-  }
+
 
   if (!list) return <div className="flex justify-center p-10"><Spinner /></div>;
   const s = list.stats;
@@ -198,19 +193,7 @@ export function ListQueuePanel({ id }: { id: string }) {
           <p className="text-xs text-muted">{t("אנשי קשר שכבר ברשימה, ומספרים חסומים, לא יתווספו.", "Contacts already in the list, and blocked numbers, won't be added.")}</p>
         </div>
       </Modal>
-      <Modal open={agentsOpen} onClose={() => setAgentsOpen(false)} title={t("למי רשימת החיוג פתוחה", "Who the dial list is open to")} footer={<><Button variant="ghost" onClick={() => setAgentsOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={saveAgents} disabled={agentMode === "selected" && !agentIds.length} data-testid="campaign-access-save">{t("שמור", "Save")}</Button></>}>
-        <div className="space-y-2 text-sm" data-testid="campaign-access">
-          <label className="flex items-center gap-2"><input type="radio" name="access" checked={agentMode === "all"} onChange={() => setAgentMode("all")} data-testid="campaign-access-all" /> {t("כל הנציגים בעסק", "All agents in the business")}</label>
-          <label className="flex items-center gap-2"><input type="radio" name="access" checked={agentMode === "selected"} onChange={() => setAgentMode("selected")} data-testid="campaign-access-selected" /> {t("נציגים מסוימים", "Specific agents")}</label>
-          {agentMode === "selected" && <div className="flex flex-wrap gap-1.5 ps-6">
-            {users.filter((u) => u.role !== "owner").map((u) => (
-              <button key={u.id} type="button" data-testid={`campaign-agent-${u.id}`} aria-pressed={agentIds.includes(u.id)} onClick={() => setAgentIds(agentIds.includes(u.id) ? agentIds.filter((x) => x !== u.id) : [...agentIds, u.id])} className={`h-8 px-3 rounded-md text-xs ${agentIds.includes(u.id) ? "bg-accent text-white" : "bg-white/6 text-muted"}`}>{u.fullName}</button>
-            ))}
-          </div>}
-          {agentMode === "selected" && !agentIds.length && <p className="text-xs text-bad">{t("יש לבחור לפחות נציג אחד.", "Select at least one agent.")}</p>}
-          <p className="text-xs text-muted">{t("ההרשאה נאכפת בשרת בהצגת רשימות החיוג, בספירת הלידים, בכניסה לרשימה ובהפעלת החייגן. היא אינה נותנת גישה ללידים פרטיים של נציגים אחרים.", "Access is enforced on the server when listing dial lists, counting leads, entering a list and starting the dialer. It doesn't grant access to other agents' private leads.")}</p>
-        </div>
-      </Modal>
+      {agentsOpen && <ListAccessModal listId={list.id} listName={list.name} current={list.agents.map((x) => x.user.id)} users={users} onClose={() => setAgentsOpen(false)} onSaved={load} />}
       <Modal open={limitOpen} onClose={() => setLimitOpen(false)} title={t("מכסת ניסיונות ללא מענה ברשימת החיוג", "Dial list unanswered attempts limit")} footer={<><Button variant="ghost" onClick={() => setLimitOpen(false)}>{t("סגור", "Close")}</Button><Button data-testid="campaign-limit-save" onClick={async () => { await patchList({ unansweredLimit: limitDraft === "" ? null : Number(limitDraft) }, t("המכסה נשמרה", "Limit saved")); setLimitOpen(false); }}>{t("שמור", "Save")}</Button></>}>
         <div className="space-y-3 text-sm">
           <Select label={t("מספר ניסיונות חיוג ללא מענה לפני העברה ללא רלוונטי", "Unanswered dial attempts before moving to Not relevant")} value={limitDraft} onChange={(e) => setLimitDraft(e.target.value)} data-testid="campaign-limit">

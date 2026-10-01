@@ -17,7 +17,7 @@ import { AccessMatrix } from "@/components/access/AccessMatrix";
 import { useT } from "@/components/i18n/LangProvider";
 import { ProviderRoutingPanel } from "@/components/telephony/ProviderRoutingPanel";
 
-type Tab = "account" | "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "coach" | "assistant" | "permissions" | "access";
+type Tab = "account" | "business" | "users" | "connections" | "plan" | "automations" | "marketing" | "suppressions" | "general" | "priority" | "safety" | "numbers" | "scripts" | "dnc" | "history" | "assistant" | "permissions" | "access";
 interface Prio { callbackDue: number; priority: number; newLeadPerHour: number; newLeadMaxHours: number; agingPerHour: number; agingMaxHours: number; attemptPenalty: number; ownerMatch: number; sourceWeights: Record<string, number>; interestedBefore: number }
 interface Automations { newLeadTaskMinutes: number; followUpTaskOutcomes: string[]; followUpTaskHours: number; followUpMessage: { enabled: boolean; templateId: string | null; outcomes: string[]; variables: Record<string, string> } }
 interface Settings { whatsappAvailability: boolean; availableNowTtlMinutes: number; automations: Automations; wrapUpSeconds: number; autoDialCountdownSeconds: number; maxAttempts: number; unansweredToIrrelevant: number; retryIntervalMinutes: number; busyRetryMinutes: number; technicalFailureRetryMinutes: number; lockTtlSeconds: number; ringTimeoutSeconds: number; recordingEnabled: boolean; recordingAnnouncement: string; recordingRetentionDays: number; amdEnabled: boolean; stickyOwner: boolean; removeFromOtherListsOnSale: boolean; dialingPaused: boolean; allowedCountries: string[]; contactCooldownMinutes: number; maxDialsPerMinute: number; dialWindow: { start: string; end: string; days: number[] }; prioritization: Prio; inbound: { preferOwner: boolean; createCallbackTask: boolean; respectDialWindow: boolean } }
@@ -28,14 +28,21 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("business");
   const [me, setMe] = useState<{ user: { role: string }; modules: Record<string, boolean> } | null>(null);
   useEffect(() => { api.get<{ user: { role: string }; modules: Record<string, boolean> }>("/api/auth/me").then(setMe).catch(() => undefined); }, []);
-  // Old links: "תעדוף לידים" now lives in "חייגן"; "הרשאות נתונים" / "מודולים והרשאות" in "משתמשים וצוותים".
-  useEffect(() => { const t = new URLSearchParams(window.location.search).get("tab"); const moved: Record<string, Tab> = { priority: "general", permissions: "users", access: "users", marketing: "suppressions" }; if (t) setTab((moved[t] ?? t) as Tab); }, []);
+  // Old links: "תעדוף לידים" now lives in "חייגן"; "הרשאות נתונים" / "מודולים והרשאות" in "משתמשים וצוותים";
+  // the removed "מאמן AI" tab (the coach is in מרכז ה־AI) → the dialer settings. The address bar shows the real tab.
+  useEffect(() => {
+    const url = new URL(window.location.href); const t = url.searchParams.get("tab");
+    const moved: Record<string, Tab> = { priority: "general", permissions: "users", access: "users", marketing: "suppressions", coach: "general" };
+    if (!t) return;
+    setTab((moved[t] ?? t) as Tab);
+    if (moved[t]) { url.searchParams.set("tab", moved[t]); window.history.replaceState(null, "", url.toString()); }
+  }, []);
   const isAdmin = me?.user.role === "owner";
   // Server modules are crm/telephony/whatsapp/sms/email; `messaging` here means the WhatsApp module.
   const modules: Record<string, boolean> = me ? { ...me.modules, messaging: me.modules.whatsapp ?? me.modules.messaging ?? false } : { crm: true, messaging: true, telephony: true };
   const groups: Array<{ title: string; tabs: Array<[Tab, string]>; show: boolean }> = [
     { title: t("עסק", "Business"), tabs: [["business", t("פרטי העסק", "Business details")], ["users", t("משתמשים והרשאות", "Users & permissions")], ["connections", t("חיבורים", "Connections")], ["plan", t("חבילה ומכסות", "Plan & quotas")], ["automations", t("אוטומציות", "Automations")], ["assistant", t("העוזר האישי בוואטסאפ", "WhatsApp personal assistant")], ["account", t("חשבון ומחיקה", "Account & deletion")], ["suppressions", t("הסרות והגנות דיוור", "Unsubscribes & sending protection")], ["history", t("היסטוריית שינויים", "Change history")]], show: true },
-    { title: t("טלפוניה", "Telephony"), tabs: [["general", t("חייגן", "Dialer")], ["safety", t("בטיחות ושיחות נכנסות", "Safety & inbound calls")], ["numbers", t("מספרים יוצאים", "Outbound numbers")], ["scripts", t("תסריטים", "Scripts")], ["dnc", t("לא ליצור קשר", "Do not contact")], ["coach", t("מאמן AI", "AI coach")]], show: modules.telephony },
+    { title: t("טלפוניה", "Telephony"), tabs: [["general", t("חייגן", "Dialer")], ["safety", t("בטיחות ושיחות נכנסות", "Safety & inbound calls")], ["numbers", t("מספרים יוצאים", "Outbound numbers")], ["scripts", t("תסריטים", "Scripts")], ["dnc", t("לא ליצור קשר", "Do not contact")]], show: modules.telephony },
   ];
   return (
     <div className="p-5 space-y-4 max-w-5xl min-w-0">
@@ -57,7 +64,6 @@ export default function SettingsPage() {
       {tab === "general" && <><GeneralTab isAdmin={isAdmin} /><div id="prioritization" className="mt-4"><PriorityTab isAdmin={isAdmin} /></div></>}
       {tab === "safety" && <SafetyTab isAdmin={isAdmin} />}
       {tab === "history" && <HistoryTab />}
-      {tab === "coach" && <div className="rounded-lg border border-line bg-panel p-4 text-sm space-y-2" data-testid="settings-coach-moved"><p>{t("המאמן עבר ל״מרכז ה־AI ← מאמן מכירות״ – שם נמצאים ההגדרות, הידע המאושר, ההקלטות והתובנות לסקירה.", "The coach moved to \"AI Center → Sales coach\" – settings, approved knowledge, recordings and insights for review are there.")}</p><a href="/ai?tab=sales" className="text-accent underline" data-testid="settings-coach-link">{t("למאמן המכירות", "Open the sales coach")}</a></div>}
       {tab === "assistant" && <AssistantSettings isOwner={isAdmin} />}
       {tab === "numbers" && <NumbersTab isAdmin={isAdmin} />}
       {tab === "users" && <div className="space-y-4" data-testid="users-and-permissions">

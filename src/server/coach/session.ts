@@ -25,7 +25,7 @@ export async function coachStatus(userId: string): Promise<CoachStatus> {
   const businessId = requireBusinessId();
   const [settings, user] = await Promise.all([getBusinessSettings(businessId), prisma.user.findUnique({ where: { id: userId }, select: { coachEnabled: true } })]);
   const providers = providerStatus();
-  if (!settings.coach.enabled) return { enabled: false, reason: "המאמן כבוי לעסק (הגדרות → מאמן AI)", providers, live: false };
+  if (!settings.coach.enabled) return { enabled: false, reason: "המאמן כבוי לעסק (מרכז ה־AI ← מאמן מכירות)", providers, live: false };
   if (!user?.coachEnabled) return { enabled: false, reason: "המאמן כבוי לנציג זה", providers, live: false };
   if (providers.llm === "missing") return { enabled: true, reason: "חסר מפתח AI (ANTHROPIC_API_KEY) – אין המלצות", providers, live: false };
   return { enabled: true, providers, live: true };

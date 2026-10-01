@@ -100,9 +100,12 @@ export function StartSessionForm({ onStarted, compact, initialListId }: { onStar
     }).catch(() => { setLists([]); setSource("mine"); void loadMine(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // The business default – only when IT changes (the dialer state is re-polled every few seconds: depending on the
+  // settings object would reset the agent's own choice of "pause between calls" on every poll).
+  const businessCountdown = state?.settings?.autoDialCountdownSeconds;
   useEffect(() => {
-    if (state?.settings) setCd(state.settings.autoDialCountdownSeconds);
-  }, [state?.settings]);
+    if (businessCountdown !== undefined) setCd(businessCountdown);
+  }, [businessCountdown]);
 
   const chosen = source === "mine" ? mine : (lists?.find((l) => l.id === listId) ?? null);
   const effectiveListId = source === "mine" ? (mine?.id ?? "") : listId;

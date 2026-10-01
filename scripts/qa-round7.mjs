@@ -56,7 +56,7 @@ await step("R4 journey builder: new journey, trigger, add wait + tag + WhatsApp/
 await step("R5 dialer: in power mode 'חייג לליד' works during the countdown (dials the next lead)", async () => {
   await login("agent1@demo.local"); await cleanup();
   await page.goto(`${BASE}/dialer`); await page.waitForSelector("text=זמינים לחיוג עכשיו"); await page.waitForSelector('[data-testid="start-dialer"]:not([disabled])');
-  await page.click('[data-testid="start-dialer"]'); await page.waitForSelector('[data-testid="call-strip"]');
+  await page.waitForSelector('[data-testid="launch-campaign"]:not([disabled])', { timeout: 60000 }); if (!(await page.locator('[data-testid="launch-campaign"]').inputValue())) await page.selectOption('[data-testid="launch-campaign"]', { index: (await page.locator('[data-testid="launch-campaign"] option').count()) > 2 ? 2 : 1 }); await page.click('[data-testid="start-dialer"]'); await page.waitForSelector('[data-testid="call-strip"]');
   const net = []; page.on("response", async (r) => { if (/dialer\/(call|next-lead|session)/.test(r.url())) net.push(`${r.request().method()} ${r.url().split("/api/")[1].slice(0, 30)} ${r.status()} ${(await r.text().catch(() => "")).slice(0, 90)}`); });
   const b = page.locator('[data-testid="strip-dial-lead"]');
   await page.waitForTimeout(800);

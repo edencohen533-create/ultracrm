@@ -175,12 +175,7 @@ export function ReportsOverview() {
       {data && periodsText && (
         <>
           {noCompareData && <p className="rounded-lg border border-line bg-panel px-3 py-2 text-xs text-muted" role="status" data-testid="rep-no-compare">{t("אין נתונים בתקופת ההשוואה – שינויים לא מוצגים.", "No data in the comparison period – changes aren't shown.")}</p>}
-          {/* 2. Key metrics – the same in every channel view */}
-          <section aria-label={t("מדדים מרכזיים", "Key metrics")} className={cx("grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4", loading && "opacity-60")} data-testid="rep-kpis">
-            {group(KEY).map((m) => <MetricCard key={m.id} m={m} hideChange={noCompareData} periods={periodsText} />)}
-          </section>
-
-          {/* 3. Channel switch – activity areas, charts and the table's activity columns */}
+          {/* 1b. Channel switch (above the table: it sets the table's activity columns) – activity areas, charts and the table's activity columns */}
           {(channels.telephony || channels.whatsapp) && (
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex rounded-lg border border-line bg-panel p-0.5" role="group" aria-label={t("ערוץ פעילות", "Activity channel")} data-testid="rep-channel">
@@ -193,6 +188,16 @@ export function ReportsOverview() {
               <span className="text-xs text-muted">{t("המדדים המרכזיים לא משתנים לפי ערוץ – אין שיוך אמין של מכירה לערוץ.", "Key metrics don't change by channel – sales can't be reliably attributed to a channel.")}</span>
             </div>
           )}
+
+          {/* 2. One row per agent – first on the page; the same filters, activity columns by channel */}
+          <div className="rounded-xl border border-line bg-panel">
+            <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">{t("פירוט לפי נציג", "Detail by agent")}</h2>
+            {query && <AgentPerformance query={query} channel={channel} channels={channels} />}
+          </div>
+          {/* 3. Key metrics – the same in every channel view */}
+          <section aria-label={t("מדדים מרכזיים", "Key metrics")} className={cx("grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4", loading && "opacity-60")} data-testid="rep-kpis">
+            {group(KEY).map((m) => <MetricCard key={m.id} m={m} hideChange={noCompareData} periods={periodsText} />)}
+          </section>
 
           <div className={cx("grid gap-3", showTel && showWa ? "lg:grid-cols-2" : "lg:grid-cols-[3fr_2fr]", loading && "opacity-60")}>
             {showTel && <MetricGroup title={t("שיחות טלפון", "Phone calls")} testId="rep-group-calls" metrics={group(CALLS)} href={historyHref} hideChange={noCompareData} periods={periodsText} note={note} />}
@@ -228,11 +233,6 @@ export function ReportsOverview() {
             <Panel className="min-w-0" title={t("עסקאות שנסגרו לפי יום", "Deals won per day")}><DailyBars cur={data.series.current} prev={data.series.compare} field="dealsWon" /></Panel>
           </div>
 
-          {/* 5. One row per agent – the same filters, activity columns by channel */}
-          <div className="rounded-xl border border-line bg-panel">
-            <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">{t("פירוט לפי נציג", "Detail by agent")}</h2>
-            {query && <AgentPerformance query={query} channel={channel} channels={channels} />}
-          </div>
         </>
       )}
     </div>

@@ -95,7 +95,7 @@ export function StartSessionForm({ onStarted, compact, initialListId }: { onStar
     api.get<ListLite[]>("/api/lists").then((l) => {
       const active = l.filter((x) => x.isActive).sort((a, b) => b.stats.dueNow - a.stats.dueNow);
       setLists(active);
-      if (!listId && active[0]) setListId(active[0].id);
+      if (!compact && !listId && active[0]) setListId(active[0].id);
       if (active.length === 0) { setSource("mine"); void loadMine(); }
     }).catch(() => { setLists([]); setSource("mine"); void loadMine(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,28 +107,40 @@ export function StartSessionForm({ onStarted, compact, initialListId }: { onStar
   const chosen = source === "mine" ? mine : (lists?.find((l) => l.id === listId) ?? null);
   const effectiveListId = source === "mine" ? (mine?.id ?? "") : listId;
   const blocked = Boolean(state?.activeCall);
-  return (
-    <div className={compact ? "space-y-3" : "flex flex-wrap items-end gap-3"}>
-      {compact && (
-        <div className="rounded-lg border border-line bg-panel-2 p-3 text-sm space-y-1">
-          <div className="flex rounded-lg border border-line overflow-hidden w-fit mb-1" role="radiogroup" aria-label={t("מקור התור", "Queue source")}>
-            <button role="radio" aria-checked={source === "mine"} onClick={() => { setSource("mine"); if (!mine) void loadMine(); }} className={cx("h-8 px-3 text-xs", source === "mine" ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid="source-mine">{t("הלידים שלי", "My leads")}</button>
-            <button role="radio" aria-checked={source === "list"} onClick={() => setSource("list")} disabled={!lists?.length} className={cx("h-8 px-3 text-xs disabled:opacity-40", source === "list" ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid="source-list">{t("רשימת חיוג", "Dial list")}</button>
+  if (compact) {
+    // The launcher card ("הפעלת חייגן אוטומטי"): one campaign picker + one start button; mode / pause under "more".
+    const pick = source === "mine" ? "__mine" : listId;
+    const start = async () => { await startSession(mode, mode === "manual" ? undefined : effectiveListId, mode === "power" ? cd : undefined); onStarted?.(); };
+    return (
+      <div className="space-y-3" data-testid="dialer-launch-form">
+        <select aria-label={t("בחירת קמפיין", "Choose a campaign")} value={pick} onChange={(e) => { const v = e.target.value; if (v === "__mine") { setSource("mine"); if (!mine) void loadMine(); } else { setSource("list"); setListId(v); } }}
+          className="h-12 w-full rounded-lg border border-line bg-panel px-3 text-sm" data-testid="launch-campaign" disabled={lists === null}>
+          <option value="" disabled>{lists === null ? t("טוען קמפיינים…", "Loading campaigns…") : t("בחירת קמפיין", "Choose a campaign")}</option>
+          <option value="__mine">{t("הלידים שלי (תור אישי)", "My leads (personal queue)")}</option>
+          {(lists ?? []).map((l) => <option key={l.id} value={l.id}>{l.name} ({t(`${l.stats.dueNow} בתור`, `${l.stats.dueNow} in queue`)})</option>)}
+        </select>
+        {source === "mine" && mineBusy ? <p className="text-xs text-muted">{t("בונה את התור מהלידים הפתוחים שלך…", "Building the queue from your open leads…")}</p>
+          : source === "mine" && !mine ? <p className="text-xs text-muted">{t("לא נמצאו לידים פתוחים ששייכים לך.", "No open leads assigned to you were found.")}</p>
+          : chosen ? <p className={cx("text-xs", chosen.stats.dueNow === 0 ? "text-warn" : "text-muted")} data-testid="launch-available">{chosen.stats.dueNow === 0 ? t("אין כרגע לידים זמינים בקמפיין זה.", "No leads are available in this campaign right now.") : t(`זמינים לחיוג עכשיו: ${chosen.stats.dueNow} מתוך ${chosen.stats.total}`, `Available to dial now: ${chosen.stats.dueNow} of ${chosen.stats.total}`)}</p>
+          : lists?.length === 0 ? <p className="text-xs text-muted">{t("אין קמפיין פעיל שמשויך אליך – אפשר לחייג מ״הלידים שלי״.", "No active campaign is assigned to you – you can dial from \"My leads\".")}</p> : null}
+        {blocked && <p className="text-xs text-warn">{t("יש שיחה פעילה – סיים אותה לפני הפעלת החייגן.", "There is an active call – finish it before starting the dialer.")}</p>}
+        <Button size="md" variant="good" className="h-12 w-full text-base" loading={busy === "session"} disabled={blocked || mineBusy || (mode !== "manual" && !effectiveListId)} data-testid="start-dialer" onClick={start}>
+          {mode === "power" ? t("הפעלת חייגן אוטומטי", "Start auto-dialer") : mode === "preview" ? t("הפעלת חייגן (Preview)", "Start dialer (Preview)") : t("התחלת סשן ידני", "Start manual session")}
+        </Button>
+        <details className="text-xs text-muted" data-testid="launch-more">
+          <summary className="cursor-pointer select-none">{t("אפשרויות נוספות", "More options")}</summary>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <div className="flex rounded-lg border border-line overflow-hidden" role="radiogroup" aria-label={t("מצב חיוג", "Dial mode")}>
+              {(["power", "preview", "manual"] as DialMode[]).map((m) => <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={cx("h-9 px-3 text-xs transition-colors", mode === m ? "bg-accent text-white" : "text-muted hover:text-text")}>{MODE_LABEL[m]}</button>)}
+            </div>
+            {mode === "power" && <label className="block"><span className="block mb-1">{t("השהיה בין שיחות", "Pause between calls")}</span><select value={cd} onChange={(e) => setCd(Number(e.target.value))} className="h-9 px-3 rounded-lg bg-bg border border-line">{[0, 3, 5, 10, 15, 30].map((v) => <option key={v} value={v}>{t(`${v} שנ׳`, `${v}s`)}</option>)}</select></label>}
           </div>
-          {source === "mine" && mineBusy && !mine ? <p className="text-muted">{t("בונה את התור מהלידים הפתוחים שלך…", "Building the queue from your open leads…")}</p> : source === "mine" && !mine ? (
-            <p className="text-muted">{t("לא נמצאו לידים פתוחים ששייכים לך. ליד שמשויך אליך בסטטוס חדש/נוצר קשר/מתאים ייכנס לתור אוטומטית.", "No open leads assigned to you were found. A lead assigned to you with status New/Contacted/Qualified will enter the queue automatically.")}</p>
-          ) : source === "list" && lists === null ? <p className="text-muted">{t("טוען רשימות…", "Loading lists…")}</p> : source === "list" && lists?.length === 0 ? (
-            <p className="text-muted">{t("אין רשימת חיוג פעילה שמשויכת אליך – בחר \"הלידים שלי\".", "No active dial list is assigned to you – choose \"My leads\".")}</p>
-          ) : chosen ? (
-            <>
-              <p>{t("יחויגו לידים מהתור", "Leads will be dialed from queue")} <b>{chosen.name}</b>.</p>
-              <p className="text-muted">{t("זמינים לחיוג עכשיו:", "Available to dial now:")} <b className="text-text tabular">{chosen.stats.dueNow}</b> {t("מתוך", "of")} <span className="tabular">{chosen.stats.total}</span>. {t("לידים בטיפול אצל נציג אחר, חסומים (DNC), עם חזרה מתוזמנת עתידית או מחוץ לחלון החיוג אינם נכללים.", "Leads handled by another agent, blocked (DNC), with a future scheduled callback, or outside the dial window are excluded.")}</p>
-              {chosen.stats.dueNow === 0 && <p className="text-warn">{t("אין כרגע לידים זמינים ברשימה זו.", "No leads are available in this list right now.")}</p>}
-            </>
-          ) : null}
-          {blocked && <p className="text-warn">{t("יש שיחה פעילה – סיים אותה לפני הפעלת החייגן.", "There is an active call – finish it before starting the dialer.")}</p>}
-        </div>
-      )}
+        </details>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-end gap-3">
       <div className="flex rounded-lg border border-line overflow-hidden">
         {(["manual", "preview", "power"] as DialMode[]).map((m) => (
           <button key={m} onClick={() => setMode(m)} className={cx("h-10 px-4 text-sm transition-colors", mode === m ? "bg-accent text-white" : "text-muted hover:text-text hover:bg-white/5")}>

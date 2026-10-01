@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { Badge, Button, EmptyState, Input, Modal, Select, Spinner, Textarea } from "@/components/ui";
 import { useT } from "@/components/i18n/LangProvider";
+import { ListAccessModal } from "@/components/lists/ListAccessModal";
 import { ListAdminActions } from "@/components/lists/ListAdminActions";
 import { HelpTip } from "@/components/ai/HelpTip";
 import { BusinessDialingNote, HelpLabel, listHelp, type BusinessDialState } from "@/components/lists/ListHelp";
@@ -26,6 +27,7 @@ export function DialListsScreen() {
   const [scripts, setScripts] = useState<Array<{ id: string; title: string }>>([]);
   const [me, setMe] = useState<{ role: string } | null>(null);
   const [form, setForm] = useState({ name: "", description: "", priority: 5, maxAttempts: "", unansweredLimit: "", access: "all" as "all" | "selected", retryIntervalMinutes: "", scriptId: "", phoneNumberId: "", isDynamic: false, agentIds: [] as string[], filterSource: "", filterNeverCalled: false, audience: "new_prospects" as "new_prospects" | "existing_customers" | "all" });
+  const [accessFor, setAccessFor] = useState<ListRow | null>(null);
   const [numbers, setNumbers] = useState<Array<{ id: string; e164: string; label: string | null }>>([]);
 
   const load = useCallback(async () => {
@@ -88,14 +90,22 @@ export function DialListsScreen() {
                   <div key={key} className="bg-white/4 rounded-md py-1.5"><p className="text-base font-semibold tabular">{v}</p><p className="flex items-center justify-center text-[10px] text-muted">{k}{h && <HelpTip label={k} hover testId={`list-help-${key}-${l.id}`}>{h}</HelpTip>}</p></div>
                 ))}
               </div>
-              <p className="text-[11px] text-muted mt-3 truncate">{t("נציגים:", "Agents:")} {l.agents.length ? l.agents.map((a) => a.user.fullName).join(", ") : t("כולם", "All")} · {t("עדיפות", "Priority")} {l.priority} · {l.audience === "existing_customers" ? t("לקוחות קיימים", "Existing customers") : l.audience === "all" ? t("כולם", "Everyone") : t("גיוס", "Acquisition")}</p>
+              <p className="text-[11px] text-muted mt-3 truncate">{!isManager && <>{t("נציגים:", "Agents:")} {l.agents.length ? l.agents.map((a) => a.user.fullName).join(", ") : t("כולם", "All")} · </>}{t("עדיפות", "Priority")} {l.priority} · {l.audience === "existing_customers" ? t("לקוחות קיימים", "Existing customers") : l.audience === "all" ? t("כולם", "Everyone") : t("גיוס", "Acquisition")}</p>
             </Link>
+            {isManager && (
+              <div className="mt-3 flex items-center gap-2 border-t border-line pt-2 text-xs" data-testid={`list-access-${l.id}`}>
+                <span className="text-muted shrink-0">{t("הרשאת נציגים:", "Agent access:")}</span>
+                <span className="min-w-0 flex-1 truncate" title={l.agents.map((a) => a.user.fullName).join(", ")}>{l.agents.length ? l.agents.map((a) => a.user.fullName).join(", ") : t("כל הנציגים", "All agents")}</span>
+                <Button size="sm" variant="secondary" onClick={() => setAccessFor(l)} data-testid={`list-access-edit-${l.id}`}>{t("בחירת נציגים", "Choose agents")}</Button>
+              </div>
+            )}
             {isManager && <ListAdminActions list={l} lists={lists} onChanged={load} />}
             </div>
           ))}
         </div>
       )}
 
+      {accessFor && <ListAccessModal listId={accessFor.id} listName={accessFor.name} current={accessFor.agents.map((a) => a.user.id)} users={users} onClose={() => setAccessFor(null)} onSaved={load} />}
       <Modal open={open} onClose={() => setOpen(false)} title={t("רשימת חיוג חדשה", "New dial list")} width="max-w-2xl" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>{t("ביטול", "Cancel")}</Button><Button onClick={create} loading={creating} data-testid="list-create" disabled={creating || !form.name.trim() || (form.access === "selected" && !form.agentIds.length)}>{t("צור", "Create")}</Button></>}>
         <div className="grid grid-cols-2 gap-3">
           <Input label={t("שם", "Name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="col-span-2" />

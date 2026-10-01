@@ -33,7 +33,7 @@ const MGMT: Role[] = ["manager", "owner"];
 const ITEMS: Item[] = [
   { href: "/leads", label: "CRM", en: "CRM", roles: ALL, need: ["crm.view"], Icon: Star, testid: "nav-leads", match: (p) => p === "/leads" || p.startsWith("/leads/") || (p.startsWith("/contacts/") && !p.startsWith("/contacts/duplicates")) || p.startsWith("/deals") },
   // "חייגן": dial lists, call history and active calls (tabs), plus the running dialer screen.
-  { href: "/calling/lists", label: "חייגן", en: "Dialer", roles: ALL, need: ["telephony.use"], Icon: PhoneCall, testid: "nav-dial-campaigns", match: (p) => p.startsWith("/calling") || p === "/dialer" },
+  { href: "/calling/start", label: "חייגן", en: "Dialer", roles: ALL, need: ["telephony.use"], Icon: PhoneCall, testid: "nav-dial-campaigns", match: (p) => p.startsWith("/calling") || p === "/dialer" },
   { href: "/inbox", label: "שיחות וואטסאפ", en: "WhatsApp chats", roles: ALL, need: ["whatsapp.view"], Icon: MessageCircle, testid: "nav-inbox", match: (p) => p.startsWith("/inbox") },
   { href: "/contacts", label: "קהלים ואנשי קשר", en: "Audiences & contacts", roles: ALL, need: ["crm.view", "sms.draft", "email.draft", "whatsapp.campaign_draft"], Icon: Users, testid: "nav-contacts", match: (p) => p === "/contacts" || p.startsWith("/contacts/duplicates") || p.startsWith("/audiences") },
   { href: "/templates", label: "תבניות WhatsApp", en: "WhatsApp templates", roles: ALL, need: ["whatsapp.campaign_draft", "whatsapp.automations"], Icon: FileText, testid: "nav-templates", match: (p) => p.startsWith("/templates") },
@@ -57,6 +57,8 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
   const role = user.role as Role;
   const allowed = (need: string) => { const [m, a] = need.split(".") as [ModuleKey, string]; return access[m]?.state === "active" && access[m].actions.includes(a); };
   const anyModule = Object.values(access).some((x) => x.state === "active");
+  const on = (m: ModuleKey) => access[m]?.state === "active";
+  const moduleNames = [on("telephony") && t("טלפוניה", "Telephony"), (on("sms") || on("email")) && t("דיוור", "Campaigns"), on("whatsapp") && t("וואטסאפ", "WhatsApp"), on("crm") && "CRM"].filter(Boolean) as string[];
   const campaignsHref = allowed("whatsapp.campaign_draft") || allowed("whatsapp.campaign_send") ? "/campaigns/whatsapp" : allowed("sms.view") ? "/campaigns/sms" : "/campaigns/email";
   const items = ITEMS.filter((i) => i.roles.includes(role) && (i.need ? i.need.some(allowed) : anyModule)).map((i) => (i.testid === "nav-campaigns" ? { ...i, href: campaignsHref } : i));
   // Managers see what the package does not include (locked, with an upgrade request) – regular users never do.
@@ -133,12 +135,15 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
           </a>
           {access.telephony?.state === "active" && <Badge tone={presenceTone} dot>{t(...(PRESENCE_PAIR[presence] ?? [presence, presence]))}</Badge>}
         </div>
-        {access.telephony?.state === "active" && (
-          <div className="flex items-center justify-between text-[11px] px-1">
-            <span className="text-muted">{t("טלפוניה", "Telephony")}</span>
-            <span className={cx(phone.status === "ready" ? "text-good" : phone.status === "simulation" ? "text-warn" : phone.status === "connecting" ? "text-info" : "text-bad")}>
-              {phone.status === "ready" ? t("מחובר", "Connected") : phone.status === "simulation" ? t("הדמיה", "Simulation") : phone.status === "connecting" ? t("מתחבר…", "Connecting…") : phone.status === "disconnected" ? t("מנותק", "Disconnected") : phone.status === "error" ? t("שגיאה", "Error") : "—"}
-            </span>
+        {/* The modules active for this user, in a fixed order ("דיוור" = SMS / email); with telephony, its connection status */}
+        {moduleNames.length > 0 && (
+          <div className="flex items-center justify-between gap-2 text-[11px] px-1">
+            <span className="min-w-0 truncate text-muted" data-testid="nav-modules">{moduleNames.join(" | ")}</span>
+            {access.telephony?.state === "active" && (
+              <span title={t("מצב חיבור הטלפוניה", "Telephony connection status")} className={cx("shrink-0", phone.status === "ready" ? "text-good" : phone.status === "simulation" ? "text-warn" : phone.status === "connecting" ? "text-info" : "text-bad")}>
+                {phone.status === "ready" ? t("מחובר", "Connected") : phone.status === "simulation" ? t("הדמיה", "Simulation") : phone.status === "connecting" ? t("מתחבר…", "Connecting…") : phone.status === "disconnected" ? t("מנותק", "Disconnected") : phone.status === "error" ? t("שגיאה", "Error") : "—"}
+              </span>
+            )}
           </div>
         )}
         <LanguageToggle className="w-full justify-center h-8 rounded-md text-muted hover:text-text hover:bg-panel-2" />

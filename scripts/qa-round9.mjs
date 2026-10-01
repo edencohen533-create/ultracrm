@@ -94,7 +94,8 @@ await step("R9 dialer: hang up → 'המשך לליד הבא' (no wrap-up screen
   // Reuse a live session of this agent, or start a fresh preview session.
   if (!(await page.locator('[data-testid="strip-dial-lead"]').count())) {
     await page.waitForSelector('[data-testid="start-dialer"]');
-    await page.getByRole("button", { name: "Preview" }).first().click();
+    await page.click('[data-testid="launch-more"] summary'); await page.getByRole("radio", { name: "Preview" }).first().click(); // mode is under "אפשרויות נוספות"
+    await page.waitForSelector('[data-testid="launch-campaign"]:not([disabled])', { timeout: 60000 }); if (!(await page.locator('[data-testid="launch-campaign"]').inputValue())) await page.selectOption('[data-testid="launch-campaign"]', { index: (await page.locator('[data-testid="launch-campaign"] option').count()) > 2 ? 2 : 1 });
     await page.waitForSelector('[data-testid="start-dialer"]:not([disabled])', { timeout: 60000 }); await page.click('[data-testid="start-dialer"]');
   }
   await page.waitForSelector('[data-testid="call-strip"]');

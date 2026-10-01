@@ -265,6 +265,12 @@ export async function updateContact(user: SessionUser, id: string, input: z.infe
     await tx.contact.update({ where: { id: c.id }, data });
     await syncTags(tx, businessId, c.id, input.tagIds, input.tagNames);
     await audit(businessId, user.id, "contact", c.id, "contact.updated", { fields: Object.keys(input) }, tx);
+    if (input.customFields !== undefined) {
+      // Which custom fields actually changed (for rules such as "המרות למטא" – field changed to a value).
+      const before = (c.customFields ?? {}) as Record<string, unknown>, after = (input.customFields ?? {}) as Record<string, unknown>;
+      const changes = Object.fromEntries(Object.keys({ ...before, ...after }).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k])).map((k) => [k, after[k] ?? null]));
+      if (Object.keys(changes).length) await (await import("@/lib/events")).emitEvent(tx, { businessId, type: "contact.field_changed", contactId: c.id, actorUserId: user.id, source: "user", dedupeKey: `contact.field_changed:${c.id}:${Date.now()}`, payload: { changes } });
+    }
     let summary = await suppressionSummary(businessId, c.id, tx);
     if (input.isBlocked === false && (summary.fullyBlocked || c.isBlocked)) {
       await releaseFullBlock(businessId, c.id, user.id, input.consentEvidence ?? "", tx);

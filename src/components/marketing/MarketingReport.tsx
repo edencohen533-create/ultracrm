@@ -91,6 +91,7 @@ export function MarketingReport({ canConnect, canExport }: { canConnect: boolean
 
   return (
     <div className="space-y-4 p-4 md:p-5" data-testid="marketing-report">
+      <div className="flex justify-end"><Link href="/reports/marketing/meta" className="inline-flex h-9 items-center gap-1 rounded-lg border border-line bg-panel px-3 text-sm hover:border-accent hover:text-accent" data-testid="open-meta-conversions">{t("המרות למטא", "Conversions to Meta")}</Link></div>
       <section className="rounded-xl border border-line bg-panel p-3 space-y-2" aria-label={t("סינון", "Filters")}>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
           <Select label={t("תקופה", "Period")} value={q.preset} onChange={(e) => set({ preset: e.target.value, ...(e.target.value === "custom" ? { from, to } : { from: "", to: "" }) })} data-testid="mkt-preset">

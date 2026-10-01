@@ -487,6 +487,10 @@ model Business {
   paymentConnections     PaymentProviderConnection[]
   paymentRequests        PaymentRequest[]
   paymentEvents          PaymentEvent[]
+  metaCapiConnection     MetaCapiConnection?
+  metaCapiRules          MetaCapiRule[]
+  metaCapiEvents         MetaCapiEvent[]
+  appointments           Appointment[]
 
   @@map("businesses")
 }
@@ -4280,4 +4284,138 @@ model SalesDealLearning {
   @@unique([dealId])
   @@index([businessId, status])
   @@map("sales_deal_learnings")
+}
+
+/// "המרות למטא": the Conversions API connection of a business – SEPARATE from the ads-reading connection
+/// (meta_ad_connections, ads_read). Sending events needs its own token with access to the dataset; nothing is assumed.
+model MetaCapiConnection {
+  id                String    @id @default(cuid())
+  businessId        String    @unique @map("business_id")
+  datasetId         String    @map("dataset_id")
+  datasetName       String?   @map("dataset_name")
+  /// sealed with ENCRYPTION_KEY, never returned to the browser
+  tokenSealed       String    @map("token_sealed")
+  tokenHint         String?   @map("token_hint")
+  /// off = connected but not sending; on = sending
+  enabled           Boolean   @default(false)
+  /// when set, every event is sent with this code (Events Manager → Test events) – no production signal
+  testEventCode     String?   @map("test_event_code")
+  /// unverified | ok | revoked | error – from real Graph answers only
+  status            String    @default("unverified")
+  lastError         String?   @map("last_error")
+  lastCheckedAt     DateTime? @map("last_checked_at")
+  /// custom_data.lead_event_source for the CRM (Conversion Leads) route
+  leadEventSource   String    @default("UltraCRM") @map("lead_event_source")
+  /// The site / store plugin already sends Purchase: one agreed source – a CRM purchase that matches a store order
+  /// (same customer, same total, within 48h) is not sent again under another id.
+  siteSendsPurchase Boolean   @default(false) @map("site_sends_purchase")
+  connectedById     String?   @map("connected_by_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("meta_capi_connections")
+}
+
+/// A no-code mapping: CRM trigger (+ conditions) → Meta standard / custom event with a value source.
+model MetaCapiRule {
+  id            String   @id @default(cuid())
+  businessId    String   @map("business_id")
+  name          String
+  /// lead_created | lead_status | appointment_scheduled | appointment_attended | deal_won | payment_received | field_changed
+  trigger       String
+  /// { statusId?, kind?, field?, fieldValue? }
+  triggerConfig Json     @default("{}") @map("trigger_config")
+  /// { listId?, product?, source? }
+  conditions    Json     @default("{}")
+  /// standard | custom
+  eventKind     String   @map("event_kind")
+  eventName     String   @map("event_name")
+  /// system_generated (CRM / Conversion Leads) | phone_call | chat | physical_store | email | other
+  actionSource  String   @map("action_source")
+  /// none | deal_amount | payment_amount | custom_field | fixed
+  valueSource   String   @default("none") @map("value_source")
+  valueField    String?  @map("value_field")
+  fixedValue    Decimal? @map("fixed_value") @db.Decimal(14, 2)
+  /// a fixed ISO currency, or null = from the deal / payment
+  currency      String?
+  /// what the value includes (documented for the business; the CRM amount is sent as stored)
+  valueIncludes Json     @default("{}") @map("value_includes")
+  /// once (per lead / deal / appointment) | every (each new occurrence)
+  resend        String   @default("once")
+  enabled       Boolean  @default(false)
+  createdById   String?  @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  events   MetaCapiEvent[]
+
+  @@index([businessId, trigger, enabled])
+  @@map("meta_capi_rules")
+}
+
+/// Durable send queue + log. One row per business occurrence (dedupeKey); the payload is a snapshot taken when the
+/// event happened (hashed identifiers only), so a retry sends exactly the same content.
+model MetaCapiEvent {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  ruleId        String?   @map("rule_id")
+  dedupeKey     String    @map("dedupe_key")
+  eventName     String    @map("event_name")
+  /// sent to Meta as event_id (with event_name it deduplicates against the site / pixel)
+  eventId       String    @map("event_id")
+  occurredAt    DateTime  @map("occurred_at")
+  /// lead | deal | payment | appointment | contact
+  entityType    String    @map("entity_type")
+  entityId      String    @map("entity_id")
+  contactId     String?   @map("contact_id")
+  value         Decimal?  @db.Decimal(14, 2)
+  currency      String?
+  payload       Json      @default("{}")
+  /// pending_data | queued | sending | received | failed | expired | skipped
+  status        String    @default("queued")
+  statusReason  String?   @map("status_reason")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  lockedAt      DateTime? @map("locked_at")
+  lastError     String?   @map("last_error")
+  testCode      String?   @map("test_code")
+  fbtraceId     String?   @map("fbtrace_id")
+  receivedAt    DateTime? @map("received_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  rule     MetaCapiRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, dedupeKey])
+  @@index([businessId, status, nextAttemptAt])
+  @@index([businessId, createdAt])
+  @@map("meta_capi_events")
+}
+
+/// A meeting with a contact. Rescheduling changes the time (not a new meeting); attended / no-show / cancelled close it.
+model Appointment {
+  id               String    @id @default(cuid())
+  businessId       String    @map("business_id")
+  contactId        String    @map("contact_id")
+  leadId           String?   @map("lead_id")
+  title            String    @default("פגישה")
+  scheduledAt      DateTime  @map("scheduled_at")
+  /// scheduled | attended | no_show | cancelled
+  status           String    @default("scheduled")
+  rescheduledCount Int       @default(0) @map("rescheduled_count")
+  attendedAt       DateTime? @map("attended_at")
+  ownerUserId      String?   @map("owner_user_id")
+  createdById      String?   @map("created_by_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, contactId])
+  @@index([businessId, scheduledAt])
+  @@map("appointments")
 }

@@ -30,6 +30,6 @@ export const POST = withAuth(async ({ user }) => {
   // Follow-ups scheduled while the dialer was off enter the queue now, as "callback" rows due at their time.
   await prisma.$transaction((tx) => syncFollowUpQueue(tx, user.businessId, { userId: user.id }));
   await prisma.dialList.update({ where: { id: list.id }, data: { lastRefreshedAt: new Date() } });
-  const stats = await listQueueStats(list.id);
+  const stats = await listQueueStats(list.id, user);
   return ok({ id: list.id, name: list.name, isPaused: list.isPaused, added, stats });
 }, { module: "telephony" });

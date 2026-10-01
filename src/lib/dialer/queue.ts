@@ -375,7 +375,7 @@ export async function removeFromDnc(businessId: string, userId: string, phoneE16
 
 /** Queue counters for a list (used by the workspace and list pages). */
 /** Queue counters + why leads are NOT available right now. */
-export async function listQueueStats(listId: string) {
+export async function listQueueStats(listId: string, agent?: Pick<SessionUser, "businessId" | "id" | "role">) {
   const now = new Date();
   const [grouped, due, notDue, lockedNow, list] = await Promise.all([
     prisma.listLead.groupBy({ by: ["status"], where: { listId }, _count: { _all: true } }),
@@ -402,8 +402,21 @@ export async function listQueueStats(listId: string) {
     /** Business-wide rules that stop dialing (shown in the UI with where to change them). */
     businessPaused: Boolean(settings?.dialingPaused),
   };
+  let dialable = due;
+  if (agent) {
+    if (!list || list.businessId !== agent.businessId) throw new ApiError("רשימה לא נמצאה", 404, "not_found");
+    dialable = 0;
+    if (inWindow && !unavailable.listPaused && !unavailable.listInactive && !unavailable.businessPaused) {
+      await assertListAccess(agent.businessId, agent.id, agent.role, listId);
+      const q = await queueParams(agent.businessId, agent.id, listId);
+      // The agent-facing count must use the same ownership, suppression, retry and follow-up rules as claimNextLead.
+      dialable = (await prisma.$queryRaw<Array<{ n: number }>>(Prisma.sql`
+        SELECT count(*)::int AS n FROM ${QT("list_leads")} l JOIN ${QT("contacts")} c ON c.id = l.contact_id
+        WHERE ${queueFilter(q, { timeAware: true })}`))[0].n;
+    }
+  }
   const businessHours = window ? { start: window.start, end: window.end, days: window.days, nextOpening: inWindow ? null : nextDialWindowOpening(window, now)?.toISOString() ?? null } : null;
-  return { byStatus, businessHours, dueNow: inWindow && !unavailable.listPaused && !unavailable.listInactive && !unavailable.businessPaused ? due : 0, dueIgnoringWindow: due, unavailable, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
+  return { byStatus, businessHours, dueNow: inWindow && !unavailable.listPaused && !unavailable.listInactive && !unavailable.businessPaused ? dialable : 0, dueIgnoringWindow: due, unavailable, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
 }
 
 /** Manager: move a held/pending lead to another agent (sets preference, releases any lock, audited). */

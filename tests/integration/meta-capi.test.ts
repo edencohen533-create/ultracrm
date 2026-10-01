@@ -21,7 +21,8 @@ const { processDomainEvents, waitForEvents } = await import("@/lib/events");
 const eventsRoute = await import("@/app/api/marketing/capi/events/route");
 const overviewRoute = await import("@/app/api/marketing/capi/route");
 
-type Sent = { url: string; body: { data: Array<Record<string, any>>; test_event_code?: string } };
+type SentEvent = { event_name: string; event_id: string; action_source: string; custom_data: Record<string, unknown>; user_data: { em: string[]; ph: string[]; [key: string]: unknown } };
+type Sent = { url: string; body: { data: SentEvent[]; test_event_code?: string } };
 let sent: Sent[] = [];
 let graphMode: "ok" | "auth" | "transient" = "ok";
 const realFetch = globalThis.fetch;

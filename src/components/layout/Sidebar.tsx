@@ -3,7 +3,7 @@
 import { useT } from "@/components/i18n/LangProvider";
 import { LanguageToggle } from "@/components/i18n/LanguageToggle";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Bot, PhoneCall, BarChart3, FileText, Megaphone, MessageCircle, Settings, ShoppingCart, Star, Users, Zap } from "lucide-react";
@@ -15,7 +15,6 @@ import { api } from "@/lib/client/api";
 import type { ModuleKey } from "@/lib/modules";
 import type { EffectiveModule } from "@/lib/access/engine";
 import { Lock, Menu, Shield } from "lucide-react";
-import { resetLeadStatusesCache } from "@/lib/client/use-lead-statuses";
 import { ReportProblem } from "@/components/layout/ReportProblem";
 
 type Role = "owner" | "manager" | "agent";
@@ -48,7 +47,6 @@ const ITEMS: Item[] = [
 export function Sidebar({ user, businessName, businesses, modules, planName, access, platformAdmin }: { access: Record<ModuleKey, EffectiveModule>; platformAdmin: boolean; user: { fullName: string; role: string }; businessName: string; businesses: Array<{ id: string; name: string; active: boolean }>; modules: Record<ModuleKey, boolean>; planName: string | null }) {
   const t = useT();
   const pathname = usePathname();
-  const router = useRouter();
   const { state, phone } = useDialer();
   const [switching, setSwitching] = useState(false);
   // Phones: the nav is a drawer opened from the top bar; it closes by itself on navigation (open "at" a path).
@@ -68,10 +66,22 @@ export function Sidebar({ user, businessName, businesses, modules, planName, acc
   const presenceTone = presence === "in_call" ? "good" : presence === "available" ? "info" : presence === "wrap_up" || presence === "paused" ? "warn" : "neutral";
   const settingsActive = pathname.startsWith("/settings") || pathname.startsWith("/numbers");
 
-  async function logout() { await fetch("/api/auth/logout", { method: "POST" }); router.push("/login"); }
+  async function logout() {
+    try {
+      await api.post("/api/auth/logout");
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Authentication boundaries must discard the previous identity's module caches.
+      window.location.assign("/login");
+    }
+    catch (e) { toast.error((e as Error).message); }
+  }
   async function switchBusiness(businessId: string) {
     setSwitching(true);
-    try { await api.post("/api/auth/switch", { businessId }); resetLeadStatusesCache(); router.push("/leads"); router.refresh(); }
+    try {
+      await api.post("/api/auth/switch", { businessId });
+      // Tenant changes also reset useMe, status caches, drafts and the previous dialer provider.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- A client router refresh preserves the previous tenant's in-memory state.
+      window.location.assign("/leads");
+    }
     catch (e) { toast.error((e as Error).message); } finally { setSwitching(false); }
   }
 

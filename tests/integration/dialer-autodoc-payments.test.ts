@@ -107,11 +107,13 @@ describe("dialer: automatic documentation + in-call payments", { timeout: 900_00
       const r3 = await run(agent, () => createPaymentRequest(agent, { contactId: c.id, callId: call.id, source: { type: "product", id: product }, idempotencyKey: crypto.randomUUID() }));
       expect(r3.id).toBe(r1.id);
       expect(await db.paymentRequest.count({ where: { businessId: A.business.id, contactId: c.id } })).toBe(1);
-      expect(r1).toMatchObject({ status: "pending", amountAgorot: 118000 });
-      expect(r1.paymentUrl).toContain("/pay/sandbox/sbx_");
+      // Either concurrent caller may observe the reserved request before the provider page is ready.
+      const ready = await run(agent, () => getPaymentRequest(agent, r1.id));
+      expect(ready).toMatchObject({ status: "pending", amountAgorot: 118000 });
+      expect(ready.paymentUrl).toContain("/pay/sandbox/sbx_");
       // Closing the window / polling before the provider answers: still pending.
       expect((await run(agent, () => getPaymentRequest(agent, r1.id))).status).toBe("pending");
-      const prid = r1.paymentUrl!.split("/").pop()!;
+      const prid = ready.paymentUrl!.split("/").pop()!;
       await sandboxDecision(prid, "approved");
       const done = await run(agent, () => getPaymentRequest(agent, r1.id));
       expect(done).toMatchObject({ status: "succeeded", approvalNumber: "000000", paymentUrl: null });

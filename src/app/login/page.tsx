@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { api } from "@/lib/client/api";
 import { safeReturnPath } from "@/lib/navigation";
@@ -12,7 +12,6 @@ import { LanguageToggle } from "@/components/i18n/LanguageToggle";
 
 function LoginForm() {
   const t = useT();
-  const router = useRouter();
   const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,8 +22,8 @@ function LoginForm() {
     setLoading(true);
     try {
       await api.post<{ role: string }>("/api/auth/login", { email, password });
-      router.push(safeReturnPath(params.get("next")));
-      router.refresh();
+      // A new identity must start with fresh module caches, permissions and provider state.
+      window.location.assign(safeReturnPath(params.get("next")));
     } catch (err) {
       toast.error((err as Error).message);
     } finally {

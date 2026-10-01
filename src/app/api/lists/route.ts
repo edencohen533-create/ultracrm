@@ -1,6 +1,6 @@
 import { assertTenantReferences } from "@/lib/tenant-references";
 import { z } from "zod";
-import { withAuth, parseBody } from "@/lib/api";
+import { withAuth, parseBody, parseQuery } from "@/lib/api";
 import { ok } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { listQueueStats } from "@/lib/dialer/queue";
@@ -11,7 +11,8 @@ import type { Prisma } from "@/generated/prisma/client";
 export const dynamic = "force-dynamic";
 
 /** Lists visible to this user (agents: only lists assigned to them or unassigned). */
-export const GET = withAuth(async ({ user }) => {
+export const GET = withAuth(async ({ req, user }) => {
+  const { dialer } = parseQuery(req, z.object({ dialer: z.enum(["1"]).optional() }));
   const lists = await prisma.dialList.findMany({
     where: {
       businessId: user.businessId,
@@ -20,8 +21,8 @@ export const GET = withAuth(async ({ user }) => {
     orderBy: [{ isActive: "desc" }, { priority: "desc" }, { createdAt: "desc" }],
     include: { agents: { include: { user: { select: { id: true, fullName: true } } } }, script: { select: { id: true, title: true } }, phoneNumber: { select: { id: true, e164: true, label: true } } },
   });
-  const visible = lists.filter((l) => { const owner = (l.filterJson as { leadOwnerUserId?: string } | null)?.leadOwnerUserId; return user.role !== "agent" || !owner || owner === user.id; });
-  const stats = await Promise.all(visible.map((l) => listQueueStats(l.id)));
+  const visible = lists.filter((l) => { const owner = (l.filterJson as { leadOwnerUserId?: string } | null)?.leadOwnerUserId; return (user.role !== "agent" && !dialer) || !owner || owner === user.id; });
+  const stats = await Promise.all(visible.map((l) => listQueueStats(l.id, dialer ? user : undefined)));
   return ok(visible.map((l, i) => ({ ...l, stats: stats[i] })));
 }, { perm: "telephony.use" });
 

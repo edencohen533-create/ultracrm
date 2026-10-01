@@ -17,7 +17,7 @@ export const GET = withAuth(async ({ req, user }) => {
   for (const c of calls) if (c.outcome) outcomes[c.outcome] = (outcomes[c.outcome] ?? 0) + 1;
   const connected = calls.filter((c) => c.answeredAt);
   const wrap = calls.filter((c) => c.endedAt && c.outcomeSavedAt).map((c) => (c.outcomeSavedAt!.getTime() - c.endedAt!.getTime()) / 1000);
-  const queue = s.listId ? await listQueueStats(s.listId) : null;
+  const queue = s.listId ? await listQueueStats(s.listId, user) : null;
   return ok({
     session: { id: s.id, mode: s.mode, status: s.status, startedAt: s.startedAt, endedAt: s.endedAt, dialsCount: s.dialsCount },
     dials: calls.length,

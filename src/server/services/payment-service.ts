@@ -13,8 +13,8 @@
  *    with that connection's own secret.
  */
 import crypto from "node:crypto";
-import { prisma, db } from "@/lib/db";
-import type { Prisma } from "@/generated/prisma/client";
+import { prisma, db, type Db } from "@/lib/db";
+import type { PaymentRequest, Prisma } from "@/generated/prisma/client";
 import { ApiError } from "@/lib/response";
 import type { SessionUser } from "@/lib/auth";
 import { audit } from "@/lib/audit";
@@ -120,9 +120,22 @@ async function listPrice(user: SessionUser, contactId: string, source: { type: "
 }
 
 // ─── create / read / cancel ──────────────────────────────────────────────────────────────────────────────────────
-export async function createPaymentRequest(user: SessionUser, input: { contactId: string; callId?: string | null; source: { type: "product" | "quote" | "deal" | "custom"; id?: string | null }; amountAgorot?: number | null; description?: string | null; idempotencyKey: string }) {
-  const existing = await prisma.paymentRequest.findUnique({ where: { businessId_idempotencyKey: { businessId: user.businessId, idempotencyKey: input.idempotencyKey } } });
-  if (existing) { if (existing.agentId !== user.id) throw new ApiError("מפתח בקשה לא תקין", 400, "bad_idempotency_key"); return view(existing); }
+type CreatePaymentInput = { contactId: string; callId?: string | null; source: { type: "product" | "quote" | "deal" | "custom"; id?: string | null }; amountAgorot?: number | null; description?: string | null; idempotencyKey: string };
+
+function validateReplay(existing: PaymentRequest, user: SessionUser, input: CreatePaymentInput) {
+  if (existing.agentId !== user.id || existing.contactId !== input.contactId || existing.callId !== (input.callId ?? null)
+    || existing.sourceType !== input.source.type || existing.sourceId !== (input.source.id ?? null)
+    || (input.amountAgorot != null && existing.amountAgorot !== input.amountAgorot)
+    || (input.description?.trim() && existing.description !== input.description.trim().slice(0, 200))) {
+    throw new ApiError("מפתח הבקשה כבר משויך לתשלום אחר. יש ליצור בקשה חדשה", 400, "bad_idempotency_key");
+  }
+  return existing;
+}
+
+export async function createPaymentRequest(user: SessionUser, input: CreatePaymentInput) {
+  const key = { businessId_idempotencyKey: { businessId: user.businessId, idempotencyKey: input.idempotencyKey } };
+  const existing = await prisma.paymentRequest.findUnique({ where: key });
+  if (existing) return view(validateReplay(existing, user, input));
   const c = await contactFor(user, input.contactId);
   const connRow = await prisma.paymentProviderConnection.findFirst({ where: { businessId: user.businessId, isActive: true }, orderBy: { createdAt: "desc" } });
   if (!connRow) throw new ApiError("לא חובר ספק סליקה לעסק. בעל העסק יכול לחבר אותו בהגדרות → תשלומים", 409, "no_provider");
@@ -134,45 +147,54 @@ export async function createPaymentRequest(user: SessionUser, input: { contactId
     amount = input.amountAgorot;
   }
   if (amount == null || !Number.isInteger(amount) || amount <= 0 || amount > MAX_AGOROT) throw new ApiError("סכום לא תקין", 400, "bad_amount");
-  // The same customer + item + call already has an open request → that one (never a second page by accident).
-  const open = await prisma.paymentRequest.findFirst({ where: { businessId: user.businessId, contactId: c.id, callId: input.callId ?? null, sourceType: input.source.type, sourceId: input.source.id ?? null, amountAgorot: amount, status: { in: OPEN } }, orderBy: { createdAt: "desc" } });
-  if (open) return view(open);
-  let req;
-  try {
-    req = await prisma.paymentRequest.create({ data: {
+  // Reserve atomically, including retries with different keys. Keep the provider request outside the transaction.
+  const reservation = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payment-key:${user.businessId}:${input.idempotencyKey}`}, 0))`;
+    const replay = await tx.paymentRequest.findUnique({ where: key });
+    if (replay) return { request: validateReplay(replay, user, input), created: false };
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payment-contact:${user.businessId}:${c.id}`}, 0))`;
+    const open = await tx.paymentRequest.findFirst({ where: { businessId: user.businessId, contactId: c.id, callId: input.callId ?? null, sourceType: input.source.type, sourceId: input.source.id ?? null, amountAgorot: amount, currency: price.currency, status: { in: OPEN } }, orderBy: { createdAt: "desc" } });
+    if (open) return { request: open, created: false };
+    const request = await tx.paymentRequest.create({ data: {
       businessId: user.businessId, connectionId: connRow.id, provider: connRow.provider, contactId: c.id, callId: input.callId ?? null, agentId: user.id,
       sourceType: input.source.type, sourceId: input.source.id ?? null, description: (input.description?.trim() || price.description).slice(0, 200),
       amountAgorot: amount, currency: price.currency, listAmountAgorot: price.amount, amountEditedById: price.amount !== null && amount !== price.amount ? user.id : null, idempotencyKey: input.idempotencyKey,
     } });
-  } catch (e) {
-    if ((e as { code?: string }).code === "P2002") { const again = await prisma.paymentRequest.findUnique({ where: { businessId_idempotencyKey: { businessId: user.businessId, idempotencyKey: input.idempotencyKey } } }); if (again) return view(again); }
-    throw e;
-  }
+    return { request, created: true };
+  });
+  let req = reservation.request;
+  if (!reservation.created) return view(req);
   try {
     const page = await providerFor(connRow).createPage({ amountAgorot: amount, currency: price.currency, description: req.description, reference: req.id, callbackUrl: `${appBase()}/api/webhooks/payments/${connRow.id}`, customer: { name: c.fullName, email: c.email, phone: c.phoneE164 } });
-    req = await prisma.paymentRequest.update({ where: { id: req.id }, data: { status: "pending", providerRequestId: page.providerRequestId, paymentUrl: page.paymentUrl } });
+    req = await prisma.$transaction(async (tx) => {
+      // Keep provider identifiers for reconciliation, but never undo a cancellation made while awaiting the page.
+      await tx.paymentRequest.update({ where: { id: req.id }, data: { providerRequestId: page.providerRequestId, paymentUrl: page.paymentUrl } });
+      await tx.paymentRequest.updateMany({ where: { id: req.id, status: "created" }, data: { status: "pending" } });
+      return tx.paymentRequest.findUniqueOrThrow({ where: { id: req.id } });
+    });
   } catch (e) {
-    req = await prisma.paymentRequest.update({ where: { id: req.id }, data: { status: "failed", failureReason: `לא נוצר עמוד תשלום אצל הספק (לא בוצע חיוב): ${(e as Error).message.slice(0, 160)}` } });
+    await prisma.paymentRequest.updateMany({ where: { id: req.id, status: "created" }, data: { status: "failed", failureReason: `לא נוצר עמוד תשלום אצל הספק (לא בוצע חיוב): ${(e as Error).message.slice(0, 160)}` } });
+    req = await prisma.paymentRequest.findUniqueOrThrow({ where: { id: req.id } });
   }
   await audit(user.businessId, user.id, "payment", req.id, "payment.requested", { contactId: c.id, callId: req.callId, amountAgorot: amount, edited: Boolean(req.amountEditedById), source: input.source.type, status: req.status });
   return view(req);
 }
 
 /** Apply the provider's authoritative answer (idempotent; never downgrades a confirmed payment). */
-async function applyStatus(requestId: string, s: ProviderStatus) {
-  const r = await prisma.paymentRequest.findUnique({ where: { id: requestId } });
+async function applyStatus(requestId: string, s: ProviderStatus, tx: Db = prisma) {
+  const r = await tx.paymentRequest.findUnique({ where: { id: requestId } });
   if (!r) return null;
   if (s.status === "succeeded" && r.status !== "succeeded") {
     const late = r.status === "cancelled";
     const mismatch = s.amountAgorot != null && s.amountAgorot !== r.amountAgorot ? `הספק אישר סכום שונה: ${(s.amountAgorot / 100).toFixed(2)}` : null;
-    const u = await prisma.paymentRequest.updateMany({ where: { id: r.id, status: { not: "succeeded" } }, data: { status: "succeeded", confirmedAt: new Date(), providerTransactionId: s.transactionId ?? null, approvalNumber: s.approvalNumber ?? null, receiptUrl: s.receiptUrl ?? null, lateConfirmation: late, failureReason: mismatch } });
-    if (u.count) await audit(r.businessId, null, "payment", r.id, "payment.succeeded", { amountAgorot: s.amountAgorot ?? r.amountAgorot, late, agentId: r.agentId, contactId: r.contactId, source: r.sourceType, sourceId: r.sourceId });
+    const u = await tx.paymentRequest.updateMany({ where: { id: r.id, status: { not: "succeeded" } }, data: { status: "succeeded", confirmedAt: new Date(), providerTransactionId: s.transactionId ?? null, approvalNumber: s.approvalNumber ?? null, receiptUrl: s.receiptUrl ?? null, lateConfirmation: late, failureReason: mismatch } });
+    if (u.count) await audit(r.businessId, null, "payment", r.id, "payment.succeeded", { amountAgorot: s.amountAgorot ?? r.amountAgorot, late, agentId: r.agentId, contactId: r.contactId, source: r.sourceType, sourceId: r.sourceId }, tx);
   } else if (s.status === "failed" && OPEN.includes(r.status)) {
-    const u = await prisma.paymentRequest.updateMany({ where: { id: r.id, status: { in: OPEN } }, data: { status: "failed", failureReason: s.reason ?? "התשלום נדחה אצל הספק" } });
-    if (u.count) await audit(r.businessId, null, "payment", r.id, "payment.failed", { reason: s.reason ?? null });
+    const u = await tx.paymentRequest.updateMany({ where: { id: r.id, status: { in: OPEN } }, data: { status: "failed", failureReason: s.reason ?? "התשלום נדחה אצל הספק" } });
+    if (u.count) await audit(r.businessId, null, "payment", r.id, "payment.failed", { reason: s.reason ?? null }, tx);
   }
-  await prisma.paymentRequest.update({ where: { id: r.id }, data: { lastCheckedAt: new Date() } });
-  return prisma.paymentRequest.findUnique({ where: { id: r.id } });
+  await tx.paymentRequest.update({ where: { id: r.id }, data: { lastCheckedAt: new Date() } });
+  return tx.paymentRequest.findUnique({ where: { id: r.id } });
 }
 
 async function ownRequest(user: SessionUser, id: string) {
@@ -227,16 +249,20 @@ export async function handlePaymentWebhook(connectionId: string, raw: string, he
     let body: unknown; try { body = JSON.parse(raw); } catch { return { status: 400 as const }; }
     const parsed = provider.parseCallback(body);
     const eventKey = parsed.eventKey ?? crypto.createHash("sha256").update(raw).digest("hex");
-    try { await prisma.paymentEvent.create({ data: { businessId: conn.businessId, provider: conn.provider, eventKey, kind: "notification", summary: { ...parsed.summary, providerRequestId: parsed.providerRequestId } as Prisma.InputJsonValue } }); }
-    catch (e) { if ((e as { code?: string }).code === "P2002") return { status: 200 as const, duplicate: true }; throw e; }
+    const eventWhere = { provider: conn.provider, eventKey };
+    if (await prisma.paymentEvent.findFirst({ where: eventWhere })) return { status: 200 as const, duplicate: true };
     if (!parsed.providerRequestId) return { status: 200 as const, ignored: "no request id" };
-    const r = await prisma.paymentRequest.findFirst({ where: { businessId: conn.businessId, provider: conn.provider, providerRequestId: parsed.providerRequestId } });
+    const r = await prisma.paymentRequest.findFirst({ where: { businessId: conn.businessId, connectionId: conn.id, provider: conn.provider, providerRequestId: parsed.providerRequestId } });
     if (!r) return { status: 200 as const, ignored: "unknown request" };
-    await prisma.paymentEvent.updateMany({ where: { provider: conn.provider, eventKey }, data: { paymentRequestId: r.id } });
-    // The notification only says "look": the status is asked from the provider itself.
+    // Fetch before recording completion: a provider outage must leave this notification retryable.
     const s = await provider.fetchStatus(parsed.providerRequestId);
-    await applyStatus(r.id, s);
-    return { status: 200 as const, applied: s.status };
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payment-event:${conn.provider}:${eventKey}`}, 0))`;
+      if (await tx.paymentEvent.findFirst({ where: eventWhere })) return { status: 200 as const, duplicate: true };
+      await tx.paymentEvent.create({ data: { businessId: conn.businessId, provider: conn.provider, eventKey, paymentRequestId: r.id, kind: "notification", summary: { ...parsed.summary, providerRequestId: parsed.providerRequestId } as Prisma.InputJsonValue } });
+      await applyStatus(r.id, s, tx);
+      return { status: 200 as const, applied: s.status };
+    });
   });
 }
 

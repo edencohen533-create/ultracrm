@@ -42,16 +42,20 @@ export async function updateAppointment(user: SessionUser, id: string, input: z.
   const a = await prisma.appointment.findFirst({ where: { id } });
   if (!a) throw new ApiError("הפגישה לא נמצאה", 404, "not_found");
   await visibleContact(user, a.contactId);
-  if (a.status !== "scheduled" && input.scheduledAt) throw new ApiError("הפגישה כבר נסגרה – אפשר לקבוע פגישה חדשה", 409, "closed");
   const { emitEvent, kickEventProcessing } = await import("@/lib/events");
   const row = await prisma.$transaction(async (tx) => {
+    // Re-read under a row lock: retries must compare with the last committed state, not a stale preflight read.
+    await tx.$queryRaw`SELECT id FROM appointments WHERE id = ${id} AND business_id = ${user.businessId} FOR UPDATE`;
+    const a = await tx.appointment.findUnique({ where: { id } });
+    if (!a) throw new ApiError("הפגישה לא נמצאה", 404, "not_found");
+    if (a.status !== "scheduled" && input.scheduledAt) throw new ApiError("הפגישה כבר נסגרה – אפשר לקבוע פגישה חדשה", 409, "closed");
     const resched = input.scheduledAt && new Date(input.scheduledAt).getTime() !== a.scheduledAt.getTime();
     const u = await tx.appointment.update({ where: { id: a.id }, data: {
       ...(resched ? { scheduledAt: new Date(input.scheduledAt!), rescheduledCount: { increment: 1 } } : {}),
-      ...(input.status ? { status: input.status, attendedAt: input.status === "attended" ? new Date() : a.attendedAt } : {}),
+      ...(input.status ? { status: input.status, attendedAt: input.status === "attended" ? (a.attendedAt ?? new Date()) : null } : {}),
     } });
     // A new time is the same meeting (never a second "scheduled"); attended is emitted once per appointment.
-    if (resched) await emitEvent(tx, { businessId: user.businessId, type: "appointment.rescheduled", contactId: a.contactId, actorUserId: user.id, source: "user", dedupeKey: `appointment.rescheduled:${a.id}:${Date.now()}`, payload: { appointmentId: a.id, scheduledAt: input.scheduledAt } });
+    if (resched) await emitEvent(tx, { businessId: user.businessId, type: "appointment.rescheduled", contactId: a.contactId, actorUserId: user.id, source: "user", dedupeKey: `appointment.rescheduled:${a.id}:${u.rescheduledCount}`, payload: { appointmentId: a.id, scheduledAt: input.scheduledAt } });
     if (input.status === "attended" && a.status !== "attended") await emitEvent(tx, { businessId: user.businessId, type: "appointment.attended", contactId: a.contactId, actorUserId: user.id, source: "user", dedupeKey: `appointment.attended:${a.id}`, payload: { appointmentId: a.id, leadId: a.leadId } });
     await audit(user.businessId, user.id, "contact", a.contactId, "appointment.updated", { appointmentId: a.id, status: input.status, rescheduled: Boolean(resched) }, tx);
     return u;

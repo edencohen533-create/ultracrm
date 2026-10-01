@@ -327,6 +327,19 @@ describe("external CRM connectors", { timeout: 1_800_000 }, () => {
     expect((await contactPUT(req(readOnly.key, "/api/v1/crm/contacts/ext-2", "PUT", { name: "x", phones: [phone()] }), P("ext-2"))).status).toBe(403);
     expect((await contactPUT(req(legacy.key, "/api/v1/crm/contacts/ext-2", "PUT", { name: "x", phones: [phone()] }), P("ext-2"))).status).toBe(403);
     expect((await contactPUT(req(k.key, "/api/v1/crm/contacts/ext-3", "PUT", { phones: "not-an-array" }), P("ext-3"))).status).toBe(400);
+    // A connection's integration key works only on its own endpoints – never on the general API (create leads / orders,
+    // read leads with phones): even a read-only key used to pass there.
+    const v1Leads = await import("@/app/api/v1/leads/route"); const v1Orders = await import("@/app/api/v1/orders/route"); const v1Receipts = await import("@/app/api/v1/orders/receipts/route");
+    for (const key of [readOnly.key, k.key]) {
+      expect((await v1Leads.GET(req(key, "/api/v1/leads", "GET"))).status).toBe(403);
+      expect((await v1Leads.POST(req(key, "/api/v1/leads", "POST", { name: "x", phone: phone() }))).status).toBe(403);
+      expect((await v1Orders.POST(req(key, "/api/v1/orders", "POST", { externalId: "o-1" }))).status).toBe(403);
+      expect((await v1Receipts.POST(req(key, "/api/v1/orders/receipts", "POST", { orderExternalId: "o-1" }))).status).toBe(403);
+    }
+    // A general key isn't refused as an integration key (here it's refused only because A has no CRM module).
+    const gen = await v1Leads.GET(req(legacy.key, "/api/v1/leads", "GET"));
+    expect((await gen.json()).code).not.toBe("general_key_required");
+    for (const key of [readOnly.key, k.key]) expect((await (await v1Leads.GET(req(key, "/api/v1/leads", "GET"))).json()).code).toBe("general_key_required");
     const lr = await leadPUT(req(k.key, "/api/v1/crm/leads/opp-1", "PUT", { contactExternalId: "ext-1", status: "open", ownerExternalId: "rep-1", followUpAt: new Date(Date.now() + 86400_000).toISOString(), timezone: "Asia/Jerusalem" }), P("opp-1"));
     expect((await lr.json()).data.status).toBe("applied");
     const localLead = await db.lead.findFirstOrThrow({ where: { id: (await db.externalRecordLink.findFirstOrThrow({ where: { connectionId: gid, externalId: "opp-1" } })).localId! } });

@@ -6,7 +6,7 @@ import { ok, handleError, ApiError } from "@/lib/response";
 import { prisma } from "@/lib/db";
 import { withBusiness } from "@/lib/tenant";
 import { normalizePhone } from "@/lib/phone";
-import { authenticateApiKey } from "@/server/services/integrations";
+import { authenticateGeneralApiKey } from "@/server/services/integrations";
 import { createLead } from "@/lib/crm/pipeline";
 import { CHANNELS, normalizeTouch, touchFromFields } from "@/lib/marketing/touchpoints";
 
@@ -39,7 +39,7 @@ const schema = z.object({
  */
 export async function POST(req: Request) {
   try {
-    const a = await authenticateApiKey(req);
+    const a = await authenticateGeneralApiKey(req);
     let body: unknown; try { body = await req.json(); } catch { throw new ApiError("גוף הבקשה אינו JSON תקין", 400, "invalid_json"); }
     const p = schema.safeParse(body);
     if (!p.success) throw new ApiError("נתונים לא תקינים", 400, "validation", p.error.flatten());
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
 /** Public API: recent leads (polling trigger for Make / Zapier). */
 export async function GET(req: Request) {
   try {
-    const a = await authenticateApiKey(req);
+    const a = await authenticateGeneralApiKey(req);
     const url = new URL(req.url);
     const since = url.searchParams.get("since"); const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 50));
     // Listing leads is an export: the key's creator needs crm.export, and sees only the leads their role scope allows.

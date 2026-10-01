@@ -1,6 +1,6 @@
 import { ok, handleError, ApiError } from "@/lib/response";
 import { withBusiness } from "@/lib/tenant";
-import { authenticateApiKey } from "@/server/services/integrations";
+import { authenticateGeneralApiKey } from "@/server/services/integrations";
 import { orderSnapshotSchema, upsertStoreOrder } from "@/server/services/store-order-service";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request) {
   try {
-    const a = await authenticateApiKey(req);
+    const a = await authenticateGeneralApiKey(req);
     let body: unknown; try { body = await req.json(); } catch { throw new ApiError("גוף הבקשה אינו JSON תקין", 400, "invalid_json"); }
     const p = orderSnapshotSchema.safeParse(body);
     if (!p.success) throw new ApiError("נתונים לא תקינים", 400, "validation", p.error.flatten());

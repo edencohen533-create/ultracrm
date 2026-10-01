@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
+import { reserveAuthAttempt } from "@/lib/auth-rate-limit";
 import { ApiError } from "@/lib/response";
 import { withoutBusiness } from "@/lib/tenant";
 
@@ -16,12 +17,11 @@ export const signupSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(200), password: z.string().min(10).max(200),
   acceptTerms: z.literal(true), path: z.enum(["own_crm", "external_crm"]).default("own_crm"),
 });
-const hits = new Map<string, number[]>();
-function limited(ip: string) { const now = Date.now(); const a = (hits.get(ip) ?? []).filter((t) => now - t < 3600_000); a.push(now); hits.set(ip, a); return a.length > 5; }
-
 export async function signup(input: unknown, ip: string) {
-  if (limited(crypto.createHash("sha256").update(ip).digest("hex"))) throw new ApiError("יותר מדי הרשמות מהכתובת הזו – נסו שוב בעוד שעה", 429, "rate_limited");
-  const b = signupSchema.parse(input);
+  const parsed = signupSchema.safeParse(input);
+  if (!parsed.success) throw new ApiError("נתוני הרשמה לא תקינים", 400, "validation");
+  const b = parsed.data;
+  await reserveAuthAttempt("signup-ip", ip, 5, 3600_000);
   if (!/[A-Za-z]/.test(b.password) || !/\d/.test(b.password)) throw new ApiError("הסיסמה צריכה לכלול אותיות וספרות (10 תווים לפחות)", 400, "weak_password");
   return withoutBusiness(async () => {
     if (await db.account.findUnique({ where: { email: b.email }, select: { id: true } })) throw new ApiError("כבר קיים חשבון עם האימייל הזה – התחברו", 409, "account_exists");

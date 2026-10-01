@@ -79,11 +79,12 @@ describe("telephony provider routing", { timeout: 600_000 }, () => {
     const u = await db.user.create({ data: { businessId: a.business.id, accountId: acc.id, email: acc.email, fullName: acc.fullName, role: "manager" } });
     agent2 = { id: u.id, accountId: acc.id, businessId: a.business.id, email: acc.email, fullName: acc.fullName, role: "manager", teamId: null };
     const now = new Date();
+    let phoneSequence = crypto.randomInt(10_000_000, 99_999_990);
     for (const biz of [a.business.id, b.business.id]) {
       await db.numberConnection.upsert({ where: { businessId: biz }, create: { businessId: biz, status: "verified", fingerprint: "mock", checkedAt: now }, update: { status: "verified", fingerprint: "mock", checkedAt: now } });
       // One verified caller id per provider: a number is used only through the provider that owns it.
-      await db.phoneNumber.create({ data: { businessId: biz, e164: `+9727${String(Date.now() + 1).slice(-8)}`, provider: "telnyx", verificationStatus: "verified", verifiedAt: now } });
-      await db.phoneNumber.create({ data: { businessId: biz, e164: `+9727${String(Date.now() + 2).slice(-8)}`, provider: "mock", verificationStatus: "verified", verifiedAt: now } });
+      await db.phoneNumber.create({ data: { businessId: biz, e164: `+9727${String(phoneSequence++)}`, provider: "telnyx", verificationStatus: "verified", verifiedAt: now } });
+      await db.phoneNumber.create({ data: { businessId: biz, e164: `+9727${String(phoneSequence++)}`, provider: "mock", verificationStatus: "verified", verifiedAt: now } });
     }
   }, 300_000);
   afterAll(async () => {

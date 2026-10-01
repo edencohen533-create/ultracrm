@@ -50,6 +50,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** GET against the Graph API with the business's token. Transient failures are retried (backoff); others thrown classified. */
 export async function adsGet<T>(path: string, token: string, query: Record<string, string | undefined> = {}, opts: { retries?: number } = {}): Promise<T> {
   const url = path.startsWith("https://") ? new URL(path) : new URL(`${GRAPH_BASE}/${path.replace(/^\//, "")}`);
+  // Paging URLs come from an external response. Never forward the business token to another host.
+  if (url.origin !== "https://graph.facebook.com" || url.username || url.password) {
+    throw new AdsApiError("כתובת Meta אינה מורשית", "invalid", null);
+  }
   for (const [k, v] of Object.entries(query)) if (v !== undefined) url.searchParams.set(k, v);
   const retries = opts.retries ?? 2;
   for (let attempt = 0; ; attempt++) {

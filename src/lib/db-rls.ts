@@ -43,24 +43,29 @@ type Submittable = { submit: (connection: unknown) => void };
 
 /** Wrap `client.query` so tenant statements run under the runtime role with transaction-local settings. */
 export function patchClient(client: pg.Client) {
-  const orig = client.query.bind(client) as (...args: QueryArgs) => Promise<pg.QueryResult>;
+  const native = client.query.bind(client) as (...args: QueryArgs) => Promise<pg.QueryResult>;
+  // Every statement on this connection goes through one chain: pg is never handed a query while another one is still
+  // executing (its internal queue for that is deprecated in pg 8 and removed in pg 9). Prisma sends a transaction's
+  // queries without waiting between them, and a read's COMMIT is not awaited by its caller (below) – both used to
+  // pile up in pg's queue. Order is unchanged (pg ran them in order anyway).
+  let chain: Promise<unknown> = Promise.resolve();
+  const orig = (...args: QueryArgs): Promise<pg.QueryResult> => {
+    const p = chain.then(() => native(...args));
+    chain = p.catch(() => undefined);
+    return p;
+  };
   let inTx = false;
   let applied = false;
   let applying: Promise<unknown> | null = null;
-  // The COMMIT of a read-only autocommit statement is not awaited by the caller (see below); the next statement on
-  // this client waits for it instead – pg must never be handed a query while another is still executing (deprecated
-  // in pg 8, removed in pg 9).
-  let pendingCommit: Promise<unknown> | null = null;
   const patched = function (this: pg.Client, ...args: QueryArgs) {
     const cb = typeof args[args.length - 1] === "function" ? (args.pop() as (err: Error | null, res?: pg.QueryResult) => void) : null;
     const first = args[0];
     if (first && typeof first === "object" && typeof (first as Submittable).submit === "function") {
       // Cursors / streams bypass the wrapper (not used by Prisma); keep native behaviour.
-      return cb ? orig(first, cb) : orig(first);
+      return cb ? native(first, cb) : native(first);
     }
     const sql = typeof first === "string" ? first : String((first as { text?: string } | undefined)?.text ?? "");
     const run = async () => {
-      if (pendingCommit) await pendingCommit;
       const kind = classify(sql);
       if (kind === "begin") { const r = await orig(...args); inTx = true; applied = false; return r; }
       if (kind === "commit" || kind === "rollback") { try { return await orig(...args); } finally { inTx = false; applied = false; applying = null; } }
@@ -80,10 +85,9 @@ export function patchClient(client: pg.Client) {
         const r = await orig(...args);
         if (/^\s*SELECT\b/i.test(sql)) {
           // Read-only statement: the result is already in hand and COMMIT of a read cannot change data, so the caller
-          // doesn't wait for its round trip; the next statement on this connection does (pendingCommit), so another
-          // tenant's BEGIN still runs strictly after this COMMIT.
-          const c: Promise<unknown> = orig("COMMIT").catch(() => undefined).finally(() => { if (pendingCommit === c) pendingCommit = null; });
-          pendingCommit = c;
+          // doesn't wait for its round trip. It is queued on the chain, so anything sent next on this connection
+          // (including another tenant's BEGIN) runs strictly after this COMMIT.
+          void orig("COMMIT").catch(() => undefined);
           return r;
         }
         await orig("COMMIT");

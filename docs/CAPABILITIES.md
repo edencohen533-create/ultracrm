@@ -61,7 +61,7 @@
 | תבניות: סנכרון/הגשה ל-Meta, תצוגה מקדימה | `/templates`, `/api/templates*` | ממומש (Meta חי חסום) |
 | קמפיינים, רשימות תפוצה, קהלים דינמיים, preflight, worker עם נעילה | `/campaigns`, `/api/campaigns*`, `/api/jobs/campaigns` | ממומש ונבדק (unit + integration) |
 | אוטומציות דיוור (טריגרים/פעולות/השהיה) | `/automations`, `/api/jobs/automations` | ממומש (unit) |
-| אנליטיקה | `/analytics` | ממומש |
+| אנליטיקה | `/analytics` → `/reports?channel=whatsapp` | אוחד לביצועי נציגים (ראו `docs/REPORTS_MERGE.md`) |
 | סימולטור הודעה נכנסת (דמו) | `/settings/demo-simulator` | ממומש ונבדק |
 | מספרי WhatsApp מרובים לצוותים | `provider_credentials.teamId` | ממומש |
 | SMS / אימייל | – | **לא ממומש במקור** – מוצג כ"לא ממומש"; ההסרה הגלובלית כבר מכסה אותם |

@@ -12,4 +12,4 @@ const schema = z.object({
 });
 
 /** KPIs for a period and its comparison period (business-timezone days, same filters, user's own scope). */
-export const GET = withAuth(async ({ req, user }) => ok(await comparisonReport(user, parseQuery(req, schema))), { minRole: "manager", module: "telephony" });
+export const GET = withAuth(async ({ req, user }) => ok(await comparisonReport(user, parseQuery(req, schema))), { minRole: "manager" });

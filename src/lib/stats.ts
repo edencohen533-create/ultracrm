@@ -24,6 +24,8 @@ export interface StatsFilter {
   from?: Date;
   to?: Date;
   listId?: string;
+  /** contact's product (customFields.product) – the reports' product filter */
+  product?: string;
 }
 
 interface Bucket {
@@ -78,7 +80,7 @@ function finish(b: Bucket) {
 
 export async function agentMetrics(f: StatsFilter) {
   const range = f.from || f.to ? { createdAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } } : {};
-  const where = { businessId: f.businessId, ...(f.userIds ? { userId: { in: f.userIds } } : {}), ...(f.listId ? { listId: f.listId } : {}), ...range };
+  const where = { businessId: f.businessId, ...(f.userIds ? { userId: { in: f.userIds } } : {}), ...(f.listId ? { listId: f.listId } : {}), ...(f.product ? { contact: { customFields: { path: ["product"], equals: f.product } } } : {}), ...range };
   const calls = await prisma.call.findMany({
     where,
     orderBy: { createdAt: "asc" },

@@ -154,7 +154,6 @@ async function whatsappOpenNow(businessId: string, userIds: string[] | null, f: 
 }
 
 /** Which channels this user sees in reports: the business's package AND the user's permissions. */
-/** Which channels this user sees in reports: the business's package AND the user's permissions. */
 export async function reportChannels(user: SessionUser): Promise<Channels> {
   const { effectiveAccess, can, businessCanUse } = await import("@/lib/access/engine");
   const a = await effectiveAccess(user.businessId, user.id);

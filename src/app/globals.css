@@ -1057,3 +1057,8 @@ button.seg-item { width: 100%; }
   .wz-head .wz-btn.primary { height: 36px; padding: 0 12px; }
   .wz-steps { flex: 0 0 100%; }
 }
+
+/* Lead card: the lead's own notes (written when it was created) */
+.lead-notes-box{margin:10px 0 12px;padding:10px 12px;border:1px solid #f3d7a6;background:#fffaf0;border-radius:10px}
+.lead-notes-box h3{font-size:12px;font-weight:700;color:#8a4b00;margin-bottom:4px}
+.lead-notes-box p{font-size:13px;color:#2c3340;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}

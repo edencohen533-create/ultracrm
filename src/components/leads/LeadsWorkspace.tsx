@@ -9,7 +9,7 @@ import { ArrowDownUp, CalendarDays, Check, CheckSquare, ChevronLeft, ChevronRigh
 import { api, qs } from "@/lib/client/api";
 import { useDialer } from "@/components/telephony/DialerProvider";
 import { useMe } from "@/lib/client/use-me";
-import { Button, EmptyState, Input, Modal, Select, Spinner } from "@/components/ui";
+import { Button, EmptyState, Input, Modal, Select, Spinner, Textarea } from "@/components/ui";
 import { formatPhone } from "@/lib/client/format";
 import { useLeadStatuses } from "@/lib/client/use-lead-statuses";
 import { LeadDrawer } from "@/components/leads/LeadDrawer";
@@ -26,7 +26,6 @@ import { useT } from "@/components/i18n/LangProvider";
 
 interface Lead { existingCustomer?: boolean; reviewReason?: string | null; availableNow?: { signalId: string; at: string; text: string } | null; id: string; title: string | null; status: string; statusDefId?: string | null; attemptLimit?: number | null; closeReason?: string | null; source: string | null; createdAt: string; contact: { id: string; fullName: string; phoneE164: string; email: string | null; customFields: Record<string, unknown> | null }; owner: { id: string; fullName: string } | null; attempts: number; lastAttemptAt: string | null; followUp: FollowUpInfo | null; needsSchedule: boolean; pendingTransfer: { to: string | null; at: string } | null }
 interface LeadData { items: Lead[]; total: number; timezone: string; permissions?: { canTransfer: boolean }; byOwner: { id: string | null; name: string; count: number }[]; sources: string[]; metrics: { leads: number; deals: number; revenue: number; conversion: number } }
-interface ContactHit { id: string; fullName: string; phoneE164: string }
 const fmtNum = (v: number, loc: string) => v.toLocaleString(loc, { maximumFractionDigits: 1 });
 const metadata = (lead: Lead, key: string) => { const v = lead.contact.customFields?.[key]; return typeof v === "string" || typeof v === "number" ? String(v) : "—"; };
 const periods: Record<string, [string, string]> = { month: ["החודש", "This month"], today: ["היום", "Today"], week: ["7 ימים אחרונים", "Last 7 days"], lastMonth: ["החודש הקודם", "Last month"], all: ["כל התקופות", "All time"], custom: ["טווח מותאם", "Custom range"] };
@@ -67,10 +66,7 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   const [selected, setSelected] = useState<string[]>([]);
   const [users, setUsers] = useState<{ id: string; fullName: string }[]>([]);
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [hits, setHits] = useState<ContactHit[]>([]);
-  const [form, setForm] = useState({ contactId: "", contactName: "", phone: "", title: "", source: "", ownerUserId: "" });
-  const [newContact, setNewContact] = useState(false);
+  const [form, setForm] = useState({ contactName: "", phone: "", source: "", ownerUserId: "", notes: "" });
   const [saving, setSaving] = useState(false);
   const [convert, setConvert] = useState<Lead | null>(null);
   /** A custom "sale" status chosen in the table – applied to the lead once the deal is saved. */
@@ -106,7 +102,6 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   useEffect(() => { api.get<{ items: { id: string; fullName: string; isActive: boolean }[] }>("/api/users").then(r => setUsers(r.items.filter(u => u.isActive))).catch(() => undefined); }, []);
   // Client-side navigation to /leads?tasks=1 or ?settings=1 while already mounted (e.g. the /tasks redirect) must open the drawer/modal too.
   useEffect(() => { if (params.get("tasks") === "1") { setTasksOpen(true); setDrawerView(params.get("view") === "calls" ? "calls" : "tasks"); } if (params.get("settings") === "1") setSettingsOpen(true); }, [params]);
-  useEffect(() => { let alive = true; if (!open || search.trim().length < 2) { setHits([]); return; } const t = setTimeout(() => api.get<{ items: ContactHit[] }>(`/api/contacts${qs({ q: search, limit: 8 })}`).then(r => { if (alive) setHits(r.items); }).catch(() => undefined), 250); return () => { alive = false; clearTimeout(t); }; }, [open, search]);
   function change(key: keyof typeof filter, value: string) { setFilter(f => ({ ...f, [key]: value })); setPage(1); setSelected([]); }
   const tz = data?.timezone ?? "Asia/Jerusalem";
   const canTransfer = manager || Boolean(data?.permissions?.canTransfer);
@@ -137,12 +132,13 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   async function create() {
     setSaving(true);
     try {
-      let contactId = form.contactId;
-      if (newContact && !contactId) { const c = await api.post<{ id: string }>("/api/contacts", { fullName: form.contactName, phone: form.phone }); contactId = c.id; setForm(f => ({ ...f, contactId })); }
-      await api.post("/api/leads", { contactId, title: form.title || undefined, source: form.source || undefined, ownerUserId: form.ownerUserId || undefined });
-      setOpen(false); setForm({ contactId: "", contactName: "", phone: "", title: "", source: "", ownerUserId: "" }); setSearch(""); setNewContact(false); toast.success(t("הליד נוצר", "Lead created")); await load();
+      const r = await api.post<{ contactReused: { fullName: string } | null }>("/api/leads", { contact: { fullName: form.contactName.trim(), phone: form.phone.trim() }, source: form.source.trim() || undefined, ownerUserId: form.ownerUserId || undefined, notes: form.notes.trim() || undefined });
+      setOpen(false); setForm({ contactName: "", phone: "", source: "", ownerUserId: "", notes: "" });
+      toast.success(r.contactReused ? t(`הליד נוצר על איש הקשר הקיים "${r.contactReused.fullName}" (המספר כבר שמור במערכת)`, `Lead created on the existing contact "${r.contactReused.fullName}" (the number is already saved)`) : t("הליד נוצר", "Lead created"));
+      await load();
     } catch (e) { toast.error((e as Error).message); } finally { setSaving(false); }
   }
+
   function exportSelected() { const rows = data?.items.filter(l => selected.includes(l.id)) ?? []; const csv = [[t("שם", "Name"), t("טלפון", "Phone"), t("מקור", "Source"), t("סטטוס", "Status"), t("נציג", "Agent")], ...rows.map(l => [l.contact.fullName, l.contact.phoneE164, l.source ?? "", statuses.forLead(l)?.label ?? l.status, l.owner?.fullName ?? ""])].map(row => row.map(value => { const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value; return `"${safe.replaceAll('"', '""')}"`; }).join(",")).join("\r\n"); const url = URL.createObjectURL(new Blob(["﻿", csv], { type: "text/csv;charset=utf-8" })); const a = document.createElement("a"); a.href = url; a.download = "leads.csv"; a.click(); URL.revokeObjectURL(url); }
   const groups = useMemo(() => [["", data?.items ?? []]] as Array<[string, Lead[]]>, [data]);
   const cards = [
@@ -222,7 +218,14 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
     {attemptsFor && <AttemptsModal leadId={attemptsFor.id} name={attemptsFor.contact.fullName} tz={tz} onClose={() => setAttemptsFor(null)} />}
     {transferIds && <TransferModal leadIds={transferIds.ids} currentOwnerId={transferIds.owner} users={users} onClose={() => setTransferIds(null)} onDone={() => { setSelected([]); void load(); }} />}
     {settingsOpen && <LeadsSettingsModal open={settingsOpen} onClose={closeSettings} manager={isOwner} mode={settingsTab} />}
-    <Modal open={open} onClose={() => !saving && setOpen(false)} title={t("ליד חדש", "New lead")} footer={<><Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>{t("ביטול", "Cancel")}</Button><Button onClick={create} loading={saving} disabled={newContact ? !form.contactName || !form.phone : !form.contactId}>{t("צור ליד", "Create lead")}</Button></>}><div className="space-y-3"><div className="flex gap-3"><button className={!newContact ? "text-accent font-medium" : "text-muted"} onClick={() => { setNewContact(false); setForm(f => ({ ...f, contactId: "" })); }}>{t("איש קשר קיים", "Existing contact")}</button><button className={newContact ? "text-accent font-medium" : "text-muted"} onClick={() => { setNewContact(true); setForm(f => ({ ...f, contactId: "", contactName: "" })); }}>{t("איש קשר חדש", "New contact")}</button></div>{newContact ? <><Input label={t("שם מלא", "Full name")} value={form.contactName} onChange={e => setForm({ ...form, contactName: e.target.value })}/><Input label={t("טלפון", "Phone")} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} ltr/></> : form.contactId ? <div>{form.contactName}<button className="ms-3 text-accent" onClick={() => setForm({ ...form, contactId: "" })}>{t("שנה", "Change")}</button></div> : <><Input label={t("חיפוש איש קשר", "Search contact")} value={search} onChange={e => setSearch(e.target.value)}/><ul className="max-h-44 overflow-auto">{hits.map(h => <li key={h.id}><button className="w-full text-start p-2 hover:bg-panel-2" onClick={() => setForm({ ...form, contactId: h.id, contactName: h.fullName })}>{h.fullName} · {formatPhone(h.phoneE164)}</button></li>)}</ul></>}<Input label={t("כותרת", "Title")} value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}/><Input label={t("מקור", "Source")} value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}/>{manager && <Select label={t("נציג", "Agent")} value={form.ownerUserId} onChange={e => setForm({ ...form, ownerUserId: e.target.value })}><option value="">{t("ללא שיוך (לפי חלוקת הלידים)", "Unassigned (per lead distribution)")}</option>{users.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select>}</div></Modal>
+    <Modal open={open} onClose={() => !saving && setOpen(false)} title={t("ליד חדש", "New lead")} footer={<><Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>{t("ביטול", "Cancel")}</Button><Button onClick={create} loading={saving} disabled={saving || !form.contactName.trim() || !form.phone.trim()} data-testid="new-lead-create">{t("צור ליד", "Create lead")}</Button></>}><div className="space-y-3" data-testid="new-lead-form">
+      <Input label={t("שם מלא", "Full name")} value={form.contactName} onChange={e => setForm({ ...form, contactName: e.target.value })} required data-testid="new-lead-name"/>
+      <Input label={t("טלפון", "Phone")} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} ltr required inputMode="tel" data-testid="new-lead-phone"/>
+      <Input label={t("מקור", "Source")} value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}/>
+      {manager && <Select label={t("נציג", "Agent")} value={form.ownerUserId} onChange={e => setForm({ ...form, ownerUserId: e.target.value })}><option value="">{t("ללא שיוך (לפי חלוקת הלידים)", "Unassigned (per lead distribution)")}</option>{users.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}</Select>}
+      <Textarea label={t("הערות", "Notes")} rows={4} maxLength={4000} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder={t("מה חשוב לדעת על הליד…", "What's worth knowing about this lead…")} data-testid="new-lead-notes"/>
+      <p className="text-xs text-muted">{t("מספר שכבר שייך לאיש קשר – הליד ייפתח עליו (לא נוצר איש קשר כפול). לאיש קשר עם ליד פתוח לא נפתח ליד נוסף.", "A number that already belongs to a contact – the lead opens on that contact (no duplicate contact). A contact with an open lead gets no second lead.")}</p>
+    </div></Modal>
     {convert && <DealCloseModal contactId={convert.contact.id} leadId={convert.id} name={convert.contact.fullName} onClose={() => { setConvert(null); setConvertStatusId(null); }} onDone={() => { const id = convert.id, custom = convertStatusId; setConvertStatusId(null); void (custom ? patch(id, { statusId: custom }) : Promise.resolve(true)).then(() => load()); }} />}
   </div>;
 }

@@ -12,4 +12,4 @@ export const GET = withAuth(async ({ user, params }) => {
   const ids = [...new Set(items.map((i) => i.reviewedById).filter((x): x is string => Boolean(x)))];
   const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true } });
   return ok({ items: items.map((i) => ({ ...i, reviewedBy: users.find((u) => u.id === i.reviewedById)?.fullName ?? null })) });
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", module: "telephony", perm: "telephony.recordings" });

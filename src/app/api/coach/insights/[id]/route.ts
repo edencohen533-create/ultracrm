@@ -11,4 +11,4 @@ export const PATCH = withAuth(async ({ req, user, params }) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the embedding vector is never sent to the browser
   const { embedding: _e, ...row } = await reviewInsight(user, params.id, b);
   return ok(row);
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", module: "telephony", perm: "telephony.recordings" });

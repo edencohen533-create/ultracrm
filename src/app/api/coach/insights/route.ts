@@ -16,4 +16,4 @@ export const GET = withAuth(async ({ req, user }) => {
   ]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the embedding vector is never sent to the browser
   return ok({ items: items.map(({ embedding: _e, ...x }) => x), counts: Object.fromEntries(counts.map((c) => [c.status, c._count._all])), needsReview: flagged });
-}, { minRole: "manager", module: "telephony" });
+}, { minRole: "manager", module: "telephony", perm: "telephony.recordings" });

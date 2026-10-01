@@ -178,6 +178,14 @@ async function callRecordingSource(call: { provider: string; recordingStatus: st
 
 // ─── Processing ────────────────────────────────────────────────────────────────
 
+/** Reads a response body up to `max` bytes (a provider without Content-Length can't make us buffer a huge file). */
+async function readCapped(res: Response, max: number): Promise<Buffer> {
+  const reader = res.body?.getReader(); if (!reader) return Buffer.alloc(0);
+  const parts: Uint8Array[] = []; let size = 0;
+  for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > max) { await reader.cancel().catch(() => undefined); return Buffer.alloc(max + 1); } parts.push(value); }
+  return Buffer.concat(parts);
+}
+
 export const KINDS = { opening: "פתיחת שיחה", discovery: "בירור צרכים", objection: "התנגדות ותשובה", offer: "הסבר ההצעה", closing: "שלב סגירה", improvement: "נקודה לשיפור" } as const;
 export type Kind = keyof typeof KINDS;
 export const FLAG_LABEL: Record<string, string> = { customer_detail: "פרטי לקוח", promise: "הבטחה", discount: "הנחה / מחיר חריג", price: "מחיר", unverified_fact: "עובדה שלא אומתה" };
@@ -222,7 +230,10 @@ interface Extracted { kind?: string; title?: string; body?: string; objection?: 
 /** Claims one due recording (queued, or a processing one whose worker died) and processes it. */
 export async function processNextRecording(businessId?: string): Promise<{ processed: string | null; status?: string }> {
   const stale = new Date(Date.now() - 15 * 60_000);
-  const next = await prisma.salesRecording.findFirst({ where: { ...(businessId ? { businessId } : {}), OR: [{ status: "queued" }, { status: "processing", lockedAt: { lt: stale } }] }, orderBy: { createdAt: "asc" }, select: { id: true, businessId: true, updatedAt: true } });
+  const backoff = new Date(Date.now() - 5 * 60_000);
+  // A crashed worker's row is retried, but never more than 3 attempts; a retryable failure waits 5 minutes (lockedAt).
+  await prisma.salesRecording.updateMany({ where: { ...(businessId ? { businessId } : {}), status: "processing", lockedAt: { lt: stale }, attempts: { gte: 3 } }, data: { status: "failed", error: "העיבוד נקטע שוב ושוב – אפשר לנסות שוב ידנית", lockedAt: null } });
+  const next = await prisma.salesRecording.findFirst({ where: { ...(businessId ? { businessId } : {}), OR: [{ status: "queued", OR: [{ lockedAt: null }, { lockedAt: { lt: backoff } }] }, { status: "processing", lockedAt: { lt: stale }, attempts: { lt: 3 } }] }, orderBy: { createdAt: "asc" }, select: { id: true, businessId: true, updatedAt: true } });
   if (!next) return { processed: null };
   const claimed = await prisma.salesRecording.updateMany({ where: { id: next.id, updatedAt: next.updatedAt }, data: { status: "processing", lockedAt: new Date(), attempts: { increment: 1 } } });
   if (!claimed.count) return { processed: null };
@@ -234,7 +245,8 @@ export async function processRecording(id: string): Promise<string> {
   const r = await prisma.salesRecording.findUniqueOrThrow({ where: { id } });
   const fail = async (error: string, final = false) => {
     const status = final || r.attempts >= 3 ? "failed" : "queued";
-    await prisma.salesRecording.update({ where: { id }, data: { status, error, lockedAt: null } });
+    // only while this worker still owns it (a recording deleted meanwhile stays deleted); a retry waits (lockedAt = now)
+    await prisma.salesRecording.updateMany({ where: { id, status: "processing" }, data: { status, error, lockedAt: status === "queued" ? new Date() : null } });
     return status === "failed" ? "failed" : "retry";
   };
   const ps = providerStatus();
@@ -249,7 +261,9 @@ export async function processRecording(id: string): Promise<string> {
       const src = await callRecordingSource(call).catch((e: Error) => { throw new CoachProviderError(e.message, "missing"); });
       const res = await fetch(src.url);
       if (!res.ok) return fail(`ספק הטלפוניה החזיר ${res.status}`);
-      audio = Buffer.from(await res.arrayBuffer()); mimeType = src.contentType; fileName = `call-${r.callId}.${src.contentType.includes("wav") ? "wav" : "mp3"}`;
+      const declared = Number(res.headers.get("content-length") ?? 0);
+      if (declared > RECORDING_MAX_BYTES) { await res.body?.cancel().catch(() => undefined); return fail("ההקלטה ארוכה מדי לתמלול (מעל 25MB)", true); }
+      audio = await readCapped(res, RECORDING_MAX_BYTES); mimeType = src.contentType; fileName = `call-${r.callId}.${src.contentType.includes("wav") ? "wav" : "mp3"}`;
       if (audio.length > RECORDING_MAX_BYTES) return fail("ההקלטה ארוכה מדי לתמלול (מעל 25MB)", true);
     }
   } catch (e) { return fail((e as Error).message, e instanceof CoachProviderError); }
@@ -258,7 +272,7 @@ export async function processRecording(id: string): Promise<string> {
   try { stt = await transcribeTimed(audio, { mimeType, fileName }); } catch (e) { return fail(`התמלול נכשל: ${(e as Error).message.slice(0, 200)}`); }
   if (!stt.segments.length) {
     // No speech → nothing to learn; no model call is spent.
-    await prisma.salesRecording.update({ where: { id }, data: { status: "no_transcript", segments: [], transcript: "", durationSec: stt.durationSec || null, processedAt: new Date(), lockedAt: null, error: "לא זוהה דיבור בהקלטה – לא הופקו תובנות", costUsd: { increment: usageCostUsd(stt.usage) } } });
+    await prisma.salesRecording.updateMany({ where: { id, status: "processing" }, data: { status: "no_transcript", segments: [], transcript: "", durationSec: stt.durationSec || null, processedAt: new Date(), lockedAt: null, error: "לא זוהה דיבור בהקלטה – לא הופקו תובנות", costUsd: { increment: usageCostUsd(stt.usage) } } });
     return "no_transcript";
   }
   // Each line is sanitized on its own (no tag can be closed from inside the transcript); line breaks keep the moments apart.
@@ -275,7 +289,10 @@ export async function processRecording(id: string): Promise<string> {
   const settings = await getBusinessSettings(r.businessId);
   const policy = settings.coach.autoPublish ?? { enabled: false, kinds: [] };
   const eligibleForAuto = r.auto && policy.enabled && r.dealId ? await dealStillQualifies(r.businessId, r.dealId, settings.coach.learnDealCondition ?? "won") : false;
-  const items = (parsed.insights ?? []).filter((x) => x.kind && x.kind in KINDS && (x.body ?? "").trim()).slice(0, 14);
+  try {
+  // A deleted recording (removed while we were transcribing) is not brought back.
+  if (!(await prisma.salesRecording.findFirst({ where: { id, status: "processing" }, select: { id: true } }))) return "deleted";
+  const items = (Array.isArray(parsed.insights) ? parsed.insights : []).filter((x) => x && typeof x === "object" && x.kind && x.kind in KINDS && typeof x.body === "string" && x.body.trim()).slice(0, 14);
   const created: string[] = [];
   for (const x of items) {
     const title = redact(String(x.title ?? KINDS[x.kind as Kind]).slice(0, 160));
@@ -284,8 +301,9 @@ export async function processRecording(id: string): Promise<string> {
     const flags = new Set((x.flags ?? []).filter((f) => f in FLAG_LABEL));
     for (const f of riskFlags(`${body.text} ${objection?.text ?? ""}`)) flags.add(f);
     if (title.found || body.found || objection?.found) flags.add("customer_detail");
-    const quote = String(x.quote ?? "").slice(0, 1500);
-    let startMs = typeof x.start_ms === "number" && x.start_ms >= 0 ? Math.round(x.start_ms) : null;
+    const quote = redact(String(x.quote ?? "").slice(0, 1500)).text;
+    const maxMs = Math.max(0, (stt.segments.at(-1)?.endMs ?? 0) + 1000);
+    let startMs = typeof x.start_ms === "number" && Number.isFinite(x.start_ms) && x.start_ms >= 0 && x.start_ms <= maxMs ? Math.round(x.start_ms) : null;
     if (startMs === null && quote) startMs = stt.segments.find((s) => quote.includes(s.text.slice(0, 30)))?.startMs ?? null;
     const seg = startMs === null ? null : stt.segments.find((s) => s.startMs >= startMs! - 500) ?? null;
     const auto = eligibleForAuto && policy.kinds.includes(x.kind!) && flags.size === 0;
@@ -297,12 +315,17 @@ export async function processRecording(id: string): Promise<string> {
     if (auto) await audit(r.businessId, null, "coach", row.id, "sales_insight.auto_published", { kind: row.kind, recordingId: r.id, dealId: r.dealId, policy: policy.kinds });
     created.push(row.id);
   }
-  await prisma.salesRecording.update({ where: { id }, data: {
+  await prisma.salesRecording.updateMany({ where: { id, status: "processing" }, data: {
     status: "ready", error: null, lockedAt: null, processedAt: new Date(), durationSec: stt.durationSec || null,
     segments: stt.segments as unknown as Prisma.InputJsonValue, transcript: stt.text.slice(0, 200_000),
     costUsd: { increment: usageCostUsd(stt.usage) + usageCostUsd(llmUsage) },
   } });
   return "ready";
+  } catch (e) {
+    // Partial insights of this attempt are not left behind as duplicates for the next one.
+    await prisma.salesInsight.deleteMany({ where: { recordingId: id, status: "candidate", createdAt: { gte: r.updatedAt } } }).catch(() => undefined);
+    return fail(`שמירת התוצאות נכשלה: ${(e as Error).message.slice(0, 160)}`, true);
+  }
 }
 
 // ─── Review (versions) ─────────────────────────────────────────────────────────
@@ -322,9 +345,12 @@ export async function reviewInsight(user: SessionUser, id: string, input: Review
   const root = cur.rootId ?? cur.id;
   const newVersion = async (src: { title: string; body: string; objection: string | null; flags: string[] }, status: string, action: string) => {
     const last = await prisma.salesInsight.findFirst({ where: { rootId: root }, orderBy: { version: "desc" }, select: { version: true } });
+    const emb = status === "approved" ? await embed([`${src.objection ?? ""} ${src.title} ${src.body}`]).catch(() => ({ vectors: null })) : { vectors: null };
     const row = await prisma.$transaction(async (tx) => {
-      await tx.salesInsight.update({ where: { id: cur.id }, data: { status: "superseded" } });
-      return tx.salesInsight.create({ data: { businessId: cur.businessId, recordingId: cur.recordingId, dealId: cur.dealId, kind: cur.kind, title: src.title, body: src.body, objection: src.objection, quote: cur.quote, startMs: cur.startMs, endMs: cur.endMs, flags: src.flags as Prisma.InputJsonValue, status, version: (last?.version ?? cur.version) + 1, parentId: cur.id, rootId: root, needsReview: false, reviewedById: user.id, reviewedAt: new Date(), createdById: user.id } });
+      // Two reviewers at once: only the one who still sees the current version may create the next one.
+      const took = await tx.salesInsight.updateMany({ where: { id: cur.id, status: { not: "superseded" } }, data: { status: "superseded" } });
+      if (!took.count) throw new ApiError("מישהו אחר עדכן את התובנה הזו עכשיו – רעננו", 409, "conflict");
+      return tx.salesInsight.create({ data: { businessId: cur.businessId, recordingId: cur.recordingId, dealId: cur.dealId, kind: cur.kind, title: src.title, body: src.body, objection: src.objection, quote: cur.quote, startMs: cur.startMs, endMs: cur.endMs, flags: src.flags as Prisma.InputJsonValue, status, version: (last?.version ?? cur.version) + 1, parentId: cur.id, rootId: root, needsReview: false, reviewedById: user.id, reviewedAt: new Date(), createdById: user.id, embedding: emb.vectors ? (emb.vectors[0] as unknown as Prisma.InputJsonValue) : undefined } });
     });
     await audit(user.businessId, user.id, "coach", row.id, `sales_insight.${action}`, { rootId: root, version: row.version, from: cur.id });
     return row;
@@ -340,7 +366,9 @@ export async function reviewInsight(user: SessionUser, id: string, input: Review
     if (!v) throw new ApiError("הגרסה לא נמצאה", 404, "not_found");
     // The restored text becomes the current version; content with customer details returns to review instead.
     const vf = v.flags as string[];
-    return newVersion({ title: v.title, body: v.body, objection: v.objection, flags: vf }, vf.some((f) => HARD_FLAGS.has(f)) ? "candidate" : "approved", "restored");
+    // Same rules as approval: customer details → back to review; promises / discounts / prices need the acknowledgement.
+    const ok = !vf.some((f) => HARD_FLAGS.has(f)) && (vf.length === 0 || input.acknowledgeFlags === true);
+    return newVersion({ title: v.title, body: v.body, objection: v.objection, flags: vf }, ok ? "approved" : "candidate", "restored");
   }
   // approve (with or without edit)
   const edited = input.title !== undefined || input.body !== undefined || input.objection !== undefined;
@@ -395,7 +423,8 @@ export async function learnFromClosedDeal(businessId: string, dealId: string) {
   const deal = await prisma.deal.findFirst({ where: { id: dealId, businessId }, select: { id: true, status: true, title: true, contact: { select: { fullName: true } } } });
   if (!deal || deal.status !== "won") return { skipped: "not won" };
   const existing = await prisma.salesDealLearning.findUnique({ where: { dealId } });
-  if (existing && existing.status !== "waiting_payment") return { skipped: "already handled" };
+  // Re-checked: waiting for payment; no recording yet (the closing call's recording is saved after the call); changed and won again.
+  if (existing && !["waiting_payment", "no_recordings", "changed"].includes(existing.status)) return { skipped: "already handled" };
   const calls = await relevantCalls(dealId);
   const callIds = calls.map((c) => c.id);
   const save = (status: string, note: string) => prisma.salesDealLearning.upsert({ where: { dealId }, create: { businessId, dealId, condition, status, callIds, note }, update: { condition, status, callIds, note } });
@@ -418,7 +447,7 @@ export async function dealOutcomeChanged(businessId: string, dealId: string, rea
 
 /** Periodic: deals waiting for a payment confirmation (up to 30 days). */
 export async function recheckWaitingDeals(businessId?: string) {
-  const rows = await prisma.salesDealLearning.findMany({ where: { ...(businessId ? { businessId } : {}), status: "waiting_payment", createdAt: { gte: new Date(Date.now() - 30 * 86400_000) } }, take: 50, select: { businessId: true, dealId: true } });
+  const rows = await prisma.salesDealLearning.findMany({ where: { ...(businessId ? { businessId } : {}), OR: [{ status: "waiting_payment", createdAt: { gte: new Date(Date.now() - 30 * 86400_000) } }, { status: "no_recordings", createdAt: { gte: new Date(Date.now() - 3 * 3600_000) } }] }, take: 50, select: { businessId: true, dealId: true } });
   let queued = 0;
   for (const r of rows) { const x = await learnFromClosedDeal(r.businessId, r.dealId); if ("recordings" in x && x.recordings) queued++; }
   return { checked: rows.length, queued };
@@ -444,7 +473,10 @@ export async function retrieveInsights(businessId: string, query: string, k = 3)
 /** Cron (and right after an upload): process due recordings per business within a time budget; re-check "paid" deals. */
 export async function runSalesCoachJob(opts: { deadline: number; businessId?: string }) {
   const { withBusiness } = await import("@/lib/tenant");
-  const due = await prisma.salesRecording.findMany({ where: { ...(opts.businessId ? { businessId: opts.businessId } : {}), OR: [{ status: "queued" }, { status: "processing", lockedAt: { lt: new Date(Date.now() - 15 * 60_000) } }] }, distinct: ["businessId"], select: { businessId: true } });
+  const { db } = await import("@/lib/db");
+  // Which businesses have work is a cross-business question (the cron has no tenant context) – the unscoped client;
+  // the work itself runs inside each business's context (scoped client + RLS).
+  const due = await db.salesRecording.findMany({ where: { ...(opts.businessId ? { businessId: opts.businessId } : {}), OR: [{ status: "queued" }, { status: "processing", lockedAt: { lt: new Date(Date.now() - 15 * 60_000) } }] }, distinct: ["businessId"], select: { businessId: true } });
   const out: Array<{ businessId: string; id: string | null; status?: string }> = [];
   for (const { businessId } of due) {
     while (Date.now() < opts.deadline) {
@@ -453,7 +485,7 @@ export async function runSalesCoachJob(opts: { deadline: number; businessId?: st
       if (!r.processed) break;
     }
   }
-  const waiting = await prisma.salesDealLearning.findMany({ where: { ...(opts.businessId ? { businessId: opts.businessId } : {}), status: "waiting_payment" }, distinct: ["businessId"], select: { businessId: true } });
+  const waiting = await db.salesDealLearning.findMany({ where: { ...(opts.businessId ? { businessId: opts.businessId } : {}), status: { in: ["waiting_payment", "no_recordings"] } }, distinct: ["businessId"], select: { businessId: true } });
   for (const { businessId } of waiting) if (Date.now() < opts.deadline) await withBusiness(businessId, () => recheckWaitingDeals(businessId)).catch(() => undefined);
   return out;
 }

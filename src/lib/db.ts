@@ -17,6 +17,10 @@ function createClient() {
   const url = new URL(connectionString);
   const schema = url.searchParams.get("schema") ?? "public";
   url.searchParams.delete("schema");
+  // pg already treats prefer / require / verify-ca as verify-full (and logs a security warning on every cold start);
+  // saying so explicitly keeps the same behaviour without the log noise.
+  const ssl = url.searchParams.get("sslmode");
+  if (ssl && ["prefer", "require", "verify-ca"].includes(ssl)) url.searchParams.set("sslmode", "verify-full");
   // Pool clients are wrapped so tenant statements run under PostgreSQL row-level security (see db-rls.ts).
   const pool = createTenantPool({ connectionString: url.toString(), max: Number(process.env.DATABASE_POOL_MAX ?? 10) });
   const adapter = new PrismaPg(pool, { schema });

@@ -86,9 +86,9 @@ async function assertUnchanged(id: string, versionAt: unknown) {
   if (!s) throw new ApiError("האוטומציה לא נמצאה", 404, "not_found");
   if (versionAt && s.updatedAt.toISOString() !== String(versionAt)) throw new ApiError("האוטומציה השתנתה מאז שהוצגה לאישור – יש לבקש סיכום מחדש", 409, "changed");
 }
-registerExecutor("activate_automation", async (_u, p) => { await assertUnchanged(String(p.automationId), p.versionAt); await prisma.marketingSequence.update({ where: { id: String(p.automationId) }, data: { isActive: true } }); return { active: true }; }, { managerOnly: true });
-registerExecutor("resume_automation", async (_u, p) => { await assertUnchanged(String(p.automationId), p.versionAt); await prisma.marketingSequence.update({ where: { id: String(p.automationId) }, data: { isActive: true } }); return { active: true }; }, { managerOnly: true });
-registerExecutor("pause_automation", async (_u, p) => { await prisma.marketingSequence.update({ where: { id: String(p.automationId) }, data: { isActive: false } }); return { active: false }; }, { managerOnly: true });
+registerExecutor("activate_automation", async (u, p) => { await assertUnchanged(String(p.automationId), p.versionAt); await (await import("@/server/automations/journeys")).setJourneyStatus(u, String(p.automationId), "active"); return { active: true }; }, { managerOnly: true });
+registerExecutor("resume_automation", async (u, p) => { await assertUnchanged(String(p.automationId), p.versionAt); await (await import("@/server/automations/journeys")).setJourneyStatus(u, String(p.automationId), "active"); return { active: true }; }, { managerOnly: true });
+registerExecutor("pause_automation", async (u, p) => { await (await import("@/server/automations/journeys")).setJourneyStatus(u, String(p.automationId), "paused"); return { active: false }; }, { managerOnly: true });
 registerExecutor("update_automation", async (user, p) => {
   await assertUnchanged(String(p.automationId), p.versionAt);
   const { saveSequence } = await import("@/server/services/sequence-service");
@@ -101,7 +101,8 @@ registerExecutor("backfill_automation", async (_u, p) => {
   const seq = await prisma.marketingSequence.findUniqueOrThrow({ where: { id: String(p.automationId) }, include: { steps: { orderBy: { position: "asc" }, take: 1 } } });
   if (!seq.isActive) throw new ApiError("יש להפעיל את האוטומציה לפני החלה על רשומות קיימות", 409, "inactive");
   const contacts = await affectedContacts(seq.businessId, seq.id);
-  const r = await prisma.sequenceRun.createMany({ data: contacts.map((contactId) => ({ businessId: seq.businessId, sequenceId: seq.id, contactId, sourceKey: `backfill:${contactId}`, nextAt: new Date(Date.now() + (seq.steps[0]?.waitMinutes ?? 0) * 60_000), log: [] })), skipDuplicates: true });
+  const pinned = await prisma.sequenceVersion.findFirst({ where: { sequenceId: seq.id, version: seq.version }, select: { id: true } });
+  const r = await prisma.sequenceRun.createMany({ data: contacts.map((contactId) => ({ businessId: seq.businessId, sequenceId: seq.id, contactId, versionId: pinned?.id ?? null, sourceKey: `backfill:${contactId}`, nextAt: new Date(Date.now() + (seq.steps[0]?.waitMinutes ?? 0) * 60_000), log: [] })), skipDuplicates: true });
   return { started: r.count, candidates: contacts.length };
 }, { managerOnly: true });
 

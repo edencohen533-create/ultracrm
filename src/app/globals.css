@@ -724,7 +724,7 @@ table {
 .jr-sim li { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 10px; padding: 8px 10px; border-radius: 8px; border-inline-start: 3px solid var(--good); background: var(--bg); }
 .jr-sim li.skipped { border-color: var(--warn); } .jr-sim li.stop { border-color: var(--bad); }
 .jr-sim li p { grid-column: 1 / -1; margin: 0; color: var(--muted); } .jr-sim-at { font-size: 11px; color: var(--muted); }
-.jl { margin-top: 28px; border: 1px solid #e3e7ef; border-radius: 12px; overflow: hidden; background: #fff; }
+.jl { margin-top: 12px; border: 1px solid #e3e7ef; border-radius: 12px; overflow: hidden; background: #fff; }
 .jl > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #edf0f5; }
 .jl h2 { font-size: 17px; font-weight: 800; margin: 0; } .jl header p { font-size: 12px; color: #6b7690; margin: 2px 0 0; }
 .jl-row { grid-template-columns: minmax(0, 1fr) auto auto; }

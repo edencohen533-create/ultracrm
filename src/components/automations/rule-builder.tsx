@@ -154,7 +154,8 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
         const d = await api.post<{ id: string }>("/api/sequences/draft", { name, trigger: "LEAD_STATUS_CHANGED", triggerConfig: { leadStatus }, stopOn: [], steps: [{ action: "send", channel: "whatsapp", templateId, waitMinutes, variables, condition: { requireNoReply: false } }] });
         setTouched(false); setOpen(false);
         if (isActive) router.push(`/automations/journeys/${d.id}?publish=1`);
-        else { toast.success(t("החוק נשמר כטיוטה (לא פעיל)", "Rule saved as a draft (inactive)")); router.refresh(); }
+        // A CRM-status rule runs on the journey engine – it is listed under "מסעות לקוח".
+        else { toast.success(t("החוק נשמר כטיוטה (לא פעיל) – הוא מופיע בלשונית ״מסעות לקוח״", "Rule saved as a draft (inactive) – it is listed under \"Customer journeys\"")); router.push(`/automations/journeys/${d.id}`); }
       } catch (e) { toast.error((e as Error).message || t("שמירת החוק נכשלה", "Saving the rule failed")); } finally { setIsSubmitting(false); }
       return;
     }

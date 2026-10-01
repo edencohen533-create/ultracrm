@@ -28,7 +28,7 @@ export function JourneyList({ journeys }: { journeys: Row[] }) {
   }
   return (
     <section className="jl" data-testid="journeys">
-      <header><div><h2>{t("מסע לקוח", "Customer journeys")}</h2><p>{t("טריגר ← המתנות, תנאים, הודעות WhatsApp/SMS/אימייל, תגיות, רשימות, התראות ו-Webhook. הסכמה והסרה נבדקות לפני כל שליחה.", "Trigger → waits, conditions, WhatsApp/SMS/email messages, tags, lists, notifications and webhooks. Consent and unsubscribes are checked before every send.")}</p></div><Link href="/automations/journeys/new" className="cmp-btn primary" data-testid="journey-new">{t("מסע לקוח חדש", "New customer journey")}</Link></header>
+      <header><div><p>{t("טריגר ← המתנות, תנאים, הודעות WhatsApp/SMS/אימייל, תגיות, רשימות, התראות ו-Webhook. הסכמה והסרה נבדקות לפני כל שליחה.", "Trigger → waits, conditions, WhatsApp/SMS/email messages, tags, lists, notifications and webhooks. Consent and unsubscribes are checked before every send.")}</p></div><Link href="/automations/journeys/new" className="cmp-btn primary" data-testid="journey-new">{t("מסע לקוח חדש", "New customer journey")}</Link></header>
       {journeys.length === 0 ? <p className="cmp-empty">{t("עדיין אין מסעות לקוח.", "No customer journeys yet.")}</p> : <div className="cmp-rows">{journeys.map((j) => (
         <article key={j.id} className="cmp-row jl-row" data-testid={`journey-row-${j.id}`}>
           <div className="cmp-row-main"><h3>{j.name}</h3><p>{TRIGGERS[j.trigger] ? t(...TRIGGERS[j.trigger]) : j.trigger} · {(j.status === "draft" ? ((j.draft as { steps?: unknown[] } | null)?.steps ?? []) : j.steps).length} {t("פעולות", "actions")}{j._count ? t(` · ${j._count.runs} אנשי קשר עברו`, ` · ${j._count.runs} contacts went through`) : ""}</p></div>

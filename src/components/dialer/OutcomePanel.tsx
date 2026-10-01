@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Badge, Button, Kbd, cx } from "@/components/ui";
 import { TELEPHONY_RESULT_LABEL, formatDuration } from "@/lib/client/format";
 import type { CallDto, OutcomeKey } from "@/lib/client/types";
@@ -32,8 +32,15 @@ export function OutcomePanel({ call, note, onSave, saving }: { call: CallDto; no
   const answered = Boolean(call.answeredAt);
   const [pick, setPick] = useState<WrapUpPick | null>(null);
 
-  // Sensible default from the provider's result – the agent can still change it.
-  useEffect(() => { setPick(call.telephonyResult === "busy" ? { outcome: "busy" } : call.telephonyResult === "no_answer" ? { outcome: "no_answer" } : null); }, [call.id, call.telephonyResult]);
+  // Sensible default from the provider's result – the agent can still change it. A new call starts from that default;
+  // a result that arrives later (webhook / poll) fills in only if the agent hasn't picked anything yet.
+  const providerDefault: WrapUpPick | null = call.telephonyResult === "busy" ? { outcome: "busy" } : call.telephonyResult === "no_answer" ? { outcome: "no_answer" } : null;
+  const shownFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (shownFor.current !== call.id) { shownFor.current = call.id; setPick(providerDefault); return; }
+    if (providerDefault) setPick((p) => p ?? providerDefault);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.id, call.telephonyResult]);
 
   const canSave = pickReady(pick) && !saving;
   const selStatus = (id: string, kind: string) => setPick({ statusId: id, kind });

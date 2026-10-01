@@ -1025,3 +1025,23 @@ button.seg-item { width: 100%; }
 .crm-follow-ups button { color: var(--accent); }
 .crm-follow-ups>div { border-bottom-color: var(--line); }
 @media (max-width: 760px) { .crm-settings-shell header, .crm-settings-shell main, .crm-settings-agent { padding: 14px; } .crm-settings-shell h1 { font-size: 16px; } .crm-settings-shell nav button { min-width: 96px; } }
+
+/* Lead distribution: on phones each agent is a card (label + value per line) instead of a sideways-scrolling table. */
+@media (max-width: 639px) {
+  .dist-table thead { display: none; }
+  .dist-table, .dist-table tbody { display: block; }
+  .dist-table tr { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .dist-table td { display: contents; }
+  .dist-table td::before { content: attr(data-label); color: var(--muted); font-size: 12px; align-self: center; }
+  .dist-table td.dist-name::before { content: none; }
+  .dist-table td.dist-name { display: block; grid-column: 1 / -1; order: -1; font-weight: 600; font-size: 14px; }
+}
+/* Campaign wizard on phones: title on its own row, the actions wrap across the full width (nothing cut off). */
+@media (max-width: 640px) {
+  .wz-brand { width: 100%; padding-block: 8px; }
+  .wz-name { flex: 1; width: auto; min-width: 0; }
+  .wz-actions { width: 100%; flex-wrap: wrap; padding: 0 12px 8px; gap: 6px; }
+  .wz-actions .wz-btn { flex: 1 1 auto; height: 36px; padding: 0 10px; font-size: 13px; }
+  .wz-head .wz-btn.primary { height: 36px; padding: 0 12px; }
+  .wz-steps { flex: 0 0 100%; }
+}

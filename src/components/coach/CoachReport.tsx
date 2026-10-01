@@ -24,7 +24,7 @@ export function CoachReport() {
   const fb = m.feedback;
   return (
     <div className="p-5 space-y-4" data-testid="coach-report">
-      <div className="flex items-center gap-2 text-sm">{[7, 30, 90].map((d) => <Button key={d} size="sm" variant={days === d ? "primary" : "ghost"} onClick={() => setDays(d)}>{t(`${d} ימים`, `${d} days`)}</Button>)}{m.providers.mock && <Badge tone="warn">{t("ספק AI מדומה – נתוני בדיקה", "Mock AI provider – test data")}</Badge>}</div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">{[7, 30, 90].map((d) => <Button key={d} size="sm" variant={days === d ? "primary" : "ghost"} onClick={() => setDays(d)}>{t(`${d} ימים`, `${d} days`)}</Button>)}{m.providers.mock && <Badge tone="warn">{t("ספק AI מדומה – נתוני בדיקה", "Mock AI provider – test data")}</Badge>}</div>
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
         <Stat label={t("שיחות עם מאמן פעיל", "Calls with coach active")} value={m.sessions} />
         <Stat label={t("המלצות שהוצגו", "Suggestions shown")} value={m.recommendationsShown} />

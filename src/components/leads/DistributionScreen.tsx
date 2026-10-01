@@ -53,15 +53,15 @@ export function DistributionScreen() {
         </div>
         {rr && o.next && <p className="text-xs" data-testid="dist-next">{t("הבא בתור עכשיו:", "Next in turn now:")} <b>{o.next.name}</b></p>}
         <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full min-w-[520px] text-sm" data-testid="dist-agents">
+          <table className="dist-table w-full sm:min-w-[520px] text-sm" data-testid="dist-agents">
             <thead><tr className="text-xs text-muted"><th className="p-2 text-start">{t("משתתף", "Takes part")}</th><th className="p-2 text-start">{t("נציג", "Agent")}</th><th className="p-2 text-start">{t("לידים פתוחים", "Open leads")}</th><th className="p-2 text-start">{t("מקסימום פתוחים", "Max open")}</th><th className="p-2 text-start">{t("מקבל עכשיו?", "Receives now?")}</th></tr></thead>
             <tbody>{o.agents.map((a) => { const per = p.perAgentMax ?? {}; return (
               <tr key={a.id} className="border-t border-line">
-                <td className="p-2"><input type="checkbox" checked={p.agentIds.includes(a.id)} onChange={(e) => setP({ ...p, agentIds: e.target.checked ? [...p.agentIds, a.id] : p.agentIds.filter((x) => x !== a.id) })} aria-label={t(`${a.name} בחלוקה`, `${a.name} in distribution`)} /></td>
-                <td className={cx("p-2", !inPool(a.id) && "text-muted")}>{a.name}{p.requireOnline && <span className={cx("ms-1 inline-block h-2 w-2 rounded-full", a.online ? "bg-good" : "bg-line")} title={a.online ? t("מחובר לחייגן", "Connected") : t("לא מחובר", "Not connected")} />}</td>
-                <td className="p-2 tabular-nums">{a.openLeads}</td>
-                <td className="p-2"><input type="number" min={0} className="h-8 w-24 rounded-md border border-line px-2 ltr" placeholder={p.maxOpenLeadsPerAgent ? String(p.maxOpenLeadsPerAgent) : t("ללא", "None")} value={per[a.id] ?? ""} onChange={(e) => { const v = e.target.value; const next = { ...per }; if (v === "") delete next[a.id]; else next[a.id] = Math.max(0, Number(v) || 0); setP({ ...p, perAgentMax: next }); }} /></td>
-                <td className="p-2 text-xs">{a.eligible ? <span className="text-good">{t("כן", "Yes")}</span> : <span className="text-muted">{a.why ?? "—"}</span>}</td>
+                <td className="p-2" data-label={t("משתתף", "Takes part")}><input type="checkbox" checked={p.agentIds.includes(a.id)} onChange={(e) => setP({ ...p, agentIds: e.target.checked ? [...p.agentIds, a.id] : p.agentIds.filter((x) => x !== a.id) })} aria-label={t(`${a.name} בחלוקה`, `${a.name} in distribution`)} /></td>
+                <td className={cx("p-2 dist-name", !inPool(a.id) && "text-muted")} data-label={t("נציג", "Agent")}>{a.name}{p.requireOnline && <span className={cx("ms-1 inline-block h-2 w-2 rounded-full", a.online ? "bg-good" : "bg-line")} title={a.online ? t("מחובר לחייגן", "Connected") : t("לא מחובר", "Not connected")} />}</td>
+                <td className="p-2 tabular-nums" data-label={t("לידים פתוחים", "Open leads")}>{a.openLeads}</td>
+                <td className="p-2" data-label={t("מקסימום פתוחים", "Max open")}><input type="number" min={0} className="h-8 w-24 rounded-md border border-line px-2 ltr" placeholder={p.maxOpenLeadsPerAgent ? String(p.maxOpenLeadsPerAgent) : t("ללא", "None")} value={per[a.id] ?? ""} onChange={(e) => { const v = e.target.value; const next = { ...per }; if (v === "") delete next[a.id]; else next[a.id] = Math.max(0, Number(v) || 0); setP({ ...p, perAgentMax: next }); }} /></td>
+                <td className="p-2 text-xs" data-label={t("מקבל עכשיו?", "Receives now?")}>{a.eligible ? <span className="text-good">{t("כן", "Yes")}</span> : <span className="text-muted">{a.why ?? "—"}</span>}</td>
               </tr>); })}</tbody>
           </table>
         </div>

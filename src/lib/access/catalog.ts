@@ -9,6 +9,21 @@ export type ModuleKey = "crm" | "telephony" | "whatsapp" | "sms" | "email";
 export const MODULES: ModuleKey[] = ["crm", "telephony", "whatsapp", "sms", "email"];
 export const MODULE_LABEL: Record<ModuleKey, string> = bi({ crm: "CRM", telephony: "חייגן", whatsapp: "וואטסאפ", sms: "SMS מרקטינג", email: "אימייל מרקטינג" }, { crm: "CRM", telephony: "Dialer", whatsapp: "WhatsApp", sms: "SMS marketing", email: "Email marketing" });
 
+/** One line per module – what the business gets (shown where the package is managed or requested). */
+export const MODULE_DESC: Record<ModuleKey, string> = bi({
+  crm: "לידים, אנשי קשר, עסקאות, משימות ודוחות מכירה.",
+  telephony: "חייגן אוטומטי וידני, רשימות חיוג, הקלטות והאזנה לשיחות.",
+  whatsapp: "תיבת שיחות WhatsApp, תבניות, אוטומציות והודעות תפוצה.",
+  sms: "קמפייני SMS לאנשי הקשר ולקהלים.",
+  email: "קמפייני אימייל, עורך תבניות ומעקב פתיחות והקלקות.",
+}, {
+  crm: "Leads, contacts, deals, tasks and sales reports.",
+  telephony: "Auto and manual dialer, dial lists, recordings and call monitoring.",
+  whatsapp: "WhatsApp inbox, templates, automations and broadcast messages.",
+  sms: "SMS campaigns to contacts and audiences.",
+  email: "Email campaigns, template editor, open and click tracking.",
+});
+
 export const ACTIONS = {
   crm: bi({ view: "צפייה", create: "יצירה", edit: "עריכה", export: "ייצוא", transfer: "העברת לידים", payments: "גבייה מלקוח (קישור / עמוד תשלום)", payment_amount: "שינוי סכום בגבייה", marketing_view: "צפייה בדוח שיווק והכנסות", marketing_connect: "חיבור חשבונות פרסום (Meta Ads)" } as const, { view: "View", create: "Create", edit: "Edit", export: "Export", transfer: "Transfer leads", payments: "Take payments (link / payment page)", payment_amount: "Change the amount of a payment", marketing_view: "View the marketing & revenue report", marketing_connect: "Connect ad accounts (Meta Ads)" }),
   telephony: bi({ use: "שימוש בחייגן", personal_settings: "שינוי הגדרות אישיות", team_settings: "ניהול הגדרות צוות ורשימות חיוג", recordings: "גישה להקלטות", recordings_download: "הורדת הקלטות", monitor: "האזנה ולחישה לשיחות פעילות" } as const, { use: "Use the dialer", personal_settings: "Change personal settings", team_settings: "Manage team settings and dial lists", recordings: "Access recordings", recordings_download: "Download recordings", monitor: "Listen / whisper to live calls" }),

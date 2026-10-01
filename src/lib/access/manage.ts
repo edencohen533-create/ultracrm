@@ -173,7 +173,8 @@ export interface Impact {
   journeys: Array<{ id: string; name: string }>;
   inboxAutomations: number; serviceAgent: boolean; dialerSessions: number; dialLists: number;
 }
-type Target = { planVersionId?: string | null; revokeGrantId?: string; addGrant?: { module: ModuleKey; kind: string; seats: number | null; expiresAt: Date | null } };
+type GrantSpec = { module: ModuleKey; kind: string; seats: number | null; expiresAt: Date | null };
+type Target = { planVersionId?: string | null; revokeGrantId?: string; addGrant?: GrantSpec; revokeGrantIds?: string[]; addGrants?: GrantSpec[]; legacyModules?: Partial<Record<ModuleKey, boolean>> };
 
 async function futureModules(businessId: string, t: Target) {
   const b = await db.business.findUniqueOrThrow({ where: { id: businessId }, select: { modules: true, planVersionId: true, plan: { select: { modules: true } }, planVersion: { select: { modules: true } } } });
@@ -183,8 +184,11 @@ async function futureModules(businessId: string, t: Target) {
   const now = new Date();
   let grants = await db.entitlementGrant.findMany({ where: { businessId, revokedAt: null, startsAt: { lte: now }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }, select: { id: true, module: true, kind: true, seats: true, expiresAt: true } });
   if (t.revokeGrantId) grants = grants.filter((g) => g.id !== t.revokeGrantId);
+  if (t.revokeGrantIds?.length) grants = grants.filter((g) => !t.revokeGrantIds!.includes(g.id));
   if (t.addGrant) grants.push({ id: "new", ...t.addGrant });
-  return computeModules(pv ? pv.modules : null, b.plan?.modules ?? null, b.modules, grants);
+  for (const [i, g] of (t.addGrants ?? []).entries()) grants.push({ id: `new${i}`, ...g });
+  const overrides = { ...((b.modules ?? {}) as Record<string, unknown>), ...(t.legacyModules ?? {}) };
+  return computeModules(pv ? pv.modules : null, b.plan?.modules ?? null, overrides, grants);
 }
 
 export async function computeImpact(businessId: string, t: Target): Promise<{ impact: Impact; after: Record<ModuleKey, ModuleEntitlement> }> {
@@ -250,8 +254,16 @@ export async function applyEntitlementChange(actor: SessionUser, businessId: str
           await tx.business.update({ where: { id: businessId }, data: { modules: {} } });
         }
       }
+      // Bump the business row: cached entitlements on every server instance see the change on their next read.
+      await tx.business.update({ where: { id: businessId }, data: { updatedAt: new Date() } });
       if (t.revokeGrantId) await tx.entitlementGrant.updateMany({ where: { id: t.revokeGrantId, businessId, revokedAt: null }, data: { revokedAt: new Date() } });
+      if (t.revokeGrantIds?.length) await tx.entitlementGrant.updateMany({ where: { id: { in: t.revokeGrantIds }, businessId, revokedAt: null }, data: { revokedAt: new Date() } });
       if (t.addGrant) await tx.entitlementGrant.create({ data: { businessId, module: t.addGrant.module, kind: t.addGrant.kind, seats: t.addGrant.seats, expiresAt: t.addGrant.expiresAt, createdById: actor.accountId } });
+      for (const g of t.addGrants ?? []) await tx.entitlementGrant.create({ data: { businessId, module: g.module, kind: g.kind, seats: g.seats, expiresAt: g.expiresAt, createdById: actor.accountId } });
+      if (t.legacyModules && Object.keys(t.legacyModules).length) {
+        const cur = await tx.business.findUniqueOrThrow({ where: { id: businessId }, select: { modules: true } });
+        await tx.business.update({ where: { id: businessId }, data: { modules: { ...((cur.modules ?? {}) as Record<string, unknown>), ...t.legacyModules } as Prisma.InputJsonValue } });
+      }
       const users = await tx.user.findMany({ where: { businessId, role: { not: "owner" } }, select: { id: true, permissions: true } });
       for (const u of users) {
         const p = parsePermissions(u.permissions); if (!p) continue;
@@ -324,5 +336,39 @@ export async function businessDetail(businessId: string) {
     for (const u of users) { const p = await userPermissions(businessId, u, ent); rows.push({ id: u.id, fullName: u.fullName, email: u.email, role: u.role, isActive: u.isActive, derived: p.derived, template: u.role === "owner" ? "owner" : p.template, scope: p.scope, permissions: p.modules, effective: u.isActive ? (await effectiveAccess(businessId, u.id)).modules : null }); }
     const audit = await db.accessAuditLog.findMany({ where: { businessId }, orderBy: { createdAt: "desc" }, take: 50 });
     return { business: b, entitlement: ent, seats: await seatSummary(businessId), grants, users: rows, audit, templates: TEMPLATES };
+  });
+}
+
+
+// ─── per-module switches (settings → plan, platform admin) ──────────────────────────────────────────────────────
+export type ModuleSwitchBlock = { module: ModuleKey; reason: string };
+/**
+ * Turn "module on / off" choices into a precise entitlement change on the business's real sources:
+ *  • on  – with a pinned package version: an add-on grant (no expiry, no seat cap); without one (legacy): the override;
+ *  • off – revoke the module's grants; without a pinned version also the override. A module that comes from the
+ *    package version itself (or a paid subscription) can't be switched off here – it is the package, changed by
+ *    moving to another version (billing) – reported as blocked, never silently skipped.
+ */
+export async function compileModuleSwitches(businessId: string, desired: Partial<Record<ModuleKey, boolean>>) {
+  return withoutBusiness(async () => {
+    const e = await businessEntitlement(businessId);
+    const pinned = Boolean(e.planVersionId) || Boolean(e.subscription);
+    const t: Target = { addGrants: [], revokeGrantIds: [], legacyModules: {} };
+    const blocked: ModuleSwitchBlock[] = [];
+    const changes: Array<{ module: ModuleKey; to: boolean }> = [];
+    for (const m of MODULES) {
+      const want = desired[m]; const cur = e.modules[m];
+      if (want === undefined || want === cur.included) continue;
+      if (e.subscription) { blocked.push({ module: m, reason: "המודולים נקבעים לפי המנוי המשולם – שינוי דרך חיוב ושימוש" }); continue; }
+      if (want) {
+        if (pinned) t.addGrants!.push({ module: m, kind: "addon", seats: null, expiresAt: null }); else t.legacyModules![m] = true;
+      } else {
+        if (cur.sources.some((s) => s.type === "plan")) { blocked.push({ module: m, reason: `המודול כלול בגרסת החבילה${e.planName ? ` "${e.planName}"` : ""} – להסרה יש להעביר את העסק לגרסת חבילה אחרת (ניהול הפלטפורמה)` }); continue; }
+        for (const s of cur.sources) if ("grantId" in s && s.grantId) t.revokeGrantIds!.push(s.grantId as string);
+        if (!pinned) t.legacyModules![m] = false;
+      }
+      changes.push({ module: m, to: want });
+    }
+    return { target: t, blocked, changes, entitlement: e };
   });
 }

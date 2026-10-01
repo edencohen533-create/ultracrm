@@ -355,4 +355,18 @@ const crmWriteback: EventHandler = {
   async run(event) { return (await import("@/server/crm-sync/outbox")).enqueueCrmWriteback(event); },
 };
 
-export const HANDLERS: EventHandler[] = [agentPresence, coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, whatsappAvailability, dialerQueueEmpty, suppressed, taskCreated, sequences, webhooks, crmWriteback];
+/** "המרות למטא": a saved CRM change → events of the matching enabled rules (durable queue, deduplicated). */
+const metaConversions: EventHandler = {
+  name: "meta.conversions",
+  types: ["lead.created", "lead.status_changed", "deal.won", "appointment.scheduled", "appointment.attended", "contact.field_changed"],
+  async run(event) {
+    const capi = await import("@/server/marketing/capi");
+    const o = await capi.occurrenceFromEvent(event);
+    if (!o) return { skipped: "not an occurrence" };
+    const r = await capi.enqueueOccurrence(event.businessId, o);
+    if (r.created) { const { after } = await import("next/server"); try { after(() => capi.runCapiJob({ deadline: Date.now() + 20_000, businessId: event.businessId }).catch(() => undefined)); } catch { /* outside a request – the cron sends */ } }
+    return r;
+  },
+};
+
+export const HANDLERS: EventHandler[] = [metaConversions, agentPresence, coachLearning, callDocumentation, leadCreated, callEnded, outcomeFollowUp, outcomeFollowUpMessage, messageReceived, aiService, whatsappAvailability, dialerQueueEmpty, suppressed, taskCreated, sequences, webhooks, crmWriteback];

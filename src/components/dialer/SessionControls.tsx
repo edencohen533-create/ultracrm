@@ -92,7 +92,7 @@ export function StartSessionForm({ onStarted, compact, initialListId }: { onStar
   };
 
   useEffect(() => {
-    api.get<ListLite[]>("/api/lists").then((l) => {
+    api.get<ListLite[]>("/api/lists?dialer=1").then((l) => {
       const active = l.filter((x) => x.isActive).sort((a, b) => b.stats.dueNow - a.stats.dueNow);
       setLists(active);
       if (!compact && !listId && active[0]) setListId(active[0].id);

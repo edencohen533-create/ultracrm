@@ -29,7 +29,7 @@ export const GET = withAuth(async ({ req, user }) => {
   const monitor = user.role === "agent" ? null : await activeMonitorFor(user.id);
   // Presence of the browser: the poll itself proves the tab is alive (throttled write).
   await prisma.user.updateMany({ where: { id: user.id, OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: new Date(Date.now() - 20_000) } }] }, data: { lastSeenAt: new Date() } });
-  const queue = session?.listId ? await listQueueStats(session.listId) : null;
+  const queue = session?.listId ? await listQueueStats(session.listId, user) : null;
   const script = lead?.list.scriptId
     ? await prisma.script.findFirst({ where: { id: lead.list.scriptId, businessId: user.businessId }, select: { id: true, title: true, body: true } })
     : await prisma.script.findFirst({ where: { businessId: user.businessId, isDefault: true }, select: { id: true, title: true, body: true } });

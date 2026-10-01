@@ -12,23 +12,18 @@ import { StopAutomationsButton } from "@/components/automations/stop-automations
 import { RuleList } from "@/components/automations/rule-list";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
-import { JourneyList } from "@/components/automations/journey/journey-list";
 import { UnsubscribeCard } from "@/components/automations/unsubscribe-card";
-import { listSequences } from "@/server/services/sequence-service";
 import { AutomationsTabs } from "@/components/automations/AutomationsTabs";
 import { serverT } from "@/lib/i18n-server";
 
 export default organizationRequest(async function AutomationsPage() {
   if (!hasRole(await auth(), ROLES_ADMIN_MANAGER)) return <AccessDenied />;
-  const [rules, agents, cannedReplies, templates, conversations, sequences, allTemplates, tags] = await Promise.all([
+  const [rules, agents, cannedReplies, templates, conversations] = await Promise.all([
     listRules(),
     prisma.user.findMany({ where: { role: { in: ["agent", "manager"] }, isActive: true }, select: { id: true, fullName: true } }),
     prisma.cannedReply.findMany({ select: { id: true, title: true } }),
     prisma.template.findMany({ where: { status: "APPROVED", channel: "whatsapp", internal: false }, select: { id: true, name: true, displayName: true, body: true } }).then((r) => r.map(withDisplayName)),
     prisma.conversation.findMany({ orderBy: { lastMessageAt: "desc" }, take: 50, select: { id: true, contact: { select: { fullName: true, phoneE164: true } } } }),
-    listSequences(),
-    prisma.template.findMany({ where: { status: "APPROVED", internal: false }, select: { id: true, name: true, displayName: true, channel: true }, orderBy: { name: "asc" } }).then((r) => r.map(withDisplayName)),
-    prisma.tag.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
   ]);
   const t = await serverT();
 
@@ -36,7 +31,7 @@ export default organizationRequest(async function AutomationsPage() {
     <div className="p-3 sm:p-6">
       <AutomationsTabs />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">{t("אוטומציות", "Automations")}</h1>
+        <div><h1 className="text-lg font-semibold">{t("אוטומציות", "Automations")}</h1><p className="text-sm text-muted">{t("חוקים בודדים: טריגר ← פעולה. רצפים לאורך זמן נמצאים בלשונית ״מסעות לקוח״.", "Single rules: trigger → action. Sequences over time are in the \"Customer journeys\" tab.")}</p></div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" nativeButton={false} render={<Link href="/automations/history">{t("היסטוריית הרצות", "Run history")}</Link>} />
           <StopAutomationsButton />
@@ -54,7 +49,6 @@ export default organizationRequest(async function AutomationsPage() {
       ) : (
         <RuleList key={rules.map((r) => `${r.id}:${r.isActive}`).join(",")} rules={rules} />
       )}
-      <JourneyList journeys={JSON.parse(JSON.stringify(sequences))} />
       <UnsubscribeCard />
     </div>
   );

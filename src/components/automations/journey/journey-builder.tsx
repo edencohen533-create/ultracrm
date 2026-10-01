@@ -81,7 +81,7 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
       return r.id;
     } catch (e) { toast.error((e as Error).message); return null; } finally { setBusy(false); }
   }
-  function exit() { if (dirty) setLeaving(true); else router.push("/automations"); }
+  function exit() { if (dirty) setLeaving(true); else router.push("/automations/journeys"); }
   function applyAi(r: Interpretation) {
     if (!r.definition) return;
     const d = r.definition;
@@ -95,7 +95,7 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
   return (
     <div className="jr" data-testid="journey-builder">
       <header className="jr-head">
-        <Link href="/automations" className="jr-back" onClick={(e) => { if (dirty) { e.preventDefault(); setLeaving(true); } }}>{t("→ אוטומציות", "← Automations")}</Link>
+        <Link href="/automations/journeys" className="jr-back" onClick={(e) => { if (dirty) { e.preventDefault(); setLeaving(true); } }}>{t("→ מסעות לקוח", "← Customer journeys")}</Link>
         <input className="jr-name" value={j.name} onChange={(e) => set({ name: e.target.value })} aria-label={t("שם האוטומציה", "Automation name")} data-testid="journey-name" />
         <span className={`jr-status s-${j.status}`} data-testid="journey-status">{statusLabel}</span>
         {(dirty || (j.hasDraft && j.status !== "draft")) && <span className="jr-dirty" data-testid="journey-dirty">{dirty ? t("שינויים לא שמורים", "Unsaved changes") : t("יש טיוטה שלא הופעלה", "Unpublished draft")}</span>}
@@ -167,7 +167,7 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
       </div></div>}
       {leaving && <div className="wz-modal" role="dialog" aria-modal="true" aria-labelledby="jr-leave-title" data-testid="journey-discard"><div className="wz-modal-box small"><header><strong id="jr-leave-title">{t("לצאת בלי לשמור?", "Leave without saving?")}</strong></header>
         <p className="jr-modal-text">{t("השינויים שלא נשמרו יאבדו. הגרסה השמורה (והגרסה הפעילה, אם יש) לא משתנה.", "Unsaved changes will be lost. The saved version (and the live one, if any) is not changed.")}</p>
-        <div className="wz-modal-actions"><button className="wz-btn ghost" onClick={() => setLeaving(false)} autoFocus data-testid="journey-discard-stay">{t("להישאר", "Stay")}</button><button className="wz-btn danger" onClick={() => { setDirty(false); router.push("/automations"); }} data-testid="journey-discard-confirm">{t("יציאה בלי לשמור", "Discard and leave")}</button></div>
+        <div className="wz-modal-actions"><button className="wz-btn ghost" onClick={() => setLeaving(false)} autoFocus data-testid="journey-discard-stay">{t("להישאר", "Stay")}</button><button className="wz-btn danger" onClick={() => { setDirty(false); router.push("/automations/journeys"); }} data-testid="journey-discard-confirm">{t("יציאה בלי לשמור", "Discard and leave")}</button></div>
       </div></div>}
       {publishing && <PublishDialog def={toDef(j)} status={j.status} onClose={() => setPublishing(false)} saveFirst={() => saveDraft(true)} onPublished={(version, id) => { const isNew = !initial.id; setJ((x) => ({ ...x, id, status: "active", version, hasDraft: false })); setDirty(false); setPublishing(false); if (isNew) router.replace(`/automations/journeys/${id}`); else router.refresh(); }} />}
       {simulating && <SimulateDialog def={toDef(j)} onClose={() => setSimulating(false)} />}

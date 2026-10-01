@@ -1,3 +1,4 @@
+import { Prisma } from "@/generated/prisma/client";
 /**
  * Adding people to a business by invitation – an owner never chooses (or learns) someone else's password.
  *
@@ -11,7 +12,7 @@
  */
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { db, prisma } from "@/lib/db";
+import { db, prisma, dbSchema, type Db } from "@/lib/db";
 import { withoutBusiness } from "@/lib/tenant";
 import { ApiError } from "@/lib/response";
 import { consumeQuota } from "@/lib/modules";
@@ -62,9 +63,9 @@ export async function reissueInvite(businessId: string, actorId: string, userId:
   return { inviteUrl: `${appUrl()}/invite/${inv.token}`, inviteExpiresAt: inv.expiresAt };
 }
 
-async function findInvite(token: string) {
+async function findInvite(token: string, client: Db = db) {
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return null;
-  const u = await withoutBusiness(() => db.user.findUnique({ where: { inviteTokenHash: hashToken(token) }, include: { account: true, business: { select: { id: true, name: true, isActive: true } } } }));
+  const u = await withoutBusiness(() => client.user.findUnique({ where: { inviteTokenHash: hashToken(token) }, include: { account: true, business: { select: { id: true, name: true, isActive: true } } } }));
   if (!u || !u.inviteExpiresAt || u.inviteExpiresAt < new Date() || !u.business.isActive || !u.account.isActive) return null;
   return u;
 }
@@ -80,20 +81,28 @@ export async function inviteInfo(token: string) {
 export async function acceptInvite(token: string, password: string) {
   const u = await findInvite(token);
   if (!u) throw new ApiError("ההזמנה אינה בתוקף – בקש מבעל העסק קישור חדש", 404, "invite_invalid");
-  let sessionVersion = u.account.sessionVersion;
-  if (!u.account.claimedAt) {
-    if (password.length < 8) throw new ApiError("סיסמה של 8 תווים לפחות", 400, "weak_password");
-    const passwordHash = await bcrypt.hash(password, 12);
-    // Bumping the session version revokes every session opened with a password someone else may have known.
-    const acc = await withoutBusiness(() => db.account.update({ where: { id: u.accountId }, data: { passwordHash, claimedAt: new Date(), sessionVersion: { increment: 1 } }, select: { sessionVersion: true } }));
-    sessionVersion = acc.sessionVersion;
-  } else if (!(await bcrypt.compare(password, u.account.passwordHash))) {
-    await audit(u.businessId, null, "user", u.id, "user.invite_rejected", { reason: "wrong_password" });
-    throw new ApiError("הסיסמה שגויה – הזן את הסיסמה של החשבון הקיים שלך", 403, "bad_password");
-  }
-  // One-time: the token is cleared in the same update that activates the membership.
-  const done = await withoutBusiness(() => db.user.updateMany({ where: { id: u.id, inviteTokenHash: u.inviteTokenHash }, data: { isActive: true, inviteTokenHash: null, inviteExpiresAt: null } }));
-  if (!done.count) throw new ApiError("ההזמנה כבר נוצלה", 409, "invite_used");
-  await audit(u.businessId, u.id, "user", u.id, "user.invite_accepted", { claimedAccount: !u.account.claimedAt });
-  return { userId: u.id, accountId: u.accountId, businessId: u.businessId, sessionVersion };
+  return withoutBusiness(() => db.$transaction(async tx => {
+    // Lock the identity, not just the invitation: two businesses can invite the same unclaimed account.
+    const table = Prisma.raw(`"${dbSchema().replaceAll('"', '""')}"."accounts"`);
+    await tx.$queryRaw`SELECT id FROM ${table} WHERE id = ${u.accountId} FOR UPDATE`;
+    const current = await findInvite(token, tx);
+    if (!current) throw new ApiError("ההזמנה כבר נוצלה או אינה בתוקף", 409, "invite_used");
+    let sessionVersion = current.account.sessionVersion;
+    if (!current.account.claimedAt) {
+      if (password.length < 8) throw new ApiError("סיסמה של 8 תווים לפחות", 400, "weak_password");
+      const passwordHash = await bcrypt.hash(password, 12);
+      const acc = await tx.account.update({ where: { id: current.accountId }, data: { passwordHash, claimedAt: new Date(), sessionVersion: { increment: 1 } }, select: { sessionVersion: true } });
+      sessionVersion = acc.sessionVersion;
+    } else if (!(await bcrypt.compare(password, current.account.passwordHash))) {
+      throw new ApiError("הסיסמה שגויה – הזן את הסיסמה של החשבון הקיים שלך", 403, "bad_password");
+    }
+    // Password claim and token consumption commit together; a lost/reissued token rolls everything back.
+    const done = await tx.user.updateMany({ where: { id: current.id, inviteTokenHash: current.inviteTokenHash, inviteExpiresAt: { gt: new Date() } }, data: { isActive: true, inviteTokenHash: null, inviteExpiresAt: null } });
+    if (!done.count) throw new ApiError("ההזמנה כבר נוצלה", 409, "invite_used");
+    await tx.auditLog.create({ data: { businessId: current.businessId, actorId: current.id, entityType: "user", entityId: current.id, action: "user.invite_accepted", payload: { claimedAccount: !current.account.claimedAt } } });
+    return { userId: current.id, accountId: current.accountId, businessId: current.businessId, sessionVersion };
+  })).catch(async error => {
+    if (error instanceof ApiError && error.code === "bad_password") await audit(u.businessId, null, "user", u.id, "user.invite_rejected", { reason: "wrong_password" });
+    throw error;
+  });
 }

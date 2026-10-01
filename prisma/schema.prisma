@@ -4419,3 +4419,13 @@ model Appointment {
   @@index([businessId, scheduledAt])
   @@map("appointments")
 }
+
+// Identity-level throttling shared by all server instances. Contains only hashes, counters and expiry times.
+model AuthRateLimit {
+  key       String   @id
+  attempts  Int
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("auth_rate_limits")
+}

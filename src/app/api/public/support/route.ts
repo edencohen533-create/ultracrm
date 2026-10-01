@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 import { z } from "zod";
+import { reserveAuthAttempt } from "@/lib/auth-rate-limit";
+import { handleError } from "@/lib/response";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +13,7 @@ export async function POST(req: Request) {
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "invalid" }, { status: 400 });
   const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
   const ipHash = crypto.createHash("sha256").update(`${process.env.JWT_SECRET ?? ""}:${ip}`).digest("hex").slice(0, 32);
-  if ((await db.supportRequest.count({ where: { ipHash, createdAt: { gte: new Date(Date.now() - 3600_000) } } })) >= 5) return Response.json({ error: "too many requests" }, { status: 429 });
+  try { await reserveAuthAttempt("support-ip", ipHash, 5, 3600_000); } catch (error) { return handleError(error); }
   const { website: _hp, ...data } = parsed.data; void _hp;
   const r = await db.supportRequest.create({ data: { ...data, businessName: data.businessName || null, ipHash } });
   return Response.json({ id: r.id }, { status: 201 });

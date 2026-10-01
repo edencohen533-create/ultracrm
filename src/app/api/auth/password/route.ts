@@ -6,6 +6,7 @@ import { withoutBusiness } from "@/lib/tenant";
 import { cookieMaxAge, cookieName, requireUser, signSession } from "@/lib/auth";
 import { fail, handleError } from "@/lib/response";
 import { parseBody } from "@/lib/api";
+import { reserveAuthAttempt } from "@/lib/auth-rate-limit";
 import { audit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -25,19 +26,20 @@ export async function POST(req: NextRequest) {
     const user = await requireUser(req);
     const { currentPassword, newPassword } = await parseBody(req, schema);
     if (currentPassword === newPassword) return fail("הסיסמה החדשה זהה לנוכחית", 400, undefined, "same_password");
+    await reserveAuthAttempt("password-change", user.accountId, 5);
     const account = await withoutBusiness(() => db.account.findUniqueOrThrow({ where: { id: user.accountId }, select: { id: true, passwordHash: true } }));
     if (!(await bcrypt.compare(currentPassword, account.passwordHash))) {
       await audit(user.businessId, user.id, "account", account.id, "account.password_change_rejected", { reason: "wrong_current_password" });
       return fail("הסיסמה הנוכחית שגויה", 403, undefined, "bad_current_password");
     }
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    const updated = await withoutBusiness(() => db.account.update({
-      where: { id: account.id },
+    const updated = await withoutBusiness(() => db.account.updateMany({
+      where: { id: account.id, isActive: true, sessionVersion: user.sessionVersion ?? 0, passwordHash: account.passwordHash },
       data: { passwordHash, sessionVersion: { increment: 1 }, claimedAt: new Date() },
-      select: { sessionVersion: true },
     }));
+    if (!updated.count) return fail("פרטי החשבון השתנו – יש להתחבר מחדש", 409, undefined, "session_changed");
     await audit(user.businessId, user.id, "account", account.id, "account.password_changed", { sessionsInvalidated: true });
-    const token = await signSession({ ...user, sessionVersion: updated.sessionVersion });
+    const token = await signSession({ ...user, sessionVersion: (user.sessionVersion ?? 0) + 1 });
     const res = NextResponse.json({ success: true, data: { ok: true } });
     res.cookies.set(cookieName, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: cookieMaxAge, path: "/" });
     return res;

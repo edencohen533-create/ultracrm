@@ -101,7 +101,7 @@ export async function revalidateSession(session: SessionUser): Promise<SessionUs
   if (session.supportSessionId) {
     // A support identity is never an active member: the SupportSession row is what grants (and ends) access.
     const { activeSupportSession } = await import("@/lib/platform/support");
-    const s = await activeSupportSession(session.supportSessionId, session.accountId, session.id, session.businessId);
+    const s = await activeSupportSession(session.supportSessionId, session.accountId, session.id, session.businessId, session.sessionVersion ?? 0);
     const u = s ? await db.user.findUnique({ where: { id: session.id }, select: { isSupport: true, businessId: true, fullName: true, email: true, business: { select: { isActive: true } } } }) : null;
     if (!s || !u?.isSupport || u.businessId !== session.businessId) throw new ApiError("גישת התמיכה הסתיימה", 401, "unauthorized");
     return { ...session, role: "manager", teamId: null, fullName: u.fullName, email: u.email, support: { id: s.id, expiresAt: s.expiresAt.toISOString(), businessName: s.businessName } };

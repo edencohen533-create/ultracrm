@@ -39,19 +39,20 @@ export async function startSupportSession(actor: SessionUser, businessId: string
     const session = await db.supportSession.create({ data: { businessId, accountId: account.id, userId: supportUser.id, reason, expiresAt: new Date(Date.now() + minutes * 60_000) } });
     await db.auditLog.create({ data: { businessId, actorId: null, entityType: "business", entityId: businessId, action: "platform.support_started", payload: { sessionId: session.id, adminAccountId: account.id, adminName: account.fullName, reason, minutes, mode: "read_only" } } });
     await accessAudit({ businessId, actorAccountId: account.id, action: "support.started", after: { sessionId: session.id, reason, minutes, mode: "read_only" } });
-    const sessionUser: SessionUser = { id: supportUser.id, accountId: account.id, businessId, email: account.email, fullName: supportUser.fullName, role: "manager", teamId: null, supportSessionId: session.id };
+    const sessionUser: SessionUser = { id: supportUser.id, accountId: account.id, businessId, email: account.email, fullName: supportUser.fullName, role: "manager", teamId: null, sessionVersion: actor.sessionVersion ?? 0, supportSessionId: session.id };
     return { session, sessionUser, businessName: biz.name };
   });
 }
 
 /** Validates a support session for every request (called from revalidateSession). */
-export async function activeSupportSession(sessionId: string, accountId: string, userId: string, businessId: string) {
+export async function activeSupportSession(sessionId: string, accountId: string, userId: string, businessId: string, sessionVersion: number) {
   return withoutBusiness(async () => {
     const s = await db.supportSession.findUnique({ where: { id: sessionId } });
     if (!s || s.endedAt || s.expiresAt <= new Date() || s.accountId !== accountId || s.userId !== userId || s.businessId !== businessId) return null;
-    const a = await db.account.findUnique({ where: { id: accountId }, select: { isPlatformAdmin: true, isActive: true } });
-    if (!a?.isActive || !a.isPlatformAdmin) return null;
-    const b = await db.business.findUnique({ where: { id: businessId }, select: { name: true } });
+    const a = await db.account.findUnique({ where: { id: accountId }, select: { isPlatformAdmin: true, isActive: true, sessionVersion: true } });
+    if (!a?.isActive || !a.isPlatformAdmin || a.sessionVersion !== sessionVersion) return null;
+    const b = await db.business.findUnique({ where: { id: businessId }, select: { name: true, isActive: true } });
+    if (!b?.isActive) return null;
     return { id: s.id, expiresAt: s.expiresAt, businessName: b?.name ?? "" };
   });
 }
@@ -59,12 +60,11 @@ export async function activeSupportSession(sessionId: string, accountId: string,
 export async function endSupportSession(sessionId: string, accountId: string, why = "ended_by_admin") {
   return withoutBusiness(async () => {
     const s = await db.supportSession.findUnique({ where: { id: sessionId } });
-    if (!s || s.accountId !== accountId) return null;
-    if (!s.endedAt) {
-      await db.supportSession.update({ where: { id: s.id }, data: { endedAt: new Date(), endedReason: why } });
-      await db.auditLog.create({ data: { businessId: s.businessId, actorId: null, entityType: "business", entityId: s.businessId, action: "platform.support_ended", payload: { sessionId: s.id, reason: why } } });
-      await accessAudit({ businessId: s.businessId, actorAccountId: accountId, action: "support.ended", after: { sessionId: s.id, reason: why } });
-    }
+    if (!s || s.accountId !== accountId || s.endedAt || s.expiresAt <= new Date()) return null;
+    const ended = await db.supportSession.updateMany({ where: { id: s.id, accountId, endedAt: null, expiresAt: { gt: new Date() } }, data: { endedAt: new Date(), endedReason: why } });
+    if (!ended.count) return null;
+    await db.auditLog.create({ data: { businessId: s.businessId, actorId: null, entityType: "business", entityId: s.businessId, action: "platform.support_ended", payload: { sessionId: s.id, reason: why } } });
+    await accessAudit({ businessId: s.businessId, actorAccountId: accountId, action: "support.ended", after: { sessionId: s.id, reason: why } });
     return s;
   });
 }

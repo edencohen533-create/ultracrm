@@ -17,7 +17,7 @@ process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
 const { createContact } = await import("@/lib/crm/contacts");
 const { saveChannelCredential } = await import("@/server/services/channel-credential-service");
 const { saveChannelTemplate, listChannelTemplates } = await import("@/server/services/channel-template-service");
-const { createDraft, updateDraft, getDraft, buildDraft, testDraft, deleteDraft, draftChecks, draftFromCampaign, listDrafts } = await import("@/server/services/campaign-draft-service");
+const { createDraft, updateDraft, getDraft, buildDraft, testDraft, deleteDraft, draftChecks, draftProblems, draftFromCampaign, listDrafts } = await import("@/server/services/campaign-draft-service");
 const { campaignPreflight, changeCampaignStatus, campaignReport, createCampaign, deleteDraftCampaign } = await import("@/server/services/campaign-service");
 const { previewAudience, listAudienceCounts } = await import("@/server/services/audience-service");
 const { processDueCampaigns } = await import("@/jobs/campaign-runner");
@@ -120,6 +120,45 @@ describe("campaign builder (simulated providers, real DB)", () => {
     await run(a.session, () => deleteDraft(d.id, a.user.id));
     expect(await db.campaign.count({ where: { id: campaignId } })).toBe(0);
     expect(await db.template.count({ where: { id: draft.templateId! } })).toBe(0);
+  });
+
+  it("WhatsApp: no content step – template step holds variables / media / button; checks there; build, reopen, test (allow-listed only), schedule use them", async () => {
+    const wa = await db.providerCredential.create({ data: { businessId: a.business.id, channel: "whatsapp", provider: "mock", label: "WA sim", isActive: true, isDefault: true, config: {}, testRecipients: ["+972509997777"] } as never });
+    const tpl = await db.template.create({ data: { businessId: a.business.id, channel: "whatsapp", name: "promo_img", language: "he", category: "MARKETING", status: "APPROVED", body: "שלום {{1}}, ההזמנה {{2}} מחכה לך", headerFormat: "IMAGE", buttons: [{ type: "URL", text: "להזמנה", url: "https://shop.example.test/o/{{1}}", dynamic: true }] } as never });
+    const d = await run(a.session, () => createDraft("whatsapp", a.user.id, "WA בדיקה"));
+    expect(d.steps).toEqual(["info", "audience", "template", "sending", "review"]);
+    await run(a.session, () => updateDraft(d.id, { step: "template", data: { listIds: [listA], templateId: tpl.id } })); // no number chosen (as in the UI) → the default WhatsApp connection
+    // Everything the template needs is checked in the template step (nothing points at a "content" step any more)
+    let probs = await run(a.session, async () => draftProblems(await getDraft(d.id)));
+    expect(probs.filter((p) => p.step === "template").length).toBeGreaterThanOrEqual(3); // variables, media, button
+    expect(probs.some((p) => p.step === "content")).toBe(false);
+    await expect(run(a.session, () => buildDraft(d.id, a.user.id))).rejects.toMatchObject({ code: "draft_invalid" });
+    await run(a.session, () => updateDraft(d.id, { data: { variables: { "1": "{name}", "2": "A-100" }, mediaUrl: "https://cdn.example.test/promo.jpg", buttonParams: { "0": "A-100" } } }));
+    probs = await run(a.session, async () => draftProblems(await getDraft(d.id)));
+    expect(probs).toEqual([]);
+    // Reopen: the same template + settings
+    const again = await run(a.session, () => getDraft(d.id));
+    expect(again.data).toMatchObject({ templateId: tpl.id, variables: { "1": "{name}", "2": "A-100" }, mediaUrl: "https://cdn.example.test/promo.jpg", buttonParams: { "0": "A-100" } });
+    const { campaignId } = await run(a.session, () => buildDraft(d.id, a.user.id));
+    expect(await db.campaign.findUniqueOrThrow({ where: { id: campaignId } })).toMatchObject({ channel: "whatsapp", providerCredentialId: wa.id, templateId: tpl.id, variables: { "1": "{name}", "2": "A-100" }, mediaUrl: "https://cdn.example.test/promo.jpg", buttonParams: { "0": "A-100" } });
+    // Test send: only to an allow-listed test number (simulated provider) – never to the audience
+    await expect(run(a.session, () => testDraft(d.id, { id: a.user.id, businessId: a.business.id, fullName: "QA" }, "0501234567"))).rejects.toMatchObject({ code: "test_recipient_not_allowed" });
+    await run(a.session, () => testDraft(d.id, { id: a.user.id, businessId: a.business.id, fullName: "QA" }, "0509997777"));
+    // Schedule (tomorrow) keeps the template + settings, then back to draft – nothing is sent
+    await run(a.session, () => changeCampaignStatus(campaignId, "start", new Date(Date.now() + 86400_000).toISOString(), a.user.id, "Asia/Jerusalem"));
+    expect(await db.campaign.findUniqueOrThrow({ where: { id: campaignId } })).toMatchObject({ status: "SCHEDULED", templateId: tpl.id, mediaUrl: "https://cdn.example.test/promo.jpg" });
+    await run(a.session, () => changeCampaignStatus(campaignId, "unschedule", undefined, a.user.id));
+    expect(await db.campaignRecipient.count({ where: { campaignId, messageId: { not: null } } })).toBe(0); // no message to the audience
+    // A draft saved on the removed step reopens on the template step
+    await db.campaignDraft.update({ where: { id: d.id }, data: { step: "content" } });
+    expect((await run(a.session, () => getDraft(d.id))).step).toBe("template");
+    await run(a.session, () => deleteDraft(d.id, a.user.id));
+    await db.template.delete({ where: { id: tpl.id } }).catch(() => undefined); await db.providerCredential.delete({ where: { id: wa.id } }).catch(() => undefined);
+  });
+
+  it("SMS and email keep their content step", async () => {
+    expect((await run(a.session, () => createDraft("sms", a.user.id, "s"))).steps).toContain("content");
+    expect((await run(a.session, () => createDraft("email", a.user.id, "e"))).steps).toContain("content");
   });
 
   it("a legacy DRAFT campaign opens in the builder at the review step with its data", async () => {

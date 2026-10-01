@@ -44,8 +44,10 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
   const router = useRouter();
   const params = useSearchParams();
   const statuses = useLeadStatuses();
-  const { dial, state, sessionSummary } = useDialer();
-  const live = Boolean((state?.session && state.session.status !== "ended") || state?.activeCall || state?.wrapUpCall || sessionSummary);
+  const { dial, state, pauseSession, resumeSession, endSession, busy: dialerBusy, sessionTakenOver } = useDialer();
+  // The real dialer state (the one DialerProvider instance): an open session, or a call / wrap-up without a session.
+  const dialSession = state?.session && state.session.status !== "ended" ? state.session : null;
+  const callOpen = Boolean(state?.activeCall || state?.wrapUpCall);
   const [detail, setDetail] = useState<{ id: string; tab: "details" | "chat" } | null>(() => params.get("leadId") ? { id: params.get("leadId")!, tab: "details" } : null);
   const [settingsOpen, setSettingsOpen] = useState(params.get("settings") === "1");
   const [settingsTab, setSettingsTab] = useState<"settings" | "statuses" | "assignment">("settings");
@@ -149,11 +151,32 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
     { label: t("אחוז סגירה", "Close rate"), value: `${number(data?.metrics.conversion ?? 0)}%`, Icon: Percent, tone: "purple", hint: t("לידים שהומרו לעסקה מתוך כלל הלידים בטווח", "Leads converted to a deal out of all leads in the range") },
     { label: t("הכנסות", "Revenue"), value: money(data?.metrics.revenue ?? 0), Icon: TrendingUp, tone: "green", hint: t("סכום העסקאות שנסגרו בהצלחה", "Total of deals closed successfully") },
   ];
+  /**
+   * "הפעל חייגן" / "החייגן פעיל · עצור חייגן" next to the title – the existing dialer screen and session actions.
+   * Stop = end the session; during a live call it only pauses (no next dial, the call is never hung up).
+   */
+  async function stopDialer() {
+    if (state?.activeCall) { await pauseSession(); toast.message(t("החיוג נעצר – השיחה הנוכחית ממשיכה. אחרי השיחה אפשר לסיים את החייגן.", "Dialing stopped – the current call continues. You can end the dialer after the call."), { duration: 7000 }); return; }
+    await endSession();
+  }
+  const dialerControl = dialSession ? (
+    <div className={`dialer-header-state ${dialSession.status === "paused" ? "paused" : "on"}`} data-testid="dialer-header-state">
+      <Link href="/dialer" className="dialer-state-pill" data-testid="dialer-reopen" title={t("למסך החייגן", "Open the dialer screen")}>
+        <span className="dialer-dot" aria-hidden />{dialSession.status === "paused" ? t("החייגן מושהה", "Dialer paused") : t("החייגן פעיל", "Dialer active")}
+      </Link>
+      {dialSession.status === "paused" && !sessionTakenOver && <button type="button" className="lead-button" onClick={() => { void resumeSession(); }} data-testid="dialer-resume">{t("המשך", "Resume")}</button>}
+      {!(dialSession.status === "paused" && state?.activeCall) && <button type="button" className="lead-button dialer-stop" disabled={sessionTakenOver || dialerBusy === "session"} title={sessionTakenOver ? t("החייגן פעיל בלשונית אחרת", "The dialer is active in another tab") : undefined} onClick={() => { void stopDialer(); }} data-testid="dialer-stop">{t("עצור חייגן", "Stop dialer")}</button>}
+    </div>
+  ) : callOpen ? (
+    <Link href="/dialer" className="lead-button dialer-launch" data-testid="dialer-reopen"><PhoneIcon size={16}/>{t("לשיחה הפעילה", "To the active call")}</Link>
+  ) : (
+    <button className="lead-button dialer-launch" data-testid="open-dialer" disabled={!state} onClick={() => router.push(dialerHref)}><PhoneIcon size={16}/>{t("הפעל חייגן", "Start dialer")}</button>
+  );
   const statusOptions = statuses.active;
   const filterValue = filter.statusId || (filter.status ? statuses.system(filter.status)?.id ?? "" : "");
   return <div className="leads-page" data-testid="leads-redesign">
     {listHeader}
-    <header className="leads-header"><h1>{listName ? t(`רשימת חיוג: ${listName}`, `Dial list: ${listName}`) : "CRM"}</h1><div className="leads-header-actions"><span className="leads-count">{number(data?.total ?? 0)} {t("לידים", "leads")}</span>
+    <header className="leads-header"><div className="leads-title"><h1>{listName ? t(`רשימת חיוג: ${listName}`, `Dial list: ${listName}`) : "CRM"}</h1>{telephony && dialerControl}</div><div className="leads-header-actions"><span className="leads-count">{number(data?.total ?? 0)} {t("לידים", "leads")}</span>
       {!listId && manager && <button className="lead-button" onClick={() => setImportOpen(true)} data-testid="open-lead-import"><Download size={15} className="rotate-180" />{t("ייבוא לידים (Excel)", "Import leads (Excel)")}</button>}
       <button className="lead-button" onClick={() => setTasksOpen(true)} data-testid="open-tasks"><CheckSquare size={15} />{t("משימות וחזרות", "Tasks & callbacks")}</button>
       {isOwner && <button className="lead-button mobile-keep" onClick={() => { setSettingsTab("statuses"); setSettingsOpen(true); }} data-testid="open-statuses">{t("עריכת סטטוסים", "Edit statuses")}</button>}
@@ -172,7 +195,7 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
       <select aria-label={t("נציג", "Agent")} value={filter.ownerUserId} onChange={e => change("ownerUserId", e.target.value)}><option value="">{t("כל הנציגים", "All agents")}</option><option value="me">{t("הלידים שלי", "My leads")}</option><option value="unassigned">{t("ללא שיוך", "Unassigned")}</option>{manager && users.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}</select>
     </section>
     {filter.period === "custom" && <div className="lead-date-range"><label>{t("מתאריך", "From")} <input type="date" aria-label={t("מתאריך", "From date")} value={filter.from} max={filter.to || undefined} onChange={e => change("from", e.target.value)} /></label><label>{t("עד תאריך", "To")} <input type="date" aria-label={t("עד תאריך", "To date")} value={filter.to} min={filter.from || undefined} onChange={e => change("to", e.target.value)} /></label></div>}
-    <div className="leads-tools"><span>{t("טווח:", "Range:")} {periods[filter.period] ? t(...periods[filter.period]) : filter.period}</span><div>{telephony && <button className="lead-button dialer-launch" data-testid="open-dialer" disabled={!state} onClick={() => router.push(dialerHref)}><PhoneIcon size={18}/>{live ? t("לחייגן הפעיל", "To the active dialer") : t("הפעל חייגן", "Start dialer")}</button>}</div></div>
+    <div className="leads-tools"><span>{t("טווח:", "Range:")} {periods[filter.period] ? t(...periods[filter.period]) : filter.period}</span></div>
     {filter.waiting && <div className="lead-waiting-chip" data-testid="waiting-filter-chip">{t("מסונן:", "Filtered:")} {t(...({ total: ["ממתינים לשיחה היום", "Waiting for a call today"], new: ["לידים חדשים שטרם חויגו", "New leads not yet dialed"], today: ["פולואפים להיום", "Follow-ups for today"], overdue: ["פולואפים באיחור", "Overdue follow-ups"], schedule: ["פולואפ ללא מועד", "Follow-up without a time"] } as Record<WaitingKey, [string, string]>)[filter.waiting])} · {t("ללא הגבלת תאריך", "No date limit")}<button onClick={() => change("waiting", "")} aria-label={t("נקה סינון ממתינים", "Clear waiting filter")}><X size={14}/></button></div>}
     <section className="lead-stats" aria-label={t("נתוני לידים", "Lead stats")}>{!listId && me && <WaitingCard agent={isOwner ? owner : me.user.id} users={users} canPickAgent={isOwner} active={filter.waiting} version={data} onPick={k => change("waiting", k)} onAgent={id => change("ownerUserId", id)} />}{cards.map(({ label, value, Icon, tone, hint }) => <article className="lead-stat" key={label} title={hint}><span className={`stat-icon ${tone}`}><Icon size={21} strokeWidth={1.8}/></span><strong dir="ltr">{data ? value : "…"}</strong><span>{label}</span></article>)}</section>
     <section className="lead-distribution"><h2>{t("לידים לפי נציג", "Leads by agent")}</h2>{data?.byOwner.length ? data.byOwner.map(o => <button key={o.id ?? "none"} title={t(`סנן לפי ${o.name}`, `Filter by ${o.name}`)} onClick={() => change("ownerUserId", o.id ?? "unassigned")} className="lead-bar-row"><span className="lead-bar-name">{o.name}</span><span className="lead-bar-track"><span style={{ width: `${data.total ? o.count / data.total * 100 : 0}%` }}/></span><strong>{number(o.count)}</strong><span className="lead-bar-percent">{number(data.total ? o.count / data.total * 100 : 0)}%</span></button>) : <p className="text-sm text-muted py-4">{t("אין לידים בטווח שנבחר", "No leads in the selected range")}</p>}</section>
@@ -191,7 +214,6 @@ export function LeadsWorkspace({ listId, listName, listHeader }: { listId?: stri
         <td><div className="lead-row-actions">{me?.modules.messaging && <button className="lead-whatsapp" onClick={() => setDetail({ id: l.id, tab: "chat" })} aria-label={`WhatsApp ${l.contact.fullName}`} title={t("פתיחת שיחת WhatsApp", "Open WhatsApp conversation")}><MessageCircle size={17}/><span>WhatsApp</span></button>}{canTransfer && <button className="lead-transfer" onClick={() => setTransferIds({ ids: [l.id], owner: l.owner?.id })} title={t("העבר לנציג", "Transfer to agent")} aria-label={t(`העבר את ${l.contact.fullName} לנציג`, `Transfer ${l.contact.fullName} to an agent`)} data-testid={`lead-transfer-${l.id}`}><Users size={15}/><span>{t("העבר", "Transfer")}</span></button>}{telephony && <button className="lead-call" disabled={!canDial} title={t("חיוג לליד", "Call the lead")} aria-label={t(`חייג ${l.contact.fullName}`, `Call ${l.contact.fullName}`)} onClick={() => dialAndOpen(l.contact.id)}><PhoneIcon size={15}/><span>{t("חייג", "Call")}</span></button>}</div></td>
       </tr>)}</Fragment>)}</tbody></table></div>{!data.items.length && <EmptyState title={t("אין לידים התואמים לסינון", "No leads match the filter")} hint={t("שנה את הטווח או המסננים, או צור ליד חדש", "Change the range or filters, or create a new lead")}/>}<footer className="lead-pagination"><span>{t(`${number(data.total)} לידים · עמוד ${page} מתוך ${Math.max(1, Math.ceil(data.total / 30))}`, `${number(data.total)} leads · Page ${page} of ${Math.max(1, Math.ceil(data.total / 30))}`)}</span><div><button aria-label={t("עמוד קודם", "Previous page")} disabled={page <= 1 || loading} onClick={() => { setPage(p => p - 1); setSelected([]); }}><ChevronRight size={17}/></button><button aria-label={t("עמוד הבא", "Next page")} disabled={page * 30 >= data.total || loading} onClick={() => { setPage(p => p + 1); setSelected([]); }}><ChevronLeft size={17}/></button></div></footer></>}
     </section>
-    {telephony && live && <Link href="/dialer" className="dialer-live-pill" data-testid="dialer-reopen">{t("📞 החייגן פעיל – פתח", "📞 Dialer active – open")}</Link>}
     {detail && <LeadDrawer key={detail.id} leadId={detail.id} initialTab={detail.tab} users={users} manager={manager} canTransfer={canTransfer} messaging={Boolean(me?.modules.messaging)} canDial={canDial} onDial={contactId => dialAndOpen(contactId)} onClose={() => { setDetail(null); if (params.get("leadId")) { const next = new URLSearchParams(params.toString()); next.delete("leadId"); router.replace((listId ? `/lists/${listId}` : "/leads") + (next.size ? `?${next}` : "")); } }} onUpdated={() => { void load(); }}/>}
     {tasksOpen && <aside className="lead-side-drawer" aria-label={t("משימות וחזרות", "Tasks & callbacks")} data-testid="tasks-drawer"><header><strong>{t("משימות וחזרות", "Tasks & callbacks")}</strong>{telephony && <div className="drawer-tabs" role="tablist"><button role="tab" aria-selected={drawerView === "tasks"} onClick={() => setDrawerView("tasks")} data-testid="drawer-tab-tasks">{t("משימות", "Tasks")}</button><button role="tab" aria-selected={drawerView === "calls"} onClick={() => setDrawerView("calls")} data-testid="drawer-tab-calls">{t("שיחות שלא נענו", "Missed calls")}</button></div>}<button aria-label={t("סגור משימות", "Close tasks")} onClick={() => { setTasksOpen(false); if (params.get("tasks")) router.replace(listId ? `/calling/lists/${listId}` : "/leads"); }}><X size={17}/></button></header><div>{drawerView === "calls" && telephony ? <CallsInbox /> : <TasksPanel embedded />}</div></aside>}
     {moveFor && <MoveToCampaignModal leadId={moveFor.id} name={moveFor.contact.fullName} onClose={() => setMoveFor(null)} onDone={() => { void load(); }} />}

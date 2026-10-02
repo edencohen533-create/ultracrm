@@ -1,11 +1,10 @@
 import { normalizePhone } from "@/lib/phone";
 import { z } from "zod";
 import { withAuth, parseBody, parseQuery } from "@/lib/api";
-import { ok, ApiError } from "@/lib/response";
-import type { Prisma } from "@/generated/prisma/client";
-import { AudienceError, listAudienceWhere } from "@/server/services/audience-service";
+import { ok } from "@/lib/response";
+import { resolvedContactWhere } from "@/lib/crm/contact-filter";
 import { prisma } from "@/lib/db";
-import { contactFilterSchema, contactInputSchema, contactWhere, createContact } from "@/lib/crm/contacts";
+import { contactFilterSchema, contactInputSchema, createContact } from "@/lib/crm/contacts";
 import { contactScope } from "@/lib/crm/access";
 import { visibleUserIds } from "@/lib/auth";
 
@@ -19,13 +18,7 @@ const listSchema = contactFilterSchema.extend({
 export const GET = withAuth(async ({ req, user }) => {
   const f = parseQuery(req, listSchema);
   // Agents (and team-scoped managers) list only their contacts – settings → הרשאות.
-  let where: Prisma.ContactWhereInput = { AND: [contactWhere(user.businessId, f), contactScope(await visibleUserIds(user))] };
-  if (f.segmentId) {
-    const list = await prisma.distributionList.findUnique({ where: { id: f.segmentId }, select: { id: true, segment: true } });
-    if (!list) throw new ApiError("הסגמנט לא נמצא", 404, "not_found");
-    try { where = { AND: [where, await listAudienceWhere(prisma as unknown as Prisma.TransactionClient, list, new Date())] }; }
-    catch (e) { if (e instanceof AudienceError) throw new ApiError(e.message, 400, "segment_invalid"); throw e; }
-  }
+  const where = { AND: [await resolvedContactWhere(user.businessId, f), contactScope(await visibleUserIds(user))] };
   const [total, items] = await Promise.all([
     prisma.contact.count({ where }),
     prisma.contact.findMany({

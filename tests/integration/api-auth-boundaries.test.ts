@@ -11,13 +11,13 @@ for (const [file, load] of Object.entries(routes)) {
   if (!/\b(withAuth|organizationRequest|requireUser)\b/.test(source)) continue;
   const path = file.replace("../../src/app", "").replace("/route.ts", "");
   it(`requires authentication for every method of ${path}`, async () => {
-    const module = await load() as Record<string, unknown>;
+    const routeModule = await load() as Record<string, unknown>;
     const names = [...path.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]);
     const url = `http://localhost${path.replace(/\[[^\]]+\]/g, "security-test-id")}`;
     const ctx = { params: Promise.resolve(Object.fromEntries(names.map(n => [n, "security-test-id"]))) };
     for (const method of methods) {
-      if (typeof module[method] !== "function") continue;
-      const handler = module[method] as (req: NextRequest, context: typeof ctx) => Promise<Response>;
+      if (typeof routeModule[method] !== "function") continue;
+      const handler = routeModule[method] as (req: NextRequest, context: typeof ctx) => Promise<Response>;
       const response = await handler(new NextRequest(url, { method }), ctx);
       if (method === "GET" && /^\/api\/integrations\/meta-ads\/oauth\/(start|callback)$/.test(path)) {
         expect(response.status).toBe(307);

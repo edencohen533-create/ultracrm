@@ -141,7 +141,7 @@ export default function ContactsPage() {
 
   async function createListFromFilter() {
     try {
-      const r = await api.post<{ id: string; added: number }>("/api/lists", { name: listName, filter: { q: filter.q || undefined, source: filter.source || undefined, city: filter.city || undefined, neverCalled: filter.neverCalled || undefined } });
+      const r = await api.post<{ id: string; added: number }>("/api/lists", { name: listName, filter: Object.fromEntries(Object.entries({ ...filter, segmentId: segmentId ?? "" }).filter(([, value]) => value)) });
       toast.success(t(`הרשימה נוצרה עם ${r.added} לידים`, `List created with ${r.added} leads`));
       setListOpen(false);
     } catch (e) {
@@ -162,7 +162,7 @@ export default function ContactsPage() {
         <div className="ms-auto flex flex-wrap gap-2">
           {isManager && <Link href="/audiences" className="inline-flex items-center h-8 px-3 text-xs rounded-md border border-line text-muted hover:text-text" data-testid="contacts-audiences">{t("רשימות תפוצה וייבוא", "Mailing lists & import")}</Link>}
           {isManager && <Link href="/contacts/duplicates" className="inline-flex items-center h-8 px-3 text-xs rounded-md border border-line text-muted hover:text-text">{t("כפילויות", "Duplicates")}</Link>}
-          {isManager && <Link href="/api/contacts/export" prefetch={false} className="inline-flex items-center h-8 px-3 text-xs rounded-md border border-line text-muted hover:text-text">{t("ייצוא CSV", "Export CSV")}</Link>}
+          {isManager && <Link href={`/api/contacts/export${qs({ ...filter, segmentId: segmentId ?? undefined })}`} prefetch={false} className="inline-flex items-center h-8 px-3 text-xs rounded-md border border-line text-muted hover:text-text">{t("ייצוא CSV", "Export CSV")}</Link>}
           {isManager && me?.modules.telephony && <Button variant="secondary" size="sm" onClick={() => { setListName(t(`רשימה מסינון · ${new Date().toLocaleDateString("he-IL")}`, `List from filter · ${new Date().toLocaleDateString("en-GB")}`)); setListOpen(true); }}>{t("רשימת חיוג מהסינון", "Dial list from filter")}</Button>}
           {isManager && <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>{t("ייבוא CSV", "Import CSV")}</Button>}
           <Button size="sm" onClick={() => setCreateOpen(true)}>{t("+ איש קשר", "+ Contact")}</Button>

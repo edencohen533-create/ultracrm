@@ -92,6 +92,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
   const requestClose = (next: boolean) => { if (next) { setOpen(true); return; } if (touched && !isSubmitting) setLeaving(true); else setOpen(false); };
   const [conversationId, setConversationId] = useState("");
   const [testing, setTesting] = useState(false);
+  const [previewError, setPreviewError] = useState<{ input: string; message: string } | null>(null);
   const [preview, setPreview] = useState<{ input: string; result: { allowedLocally: boolean; reasons: string[]; body: string | null; provider: string; notice: string; delayMinutes: number } } | null>(null);
 
   function buildTriggerConfig(): Record<string, unknown> {
@@ -125,16 +126,16 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
   }
 
   const rule = { name, trigger, triggerConfig: buildTriggerConfig(), actionType, actionConfig: buildActionConfig() };
-  const previewInput = JSON.stringify({ rule, conversationId });
+  const previewInput = JSON.stringify({ rule: { ...rule, isActive: false }, conversationId });
   async function handlePreview() {
     const input = previewInput;
-    setTesting(true); setPreview(null);
+    setTesting(true); setPreview(null); setPreviewError(null);
     try {
       const response = await fetch("/api/automations/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: input });
       const result = await response.json();
-      if (!response.ok) { toast.error(typeof result.error === "string" ? result.error : t("פרטי הבדיקה אינם תקינים", "Invalid test details")); return; }
+      if (!response.ok) { setPreviewError({ input, message: typeof result.error === "string" ? result.error : t("פרטי הבדיקה אינם תקינים", "Invalid test details") }); return; }
       setPreview({ input, result });
-    } catch { toast.error(t("הבדיקה נכשלה. יש לבדוק את החיבור ולנסות שוב", "Test failed. Check your connection and try again")); }
+    } catch { setPreviewError({ input, message: t("הבדיקה נכשלה. יש לבדוק את החיבור ולנסות שוב", "Test failed. Check your connection and try again") }); }
     finally { setTesting(false); }
   }
 
@@ -365,6 +366,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
             </select>
           </label>
           <Button variant="outline" onClick={handlePreview} disabled={testing || !conversationId || isSubmitting}>{testing ? t("בודק...", "Testing...") : t("בדוק ללא ביצוע", "Dry-run test")}</Button>
+          {previewError?.input === previewInput && <p role="alert" className="text-sm text-destructive">{previewError.message}</p>}
           {preview?.input === previewInput && <div role="status" className="space-y-1 text-sm">
             <p>{preview.result.allowedLocally ? t("הבדיקות המקומיות עברו", "Local checks passed") : t("הפעולה חסומה לפי הבדיקות המקומיות", "The action is blocked by local checks")}</p>
             {preview.result.reasons.map((reason) => <p key={reason}>{reason}</p>)}

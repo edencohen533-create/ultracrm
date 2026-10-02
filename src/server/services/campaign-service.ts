@@ -179,7 +179,8 @@ export async function campaignPreflight(id: string) {
   const { getBusinessSettings } = await import("@/lib/settings");
   const settings = await getBusinessSettings(requireBusinessId());
   const capMs = settings.marketing.minHoursBetweenMarketing * 3600_000;
-  const marketing = campaign.template.category === "MARKETING";
+  // WhatsApp broadcasts require marketing consent even when using a utility template, just like the runner.
+  const marketing = campaign.template.category === "MARKETING" || campaign.channel === "whatsapp";
   const exclusions: Record<string, number> = {};
   const samples: { name: string; phone: string; body: string; subject?: string }[] = [];
   let eligible = 0;
@@ -211,7 +212,7 @@ export async function campaignPreflight(id: string) {
     : `${active?.senderName ?? ""} <${active?.senderEmail ?? ""}>${active?.provider.startsWith("mock") ? " (הדמיה)" : ""}`;
   const estimate = estimateCampaignCost(campaign.channel, active, campaign.template, eligible, marketing);
   const window = settings.marketing.window;
-  return { channel: campaign.channel, eligible, audienceExcluded: campaign.audienceExcludedCount, totalQueued: campaign.recipients.length, exclusions, blockers, samples, sender: senderLabel, audiencePolicy: "קהל מוקפא ביצירת הטיוטה; זכאות, הסכמה והסרות נבדקות מחדש בכל שליחה", cost: estimate, sendWindow: campaign.channel === "whatsapp" && campaign.template.category !== "MARKETING" ? null : { ...window, timezone: window.timezone ?? settings.timezone, maxPerMinute: settings.marketing.maxPerMinute }, timezone: settings.timezone, simulated: Boolean(active?.provider.startsWith("mock")) || (campaign.channel === "whatsapp" && !active), lastTestAt: campaign.lastTestAt };
+  return { channel: campaign.channel, eligible, audienceExcluded: campaign.audienceExcludedCount, totalQueued: campaign.recipients.length, exclusions, blockers, samples, sender: senderLabel, audiencePolicy: "קהל מוקפא ביצירת הטיוטה; זכאות, הסכמה והסרות נבדקות מחדש בכל שליחה", cost: estimate, sendWindow: !marketing ? null : { ...window, timezone: window.timezone ?? settings.timezone, maxPerMinute: settings.marketing.maxPerMinute }, timezone: settings.timezone, simulated: Boolean(active?.provider.startsWith("mock")) || (campaign.channel === "whatsapp" && !active), lastTestAt: campaign.lastTestAt };
 }
 
 /** Delivery / engagement / cost report. Every figure is labelled real, estimated or unavailable. */

@@ -55,7 +55,7 @@ export async function rulesAnswer(ctx: ToolCtx, text: string, memory: Memory): P
   }
   const p = parse(text, agents);
   const intent: Intent | null = p.intent ?? (p.followUp || p.period || p.agentName ? memory.lastIntent ?? null : null);
-  if (!intent) return done(`לא בטוח שהבנתי 🙂\n\n${HELP}`, null, memory);
+  if (!intent) return done(`לא ביצעתי את הבקשה. במצב הבסיסי הנוכחי איני יכול לזהות או לבצע אותה; ייתכן שנדרש חיבור למודל או פיתוח יכולת נוספת. אפשר לנסח מחדש או להשתמש ביכולות הנתמכות שלהלן.\n\n${HELP}`, null, memory);
   if (intent === "help") return done(HELP, "help", memory);
   const isFollow = !p.intent && Boolean(memory.lastIntent);
   const period: PeriodKey = p.period ?? (isFollow && memory.lastPeriod ? memory.lastPeriod : intent === "compare" ? "this_week" : "today");

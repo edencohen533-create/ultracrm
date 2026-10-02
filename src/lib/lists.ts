@@ -1,13 +1,14 @@
 import type { z } from "zod";
 import { prisma } from "@/lib/db";
-import { contactFilterSchema, contactWhere } from "@/lib/crm/contacts";
+import { contactFilterSchema } from "@/lib/crm/contacts";
+import { resolvedContactWhere } from "@/lib/crm/contact-filter";
 import type { Prisma } from "@/generated/prisma/client";
 
 /** Insert contacts into a list. Duplicates (same contact) and DNC numbers are skipped. */
 export async function addLeadsToList(businessId: string, listId: string, filter?: z.infer<typeof contactFilterSchema>, contactIds?: string[]) {
   const where: Prisma.ContactWhereInput = contactIds?.length
     ? { businessId, id: { in: contactIds } }
-    : contactWhere(businessId, filter ?? {});
+    : await resolvedContactWhere(businessId, filter ?? {});
   const contacts = await prisma.contact.findMany({ where, select: { id: true, phoneE164: true }, take: 20000 });
   if (contacts.length === 0) return 0;
   const dnc = await prisma.dncEntry.findMany({ where: { businessId, phoneE164: { in: contacts.map((c) => c.phoneE164) } }, select: { phoneE164: true } });

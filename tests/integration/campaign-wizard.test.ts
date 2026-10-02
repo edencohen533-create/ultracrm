@@ -58,6 +58,22 @@ describe("campaign builder (simulated providers, real DB)", () => {
     expect(sms.eligible).toBe(3); // dana, yossi, no-email (phone ok)
   });
 
+  it("WhatsApp utility broadcasts exclude missing consent in preflight, matching the runner", async () => {
+    const tpl = await db.template.create({ data: { businessId: a.business.id, channel: "whatsapp", name: "utility-preflight", language: "he", category: "UTILITY", body: "שלום", status: "APPROVED" } });
+    const campaign = await run(a.session, () => createCampaign({ channel: "whatsapp", name: "utility broadcast", listId: listB, templateId: tpl.id, variables: {} }, a.user.id));
+    const preflight = await run(a.session, () => campaignPreflight(campaign.id));
+    expect(preflight.totalQueued).toBe(2);
+    expect(preflight.eligible).toBe(1);
+    expect(preflight.exclusions["אין הסכמה פעילה"]).toBe(1);
+    expect(preflight.sendWindow).not.toBeNull();
+    // Even a UTILITY template must not make a broadcast run outside its chosen window.
+    await db.campaign.update({ where: { id: campaign.id }, data: { status: "RUNNING", sendWindow: { start: "00:00", end: "23:59", days: [], timezone: "UTC" } } });
+    await run(a.session, () => processDueCampaigns());
+    expect(await db.campaignRecipient.count({ where: { campaignId: campaign.id, status: "QUEUED" } })).toBe(2);
+    expect(await db.message.count({ where: { campaignRecipient: { campaignId: campaign.id } } })).toBe(0);
+    await db.campaign.update({ where: { id: campaign.id }, data: { status: "DRAFT" } });
+  });
+
   it("email draft: autosave, lazy validation per step, template copy leaves the source untouched, build + preflight + test + send + report", async () => {
     const d0 = await run(a.session, () => createDraft("email", a.user.id));
     expect(d0.steps).toEqual(["info", "audience", "template", "content", "sending", "review"]);

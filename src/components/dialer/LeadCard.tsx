@@ -14,6 +14,7 @@ import { OUTCOMES } from "@/lib/outcomes";
 import type { ContactLite, LeadDto } from "@/lib/client/types";
 import { ContactTimeline } from "@/components/contacts/ContactTimeline";
 import { ContactChat } from "@/components/contacts/ContactChat";
+import { renderCallScript } from "@/lib/client/call-script";
 import { useMe } from "@/lib/client/use-me";
 import { useDialer } from "@/components/telephony/DialerProvider";
 import { AvailableNowTag } from "@/components/telephony/AvailableNowTag";
@@ -219,7 +220,7 @@ export function LeadCard({
             <span className="font-medium">{t("תסריט שיחה", "Call script")} · {script.title}</span>
             <span className="text-muted text-xs">{scriptOpen ? t("הסתר ▴", "Hide ▴") : t("הצג ▾", "Show ▾")}</span>
           </button>
-          {scriptOpen && <div className="px-4 pb-4 text-sm whitespace-pre-wrap leading-relaxed text-text/90">{script.body}</div>}
+          {scriptOpen && <div className="px-4 pb-4 text-sm whitespace-pre-wrap leading-relaxed text-text/90">{renderCallScript(script.body, { agent: me?.user.fullName, business: me?.business.name, name: contact?.fullName, phone: contact?.phoneE164 })}</div>}
         </div>
       )}
 

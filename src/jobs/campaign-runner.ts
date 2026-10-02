@@ -34,11 +34,11 @@ export async function processDueCampaigns(deadline = Date.now() + 45_000) {
   }
   const settings = await getBusinessSettings(requireBusinessId());
   // Each campaign's own sending window (chosen when it was created); older campaigns without one keep the business's
-  // default window. Outside the window only MARKETING messages wait – service messages go out as before.
+  // default window. All WhatsApp broadcasts and other MARKETING campaigns wait outside this window.
   const businessWindow = { ...settings.marketing.window, timezone: settings.marketing.window.timezone ?? settings.timezone };
   const windowClosed: string[] = [];
-  for (const c of await prisma.campaign.findMany({ where: { businessId: requireBusinessId(), status: "RUNNING" }, select: { id: true, sendWindow: true, template: { select: { category: true } } } })) {
-    if (c.template?.category !== "MARKETING") continue;
+  for (const c of await prisma.campaign.findMany({ where: { businessId: requireBusinessId(), status: "RUNNING" }, select: { id: true, channel: true, sendWindow: true, template: { select: { category: true } } } })) {
+    if (c.channel !== "whatsapp" && c.template?.category !== "MARKETING") continue;
     const own = c.sendWindow as { start: string; end: string; days: number[]; timezone?: string } | null;
     const w = own ? { ...own, timezone: own.timezone ?? settings.timezone } : businessWindow;
     if (!isWithinDialWindow(w)) windowClosed.push(c.id);

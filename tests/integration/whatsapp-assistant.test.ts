@@ -143,6 +143,14 @@ describe("whatsapp assistant", { timeout: 900_000 }, () => {
     expect(r.reply).toContain("₪9,999"); expect(r.reply).not.toContain("1,500");
   });
 
+  it("unsupported basic-mode requests explicitly report that nothing was performed", async () => {
+    const ctx = { businessId: a.business.id, userId: a.user.id, role: "owner" as const, scope: "business" as const, tz: TZ, visibleIds: null };
+    const r = await inA(() => rulesAnswer(ctx, "תייצר סרטון פרסומת ותפרסם אותו בטיקטוק", {}));
+    expect(r.text).toContain("לא ביצעתי את הבקשה");
+    expect(r.text).toContain("פיתוח יכולת נוספת");
+    expect(r.tools).toEqual([]);
+  });
+
   it("a failing query is reported as unavailable, never as 0", async () => {
     const ctx = { businessId: a.business.id, userId: a.user.id, role: "owner" as const, scope: "business" as const, tz: "Not/AZone", visibleIds: null };
     const r = await inA(() => rulesAnswer(ctx, "כמה מכרנו היום?", {}));

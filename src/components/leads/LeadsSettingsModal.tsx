@@ -3,20 +3,20 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/client/api";
-import { Button, Input, Modal, Select, cx } from "@/components/ui";
+import { Button, Modal, Select } from "@/components/ui";
 import { CrmSettings } from "@/components/crm-settings/CrmSettings";
 import { StatusesEditor } from "@/components/leads/StatusesEditor";
 import { DistributionScreen } from "@/components/leads/DistributionScreen";
 import type { LeadAssignmentSettings } from "@/lib/lead-statuses";
 import { useT } from "@/components/i18n/LangProvider";
 
-/** "settings" = dialer settings + statuses; "statuses" = only the status editor; "assignment" = only lead distribution. */
+/** "settings" = dialer settings; "statuses" = only the status editor; "assignment" = only lead distribution. */
 export type LeadsSettingsMode = "settings" | "statuses" | "assignment";
 
 /**
  * Settings opened from the leads screen – one focused view per entry point, no tabs:
- *  • "הגדרות": the per-agent dialer settings and (managers) the statuses, in one place;
- *  • "עריכת סטטוסים": only the status editor (the same component as inside "הגדרות");
+ *  • "הגדרות": the per-agent dialer settings;
+ *  • "עריכת סטטוסים": the CRM status editor;
  *  • "חלוקת לידים": only the distribution policy.
  */
 export function LeadsSettingsModal({ open, onClose, manager, mode = "settings" }: { open: boolean; onClose: () => void; manager: boolean; mode?: LeadsSettingsMode }) {
@@ -28,7 +28,6 @@ export function LeadsSettingsModal({ open, onClose, manager, mode = "settings" }
     <Modal open={open} onClose={close} title={title} width={mode === "settings" ? "max-w-4xl" : "max-w-2xl"}>
       {mode === "settings" && <div className="space-y-5" data-testid="leads-settings">
         <CrmSettings embedded onDirtyChange={setDirty} />
-        {manager && <section className="border-t border-line pt-4" aria-labelledby="settings-statuses"><h3 id="settings-statuses" className="mb-2 text-sm font-semibold">{t("סטטוסים", "Statuses")}</h3><StatusesEditor compact /></section>}
       </div>}
       {mode === "statuses" && manager && <StatusesEditor />}
       {mode === "assignment" && manager && <><DistributionScreen /><AgentNotifySettings /></>}

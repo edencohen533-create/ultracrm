@@ -27,11 +27,12 @@ const tone = (s: string) => (["ok", "verified", "done", "seen", "links_seen"].in
 export function WooConnection({ storeId, siteHint }: { storeId: string; siteHint: string }) {
   const t = useT();
   const [h, setH] = useState<Health | null>(null);
+  const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [site, setSite] = useState(siteHint); const [ck, setCk] = useState(""); const [cs, setCs] = useState("");
   const [scope, setScope] = useState({ orders: "365" as "none" | "30" | "90" | "365" | "all", customers: true, products: true });
   const [preview, setPreview] = useState<Partial<Record<"customers" | "products" | "orders", number | null>> | null>(null);
-  const load = useCallback(async (reveal = false) => { try { setH(await api.get<Health>(`/api/stores/${storeId}/woo${reveal ? "?reveal=1" : ""}`)); } catch (e) { toast.error((e as Error).message); } }, [storeId]);
+  const load = useCallback(async (reveal = false) => { try { setH(await api.get<Health>(`/api/stores/${storeId}/woo${reveal ? "?reveal=1" : ""}`)); setLoadError(""); } catch (e) { setLoadError((e as Error).message); } }, [storeId]);
   useEffect(() => { void load(); }, [load]);
   const act = async (action: string, body: Record<string, unknown> = {}, label = action) => {
     setBusy(label);
@@ -57,7 +58,7 @@ export function WooConnection({ storeId, siteHint }: { storeId: string; siteHint
     } catch (e) { toast.error((e as Error).message); await load(); } finally { setBusy(null); }
   }
 
-  if (!h) return <p className="wz-hint">{t("טוען מצב חיבור…", "Loading connection status…")}</p>;
+  if (!h) return <section className="carts-api">{loadError ? <><p role="alert" className="wz-err">{loadError}</p><button className="cmp-btn" onClick={() => void load()}>{t("נסה שוב", "Retry")}</button></> : <p>{t("טוען מצב חיבור…", "Loading connection status…")}</p>}</section>;
   const a = h.api.access;
   return (
     <section className="carts-api space-y-3" data-testid="woo-connection">

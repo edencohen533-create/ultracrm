@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { withBusiness } from "@/lib/tenant";
 import { db } from "@/lib/db";
-import { cartInputSchema, ingestCart, ingestOrder, orderInputSchema } from "@/server/services/cart-service";
+import { cartInputSchema, ingestCart } from "@/server/services/cart-service";
 
 export const dynamic = "force-dynamic";
 const cors = (origin: string | null) => ({ "Access-Control-Allow-Origin": origin ?? "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", Vary: "Origin" });
@@ -32,22 +32,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ key: st
   const store = await db.storeConnection.findUnique({ where: { publicKey: key } });
   if (!store || !store.isActive) return new Response(null, { status: 404, headers: cors(origin) });
   const d = store.domain ? bareDomain(store.domain) : null;
-  if (d && (!origin || !onDomain(origin, d))) return new Response(null, { status: 403, headers: cors(origin) });
+  if (!d || !origin || !onDomain(origin, d)) return new Response(null, { status: 403, headers: cors(origin) });
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
   if (limited(`k:${store.id}`, 600) || limited(`i:${store.id}:${ip}`, 60)) return new Response(null, { status: 429, headers: cors(origin) });
   let body: unknown; try { body = JSON.parse(raw); } catch { return new Response(null, { status: 400, headers: cors(origin) }); }
   if (body && typeof body === "object") {
     const b = body as Record<string, unknown>;
     delete b.acceptsMarketing;
+    delete b.activityAt; // browser clocks and timestamps are untrusted
     if (typeof b.checkoutUrl === "string" && (!d || !onDomain(b.checkoutUrl, d))) delete b.checkoutUrl;
   }
   const type = z.object({ type: z.enum(["cart", "order"]) }).safeParse(body);
   if (!type.success) return new Response(null, { status: 400, headers: cors(origin) });
+  if (type.data.type === "order") return Response.json({ error: "Purchases require the signed server events endpoint" }, { status: 403, headers: cors(origin) });
+  const parsed = cartInputSchema.safeParse(body);
+  if (!parsed.success) return Response.json({ error: "Invalid cart payload" }, { status: 400, headers: cors(origin) });
   try {
-    await withBusiness(store.businessId, async () => {
-      if (type.data.type === "cart") { const c = cartInputSchema.safeParse(body); if (c.success) await ingestCart(store, c.data); }
-      else { const o = orderInputSchema.safeParse(body); if (o.success) await ingestOrder(store, o.data); }
-    });
-  } catch (e) { console.warn("[track] ingest failed", (e as Error).message.slice(0, 200)); }
+    await withBusiness(store.businessId, () => ingestCart(store, parsed.data));
+  } catch {
+    return Response.json({ error: "Event could not be saved; retry" }, { status: 503, headers: cors(origin) });
+  }
   return new Response(null, { status: 204, headers: cors(origin) });
 }

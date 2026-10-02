@@ -38,7 +38,7 @@ describe("abandoned carts", () => {
   afterAll(async () => { await destroyBusiness(a.business.id, [a.account.id]); await destroyBusiness(b.business.id, [b.account.id]); });
 
   it("Shopify checkout webhook (signed) → cart linked to a contact with store consent; bad signature rejected", async () => {
-    const checkout = { id: 1, token: "tok_abc", email: "dana@example.test", phone: "+972501234777", currency: "ILS", total_price: "249.90", buyer_accepts_marketing: true, abandoned_checkout_url: "https://shop.example.com/checkouts/tok_abc/recover", customer: { first_name: "דנה", last_name: "כהן" }, line_items: [{ title: "קרם לחות", quantity: 2, price: "99.95" }, { title: "סרום", quantity: 1, price: "50" }] };
+    const checkout = { updated_at: new Date().toISOString(), id: 1, token: "tok_abc", email: "dana@example.test", phone: "+972501234777", currency: "ILS", total_price: "249.90", buyer_accepts_marketing: true, abandoned_checkout_url: "https://shop.example.com/checkouts/tok_abc/recover", customer: { first_name: "דנה", last_name: "כהן" }, line_items: [{ title: "קרם לחות", quantity: 2, price: "99.95" }, { title: "סרום", quantity: 1, price: "50" }] };
     const body = JSON.stringify(checkout);
     const bad = await shopifyHook(new Request("http://x", { method: "POST", body, headers: { "x-shopify-topic": "checkouts/create", "x-shopify-hmac-sha256": "nope" } }), P({ storeId: shop.id }));
     expect(bad.status).toBe(401);
@@ -47,10 +47,12 @@ describe("abandoned carts", () => {
     const cart = await db.cart.findUniqueOrThrow({ where: { storeId_externalId: { storeId: shop.id, externalId: "tok_abc" } }, include: { contact: true } });
     expect(cart).toMatchObject({ status: "open", email: "dana@example.test", phoneE164: "+972501234777", checkoutUrl: "https://shop.example.com/checkouts/tok_abc/recover" });
     expect(Number(cart.total)).toBe(249.9);
-    expect(cart.contact).toMatchObject({ fullName: "דנה כהן", consentStatus: "OPTED_IN", email: "dana@example.test" });
+    expect(cart.contact).toMatchObject({ fullName: "דנה כהן", consentStatus: "UNKNOWN", email: "dana@example.test" });
   });
 
   it("abandonment → journey sends WhatsApp with the cart link → Shopify order → recovered", async () => {
+    // WhatsApp permission is explicit CRM consent, not an email checkbox from Shopify.
+    await db.contact.updateMany({ where: { businessId: a.business.id, email: "dana@example.test" }, data: { consentStatus: "OPTED_IN", consentAt: new Date(), consentEvidence: "QA explicit WhatsApp opt-in" } });
     await run(() => saveSequence(a.session, sequenceSchema.parse({ name: "שחזור עגלה", trigger: "CART_ABANDONED", stopOn: [], steps: [{ action: "send", channel: "whatsapp", templateId: waTpl, waitMinutes: 0, variables: { "1": "{cart_url}" }, condition: { requireNoReply: false } }] })));
     await db.cart.updateMany({ where: { storeId: shop.id, externalId: "tok_abc" }, data: { lastActivityAt: new Date(Date.now() - 31 * 60_000) } });
     await run(() => processAbandonedCarts(a.business.id));
@@ -63,7 +65,7 @@ describe("abandoned carts", () => {
     expect(JSON.stringify(msg)).toContain("https://shop.example.com/checkouts/tok_abc/recover");
     expect((await db.cart.findUniqueOrThrow({ where: { id: cart.id } })).recoveryMessageAt).not.toBeNull();
     const order = JSON.stringify({ id: 99, name: "#1001", checkout_token: "tok_abc", email: "dana@example.test", total_price: "249.90", currency: "ILS" });
-    await shopifyHook(new Request("http://x", { method: "POST", body: order, headers: { "x-shopify-topic": "orders/create", "x-shopify-hmac-sha256": sign(SHOP_SECRET, order) } }), P({ storeId: shop.id }));
+    await shopifyHook(new Request("http://x", { method: "POST", body: order, headers: { "x-shopify-topic": "orders/paid", "x-shopify-hmac-sha256": sign(SHOP_SECRET, order) } }), P({ storeId: shop.id }));
     expect(await db.cart.findUniqueOrThrow({ where: { id: cart.id } })).toMatchObject({ status: "recovered", orderId: "#1001" });
   });
 
@@ -93,7 +95,7 @@ describe("abandoned carts", () => {
   it("site script: served; events accepted only from the store's domain; cart stored", async () => {
     const js = await scriptGet(new Request("http://x"), P({ key: shop.publicKey }));
     expect(js.headers.get("content-type")).toContain("javascript");
-    expect(await js.text()).toContain("/cart.js");
+    expect(await js.text()).toContain("Purchases must be sent by your server");
     const ev = JSON.stringify({ type: "cart", externalId: "web_1", phone: "0501234999", name: "גל", total: 80, currency: "ILS", items: [{ name: "גרביים", quantity: 2, price: 40 }] });
     expect((await trackPost(new Request("http://x", { method: "POST", body: ev, headers: { origin: "https://evil.example" } }), P({ key: shop.publicKey }))).status).toBe(403);
     expect((await trackPost(new Request("http://x", { method: "POST", body: ev, headers: { origin: "https://www.shop.example.com" } }), P({ key: shop.publicKey }))).status).toBe(204);

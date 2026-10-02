@@ -14,8 +14,8 @@ import { webhookUrlFor } from "@/lib/store-urls";
 import { safeFetch } from "@/lib/safe-url";
 import { sealStoreConfig } from "./cart-service";
 
-export const SHOPIFY_API_VERSION = "2024-10";
-const SHOPIFY_TOPICS = ["checkouts/create", "checkouts/update", "orders/create"];
+export const SHOPIFY_API_VERSION = "2026-10";
+const SHOPIFY_TOPICS = ["CHECKOUTS_CREATE", "CHECKOUTS_UPDATE", "ORDERS_PAID"];
 
 async function call(url: string, init: RequestInit, what: string) {
   let res: Response;
@@ -30,21 +30,34 @@ export async function connectShopify(store: StoreConnection, input: { shop: stri
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(host)) throw new ApiError("כתובת החנות צריכה להיות בפורמט your-store.myshopify.com", 400, "invalid_shop");
   const base = `https://${host}/admin/api/${SHOPIFY_API_VERSION}`;
   const headers = { "X-Shopify-Access-Token": input.accessToken.trim(), "Content-Type": "application/json", Accept: "application/json" };
-  const shopRes = await call(`${base}/shop.json`, { headers }, "Shopify");
-  if (!shopRes.ok) throw new ApiError(`Shopify החזירה שגיאה ${shopRes.status}`, 502, "store_error");
-  const shopName = ((await shopRes.json().catch(() => ({}))) as { shop?: { name?: string } }).shop?.name ?? host;
-  const listRes = await call(`${base}/webhooks.json?limit=250`, { headers }, "Shopify");
-  if (!listRes.ok) throw new ApiError("אין לטוקן הרשאה לנהל Webhooks (נדרשות הרשאות read_orders ו-read_checkouts)", 400, "store_scope");
-  const existing = (((await listRes.json().catch(() => ({}))) as { webhooks?: Array<{ topic: string; address: string }> }).webhooks) ?? [];
+  async function graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+    const r = await call(`${base}/graphql.json`, { method: "POST", headers, body: JSON.stringify({ query, variables }) }, "Shopify");
+    if (!r.ok) throw new ApiError(`Shopify החזירה שגיאה ${r.status}`, 502, "store_error");
+    const body = await r.json() as { data?: T; errors?: Array<{ message: string }> };
+    if (body.errors?.length || !body.data) throw new ApiError(body.errors?.map(e => e.message).join("; ") ?? "Invalid Shopify response", 400, "store_scope");
+    return body.data;
+  }
+  const initial = await graphql<{ shop: { name: string }; webhookSubscriptions: { nodes: Array<{ topic: string; uri: string }>; pageInfo: { hasNextPage: boolean; endCursor: string } } }>(`query { shop { name } webhookSubscriptions(first: 250) { nodes { topic uri } pageInfo { hasNextPage endCursor } } }`);
+  const shopName = initial.shop.name;
+  const existing = [...initial.webhookSubscriptions.nodes];
+  let page = initial.webhookSubscriptions.pageInfo;
+  while (page.hasNextPage) {
+    const next = await graphql<{ webhookSubscriptions: typeof initial.webhookSubscriptions }>(`query($cursor: String!) { webhookSubscriptions(first: 250, after: $cursor) { nodes { topic uri } pageInfo { hasNextPage endCursor } } }`, { cursor: page.endCursor });
+    existing.push(...next.webhookSubscriptions.nodes); page = next.webhookSubscriptions.pageInfo;
+  }
   const address = webhookUrlFor("shopify", store.id);
   const registered: string[] = []; const failed: string[] = [];
   for (const topic of SHOPIFY_TOPICS) {
-    if (existing.some((w) => w.topic === topic && w.address === address)) { registered.push(topic); continue; }
-    const r = await call(`${base}/webhooks.json`, { method: "POST", headers, body: JSON.stringify({ webhook: { topic, address, format: "json" } }) }, "Shopify");
-    if (r.ok || r.status === 422) registered.push(topic); else failed.push(`${topic} (${r.status})`);
+    if (existing.some(w => w.topic === topic && w.uri === address)) { registered.push(topic); continue; }
+    try {
+      const r = await graphql<{ webhookSubscriptionCreate: { webhookSubscription: { id: string } | null; userErrors: Array<{ message: string }> } }>(`mutation($topic: WebhookSubscriptionTopic!, $input: WebhookSubscriptionInput!) { webhookSubscriptionCreate(topic: $topic, webhookSubscription: $input) { webhookSubscription { id } userErrors { message } } }`, { topic, input: { uri: address, format: "JSON" } });
+      const result = r.webhookSubscriptionCreate;
+      if (result.webhookSubscription && !result.userErrors.length) registered.push(topic);
+      else failed.push(`${topic}: ${result.userErrors.map(e => e.message).join("; ") || "Subscription not created"}`);
+    } catch (error) { failed.push(`${topic}: ${(error as Error).message}`); }
   }
   const cfg = { ...openConfig(store.config), webhookSecret: input.apiSecret.trim(), accessToken: input.accessToken.trim(), apiShop: host, apiConnectedAt: new Date().toISOString(), apiWebhooks: registered, apiStoreName: shopName };
-  const updated = await prisma.storeConnection.update({ where: { id: store.id }, data: { config: sealStoreConfig(cfg), domain: store.domain ?? host } });
+  const updated = await prisma.storeConnection.update({ where: { id: store.id }, data: { config: sealStoreConfig(cfg), domain: store.domain ?? host, apiStatus: "ok", apiCheckedAt: new Date(), webhookStatus: failed.length ? "failed" : "configured", webhookError: failed.join("; ") || null, lastVerifiedEventAt: null } });
   return { store: updated, registered, failed, shopName };
 }
 

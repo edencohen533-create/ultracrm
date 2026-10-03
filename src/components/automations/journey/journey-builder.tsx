@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EMAIL_EVENTS, type EmailCondition } from "@/lib/journey-email";
 import { quickReplyButtons, type WhatsAppButtonCondition } from "@/lib/journey-buttons";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -14,7 +15,7 @@ import { PublishDialog, SimulateDialog } from "./journey-dialogs";
 
 type Channel = "whatsapp" | "sms" | "email";
 type Action = "send" | "task" | "wait" | "condition" | "add_tag" | "remove_tag" | "add_to_list" | "remove_from_list" | "webhook";
-export interface JourneyStep { action: Action; channel: Channel; templateId?: string; waitMinutes: number; variables: Record<string, string>; condition: { whatsappButton?: WhatsAppButtonCondition; requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; consent?: string }; taskTitle?: string; taskDueHours?: number; actionTag?: string; listId?: string; webhookUrl?: string }
+export interface JourneyStep { action: Action; channel: Channel; templateId?: string; waitMinutes: number; variables: Record<string, string>; condition: { emailEvent?: EmailCondition; whatsappButton?: WhatsAppButtonCondition; requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; consent?: string }; taskTitle?: string; taskDueHours?: number; actionTag?: string; listId?: string; webhookUrl?: string }
 export interface Journey { id?: string; name: string; status: "draft" | "active" | "paused"; version: number; hasDraft: boolean; trigger: string; triggerConfig: Record<string, unknown>; stopOn: string[]; steps: JourneyStep[] }
 type Opt = { id: string; name: string; channel?: string; buttons?: unknown };
 type T = (he: string, en: string) => string;
@@ -67,13 +68,15 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
   const setStep = (i: number, patch: Partial<JourneyStep>) => set({ steps: j.steps.map((s, k) => k === i ? { ...s, ...patch } : s) });
   const remap = (steps: JourneyStep[]) => steps.map(step => {
     const b = step.condition.whatsappButton;
+    const email = step.condition.emailEvent;
+    if (email) { const source = j.steps[email.sourceStep]; return { ...step, condition: { ...step.condition, emailEvent: { ...email, sourceStep: source ? steps.indexOf(source) : -1 } } }; }
     if (!b) return step;
     const source = j.steps[b.sourceStep];
     return { ...step, condition: { ...step.condition, whatsappButton: { ...b, sourceStep: source ? steps.indexOf(source) : -1 } } };
   });
   const chooseButton = (i: number, button: WhatsAppButtonCondition | undefined) => set({
     stopOn: button ? j.stopOn.filter(x => x !== 'reply') : j.stopOn,
-    steps: j.steps.map((step, k) => ({ ...step, condition: { ...step.condition, ...(button && k >= i ? { requireNoReply: false } : {}), ...(k === i ? { whatsappButton: button } : {}) } })),
+    steps: j.steps.map((step, k) => ({ ...step, condition: { ...step.condition, ...(button && k >= i ? { requireNoReply: false } : {}), ...(k === i ? { whatsappButton: button, emailEvent: undefined } : {}) } })),
   });
   const insert = (at: number, s: JourneyStep) => { const steps = [...j.steps]; if (j.steps.slice(0, at).some(x => x.condition.whatsappButton)) s = { ...s, condition: { ...s.condition, requireNoReply: false } }; steps.splice(at, 0, s); set({ steps: remap(steps) }); setAdding(null); setSel(at); };
   const move = (i: number, to: number) => { if (to < 0 || to >= j.steps.length) return; const steps = [...j.steps]; const [x] = steps.splice(i, 1); steps.splice(to, 0, x); set({ steps: remap(steps) }); setSel(to); };
@@ -163,7 +166,14 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
             {(selected.action === "add_to_list" || selected.action === "remove_from_list") && <label>{t("רשימה", "List")}<select value={selected.listId ?? ""} onChange={(e) => setStep(sel, { listId: e.target.value })}><option value="">{t("בחר רשימה", "Choose list")}</option>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>{!lists.length && <span className="jr-hint">{t("אין רשימות רגילות.", "No static lists.")} <Link href="/audiences">{t("ליצירת רשימה", "Create a list")}</Link></span>}</label>}
             {selected.action === "webhook" && <><label>{t("כתובת (https)", "URL (https)")}<input dir="ltr" value={selected.webhookUrl ?? ""} onChange={(e) => setStep(sel, { webhookUrl: e.target.value })} /></label><p className="jr-hint">{t("נשלח POST עם JSON:", "Sends a POST with JSON:")} {"{ event, journey, contact }"}. {t("כשל לא עוצר את המסע.", "A failure does not stop the journey.")}</p></>}
             {selected.action === "condition" && <><p className="jr-hint">{t("המסע ממשיך רק אם כל התנאים מתקיימים; אחרת איש הקשר יוצא מהמסע.", "The journey continues only if all conditions are met; otherwise the contact exits the journey.")}</p>
-              <label>{t("סוג התנאי", "Condition type")}<select data-testid="journey-condition-type" value={selected.condition.whatsappButton ? 'whatsapp_button' : 'contact'} onChange={e => chooseButton(sel, e.target.value === 'whatsapp_button' ? { sourceStep: -1, buttonText: '', timeoutMinutes: 1440 } : undefined)}><option value="contact">{t("תגובה ופרטי לקוח", "Reply and customer details")}</option><option value="whatsapp_button">{t("לחץ על כפתור ב־WhatsApp", "Clicked a WhatsApp button")}</option></select></label>
+              <label>{t("סוג התנאי", "Condition type")}<select data-testid="journey-condition-type" value={selected.condition.emailEvent ? 'email' : selected.condition.whatsappButton ? 'whatsapp_button' : 'contact'} onChange={e => e.target.value === 'email' ? setStep(sel, { condition: { ...selected.condition, requireNoReply: false, whatsappButton: undefined, emailEvent: { sourceStep: -1, event: 'clicked', timeoutMinutes: 1440 } } }) : chooseButton(sel, e.target.value === 'whatsapp_button' ? { sourceStep: -1, buttonText: '', timeoutMinutes: 1440 } : undefined)}><option value="contact">{t("תגובה ופרטי לקוח", "Reply and customer details")}</option><option value="email">{t("אירוע באימייל מרקטינג", "Email marketing event")}</option><option value="whatsapp_button">{t("לחץ על כפתור ב־WhatsApp", "Clicked a WhatsApp button")}</option></select></label>
+              {selected.condition.emailEvent && <>
+                <label>{t("אימייל המקור במסע", "Source email in the journey")}<select data-testid="journey-email-source" value={selected.condition.emailEvent.sourceStep} onChange={e => setStep(sel, { condition: { ...selected.condition, emailEvent: { ...selected.condition.emailEvent!, sourceStep: Number(e.target.value) } } })}><option value={-1}>{t("בחר אימייל קודם", "Choose a previous email")}</option>{j.steps.slice(0, sel).map((step, index) => step.action === 'send' && step.channel === 'email' ? <option key={index} value={index}>{index + 1}. {templates.find(x => x.id === step.templateId)?.name ?? t("ללא תבנית", "No template")}</option> : null)}</select></label>
+                <label>{t("אירוע האימייל", "Email event")}<select data-testid="journey-email-event" value={selected.condition.emailEvent.event} onChange={e => setStep(sel, { condition: { ...selected.condition, emailEvent: { ...selected.condition.emailEvent!, event: e.target.value as EmailCondition['event'], link: undefined } } })}>{Object.entries(EMAIL_EVENTS).map(([key, label]) => <option key={key} value={key}>{t(label[0], label[1])}</option>)}</select></label>
+                {['clicked', 'not_clicked'].includes(selected.condition.emailEvent.event) && <label>{t("כתובת קישור מסוים (ריק = כל קישור)", "Specific link URL (empty = any link)")}<input data-testid="journey-email-link" type="url" dir="ltr" value={selected.condition.emailEvent.link ?? ''} onChange={e => setStep(sel, { condition: { ...selected.condition, emailEvent: { ...selected.condition.emailEvent!, link: e.target.value || undefined } } })} /></label>}
+                <label>{t("חלון בדיקה בדקות משליחת האימייל", "Evaluation window in minutes from sending")}<input data-testid="journey-email-timeout" type="number" min={1} max={43200} value={selected.condition.emailEvent.timeoutMinutes} onChange={e => setStep(sel, { condition: { ...selected.condition, emailEvent: { ...selected.condition.emailEvent!, timeoutMinutes: Number(e.target.value) } } })} /></label>
+                <p className="jr-hint">{t("תנאי ללא דיווח ממתין עד סוף החלון. הסרה או תלונת ספאם עוצרות את המסע אוטומטית. יש להפעיל מעקב פתיחות ולחיצות ו־Webhooks אצל ספק האימייל. דיווחי פתיחה ולחיצה עשויים להגיע ממנגנוני פרטיות וסריקת קישורים; הם אינם הוכחה לקריאה אנושית.", "No-report conditions wait until the deadline. Unsubscribe and spam complaints automatically stop the journey. Enable open/click tracking and webhooks at your email provider. Privacy proxies and link scanners can generate reports; these are not proof of human reading.")}</p>
+              </>}
               {selected.condition.whatsappButton && <>
                 <label>{t("הודעת המקור במסע", "Source message in this journey")}<select data-testid="journey-button-source" value={selected.condition.whatsappButton.sourceStep} onChange={e => chooseButton(sel, { ...selected.condition.whatsappButton!, sourceStep: Number(e.target.value), buttonText: '' })}><option value={-1}>{t("בחר הודעה קודמת", "Choose a previous message")}</option>{j.steps.slice(0, sel).map((step, index) => step.action === 'send' && step.channel === 'whatsapp' ? <option key={index} value={index}>{index + 1}. {templates.find(x => x.id === step.templateId)?.name ?? t("ללא תבנית", "No template")}</option> : null)}</select></label>
                 <label>{t("הכפתור שנלחץ", "Button clicked")}<select data-testid="journey-button-choice" value={selected.condition.whatsappButton.buttonText} onChange={e => chooseButton(sel, { ...selected.condition.whatsappButton!, buttonText: e.target.value })}><option value="">{t("בחר כפתור תשובה מהירה", "Choose a quick reply button")}</option>{quickReplyButtons(templates.find(x => x.id === j.steps[selected.condition.whatsappButton!.sourceStep]?.templateId)?.buttons).map(text => <option key={text} value={text}>{text}</option>)}</select></label>
@@ -195,6 +205,7 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
 
 function conditionText(s: JourneyStep, t: T) {
   const c = s.condition; const parts: string[] = [];
+  if (c.emailEvent) parts.push(`${t(EMAIL_EVENTS[c.emailEvent.event][0], EMAIL_EVENTS[c.emailEvent.event][1])} · ${t("הודעה", "Message")} ${c.emailEvent.sourceStep + 1}`);
   if (c.whatsappButton) parts.push(t(`לחץ על ״${c.whatsappButton.buttonText || "בחר כפתור"}״ בהודעה ${c.whatsappButton.sourceStep + 1}`, `Clicked "${c.whatsappButton.buttonText || "Choose button"}" in message ${c.whatsappButton.sourceStep + 1}`));
   if (c.requireNoReply !== false) parts.push(t("לא השיב", "No reply")); if (c.tagName) parts.push(t(`יש תגית ${c.tagName}`, `Has tag ${c.tagName}`)); if (c.notTagName) parts.push(t(`אין תגית ${c.notTagName}`, `No tag ${c.notTagName}`)); if (c.leadStatus) parts.push(t(`סטטוס ${ls(t, c.leadStatus)}`, `Status ${ls(t, c.leadStatus)}`)); if (c.consent) parts.push(t("נתן הסכמה", "Opted in"));
   return parts.join(" · ") || t("הגדר תנאי", "Set condition");

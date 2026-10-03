@@ -1,3 +1,4 @@
+import { emailConditionState } from "@/server/automations/email-condition";
 import { whatsappButtonState } from "@/server/automations/button-condition";
 /**
  * Cross-channel marketing sequences.
@@ -33,7 +34,7 @@ export const sequenceSchema = z.object({
     waitMinutes: z.number().int().min(0).max(43200),
     variables: z.record(z.string(), z.string().max(1024)).default({}),
     /** Branching by reply / customer data: every listed condition must hold or the step is skipped. */
-    condition: z.object({ whatsappButton: z.object({ sourceStep: z.number().int().min(0).max(29), buttonText: z.string().trim().min(1).max(1024), timeoutMinutes: z.number().int().min(1).max(43200) }).optional(), requireNoReply: z.boolean().default(true), tagName: z.string().trim().max(40).optional(), notTagName: z.string().trim().max(40).optional(), leadStatus: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost", "none"]).optional(), customKey: z.string().trim().max(100).optional(), customValue: z.string().max(200).optional(), consent: z.enum(["OPTED_IN"]).optional() }).default({ requireNoReply: true }),
+    condition: z.object({ emailEvent: z.object({ sourceStep: z.number().int().min(0).max(29), event: z.enum(['opened', 'not_opened', 'clicked', 'not_clicked', 'delivered', 'bounced', 'failed']), timeoutMinutes: z.number().int().min(1).max(43200), link: z.string().url().max(2000).refine(v => /^https?:\/\//i.test(v)).optional() }).optional(), whatsappButton: z.object({ sourceStep: z.number().int().min(0).max(29), buttonText: z.string().trim().min(1).max(1024), timeoutMinutes: z.number().int().min(1).max(43200) }).optional(), requireNoReply: z.boolean().default(true), tagName: z.string().trim().max(40).optional(), notTagName: z.string().trim().max(40).optional(), leadStatus: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost", "none"]).optional(), customKey: z.string().trim().max(100).optional(), customValue: z.string().max(200).optional(), consent: z.enum(["OPTED_IN"]).optional() }).default({ requireNoReply: true }),
     /** task steps: title and due offset for the contact owner / creator. */
     taskTitle: z.string().trim().max(200).optional(),
     taskDueHours: z.number().int().min(1).max(720).optional(),
@@ -51,10 +52,17 @@ export const sequenceSchema = z.object({
     if (st.action === "add_tag" || st.action === "remove_tag") need(Boolean(st.actionTag), "יש לבחור תגית");
     if (st.action === "add_to_list" || st.action === "remove_from_list") need(Boolean(st.listId), "יש לבחור רשימה");
     if (st.action === "webhook") need(isPublicHttps(st.webhookUrl ?? ""), "כתובת Webhook חייבת להיות https ציבורית");
-    if (st.action === "condition") need(Boolean(st.condition.whatsappButton || st.condition.tagName || st.condition.notTagName || st.condition.leadStatus || st.condition.customKey || st.condition.consent || st.condition.requireNoReply), "יש להגדיר תנאי");
+    if (st.action === "condition") need(Boolean(st.condition.emailEvent || st.condition.whatsappButton || st.condition.tagName || st.condition.notTagName || st.condition.leadStatus || st.condition.customKey || st.condition.consent || st.condition.requireNoReply), "יש להגדיר תנאי");
   })).min(1).max(30),
 }).superRefine((s, ctx) => {
   s.steps.forEach((step, index) => {
+    const email = step.condition.emailEvent;
+    if (email) {
+      const source = s.steps[email.sourceStep];
+      if (step.action !== 'condition' || email.sourceStep >= index || source?.action !== 'send' || source.channel !== 'email') ctx.addIssue({ code: 'custom', path: ['steps', index, 'condition'], message: 'יש לבחור הודעת אימייל משלב קודם במסע' });
+      if (step.condition.whatsappButton) ctx.addIssue({ code: 'custom', path: ['steps', index, 'condition'], message: 'בחרו סוג אירוע אחד לכל תנאי' });
+      if (email.link && !['clicked', 'not_clicked'].includes(email.event)) ctx.addIssue({ code: 'custom', path: ['steps', index, 'condition'], message: 'קישור מסוים מתאים רק לתנאי לחיצה' });
+    }
     const b = step.condition.whatsappButton;
     if (b) {
       const source = s.steps[b.sourceStep];
@@ -250,6 +258,11 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       if (blocked) { await finish("STOPPED", { stopReason: `unsubscribe: ${blocked}` }); continue; }
       // Per-step conditions (branching): reply / tags / lead status / custom field – skip this step, not the run.
       const cond = (step.condition ?? {}) as SequenceInput['steps'][number]['condition'];
+      if (cond.emailEvent) {
+        const state = await emailConditionState(run, cond.emailEvent);
+        if (state === 'waiting') { await finish('PENDING', { nextAt: new Date(Date.now() + 60_000), lockedAt: null }); continue; }
+        if (state !== 'matched') { await finish('STOPPED', { stopReason: state === 'missing' ? 'אין הודעת אימייל תקינה לבדיקת התנאי' : 'תנאי האימייל לא התקיים בחלון הזמן שנבחר' }); continue; }
+      }
       if (cond.whatsappButton) {
         const state = await whatsappButtonState(run, cond.whatsappButton);
         if (state === 'waiting') { await finish('PENDING', { nextAt: new Date(Date.now() + 60_000), lockedAt: null }); continue; }

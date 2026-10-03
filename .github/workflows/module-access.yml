@@ -39,4 +39,4 @@ jobs:
       - run: npm test
       - run: npm run typecheck
       # This isolated DB verifies the application access engine and persistence, not RLS migrations.
-      - run: npm run test:integration -- tests/integration/platform-module-access.test.ts
+      - run: npm run test:integration -- tests/integration/platform-module-access.test.ts tests/integration/journey-email-events.test.ts

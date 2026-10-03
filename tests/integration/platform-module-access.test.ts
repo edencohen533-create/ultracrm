@@ -7,6 +7,7 @@ import { createBusiness, destroyBusiness } from './helpers';
 import { signSession, type SessionUser } from '@/lib/auth';
 import { NextRequest } from 'next/server';
 import { GET as meGET } from '@/app/api/auth/me/route';
+import { POST as applyVersionPOST } from '@/app/api/platform/plans/[id]/apply-version/route';
 import { PUT as permissionsPUT } from '@/app/api/platform/businesses/[id]/users/[userId]/route';
 let agentAccountId: string;
 let agentCookie: string;
@@ -72,4 +73,9 @@ it('paid subscription impact matches actual access, grant revocation preserves p
   expect((await businessEntitlement(business.business.id)).modules.crm.included).toBe(true);
   expect((await businessEntitlement(business.business.id)).modules.sms.included).toBe(false);
   await expect(computeImpact(business.business.id, { planVersionId: null })).rejects.toMatchObject({ code: 'subscription_managed' });
+  const pinned = await db.business.findUniqueOrThrow({ where: { id: business.business.id } });
+  const newer = await savePlan(business.session, { name: 'QA next version', modules: { crm: { included: true, seats: null } } }, pinned.planId!);
+  const response = await applyVersionPOST(request(`ultracrm_session=${await signSession(business.session)}`, 'POST', { versionId: newer.id, apply: false }), { params: Promise.resolve({ id: pinned.planId! }) });
+  expect(response.status).toBe(200);
+  expect((await response.json()).data.businesses).toEqual([expect.objectContaining({ businessId: business.business.id, applied: false, impact: null, blockedReason: expect.stringContaining('המנוי בתשלום') })]);
 });

@@ -1,3 +1,4 @@
+import { whatsappButtonState } from "@/server/automations/button-condition";
 /**
  * Cross-channel marketing sequences.
  *  • Triggered by domain events (message.delivery_failed / message.sent / contact.tag_added).
@@ -32,7 +33,7 @@ export const sequenceSchema = z.object({
     waitMinutes: z.number().int().min(0).max(43200),
     variables: z.record(z.string(), z.string().max(1024)).default({}),
     /** Branching by reply / customer data: every listed condition must hold or the step is skipped. */
-    condition: z.object({ requireNoReply: z.boolean().default(true), tagName: z.string().trim().max(40).optional(), notTagName: z.string().trim().max(40).optional(), leadStatus: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost", "none"]).optional(), customKey: z.string().trim().max(100).optional(), customValue: z.string().max(200).optional(), consent: z.enum(["OPTED_IN"]).optional() }).default({ requireNoReply: true }),
+    condition: z.object({ whatsappButton: z.object({ sourceStep: z.number().int().min(0).max(29), buttonText: z.string().trim().min(1).max(1024), timeoutMinutes: z.number().int().min(1).max(43200) }).optional(), requireNoReply: z.boolean().default(true), tagName: z.string().trim().max(40).optional(), notTagName: z.string().trim().max(40).optional(), leadStatus: z.enum(["new", "contacted", "follow_up", "qualified", "unqualified", "converted", "lost", "none"]).optional(), customKey: z.string().trim().max(100).optional(), customValue: z.string().max(200).optional(), consent: z.enum(["OPTED_IN"]).optional() }).default({ requireNoReply: true }),
     /** task steps: title and due offset for the contact owner / creator. */
     taskTitle: z.string().trim().max(200).optional(),
     taskDueHours: z.number().int().min(1).max(720).optional(),
@@ -50,9 +51,18 @@ export const sequenceSchema = z.object({
     if (st.action === "add_tag" || st.action === "remove_tag") need(Boolean(st.actionTag), "יש לבחור תגית");
     if (st.action === "add_to_list" || st.action === "remove_from_list") need(Boolean(st.listId), "יש לבחור רשימה");
     if (st.action === "webhook") need(isPublicHttps(st.webhookUrl ?? ""), "כתובת Webhook חייבת להיות https ציבורית");
-    if (st.action === "condition") need(Boolean(st.condition.tagName || st.condition.notTagName || st.condition.leadStatus || st.condition.customKey || st.condition.consent || st.condition.requireNoReply), "יש להגדיר תנאי");
+    if (st.action === "condition") need(Boolean(st.condition.whatsappButton || st.condition.tagName || st.condition.notTagName || st.condition.leadStatus || st.condition.customKey || st.condition.consent || st.condition.requireNoReply), "יש להגדיר תנאי");
   })).min(1).max(30),
 }).superRefine((s, ctx) => {
+  s.steps.forEach((step, index) => {
+    const b = step.condition.whatsappButton;
+    if (b) {
+      const source = s.steps[b.sourceStep];
+      if (step.action !== 'condition' || b.sourceStep >= index || source?.action !== 'send' || source.channel !== 'whatsapp') ctx.addIssue({ code: 'custom', path: ['steps', index, 'condition'], message: 'יש לבחור הודעת WhatsApp משלב קודם במסע' });
+      if (s.stopOn.includes('reply')) ctx.addIssue({ code: 'custom', path: ['stopOn'], message: 'מסע שממתין לכפתור לא יכול לעצור בכל תשובה; בטלו את תנאי העצירה בתגובה' });
+    }
+    if (s.steps.slice(0, index + 1).some(x => x.condition.whatsappButton) && step.condition.requireNoReply !== false) ctx.addIssue({ code: 'custom', path: ['steps', index, 'condition'], message: 'אחרי המתנה לכפתור יש לאפשר המשך גם לאחר תשובה' });
+  });
   if (s.trigger === "SENT_NO_REPLY" && s.steps[0].waitMinutes < 30) ctx.addIssue({ code: "custom", path: ["steps", 0, "waitMinutes"], message: "המתנה של לפחות 30 דקות לפני מעקב אחרי שליחה" });
   if (s.trigger === "TAG_ADDED" && !s.triggerConfig.tagName) ctx.addIssue({ code: "custom", path: ["triggerConfig"], message: "יש לבחור תגית" });
 });
@@ -239,11 +249,16 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       const blocked = step.action !== "send" ? null : await sendBlockReason(bid, run.contactId, "marketing");
       if (blocked) { await finish("STOPPED", { stopReason: `unsubscribe: ${blocked}` }); continue; }
       // Per-step conditions (branching): reply / tags / lead status / custom field – skip this step, not the run.
-      const cond = (step.condition ?? {}) as { requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; customKey?: string; customValue?: string };
+      const cond = (step.condition ?? {}) as SequenceInput['steps'][number]['condition'];
+      if (cond.whatsappButton) {
+        const state = await whatsappButtonState(run, cond.whatsappButton);
+        if (state === 'waiting') { await finish('PENDING', { nextAt: new Date(Date.now() + 60_000), lockedAt: null }); continue; }
+        if (state !== 'matched') { await finish('STOPPED', { stopReason: state === 'missing' ? 'הודעת המקור לא נשלחה בהצלחה' : 'זמן ההמתנה לכפתור הסתיים' }); continue; }
+      }
       // Journeys belong to the business: a send step whose channel left the package is skipped (checked right before sending).
       const { businessCanUse } = await import("@/lib/access/engine");
       const channelOff = step.action === "send" && !(await businessCanUse(bid, step.channel as "whatsapp" | "sms" | "email")) ? "הערוץ אינו כלול כעת בחבילה של העסק" : null;
-      const skipReason = channelOff ?? (step.action === "wait" ? null : await stepSkipReason(run, step.action === "condition" ? { requireNoReply: false, ...cond } : cond));
+      const skipReason = channelOff ?? (step.action === "wait" ? null : await stepSkipReason(run, { ...cond, requireNoReply: cond.requireNoReply ?? (step.action !== "condition") }));
       if (skipReason && step.action === "condition") {
         // A condition node is a gate: the contact leaves the journey ("יציאה") when it does not hold.
         await finish("STOPPED", { stopReason: `תנאי לא התקיים (${skipReason})`, log: [...log, { step: step.position, action: "condition", skipped: skipReason, at: new Date().toISOString() }] as Prisma.InputJsonValue });

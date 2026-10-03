@@ -13,7 +13,7 @@ export default organizationRequest(async function JourneyPage({ params, searchPa
   const { trigger: wanted, publish: openPublish } = await searchParams;
   const [seq, templates, tags, lists] = await Promise.all([
     id === "new" ? null : prisma.marketingSequence.findUnique({ where: { id }, include: { steps: { orderBy: { position: "asc" } } } }),
-    prisma.template.findMany({ where: { status: "APPROVED", internal: false }, select: { id: true, name: true, displayName: true, channel: true }, orderBy: { name: "asc" } }).then((r) => r.map(withDisplayName)),
+    prisma.template.findMany({ where: { status: "APPROVED", internal: false }, select: { id: true, name: true, displayName: true, channel: true, buttons: true }, orderBy: { name: "asc" } }).then((r) => r.map(withDisplayName)),
     prisma.tag.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
     prisma.distributionList.findMany({ where: { segment: { equals: Prisma.DbNull } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
   ]);

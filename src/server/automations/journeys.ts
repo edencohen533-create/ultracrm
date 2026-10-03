@@ -1,3 +1,4 @@
+import { quickReplyButtons } from "@/lib/journey-buttons";
 /**
  * Journeys (customer journeys / single automation rules – both are sequences) – save, publish, pause, simulate.
  *
@@ -68,9 +69,20 @@ export async function publishChecks(user: SessionUser, raw: unknown) {
     add(`channel:${ch}`, `חיבור ${CHANNEL_LABEL[ch]}`, inPlan && Boolean(conn), !inPlan ? `${CHANNEL_LABEL[ch]} אינו כלול בחבילה` : conn ? `מחובר (${conn.provider === "mock" ? "הדמיה" : conn.provider})` : `אין חיבור ${CHANNEL_LABEL[ch]} פעיל – יש לחבר בהגדרות ← חיבורים`);
   }
   // Templates: approved for the channel.
-  const tpls = await prisma.template.findMany({ where: { id: { in: sends.flatMap((s) => (s.templateId ? [s.templateId] : [])) } }, select: { id: true, name: true, channel: true, status: true, internal: true, category: true } });
+  const tpls = await prisma.template.findMany({ where: { id: { in: sends.flatMap((s) => (s.templateId ? [s.templateId] : [])) } }, select: { id: true, name: true, channel: true, status: true, internal: true, category: true, buttons: true } });
   const badTpl = sends.filter((s) => { const t = tpls.find((x) => x.id === s.templateId); return !t || t.internal || t.channel !== s.channel || t.status !== "APPROVED"; });
   add("templates", "תבניות הודעה מאושרות", badTpl.length === 0, badTpl.length ? `${badTpl.length} שלבי שליחה בלי תבנית מאושרת לערוץ` : sends.length ? "כל התבניות מאושרות" : "אין שליחת הודעות", sends.length > 0);
+  const badButtons = def.steps.filter(step => {
+    const b = step.condition.whatsappButton;
+    if (!b) return false;
+    const source = def.steps[b.sourceStep];
+    return !quickReplyButtons(tpls.find(t => t.id === source?.templateId)?.buttons).includes(b.buttonText);
+  });
+  if (def.steps.some(step => step.condition.whatsappButton)) add('whatsappButtons', 'כפתורי תשובה מהירה', badButtons.length === 0, badButtons.length ? 'הכפתור שנבחר אינו קיים בתבנית המקור; בחרו כפתור תשובה מהירה' : 'כל הכפתורים קיימים בתבניות המקור');
+  if (def.steps.some(step => step.condition.whatsappButton)) {
+    const sender = await prisma.providerCredential.findFirst({ where: { channel: 'whatsapp', isActive: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }], select: { provider: true, sendingBlocked: true } });
+    add('buttonProvider', 'קליטת לחיצות WhatsApp', sender?.provider === 'meta_whatsapp_cloud_api' && !sender.sendingBlocked, sender?.provider === 'meta_whatsapp_cloud_api' && !sender.sendingBlocked ? 'המספר השולח מחובר ל־Meta' : 'תנאי לחיצה דורש מספר שולח פעיל בחיבור Meta; חיבור הדמיה אינו מקבל לחיצות אמיתיות');
+  }
   // Lists: exist and are static.
   const listIds = [...new Set(def.steps.flatMap((s) => (s.listId ? [s.listId] : [])))];
   if (listIds.length) { const lists = await prisma.distributionList.findMany({ where: { id: { in: listIds } }, select: { id: true, segment: true } }); add("lists", "רשימות", lists.length === listIds.length && lists.every((l) => l.segment === null), lists.length !== listIds.length ? "רשימה שנבחרה אינה קיימת" : lists.some((l) => l.segment !== null) ? "אפשר לעבוד רק עם רשימה רגילה (לא דינמית)" : "תקין"); }
@@ -173,6 +185,10 @@ export async function simulate(user: SessionUser, raw: unknown, input: { contact
     const at = minutes === 0 ? "מיד" : minutes < 60 ? `אחרי ${minutes} דק׳` : minutes % 1440 === 0 ? `אחרי ${minutes / 1440} ימים` : `אחרי ${Math.round(minutes / 6) / 10} שעות`;
     const title = s.action === "send" ? `שליחת ${CHANNEL_LABEL[s.channel]}` : s.action === "condition" ? "תנאי" : s.action === "wait" ? "המתנה" : s.action === "task" ? "משימה לנציג" : s.action === "add_tag" ? `הוספת תגית ${s.actionTag}` : s.action === "remove_tag" ? `הסרת תגית ${s.actionTag}` : s.action === "webhook" ? "Webhook" : s.action;
     const c = s.condition;
+    if (c.whatsappButton) {
+      out.push({ step: i + 1, title, result: 'stop', why: `כאן ממתינים עד ${c.whatsappButton.timeoutMinutes} דקות משליחת הודעה ${c.whatsappButton.sourceStep + 1}, לכפתור "${c.whatsappButton.buttonText}". הסימולציה אינה ממציאה לחיצה; בהיעדר לחיצה המסע מסתיים.`, at });
+      break;
+    }
     if (s.action === "condition" || s.action === "send") {
       // Why the condition holds or not – real contact: the engine's own check; test data: the same rules on the values given.
       let reason: string | null = null;

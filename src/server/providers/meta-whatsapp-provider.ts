@@ -1,3 +1,4 @@
+import { metaButtonReply } from "@/lib/validation/whatsapp-webhook";
 import { requireBusinessId } from "@/lib/tenant";
 import { templateParameterKeys, validateTemplateVariables } from "@/lib/campaigns";
 import { metaWebhookSchema, providerTimestamp, InvalidWebhookError, type MetaInboundMessage } from "@/lib/validation/whatsapp-webhook";
@@ -331,6 +332,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
       receivedAt: providerTimestamp(message.timestamp),
       media: attachment ? { providerMediaId: attachment.id, mimeType: attachment.mime_type ?? "application/octet-stream", fileName: attachment.filename } : undefined,
       body: text,
+      whatsappReply: metaButtonReply(message),
       type,
       source: ConversationSource.WHATSAPP,
     });

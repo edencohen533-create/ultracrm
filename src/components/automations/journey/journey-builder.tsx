@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { quickReplyButtons, type WhatsAppButtonCondition } from "@/lib/journey-buttons";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -13,9 +14,9 @@ import { PublishDialog, SimulateDialog } from "./journey-dialogs";
 
 type Channel = "whatsapp" | "sms" | "email";
 type Action = "send" | "task" | "wait" | "condition" | "add_tag" | "remove_tag" | "add_to_list" | "remove_from_list" | "webhook";
-export interface JourneyStep { action: Action; channel: Channel; templateId?: string; waitMinutes: number; variables: Record<string, string>; condition: { requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; consent?: string }; taskTitle?: string; taskDueHours?: number; actionTag?: string; listId?: string; webhookUrl?: string }
+export interface JourneyStep { action: Action; channel: Channel; templateId?: string; waitMinutes: number; variables: Record<string, string>; condition: { whatsappButton?: WhatsAppButtonCondition; requireNoReply?: boolean; tagName?: string; notTagName?: string; leadStatus?: string; consent?: string }; taskTitle?: string; taskDueHours?: number; actionTag?: string; listId?: string; webhookUrl?: string }
 export interface Journey { id?: string; name: string; status: "draft" | "active" | "paused"; version: number; hasDraft: boolean; trigger: string; triggerConfig: Record<string, unknown>; stopOn: string[]; steps: JourneyStep[] }
-type Opt = { id: string; name: string; channel?: string };
+type Opt = { id: string; name: string; channel?: string; buttons?: unknown };
 type T = (he: string, en: string) => string;
 
 export const TRIGGERS: Record<string, [string, string]> = { CALL_UNANSWERED: ["ליד לא ענה לשיחה", "Lead did not answer a call"], CART_ABANDONED: ["עגלה ננטשה באתר", "Cart abandoned on the site"], CONTACT_CREATED: ["איש קשר חדש נוצר", "New contact created"], TAG_ADDED: ["תגית נוספה לאיש קשר", "Tag added to contact"], LEAD_STATUS_CHANGED: ["סטטוס ליד השתנה", "Lead status changed"], DELIVERY_FAILED: ["הודעה שיווקית נכשלה במסירה", "Marketing message delivery failed"], SENT_NO_REPLY: ["הודעה שיווקית נשלחה ואין תשובה", "Marketing message sent, no reply"] };
@@ -64,9 +65,19 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
   const [simulating, setSimulating] = useState(false);
   const set = (patch: Partial<Journey>) => { setJ((x) => ({ ...x, ...patch })); setDirty(true); };
   const setStep = (i: number, patch: Partial<JourneyStep>) => set({ steps: j.steps.map((s, k) => k === i ? { ...s, ...patch } : s) });
-  const insert = (at: number, s: JourneyStep) => { const steps = [...j.steps]; steps.splice(at, 0, s); set({ steps }); setAdding(null); setSel(at); };
-  const move = (i: number, to: number) => { if (to < 0 || to >= j.steps.length) return; const steps = [...j.steps]; const [x] = steps.splice(i, 1); steps.splice(to, 0, x); set({ steps }); setSel(to); };
-  const remove = (i: number) => { set({ steps: j.steps.filter((_, k) => k !== i) }); setSel(null); };
+  const remap = (steps: JourneyStep[]) => steps.map(step => {
+    const b = step.condition.whatsappButton;
+    if (!b) return step;
+    const source = j.steps[b.sourceStep];
+    return { ...step, condition: { ...step.condition, whatsappButton: { ...b, sourceStep: source ? steps.indexOf(source) : -1 } } };
+  });
+  const chooseButton = (i: number, button: WhatsAppButtonCondition | undefined) => set({
+    stopOn: button ? j.stopOn.filter(x => x !== 'reply') : j.stopOn,
+    steps: j.steps.map((step, k) => ({ ...step, condition: { ...step.condition, ...(button && k >= i ? { requireNoReply: false } : {}), ...(k === i ? { whatsappButton: button } : {}) } })),
+  });
+  const insert = (at: number, s: JourneyStep) => { const steps = [...j.steps]; if (j.steps.slice(0, at).some(x => x.condition.whatsappButton)) s = { ...s, condition: { ...s.condition, requireNoReply: false } }; steps.splice(at, 0, s); set({ steps: remap(steps) }); setAdding(null); setSel(at); };
+  const move = (i: number, to: number) => { if (to < 0 || to >= j.steps.length) return; const steps = [...j.steps]; const [x] = steps.splice(i, 1); steps.splice(to, 0, x); set({ steps: remap(steps) }); setSel(to); };
+  const remove = (i: number) => { set({ steps: remap(j.steps.filter((_, k) => k !== i)) }); setSel(null); };
   // Closing the tab with unsaved changes asks the browser to confirm.
   useEffect(() => { if (!dirty) return; const h = (e: BeforeUnloadEvent) => e.preventDefault(); window.addEventListener("beforeunload", h); return () => window.removeEventListener("beforeunload", h); }, [dirty]);
   /** "שמירה": a draft only – never publishes, never stops the live version. Returns the id. */
@@ -152,6 +163,13 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
             {(selected.action === "add_to_list" || selected.action === "remove_from_list") && <label>{t("רשימה", "List")}<select value={selected.listId ?? ""} onChange={(e) => setStep(sel, { listId: e.target.value })}><option value="">{t("בחר רשימה", "Choose list")}</option>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>{!lists.length && <span className="jr-hint">{t("אין רשימות רגילות.", "No static lists.")} <Link href="/audiences">{t("ליצירת רשימה", "Create a list")}</Link></span>}</label>}
             {selected.action === "webhook" && <><label>{t("כתובת (https)", "URL (https)")}<input dir="ltr" value={selected.webhookUrl ?? ""} onChange={(e) => setStep(sel, { webhookUrl: e.target.value })} /></label><p className="jr-hint">{t("נשלח POST עם JSON:", "Sends a POST with JSON:")} {"{ event, journey, contact }"}. {t("כשל לא עוצר את המסע.", "A failure does not stop the journey.")}</p></>}
             {selected.action === "condition" && <><p className="jr-hint">{t("המסע ממשיך רק אם כל התנאים מתקיימים; אחרת איש הקשר יוצא מהמסע.", "The journey continues only if all conditions are met; otherwise the contact exits the journey.")}</p>
+              <label>{t("סוג התנאי", "Condition type")}<select data-testid="journey-condition-type" value={selected.condition.whatsappButton ? 'whatsapp_button' : 'contact'} onChange={e => chooseButton(sel, e.target.value === 'whatsapp_button' ? { sourceStep: -1, buttonText: '', timeoutMinutes: 1440 } : undefined)}><option value="contact">{t("תגובה ופרטי לקוח", "Reply and customer details")}</option><option value="whatsapp_button">{t("לחץ על כפתור ב־WhatsApp", "Clicked a WhatsApp button")}</option></select></label>
+              {selected.condition.whatsappButton && <>
+                <label>{t("הודעת המקור במסע", "Source message in this journey")}<select data-testid="journey-button-source" value={selected.condition.whatsappButton.sourceStep} onChange={e => chooseButton(sel, { ...selected.condition.whatsappButton!, sourceStep: Number(e.target.value), buttonText: '' })}><option value={-1}>{t("בחר הודעה קודמת", "Choose a previous message")}</option>{j.steps.slice(0, sel).map((step, index) => step.action === 'send' && step.channel === 'whatsapp' ? <option key={index} value={index}>{index + 1}. {templates.find(x => x.id === step.templateId)?.name ?? t("ללא תבנית", "No template")}</option> : null)}</select></label>
+                <label>{t("הכפתור שנלחץ", "Button clicked")}<select data-testid="journey-button-choice" value={selected.condition.whatsappButton.buttonText} onChange={e => chooseButton(sel, { ...selected.condition.whatsappButton!, buttonText: e.target.value })}><option value="">{t("בחר כפתור תשובה מהירה", "Choose a quick reply button")}</option>{quickReplyButtons(templates.find(x => x.id === j.steps[selected.condition.whatsappButton!.sourceStep]?.templateId)?.buttons).map(text => <option key={text} value={text}>{text}</option>)}</select></label>
+                <label>{t("זמן מרבי ללחיצה, בדקות משליחת ההודעה", "Click deadline in minutes from sending the message")}<input data-testid="journey-button-timeout" type="number" min={1} max={43200} value={selected.condition.whatsappButton.timeoutMinutes} onChange={e => chooseButton(sel, { ...selected.condition.whatsappButton!, timeoutMinutes: Number(e.target.value) })} /></label>
+                <p className="jr-hint">{t("המסע ימתין ללחיצה וימשיך בבדיקת האוטומציות הבאה. ללא לחיצה בזמן שנבחר, המסע יסתיים. כפתורי קישור וטלפון אינם נתמכים בתנאי זה. עצירה בכל תשובה ודילוג לאחר תשובה בשלבים הבאים בוטלו כדי לאפשר המשך.", "The journey waits for the click and continues on the next automation check. Without a click by the deadline it ends. URL and phone buttons are not supported here. Stop-on-reply and no-reply filters on subsequent steps were cleared to allow continuation.")}</p>
+              </>}
               <label className="jr-check"><input type="checkbox" checked={selected.condition.requireNoReply !== false} onChange={(e) => setStep(sel, { condition: { ...selected.condition, requireNoReply: e.target.checked } })} /> {t("הלקוח לא השיב מאז תחילת המסע", "The customer has not replied since the journey started")}</label>
               <label>{t("יש לו תגית", "Has tag")}<input list="jr-tags" value={selected.condition.tagName ?? ""} onChange={(e) => setStep(sel, { condition: { ...selected.condition, tagName: e.target.value || undefined } })} /></label>
               <label>{t("אין לו תגית", "Does not have tag")}<input list="jr-tags" value={selected.condition.notTagName ?? ""} onChange={(e) => setStep(sel, { condition: { ...selected.condition, notTagName: e.target.value || undefined } })} /></label>
@@ -177,6 +195,7 @@ export function JourneyBuilder({ initial, templates, tags, lists, openPublish = 
 
 function conditionText(s: JourneyStep, t: T) {
   const c = s.condition; const parts: string[] = [];
+  if (c.whatsappButton) parts.push(t(`לחץ על ״${c.whatsappButton.buttonText || "בחר כפתור"}״ בהודעה ${c.whatsappButton.sourceStep + 1}`, `Clicked "${c.whatsappButton.buttonText || "Choose button"}" in message ${c.whatsappButton.sourceStep + 1}`));
   if (c.requireNoReply !== false) parts.push(t("לא השיב", "No reply")); if (c.tagName) parts.push(t(`יש תגית ${c.tagName}`, `Has tag ${c.tagName}`)); if (c.notTagName) parts.push(t(`אין תגית ${c.notTagName}`, `No tag ${c.notTagName}`)); if (c.leadStatus) parts.push(t(`סטטוס ${ls(t, c.leadStatus)}`, `Status ${ls(t, c.leadStatus)}`)); if (c.consent) parts.push(t("נתן הסכמה", "Opted in"));
   return parts.join(" · ") || t("הגדר תנאי", "Set condition");
 }

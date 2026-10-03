@@ -18,6 +18,7 @@ import { MockWhatsAppProvider } from "@/server/providers/mock-whatsapp-provider"
 import type { OutboundMessagePayload } from "@/server/providers/whatsapp-provider";
 
 export interface CreateInboundMessageInput {
+  whatsappReply?: { contextMessageId: string; buttonText: string; buttonId: string };
   contactId: string;
   providerCredentialId?: string | null;
   body: string;
@@ -84,7 +85,7 @@ export async function createInboundMessage(input: CreateInboundMessageInput) {
     } });
     await emitEvent(tx, {
       businessId: requireBusinessId(), type: "message.received", contactId: input.contactId, source: "webhook", occurredAt: receivedAt,
-      dedupeKey: `message.received:${message.id}`, payload: { messageId: message.id, conversationId: conversation.id, channel: "whatsapp", type: message.type, body: (message.body ?? "").slice(0, 200) },
+      dedupeKey: `message.received:${message.id}`, payload: { messageId: message.id, conversationId: conversation.id, channel: "whatsapp", providerCredentialId: providerCredentialId ?? "", ...(input.whatsappReply ? { whatsappReply: input.whatsappReply } : {}), type: message.type, body: (message.body ?? "").slice(0, 200) },
     });
     return { conversation: updated, message, isNewConversation: !openConversation, isDuplicate: false };
   });

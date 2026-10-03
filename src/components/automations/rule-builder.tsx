@@ -53,13 +53,18 @@ interface Option {
   variables?: string[];
 }
 
-export function RuleBuilder({ agents, cannedReplies, templates, conversations }: { agents: Option[]; cannedReplies: Option[]; templates: Option[]; conversations: Option[] }) {
+export interface RuleBuilderOptions { agents: Option[]; cannedReplies: Option[]; templates: Option[]; conversations: Option[] }
+export interface EditableRule { id: string; name: string; trigger: AutomationTrigger; triggerConfig: Record<string, unknown>; actionType: AutomationActionType; actionConfig: Record<string, unknown>; isActive: boolean }
+export function RuleBuilder({ agents, cannedReplies, templates, conversations, initial, onClosed }: RuleBuilderOptions & { initial?: EditableRule; onClosed?: () => void }) {
+  const action = initial?.actionConfig ?? {};
+  const config = initial?.triggerConfig ?? {};
+  const str = (v: unknown, fallback = "") => typeof v === "string" ? v : fallback;
   const router = useRouter();
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(Boolean(initial));
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [name, setName] = useState("");
-  const [trigger, setTrigger] = useState<TriggerChoice>(AutomationTrigger.NEW_INBOUND_MESSAGE);
+  const [name, setName] = useState(initial?.name ?? "");
+  const [trigger, setTrigger] = useState<TriggerChoice>(initial?.trigger ?? AutomationTrigger.NEW_INBOUND_MESSAGE);
   const statuses = useLeadStatuses();
   const [leadStatus, setLeadStatus] = useState("");
   const [waitMinutes, setWaitMinutes] = useState(0);
@@ -70,26 +75,27 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
     try { const d = await api.post<{ id: string }>("/api/sequences/draft", r.definition); toast.success(t("נוצרה טיוטה – לא פעילה עד \"שמירה והפעלה\"", "Draft created – not running until \"Save & activate\"")); setOpen(false); router.push(`/automations/journeys/${d.id}`); }
     catch (e) { toast.error((e as Error).message); }
   }
-  const [minutes, setMinutes] = useState("30");
-  const [tagName, setTagName] = useState("");
-  const [actionType, setActionType] = useState<AutomationActionType>(AutomationActionType.ASSIGN_AGENT);
-  const [agentId, setAgentId] = useState("");
-  const [actionTagName, setActionTagName] = useState("");
-  const [status, setStatus] = useState("OPEN");
-  const [noteBody, setNoteBody] = useState("");
-  const [cannedReplyId, setCannedReplyId] = useState("");
-  const [variables, setVariables] = useState<Record<string, string>>({});
-  const [templateId, setTemplateId] = useState("");
-  const [mediaUrl, setMediaUrl] = useState("");
-  const [onlyOutsideHours, setOnlyOutsideHours] = useState(false);
-  const [taskTitle, setTaskTitle] = useState("");
-  const [taskDueHours, setTaskDueHours] = useState("24");
-  const [fieldKey, setFieldKey] = useState("");
-  const [fieldValue, setFieldValue] = useState("");
+  const [minutes, setMinutes] = useState(String(config.minutes ?? 30));
+  const [tagName, setTagName] = useState(str(config.tagName));
+  const [actionType, setActionType] = useState<AutomationActionType>(initial?.actionType ?? AutomationActionType.ASSIGN_AGENT);
+  const [agentId, setAgentId] = useState(str(action.agentId));
+  const [actionTagName, setActionTagName] = useState(str(action.tagName));
+  const [status, setStatus] = useState(str(action.status, "OPEN"));
+  const [noteBody, setNoteBody] = useState(str(action.body));
+  const [cannedReplyId, setCannedReplyId] = useState(str(action.cannedReplyId));
+  const [variables, setVariables] = useState<Record<string, string>>((action.variables as Record<string, string>) ?? {});
+  const [templateId, setTemplateId] = useState(str(action.templateId));
+  const [mediaUrl, setMediaUrl] = useState(str(action.mediaUrl));
+  const [onlyOutsideHours, setOnlyOutsideHours] = useState(config.onlyOutsideHours === true);
+  const [taskTitle, setTaskTitle] = useState(str(action.title));
+  const [taskDueHours, setTaskDueHours] = useState(String(action.dueHours ?? 24));
+  const [fieldKey, setFieldKey] = useState(str(action.key));
+  const [fieldValue, setFieldValue] = useState(str(action.value));
   const [touched, setTouched] = useState(false);
   const [leaving, setLeaving] = useState(false);
   /** Closing with unsaved input asks first ("יציאה ללא שמירה"). */
-  const requestClose = (next: boolean) => { if (next) { setOpen(true); return; } if (touched && !isSubmitting) setLeaving(true); else setOpen(false); };
+  const close = () => { setOpen(false); onClosed?.(); };
+  const requestClose = (next: boolean) => { if (next) { setOpen(true); return; } if (touched && !isSubmitting) setLeaving(true); else close(); };
   const [conversationId, setConversationId] = useState("");
   const [testing, setTesting] = useState(false);
   const [previewError, setPreviewError] = useState<{ input: string; message: string } | null>(null);
@@ -153,7 +159,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
       try {
         // A CRM-status rule is a one-step journey: saved as a draft; activation goes through the same checks screen.
         const d = await api.post<{ id: string }>("/api/sequences/draft", { name, trigger: "LEAD_STATUS_CHANGED", triggerConfig: { leadStatus }, stopOn: [], steps: [{ action: "send", channel: "whatsapp", templateId, waitMinutes, variables, condition: { requireNoReply: false } }] });
-        setTouched(false); setOpen(false);
+        setTouched(false); close();
         if (isActive) router.push(`/automations/journeys/${d.id}?publish=1`);
         // A CRM-status rule runs on the journey engine – it is listed under "מסעות לקוח".
         else { toast.success(t("החוק נשמר כטיוטה (לא פעיל) – הוא מופיע בלשונית ״מסעות לקוח״", "Rule saved as a draft (inactive) – it is listed under \"Customer journeys\"")); router.push(`/automations/journeys/${d.id}`); }
@@ -162,8 +168,8 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
     }
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/automations", {
-        method: "POST",
+      const res = await fetch(initial ? `/api/automations/rules/${initial.id}` : "/api/automations", {
+        method: initial ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...rule, isActive }),
       });
@@ -173,7 +179,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
         return;
       }
       toast.success(isActive ? t("החוק נשמר והופעל", "Rule saved and activated") : t("החוק נשמר (לא פעיל)", "Rule saved (inactive)"));
-      setTouched(false); setOpen(false);
+      setTouched(false); close();
       router.refresh();
     } catch { toast.error(t("שמירת החוק נכשלה. יש לבדוק את החיבור ולנסות שוב", "Saving the rule failed. Check your connection and try again")); }
     finally {
@@ -183,16 +189,16 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
 
   return (
     <Dialog open={open} onOpenChange={requestClose}>
-      <DialogTrigger render={<Button><Plus className="h-4 w-4" /> {t("חוק אוטומציה חדש", "New automation rule")}</Button>} />
+      {!initial && <DialogTrigger render={<Button><Plus className="h-4 w-4" /> {t("חוק אוטומציה חדש", "New automation rule")}</Button>} />}
       <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="ps-8">{t("חוק אוטומציה חדש", "New automation rule")}</DialogTitle>
+          <DialogTitle className="ps-8">{initial ? t("עריכת חוק אוטומציה", "Edit automation rule") : t("חוק אוטומציה חדש", "New automation rule")}</DialogTitle>
         </DialogHeader>
         {/* Same translation + validation engine as the journey builder: the result is saved as a DRAFT and opened for manual editing. */}
-        <details className="rounded-lg border border-line" data-testid="rule-ai">
+        {!initial && <details className="rounded-lg border border-line" data-testid="rule-ai">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">{t("✨ תיאור החוק בשפה חופשית", "✨ Describe the rule in plain language")}</summary>
           <JourneyAiPanel mode="rule" current={null} onApply={(r) => void aiDraft(r)} />
-        </details>
+        </details>}
         <div className="space-y-4" onChangeCapture={() => setTouched(true)}>
           <div className="space-y-1.5">
             <Label>{t("שם החוק", "Rule name")}</Label>
@@ -201,12 +207,12 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
 
           <div className="space-y-1.5">
             <Label>{t("טריגר", "Trigger")}</Label>
-            <Select value={trigger} onValueChange={(v) => { if (!v) return; setTrigger(v as TriggerChoice); if (v === CRM_STATUS) setActionType(AutomationActionType.SEND_TEMPLATE); }}>
-              <SelectTrigger className="w-full">
+            <Select value={trigger} onValueChange={(v) => { if (!v) return; setTouched(true); setTrigger(v as TriggerChoice); if (v === CRM_STATUS) setActionType(AutomationActionType.SEND_TEMPLATE); }}>
+              <SelectTrigger className="w-full" aria-label={t("טריגר האוטומציה", "Automation trigger")}>
                 <SelectValue>{t(...TRIGGER_LABELS[trigger])}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(TRIGGER_LABELS).map(([value, label]) => (
+                {Object.entries(TRIGGER_LABELS).filter(([value]) => !initial || value !== CRM_STATUS).map(([value, label]) => (
                   <SelectItem key={value} value={value}>
                     {t(...label)}
                   </SelectItem>
@@ -240,7 +246,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
 
           <div className={crm ? "hidden" : "space-y-1.5"}>
             <Label>{t("פעולה", "Action")}</Label>
-            <Select value={actionType} onValueChange={(v) => v && setActionType(v as AutomationActionType)}>
+            <Select value={actionType} onValueChange={(v) => { if (v) { setTouched(true); setActionType(v as AutomationActionType); } }}>
               <SelectTrigger className="w-full" aria-label={t("פעולת האוטומציה", "Automation action")}>
                 <SelectValue>{t(...ACTION_LABELS[actionType])}</SelectValue>
               </SelectTrigger>
@@ -274,7 +280,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
           {actionType === AutomationActionType.ADD_TAG && (
             <div className="space-y-1.5">
               <Label>{t("שם התגית להוספה", "Tag name to add")}</Label>
-              <Input value={actionTagName} onChange={(e) => setActionTagName(e.target.value)} />
+              <Input aria-label={t("שם התגית להוספה", "Tag name to add")} value={actionTagName} onChange={(e) => setActionTagName(e.target.value)} />
             </div>
           )}
           {actionType === AutomationActionType.CHANGE_STATUS && (
@@ -380,7 +386,7 @@ export function RuleBuilder({ agents, cannedReplies, templates, conversations }:
         </div>
         {leaving && <div role="alertdialog" aria-live="assertive" className="rounded-lg border border-warn/40 bg-warn/5 p-3 text-sm" data-testid="rule-discard">
           <p>{t("לצאת בלי לשמור? מה שהוזן יאבד.", "Leave without saving? What you entered will be lost.")}</p>
-          <div className="mt-2 flex gap-2"><Button size="sm" variant="outline" onClick={() => setLeaving(false)}>{t("להישאר", "Stay")}</Button><Button size="sm" variant="destructive" onClick={() => { setLeaving(false); setTouched(false); setOpen(false); }} data-testid="rule-discard-confirm">{t("יציאה בלי לשמור", "Discard and leave")}</Button></div>
+          <div className="mt-2 flex gap-2"><Button size="sm" variant="outline" onClick={() => setLeaving(false)}>{t("להישאר", "Stay")}</Button><Button size="sm" variant="destructive" onClick={() => { setLeaving(false); setTouched(false); close(); }} data-testid="rule-discard-confirm">{t("יציאה בלי לשמור", "Discard and leave")}</Button></div>
         </div>}
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={() => requestClose(false)} disabled={isSubmitting} data-testid="rule-exit">{t("יציאה ללא שמירה", "Exit without saving")}</Button>

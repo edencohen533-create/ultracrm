@@ -1,6 +1,8 @@
 import { z } from "zod";
-import { withAuth, parseQuery } from "@/lib/api";
+import { withAuth, parseQuery, parseBody } from "@/lib/api";
 import { ok } from "@/lib/response";
+import { createTextInsight } from "@/server/coach/sales";
+import { textInsightSchema } from "@/lib/validation/coach-text";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -16,4 +18,11 @@ export const GET = withAuth(async ({ req, user }) => {
   ]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the embedding vector is never sent to the browser
   return ok({ items: items.map(({ embedding: _e, ...x }) => x), counts: Object.fromEntries(counts.map((c) => [c.status, c._count._all])), needsReview: flagged });
+}, { minRole: "manager", module: "telephony", perm: "telephony.recordings" });
+
+/** Manual coaching text joins the existing review/version/retrieval pipeline. */
+export const POST = withAuth(async ({ req, user }) => {
+  const input = await parseBody(req, textInsightSchema);
+  const row = await createTextInsight(user, input);
+  return ok({ id: row.id, status: row.status });
 }, { minRole: "manager", module: "telephony", perm: "telephony.recordings" });

@@ -3,12 +3,13 @@ import { automationRuleSchema } from "@/lib/validation/automation";
 import { AutomationPreviewError, validateAutomationReferences } from "@/server/services/automation-preview-service";
 import { organizationRequest } from "@/lib/auth-compat";
 import { NextResponse } from "next/server";
+import type { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth-compat";
 import { hasRole, ROLES_ADMIN_MANAGER } from "@/lib/auth-compat";
 import { prisma } from "@/lib/db";
 
-const patchSchema = z.object({ isActive: z.boolean() });
+const patchSchema = z.union([automationRuleSchema, z.object({ isActive: z.boolean() }).strict()]);
 
 export const PATCH = organizationRequest(async function(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -24,15 +25,16 @@ export const PATCH = organizationRequest(async function(request: Request, { para
 
   const existing = await prisma.automationRule.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (parsed.data.isActive) {
-    const valid = automationRuleSchema.safeParse(existing);
+  const editing = "name" in parsed.data;
+  if (editing || parsed.data.isActive) {
+    const valid = automationRuleSchema.safeParse(editing ? parsed.data : existing);
     if (!valid.success) return NextResponse.json({ error: "החוק אינו תקין להפעלה" }, { status: 400 });
     try { await validateAutomationReferences(valid.data); }
     catch (error) { if (error instanceof AutomationPreviewError) return NextResponse.json({ error: error.message }, { status: 400 }); throw error; }
   }
   const rule = await prisma.$transaction(async (tx) => {
-    const updated = await tx.automationRule.update({ where: { id }, data: { isActive: parsed.data.isActive } });
-    await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: session!.user.id, action: parsed.data.isActive ? "automation.activated" : "automation.paused", entityType: "AutomationRule", entityId: id } });
+    const updated = await tx.automationRule.update({ where: { id }, data: "name" in parsed.data ? { ...parsed.data, triggerConfig: parsed.data.triggerConfig as Prisma.InputJsonObject, actionConfig: parsed.data.actionConfig as Prisma.InputJsonObject } : parsed.data });
+    await tx.auditLog.create({ data: { businessId: requireBusinessId(), actorId: session!.user.id, action: editing ? "automation.updated" : parsed.data.isActive ? "automation.activated" : "automation.paused", entityType: "AutomationRule", entityId: id } });
     return updated;
   });
   return NextResponse.json({ rule });

@@ -162,7 +162,7 @@ export function AgentPerformance({ query, channel, channels }: { query: ReportQu
             <thead><tr>
               <th className="agt-sticky" scope="col">{head("fullName", t("נציג", "Agent"))}</th>
               <th scope="col">{t("סטטוס", "Status")}</th>
-              {cols.map((c) => <th key={c.key} scope="col" className={c.group === "base" ? "" : "agt-act"}>{head(c.key, c.label, c.hint)}</th>)}
+              {cols.map((c) => <th key={c.key} scope="col" className="agt-metric">{head(c.key, c.label, c.hint)}</th>)}
             </tr></thead>
             <tbody>{rows.map((r) => {
               const { current, status } = statusOf(r);
@@ -171,12 +171,12 @@ export function AgentPerformance({ query, channel, channels }: { query: ReportQu
                   <th scope="row" className="agt-sticky">{r.id === UNASSIGNED ? <span className="text-muted" title={t("עסקאות ולידים ללא נציג אחראי, התכתבויות שלא נענו ולא שויכו, ופעילות של משתמשים שאינם ברשימה (תמיכה / הוסרו)", "Deals and leads without an owner, unanswered unassigned conversations, and activity of users not listed (support / removed)")}>{t("ללא נציג משויך", "No assigned agent")}</span>
                     : <button type="button" className={detail?.id === r.id ? "performance-agent selected" : "performance-agent"} onClick={() => setDetail(r)} data-testid={`agent-open-${r.id}`}>{r.fullName}</button>}</th>
                   <td>{r.id === UNASSIGNED ? "—" : <><span className={`performance-presence ${status === "offline" || (channels.telephony && stale) ? "offline" : "online"}`}>{statusText(r)}</span>{current && !stale && <small className="performance-since"> ({duration(Math.max(0, Math.floor((liveNow - new Date(current.sinceAt).getTime()) / 1000)))})</small>}</>}</td>
-                  {cols.map((c) => <td key={c.key} className="agt-num" dir="auto">{c.cell(r)}</td>)}
+                  {cols.map((c) => <td key={c.key} className="agt-num"><bdi>{c.cell(r)}</bdi></td>)}
                 </tr>);
             })}</tbody>
             {rows.length > 1 && <tfoot><tr data-testid="agent-totals">
               <th scope="row" className="agt-sticky">{t("סה״כ", "Total")}</th><td />
-              {cols.map((c) => <td key={c.key} className="agt-num" dir="auto">{c.total ? c.total(rows) : "—"}</td>)}
+              {cols.map((c) => <td key={c.key} className="agt-num"><bdi>{c.total ? c.total(rows) : "—"}</bdi></td>)}
             </tr></tfoot>}
           </table>
           {!rows.length && <div className="p-10 text-center text-muted">{t("אין נציגים התואמים לסינון", "No agents match the filter")}</div>}

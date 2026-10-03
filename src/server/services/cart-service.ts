@@ -120,7 +120,7 @@ export async function processAbandonedCarts(businessId: string) {
   const stores = await prisma.storeConnection.findMany({ where: { businessId, isActive: true }, select: { id: true, abandonAfterMinutes: true } });
   let marked = 0;
   for (const s of stores) {
-    const due = await prisma.cart.findMany({ where: { storeId: s.id, status: "open", lastActivityAt: { lte: new Date(Date.now() - s.abandonAfterMinutes * 60_000) } }, take: 200, select: { id: true, contactId: true, lastActivityAt: true } });
+    const due = await prisma.cart.findMany({ where: { storeId: s.id, status: "open", items: { not: [] }, lastActivityAt: { lte: new Date(Date.now() - s.abandonAfterMinutes * 60_000) } }, take: 200, select: { id: true, contactId: true, lastActivityAt: true } });
     for (const c of due) {
       const r = await prisma.cart.updateMany({ where: { id: c.id, status: "open", lastActivityAt: c.lastActivityAt }, data: { status: "abandoned", abandonedAt: new Date() } });
       if (!r.count) continue;

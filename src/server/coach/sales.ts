@@ -387,6 +387,20 @@ export async function reviewInsight(user: SessionUser, id: string, input: Review
   return row;
 }
 
+/** Text supplied by a manager follows the same approval and retrieval rules as recorded examples. */
+export async function createTextInsight(user: SessionUser, input: { kind: string; title: string; body: string; objection?: string }) {
+  const title = redact(input.title), body = redact(input.body), objection = redact(input.objection ?? "");
+  const flags = new Set(riskFlags(`${title.text} ${body.text} ${objection.text}`));
+  if (title.found || body.found || objection.found) flags.add("customer_detail");
+  const row = await prisma.salesInsight.create({ data: {
+    businessId: user.businessId, createdById: user.id, kind: input.kind,
+    title: title.text, body: body.text, objection: objection.text || null,
+    status: "candidate", flags: [...flags],
+  } });
+  await audit(user.businessId, user.id, "coach", row.id, "sales_insight.text_created", { source: "text", kind: input.kind });
+  return row;
+}
+
 // ─── Closed deals ──────────────────────────────────────────────────────────────
 
 export const DEAL_CONDITION_TEXT = {

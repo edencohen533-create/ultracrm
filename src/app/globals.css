@@ -990,7 +990,9 @@ button.seg-item { width: 100%; }
 .agt-table th, .agt-table td { padding: 10px 14px; text-align: start; white-space: nowrap; border-bottom: 1px solid var(--line); background: var(--panel); }
 .agt-table thead th { position: sticky; top: 0; z-index: 1; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--bg); }
 .agt-table thead th button { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: inherit; }
+.agt-table .agt-num, .agt-table .agt-metric { text-align: center; min-width: 112px; }
 .agt-table .agt-num { font-variant-numeric: tabular-nums; }
+.agt-table .agt-metric button { justify-content: center; width: 100%; }
 .agt-table .agt-sticky { position: sticky; inset-inline-start: 0; z-index: 2; min-width: 150px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; box-shadow: -1px 0 0 var(--line) inset; font-weight: 600; }
 .agt-table thead .agt-sticky { z-index: 3; }
 .agt-table tbody tr:hover > * { background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }

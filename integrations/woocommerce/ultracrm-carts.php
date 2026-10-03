@@ -79,7 +79,9 @@ add_action('woocommerce_add_to_cart', 'ucrm_capture_after_request', 30);
 add_action('woocommerce_cart_item_removed', 'ucrm_capture_after_request', 30);
 add_action('woocommerce_after_cart_item_quantity_update', 'ucrm_capture_after_request', 30);
 add_action('woocommerce_cart_emptied', function () { if (WC()->session) { WC()->session->__unset('ucrm_cart_id'); WC()->session->__unset('ucrm_restore'); } });
-add_action('woocommerce_checkout_update_order_review', function () { add_action('shutdown', 'ucrm_capture'); }, 30);
+add_action('woocommerce_checkout_update_order_review', 'ucrm_capture_after_request', 30);
+add_action('woocommerce_store_api_checkout_update_customer_from_request', 'ucrm_capture_after_request', 30);
+add_action('woocommerce_store_api_checkout_update_draft', 'ucrm_capture_after_request', 30);
 add_action('wc_ajax_ucrm_activity', function () {
     check_ajax_referer('ucrm_activity', 'nonce');
     if (!WC()->cart) wc_load_cart();
@@ -92,7 +94,7 @@ add_action('wp_footer', function () {
 });
 function ucrm_bind_order($order) { $id = ucrm_cart_id(); if ($id) { $order->update_meta_data('_ultracrm_cart_id', $id); $order->update_meta_data('_ultracrm_restore_token', WC()->session->get('ucrm_restore')); } }
 add_action('woocommerce_checkout_create_order', 'ucrm_bind_order', 10);
-add_action('woocommerce_store_api_checkout_update_order_meta', 'ucrm_bind_order', 10);
+add_action('woocommerce_store_api_checkout_update_order_meta', function ($order) { ucrm_bind_order($order); $order->save(); }, 10);
 function ucrm_paid($order_id) {
     $order = wc_get_order($order_id); if (!$order || !$order->is_paid()) return;
     $id = $order->get_meta('_ultracrm_cart_id'); if (!$id) return;

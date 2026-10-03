@@ -33,6 +33,7 @@ export type DomainEventType =
   | "call.outcome_saved"
   /** The AI documentation of a call was stored (may arrive after the call was already written to an external CRM). */
   | "call.summary_ready"
+  | "email.engagement"
   | "message.received"
   | "message.sent"
   | "contact.suppressed"

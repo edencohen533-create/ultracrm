@@ -1,0 +1,43 @@
+name: Module access and journey regression checks
+on:
+  push:
+    branches: ['fix/email-journeys-platform-access', 'integration/solina-oct3']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: qa
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: ultracrm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qa -d ultracrm_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://qa:isolated-test-only@127.0.0.1:5432/ultracrm_test
+      JWT_SECRET: isolated-ci-session-secret-not-for-production
+      DB_RLS: 'off'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx prisma db push
+      - run: php tests/php/woocommerce-cart-lifecycle.php
+      - run: npm test
+      - run: npm run typecheck
+      # This isolated DB verifies the application access engine and persistence, not RLS migrations.
+      - run: npm run test:integration -- tests/integration/platform-module-access.test.ts tests/integration/journey-email-events.test.ts tests/integration/abandoned-carts.test.ts

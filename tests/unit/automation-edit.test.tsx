@@ -1,0 +1,22 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { RuleList } from "@/components/automations/rule-list";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+vi.mock("@/lib/client/use-lead-statuses", () => ({ useLeadStatuses: () => ({ items: [] }) }));
+vi.mock("@/components/automations/journey/journey-ai", () => ({ JourneyAiPanel: () => null }));
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+const rule = { id: "r1", name: "תיוג שיחה חדשה", trigger: "NEW_CONVERSATION" as const, actionType: "ADD_TAG" as const, triggerConfig: {}, actionConfig: { tagName: "לקוח חדש" }, isActive: true };
+const options = { agents: [], cannedReplies: [], templates: [], conversations: [] };
+it.each(["עריכת טריגר: תיוג שיחה חדשה", "עריכת פעולה: תיוג שיחה חדשה"])("%s opens the existing rule and PATCHes edits, never creates a duplicate", async (name) => {
+  vi.stubGlobal("confirm", vi.fn(() => true));
+  const request = vi.fn<(url: string, init: RequestInit) => Promise<{ ok: boolean; json: () => Promise<{ rule: typeof rule }> }>>(async () => ({ ok: true, json: async () => ({ rule }) })); vi.stubGlobal("fetch", request);
+  render(<RuleList rules={[rule]} options={options} />);
+  fireEvent.click(screen.getByRole("button", { name }));
+  expect(await screen.findByRole("heading", { name: "עריכת חוק אוטומציה" })).toBeVisible();
+  expect(screen.getByLabelText("שם התגית להוספה")).toHaveValue("לקוח חדש");
+  expect(screen.getByRole("combobox", { name: "טריגר האוטומציה" })).toHaveTextContent("שיחה חדשה");
+  fireEvent.change(screen.getByLabelText("שם התגית להוספה"), { target: { value: "VIP" } });
+  fireEvent.click(screen.getByRole("button", { name: "שמירה והפעלה" }));
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+  expect(request.mock.calls[0]).toEqual(["/api/automations/rules/r1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: rule.name, trigger: rule.trigger, triggerConfig: {}, actionType: rule.actionType, actionConfig: { tagName: "VIP" }, isActive: true }) })]);
+});

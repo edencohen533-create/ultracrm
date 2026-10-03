@@ -27,6 +27,12 @@ export default organizationRequest(async function AutomationsPage() {
   ]);
   const t = await serverT();
 
+  const options = {
+    conversations: conversations.map((c) => ({ id: c.id, label: `${c.contact.fullName} (${c.contact.phoneE164})` })),
+    agents: agents.map((a) => ({ id: a.id, label: a.fullName })),
+    cannedReplies: cannedReplies.map((c) => ({ id: c.id, label: c.title })),
+    templates: templates.map((tpl) => ({ id: tpl.id, label: tpl.name, variables: templateParameterKeys(tpl.body) })),
+  };
   return (
     <div className="p-3 sm:p-6">
       <AutomationsTabs />
@@ -35,19 +41,14 @@ export default organizationRequest(async function AutomationsPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" nativeButton={false} render={<Link href="/automations/history">{t("היסטוריית הרצות", "Run history")}</Link>} />
           <StopAutomationsButton />
-          <RuleBuilder
-            conversations={conversations.map((c) => ({ id: c.id, label: `${c.contact.fullName} (${c.contact.phoneE164})` }))}
-            agents={agents.map((a) => ({ id: a.id, label: a.fullName }))}
-            cannedReplies={cannedReplies.map((c) => ({ id: c.id, label: c.title }))}
-            templates={templates.map((tpl) => ({ id: tpl.id, label: tpl.name, variables: templateParameterKeys(tpl.body) }))}
-          />
+          <RuleBuilder {...options} />
         </div>
       </div>
 
       {rules.length === 0 ? (
         <EmptyState title={t("אין חוקי אוטומציה עדיין", "No automation rules yet")} description={t("צור חוק חדש כדי להתחיל.", "Create a new rule to get started.")} />
       ) : (
-        <RuleList key={rules.map((r) => `${r.id}:${r.isActive}`).join(",")} rules={rules} />
+        <RuleList key={rules.map((r) => `${r.id}:${r.updatedAt.toISOString()}`).join(",")} options={options} rules={rules.map((r) => ({ ...r, triggerConfig: r.triggerConfig as Record<string, unknown>, actionConfig: r.actionConfig as Record<string, unknown> }))} />
       )}
       <UnsubscribeCard />
     </div>

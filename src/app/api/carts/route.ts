@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 /** Carts list + headline numbers for the "עגלות נטושות" screen. */
 export const GET = withAuth(async ({ req }) => {
-  const f = parseQuery(req, z.object({ status: z.enum(["open", "abandoned", "converted", "recovered"]).optional(), storeId: z.string().optional(), q: z.string().max(100).optional(), days: z.coerce.number().int().min(1).max(365).default(30), page: z.coerce.number().int().min(1).default(1) }));
+  const f = parseQuery(req, z.object({ status: z.enum(["open", "abandoned", "converted", "recovered", "empty"]).optional(), storeId: z.string().optional(), q: z.string().max(100).optional(), days: z.coerce.number().int().min(1).max(365).default(30), page: z.coerce.number().int().min(1).default(1) }));
   const since = new Date(Date.now() - f.days * 86400_000);
   const base: Prisma.CartWhereInput = { createdAt: { gte: since }, ...(f.storeId ? { storeId: f.storeId } : {}) };
   const where: Prisma.CartWhereInput = { ...base, ...(f.status ? { status: f.status } : {}), ...(f.q ? { OR: [{ email: { contains: f.q, mode: "insensitive" } }, { phoneE164: { contains: f.q.replace(/\D/g, "").replace(/^0/, "") || f.q } }, { customerName: { contains: f.q, mode: "insensitive" } }] } : {}) };

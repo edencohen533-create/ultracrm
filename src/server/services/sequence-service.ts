@@ -232,7 +232,7 @@ export async function processDueSequenceRuns(deadline = Date.now() + 40_000, bus
       // Abandoned-cart journeys: stop as soon as the cart was bought; expose cart values to the messages.
       const cartId = run.sourceKey.startsWith("cart:") ? run.sourceKey.slice(5) : null;
       const cart = cartId ? await (await import("./cart-service")).cartMergeValues(cartId) : null;
-      if (cart && (cart.status === "converted" || cart.status === "recovered")) { await finish("STOPPED", { stopReason: "העגלה הושלמה ברכישה" }); continue; }
+      if (cartId && (!cart || cart.status !== "abandoned")) { await finish("STOPPED", { stopReason: "העגלה אינה נטושה עוד" }); continue; }
       const stop = await stopCondition(run, seq.stopOn);
       if (stop) { await finish("STOPPED", { stopReason: stop }); continue; }
       // Send steps re-check global suppression/consent before every send; task steps only create CRM work and never message the contact.

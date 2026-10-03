@@ -20,7 +20,7 @@ const KIND: Record<Kind, [string, string]> = { opening: ["פתיחת שיחה", 
 const FLAG: Record<string, [string, string]> = { customer_detail: ["פרטי לקוח", "Customer details"], promise: ["הבטחה", "Promise"], discount: ["הנחה / מחיר חריג", "Discount / unusual price"], price: ["מחיר", "Price"], unverified_fact: ["עובדה שלא אומתה", "Unverified fact"] };
 const REC_STATUS: Record<RecStatus, [string, string, "neutral" | "warn" | "good" | "bad" | "info"]> = { uploading: ["מעלה", "Uploading", "info"], queued: ["ממתין לעיבוד", "Queued", "neutral"], processing: ["בעיבוד", "Processing", "warn"], ready: ["מוכן", "Ready", "good"], no_transcript: ["ללא תמלול", "No transcript", "neutral"], failed: ["נכשל", "Failed", "bad"] };
 const mmss = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
-const SECTIONS = [["recordings", "הקלטות", "Recordings"], ["insights", "תובנות לסקירה", "Insights to review"], ["learning", "למידה מעסקאות שנסגרו", "Learning from closed deals"], ["setup", "הגדרות וידע מאושר", "Settings & approved knowledge"]] as const;
+const SECTIONS = [["recordings", "הקלטות", "Recordings"], ["text", "אימון מטקסט", "Learn from text"], ["insights", "תובנות לסקירה", "Insights to review"], ["learning", "למידה מעסקאות שנסגרו", "Learning from closed deals"], ["setup", "הגדרות וידע מאושר", "Settings & approved knowledge"]] as const;
 type Section = (typeof SECTIONS)[number][0];
 
 /**
@@ -34,16 +34,47 @@ export function SalesCoach({ isOwner }: { isOwner: boolean }) {
   const pick = (s: Section) => { setSection(s); try { sessionStorage.setItem("sales-coach-section", s); } catch { /* private mode */ } };
   return (
     <div className="space-y-4" data-testid="sales-coach">
-      <p className="text-sm text-muted">{t("המאמן מפיק ידע מכירתי מהקלטות: פתיחה, בירור צרכים, התנגדויות ותשובות, הסבר ההצעה, סגירה ונקודות לשיפור. כל תובנה נשמרת עם המקור והגרסה, וממתינה לאישור מנהל לפני שעוזר המכירות בחייגן משתמש בה. \"למידה\" כאן = הפקת ידע ושליפתו בזמן הצורך; המודל עצמו אינו מאומן מחדש.", "The coach extracts sales knowledge from recordings: openings, needs discovery, objections and answers, explaining the offer, closing and points to improve. Every insight keeps its source and version and waits for a manager's approval before the in-call assistant uses it. \"Learning\" here = extracting knowledge and retrieving it when needed; the model itself is not re-trained.")}</p>
+      <p className="text-sm text-muted">{t("המאמן מפיק ידע מכירתי מהקלטות ומטקסט: פתיחה, בירור צרכים, התנגדויות ותשובות, הסבר ההצעה, סגירה ונקודות לשיפור. כל תובנה נשמרת עם המקור והגרסה, וממתינה לאישור מנהל לפני שעוזר המכירות בחייגן משתמש בה. \"למידה\" כאן = הפקת ידע ושליפתו בזמן הצורך; המודל עצמו אינו מאומן מחדש.", "The coach extracts sales knowledge from recordings and text: openings, needs discovery, objections and answers, explaining the offer, closing and points to improve. Every insight keeps its source and version and waits for a manager's approval before the in-call assistant uses it. \"Learning\" here = extracting knowledge and retrieving it when needed; the model itself is not re-trained.")}</p>
       <div className="flex gap-1 overflow-x-auto rounded-lg border border-line bg-panel p-1 w-fit max-w-full" role="tablist">
         {SECTIONS.map(([k, he, en]) => <button key={k} role="tab" aria-selected={section === k} onClick={() => pick(k)} className={cx("h-8 px-3 rounded-md text-sm whitespace-nowrap", section === k ? "bg-accent text-white" : "text-muted hover:text-text")} data-testid={`sc-tab-${k}`}>{t(he, en)}</button>)}
       </div>
       {section === "recordings" && <Recordings t={t} />}
+      {section === "text" && <TextTraining t={t} onSaved={() => pick("insights")} />}
       {section === "insights" && <Insights t={t} />}
       {section === "learning" && <Learning t={t} isOwner={isOwner} />}
       {section === "setup" && <CoachAdmin isAdmin={isOwner} />}
     </div>
   );
+}
+
+export function TextTraining({ t, onSaved }: { t: T; onSaved: () => void }) {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [objection, setObjection] = useState("");
+  const [kind, setKind] = useState<Kind>("objection");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function save() {
+    setBusy(true); setError("");
+    try {
+      await api.post("/api/coach/insights", { title: title.trim(), body: body.trim(), kind, ...(kind === "objection" ? { objection: objection.trim() } : {}) });
+      toast.success(t("הטקסט נשמר לסקירה. אשרו אותו כדי שהמאמן יוכל להשתמש בו", "Text saved for review. Approve it to let the coach use it"));
+      onSaved();
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  return <Panel title={t("אימון המאמן מטקסט", "Teach the coach with text")}>
+    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (!busy) void save(); }}>
+      <p className="text-sm text-muted">{t("כתבו תסריט קצר, שיטת מכירה או תשובה להתנגדות. הטקסט יישמר בתובנות לסקירה; לאחר אישור הוא יהיה זמין למאמן במהלך השיחה. למחירים ותנאי העסק השתמשו בלשונית הגדרות וידע מאושר.", "Write a short script, sales technique or objection response. The text is saved for review and becomes available during calls after approval. Put prices and business terms in Settings & approved knowledge.")}</p>
+      <Input label={t("כותרת", "Title")} required maxLength={160} value={title} onChange={(e) => setTitle(e.target.value)} />
+      <Select label={t("נושא האימון", "Training topic")} value={kind} onChange={(e) => setKind(e.target.value as Kind)}>{Object.entries(KIND).map(([key, label]) => <option key={key} value={key}>{t(...label)}</option>)}</Select>
+      {kind === "objection" && <Input label={t("התנגדות הלקוח (אופציונלי)", "Customer objection (optional)")} maxLength={400} value={objection} onChange={(e) => setObjection(e.target.value)} />}
+      <Textarea label={t("מה ללמד את המאמן", "What to teach the coach")} required rows={8} maxLength={1200} value={body} onChange={(e) => setBody(e.target.value)} placeholder={t("לדוגמה: כשהלקוח אומר שהוא צריך לחשוב, שאלו מה חסר לו כדי לקבל החלטה.", "Example: When a customer needs to think, ask what they need to make a decision.")} />
+      <p className="text-xs text-muted">{body.length}/1200</p>
+      {error && <p role="alert" className="text-sm text-bad">{error}</p>}
+      <Button type="submit" disabled={busy || !title.trim() || !body.trim()}>{busy ? t("שומר…", "Saving…") : t("שמירה והמשך לסקירה", "Save & review")}</Button>
+    </form>
+  </Panel>;
 }
 
 // ─── Recordings ─────────────────────────────────────────────────────────────────
@@ -232,7 +263,7 @@ function InsightCard({ t, x, onDone, onVersions }: { t: T; x: Insight; onDone: (
   }
   return (
     <li className="rounded-xl border border-line bg-panel p-3 text-sm space-y-2" data-testid="sc-insight">
-      <div className="flex flex-wrap items-center gap-2 text-xs"><Badge tone="accent">{t(...KIND[x.kind])}</Badge><StatusBadge t={t} s={x} />{x.flags.map((fl) => <Badge key={fl} tone={fl === "customer_detail" ? "bad" : "warn"}>{FLAG[fl] ? t(...FLAG[fl]) : fl}</Badge>)}<span className="text-muted">{t(`גרסה ${x.version}`, `v${x.version}`)}</span>{x.recording && <span className="text-muted truncate">· {t("מקור:", "Source:")} {x.recording.title}{x.startMs !== null ? ` @ ${mmss(x.startMs)}` : ""}{x.recording.status === "deleted" ? t(" (נמחק)", " (deleted)") : ""}</span>}</div>
+      <div className="flex flex-wrap items-center gap-2 text-xs"><Badge tone="accent">{t(...KIND[x.kind])}</Badge><StatusBadge t={t} s={x} />{x.flags.map((fl) => <Badge key={fl} tone={fl === "customer_detail" ? "bad" : "warn"}>{FLAG[fl] ? t(...FLAG[fl]) : fl}</Badge>)}<span className="text-muted">{t(`גרסה ${x.version}`, `v${x.version}`)}</span>{!x.recordingId && <span className="text-muted">{t("מקור: טקסט שהוזן ידנית", "Source: manually entered text")}</span>}{x.recording && <span className="text-muted truncate">· {t("מקור:", "Source:")} {x.recording.title}{x.startMs !== null ? ` @ ${mmss(x.startMs)}` : ""}{x.recording.status === "deleted" ? t(" (נמחק)", " (deleted)") : ""}</span>}</div>
       {x.needsReview && x.reviewReason && <p className="flex items-center gap-1 text-xs text-warn"><AlertTriangle size={13} />{x.reviewReason}</p>}
       {edit ? <div className="space-y-2">
         <Input label={t("כותרת", "Title")} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />

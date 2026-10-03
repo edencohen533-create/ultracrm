@@ -18,7 +18,7 @@ import { linkStoreCustomer } from "./customers";
 import { wooRequest, WooError, type WooCredentials } from "./client";
 
 export const WOO_OPEN = ["checkout-draft", "pending", "failed"];
-const PAID = ["processing", "completed", "on-hold"];
+const PAID = ["processing", "completed"];
 const MAX_ATTEMPTS = 8;
 
 export function wooCredentials(store: Pick<StoreConnection, "config">): WooCredentials | null {
@@ -31,7 +31,7 @@ const hash = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 async function store(storeRow: StoreConnection, e: { source: "webhook" | "import" | "reconcile"; topic: string; payload: any; deliveryId?: string | null; raw?: string }) {
   const resourceId = e.payload?.id !== undefined ? String(e.payload.id) : null;
   const modified = wooDate(e.payload?.date_modified_gmt, e.payload?.date_modified);
-  const payloadHash = hash(e.raw !== undefined ? `${e.topic}\n${e.raw}` : `${e.topic}\n${resourceId}\n${modified?.toISOString() ?? JSON.stringify(e.payload).length}`);
+  const payloadHash = hash(e.raw !== undefined ? `${e.topic}\n${e.raw}` : `${e.topic}\n${resourceId}\n${e.topic.startsWith("ucrm.") ? resourceId : modified?.toISOString() ?? JSON.stringify(e.payload)}`);
   try {
     const ev = await prisma.storeEvent.create({ data: { businessId: storeRow.businessId, storeId: storeRow.id, source: e.source, topic: e.topic, resourceId, deliveryId: e.deliveryId ?? null, payloadHash, payload: e.payload as Prisma.InputJsonValue, sourceModifiedAt: modified } });
     return { event: ev, duplicate: false };
@@ -50,7 +50,7 @@ export async function ingestWooWebhook(storeRow: StoreConnection, headers: Heade
   return r;
 }
 
-export async function enqueueStoreItem(storeRow: StoreConnection, source: "import" | "reconcile", topic: string, payload: any) {
+export async function enqueueStoreItem(storeRow: StoreConnection, source: "webhook" | "import" | "reconcile", topic: string, payload: any) {
   return store(storeRow, { source, topic, payload });
 }
 
@@ -85,9 +85,11 @@ async function handleOrder(storeRow: StoreConnection, ev: StoreEvent, o: any): P
   // Live events only: the abandoned-cart flow (an unpaid order is a cart; a paid one converts it). Never on import.
   if (ev.source === "webhook") {
     const { ingestCart, ingestOrder } = await import("@/server/services/cart-service");
+    const cartId = o.meta_data?.find((m: { key: string; value: unknown }) => m.key === "_ultracrm_cart_id")?.value;
+    const externalId = typeof cartId === "string" && cartId ? cartId : `order:${o.id}`;
     const name = [b.first_name, b.last_name].filter(Boolean).join(" ") || undefined;
-    if (WOO_OPEN.includes(o.status)) await ingestCart(storeRow, { externalId: `order:${o.id}`, email: b.email || undefined, phone: b.phone || undefined, name, currency: o.currency, total: o.total !== undefined ? Number(o.total) : undefined, items: (o.line_items ?? []).map((i: any) => ({ name: i.name ?? "", quantity: i.quantity ?? 1, price: i.price !== undefined ? Number(i.price) : undefined })), checkoutUrl: o.payment_url || undefined });
-    else if (PAID.includes(o.status)) await ingestOrder(storeRow, { orderId: String(o.number ?? o.id), externalId: `order:${o.id}`, email: b.email || undefined, phone: b.phone || undefined, total: o.total !== undefined ? Number(o.total) : undefined, currency: o.currency });
+    if (WOO_OPEN.includes(o.status)) await ingestCart(storeRow, { externalId, activityAt: (wooDate(o.date_modified_gmt, o.date_modified) ?? ev.receivedAt).toISOString(), email: b.email || undefined, phone: b.phone || undefined, name, currency: o.currency, total: o.total !== undefined ? Number(o.total) : undefined, items: (o.line_items ?? []).map((i: any) => ({ name: i.name ?? "", quantity: i.quantity ?? 1, price: i.price !== undefined ? Number(i.price) : undefined })), checkoutUrl: o.payment_url || undefined });
+    else if (PAID.includes(o.status)) await ingestOrder(storeRow, { orderId: String(o.number ?? o.id), externalId, email: b.email || undefined, phone: b.phone || undefined, total: o.total !== undefined ? Number(o.total) : undefined, currency: o.currency });
   }
   return "done";
 }
@@ -111,6 +113,12 @@ async function handleCustomer(storeRow: StoreConnection, ev: StoreEvent, c: any)
 
 export async function handleStoreEvent(storeRow: StoreConnection, ev: StoreEvent): Promise<"done" | "stale"> {
   const p = ev.payload as any;
+  if (ev.topic === "ucrm.cart" || ev.topic === "ucrm.order") {
+    const { ingestCart, ingestOrder } = await import("@/server/services/cart-service");
+    if (ev.topic === "ucrm.cart") await ingestCart(storeRow, p);
+    else await ingestOrder(storeRow, p);
+    return "done";
+  }
   if (ev.topic.startsWith("order.")) return handleOrder(storeRow, ev, p);
   if (ev.topic.startsWith("product.")) return handleProduct(storeRow, ev, p);
   if (ev.topic.startsWith("customer.")) return handleCustomer(storeRow, ev, p);
@@ -125,8 +133,8 @@ export async function processStoreEvents(opts: { limit?: number; deadline?: numb
   while (Date.now() < deadline) {
     const T = Prisma.raw(`"${dbSchema().replaceAll('"', '""')}"."store_events"`);
     const claimed = await db.$queryRaw<Array<{ id: string; business_id: string }>>(Prisma.sql`
-      UPDATE ${T} SET status = 'processing', attempts = attempts + 1 WHERE id IN (
-        SELECT id FROM ${T} WHERE status = 'pending' AND next_attempt_at <= now() ${opts.storeId ? Prisma.sql`AND store_id = ${opts.storeId}` : Prisma.empty}
+      UPDATE ${T} SET status = 'processing', attempts = attempts + 1, next_attempt_at = now() + interval '5 minutes' WHERE id IN (
+        SELECT id FROM ${T} WHERE status IN ('pending', 'processing') AND next_attempt_at <= now() ${opts.storeId ? Prisma.sql`AND store_id = ${opts.storeId}` : Prisma.empty}
         ORDER BY source_modified_at ASC NULLS LAST, received_at ASC LIMIT ${Math.min(opts.limit ?? 25, 100)} FOR UPDATE SKIP LOCKED)
       RETURNING id, business_id`);
     if (!claimed.length) break;
@@ -134,7 +142,7 @@ export async function processStoreEvents(opts: { limit?: number; deadline?: numb
       await withBusiness(c.business_id, async () => {
         const ev = await prisma.storeEvent.findUniqueOrThrow({ where: { id: c.id } });
         const storeRow = await prisma.storeConnection.findUnique({ where: { id: ev.storeId } });
-        if (!storeRow) { await prisma.storeEvent.update({ where: { id: ev.id }, data: { status: "failed", error: "החנות לא נמצאה" } }); return; }
+        if (!storeRow || !storeRow.isActive) { await prisma.storeEvent.update({ where: { id: ev.id }, data: { status: "failed", error: "החנות לא נמצאה או אינה פעילה" } }); return; }
         try {
           const r = await handleStoreEvent(storeRow, ev);
           await prisma.storeEvent.update({ where: { id: ev.id }, data: { status: r, processedAt: new Date(), error: null } });

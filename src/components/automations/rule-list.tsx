@@ -5,15 +5,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { RuleBuilder, type EditableRule, type RuleBuilderOptions } from "./rule-builder";
 import { useT } from "@/components/i18n/LangProvider";
 
-interface Rule {
-  id: string;
-  name: string;
-  trigger: string;
-  actionType: string;
-  isActive: boolean;
-}
+type Rule = EditableRule;
 
 const TRIGGER_LABELS: Record<string, [string, string]> = {
   NEW_INBOUND_MESSAGE: ["הודעה נכנסת חדשה", "New inbound message"],
@@ -30,9 +25,12 @@ const ACTION_LABELS: Record<string, [string, string]> = {
   ADD_INTERNAL_NOTE: ["הוספת הערה", "Add note"],
   SEND_CANNED_REPLY: ["תגובה מוכנה", "Canned reply"],
   SEND_TEMPLATE: ["שליחת תבנית", "Send template"],
+  CREATE_TASK: ["יצירת משימת מעקב", "Create follow-up task"],
+  SET_CUSTOM_FIELD: ["עדכון שדה מותאם", "Update custom field"],
 };
 
-export function RuleList({ rules: initialRules }: { rules: Rule[] }) {
+export function RuleList({ rules: initialRules, options }: { rules: Rule[]; options: RuleBuilderOptions }) {
+  const [editing, setEditing] = useState<Rule | null>(null);
   const [rules, setRules] = useState(initialRules);
   const [pending, setPending] = useState<string | null>(null);
   const t = useT();
@@ -85,12 +83,12 @@ export function RuleList({ rules: initialRules }: { rules: Rule[] }) {
         <TableBody>
           {rules.map((rule) => (
             <TableRow key={rule.id}>
-              <TableCell className="whitespace-normal break-words font-medium">{rule.name}</TableCell>
+              <TableCell className="whitespace-normal break-words font-medium"><button type="button" className="text-start underline-offset-4 hover:underline" onClick={() => setEditing(rule)}>{rule.name}</button></TableCell>
               <TableCell>
-                <Badge variant="outline">{TRIGGER_LABELS[rule.trigger] ? t(...TRIGGER_LABELS[rule.trigger]) : rule.trigger}</Badge>
+                <button type="button" aria-label={t(`עריכת טריגר: ${rule.name}`, `Edit trigger: ${rule.name}`)} onClick={() => setEditing(rule)} className="cursor-pointer rounded focus-visible:ring-2 focus-visible:ring-accent"><Badge variant="outline">{TRIGGER_LABELS[rule.trigger] ? t(...TRIGGER_LABELS[rule.trigger]) : rule.trigger}</Badge></button>
               </TableCell>
               <TableCell>
-                <Badge variant="secondary">{ACTION_LABELS[rule.actionType] ? t(...ACTION_LABELS[rule.actionType]) : rule.actionType}</Badge>
+                <button type="button" aria-label={t(`עריכת פעולה: ${rule.name}`, `Edit action: ${rule.name}`)} onClick={() => setEditing(rule)} className="cursor-pointer rounded focus-visible:ring-2 focus-visible:ring-accent"><Badge variant="secondary">{ACTION_LABELS[rule.actionType] ? t(...ACTION_LABELS[rule.actionType]) : rule.actionType}</Badge></button>
               </TableCell>
               <TableCell className="text-center">
                 <Switch
@@ -107,6 +105,7 @@ export function RuleList({ rules: initialRules }: { rules: Rule[] }) {
           ))}
         </TableBody>
       </Table>
+      {editing && <RuleBuilder key={editing.id} {...options} initial={editing} onClosed={() => setEditing(null)} />}
     </div>
   );
 }

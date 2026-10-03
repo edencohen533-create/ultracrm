@@ -45,7 +45,7 @@ it('cannot pass if the source send was skipped or never sent', async () => {
   m.message.mockResolvedValue(null); expect(await emailConditionState(run, condition, after)).toBe('missing');
   m.message.mockResolvedValue({ ...sent, providerMessageId: null }); expect(await emailConditionState(run, condition, after)).toBe('missing');
 });
-const definition = (c: Record<string, unknown> = condition) => ({ name: 'Email follow-up', trigger: 'CONTACT_CREATED', steps: [
+const definition = (c: Record<string, unknown> = { ...condition }) => ({ name: 'Email follow-up', trigger: 'CONTACT_CREATED', steps: [
   { action: 'send', channel: 'email', waitMinutes: 0, templateId: 'intro' },
   { action: 'condition', channel: 'email', waitMinutes: 0, condition: { requireNoReply: false, emailEvent: c } },
 ] });

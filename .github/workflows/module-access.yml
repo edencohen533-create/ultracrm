@@ -1,5 +1,7 @@
 name: Module access and journey regression checks
 on:
+  push:
+    branches: ['fix/email-journeys-platform-access']
   pull_request:
   workflow_dispatch:
 permissions:

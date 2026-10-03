@@ -57,9 +57,9 @@ Cart timestamps use source activity time. Duplicate/stale cart activity cannot p
 
 ## Verification performed and remaining release gates
 
-- Full unit suite: 249 passed. The focused regression suite: 30 passed (signatures, event-ID binding, replay expiry, honest probe status, invalid payloads, browser purchase rejection, stale activity, anonymous identity, empty carts, paid-before-cart, explicit correlation, Shopify GraphQL failures and reuse).
+- Full unit suite (2026-10-03): 265 passed. The focused regression suite: 30 passed (signatures, event-ID binding, replay expiry, honest probe status, invalid payloads, browser purchase rejection, stale activity, anonymous identity, empty carts, paid-before-cart, explicit correlation, Shopify GraphQL failures and reuse).
 - Type checking and production build passed during implementation; final results recorded in the PR.
-- PHP 7.4 syntax parsed successfully. **No PHP/WooCommerce runtime execution has been performed.**
+- Plugin 1.0.1 executed on PHP 8.3 (official WordPress PHP.wasm): 11 lifecycle assertions passed using WordPress/WooCommerce test doubles. `tests/php/woocommerce-cart-lifecycle.php` also runs with native PHP. This is not a full WordPress/WooCommerce installation test.
 - Rendered actual React components in an isolated browser fixture with sample API responses. Verified the creation-to-setup UI, custom/Woo instructions, and journey layout at 367px and 1280px without horizontal page overflow. This is UI verification, not backend or platform verification.
 - Integration test fixtures were updated for paid events and explicit marketing consent. **Database integration tests for this change have not run**: local PostgreSQL startup failed with sandbox IPC permission errors (`shmat: Operation not permitted`).
 - **No real store installation/payment tested.** Need a controlled Shopify development store and WooCommerce staging store, their normal authorized credentials, and local/staging PostgreSQL that can start. Do not mark release as end-to-end verified until these checks pass.
@@ -76,3 +76,13 @@ Acceptance run: create store → install/configure hooks/plugin → reject bad s
 - [WooCommerce REST API keys](https://woocommerce.com/document/woocommerce-rest-api/)
 - [WooCommerce Store API checkout](https://developer.woocommerce.com/docs/apis/store-api/resources-endpoints/checkout)
 - [WooCommerce block checkout hook reference](https://woocommerce.github.io/code-reference/files/woocommerce-src-storeapi-routes-v1-checkout.html)
+
+## Follow-up investigation 2026-10-03
+
+Solina (`https://www.solina.co.il/`) exposes WooCommerce 10.6.2 assets. No UltraCRM activity script was observed on the inspected public homepage. This alone cannot distinguish an absent plugin from an unconfigured plugin or cached HTML. A public add-to-cart click was attempted, but subsequent browser observations timed out; successful cart creation and CRM receipt are unverified. No payment was submitted. Admin access/configuration and a controlled test purchase remain necessary. Native PostgreSQL startup remains blocked by OS shared-memory permissions.
+
+Plugin 1.0.1 fixes empty-cart delivery before session rotation, invalidates emptied-cart restoration links, captures the allowlisted classic checkout billing fields before order creation, captures coupon/restoration mutations, and prevents phantom carts from empty visits or deferred captures after payment. Secrets remain server-side. Abandonment now commits its state change and outbox event in one transaction, so a failed event insert remains retryable. Unit tests assert transactional use and error propagation; actual database rollback still needs the database integration run.
+
+Official WooCommerce source checked:
+- [Classic checkout order-review implementation](https://woocommerce.github.io/code-reference/files/woocommerce-includes-class-wc-ajax.html): updates customer addresses but does not populate guest email/phone from order-review data.
+- [Cart lifecycle hooks](https://woocommerce.github.io/code-reference/files/woocommerce-includes-class-wc-cart.html): `woocommerce_cart_emptied` runs after contents are cleared.

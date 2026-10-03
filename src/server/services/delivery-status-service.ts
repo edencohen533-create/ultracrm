@@ -55,6 +55,7 @@ async function applyStatus(credential: ProviderCredential, ev: Extract<ProviderE
 
   if (ev.status === "OPENED" || ev.status === "CLICKED") {
     await tx.message.update({ where: { id: message.id }, data: ev.status === "OPENED" ? { openedAt: message.openedAt ?? ev.at } : { clickedAt: message.clickedAt ?? ev.at, openedAt: message.openedAt ?? ev.at } });
+    if (message.channel === 'email') await emitEvent(tx, { businessId, contactId, type: 'email.engagement', source: 'webhook', occurredAt: ev.at, dedupeKey: `email.engagement:${credential.id}:${ev.eventId}`, payload: { messageId: message.id, status: ev.status, link: ev.link ?? null } });
     return "engagement";
   }
   if (ev.status === "COMPLAINED") {

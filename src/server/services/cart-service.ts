@@ -122,10 +122,13 @@ export async function processAbandonedCarts(businessId: string) {
   for (const s of stores) {
     const due = await prisma.cart.findMany({ where: { storeId: s.id, status: "open", items: { not: [] }, lastActivityAt: { lte: new Date(Date.now() - s.abandonAfterMinutes * 60_000) } }, take: 200, select: { id: true, contactId: true, lastActivityAt: true } });
     for (const c of due) {
-      const r = await prisma.cart.updateMany({ where: { id: c.id, status: "open", lastActivityAt: c.lastActivityAt }, data: { status: "abandoned", abandonedAt: new Date() } });
-      if (!r.count) continue;
-      marked++;
-      if (c.contactId) await emitEvent(prisma, { businessId, type: "cart.abandoned", contactId: c.contactId, source: "system", dedupeKey: `cart.abandoned:${c.id}:${c.lastActivityAt.getTime()}`, payload: { cartId: c.id } });
+      // Commit the state change and its outbox event together; a failed insert must leave the cart retryable.
+      const count = await prisma.$transaction(async (tx) => {
+        const r = await tx.cart.updateMany({ where: { id: c.id, status: "open", lastActivityAt: c.lastActivityAt }, data: { status: "abandoned", abandonedAt: new Date() } });
+        if (r.count && c.contactId) await emitEvent(tx, { businessId, type: "cart.abandoned", contactId: c.contactId, source: "system", dedupeKey: `cart.abandoned:${c.id}:${c.lastActivityAt.getTime()}`, payload: { cartId: c.id } });
+        return r.count;
+      });
+      marked += count;
     }
   }
   return { processed: marked };

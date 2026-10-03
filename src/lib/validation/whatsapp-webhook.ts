@@ -7,8 +7,9 @@ const message = z.object({
   timestamp: z.string().regex(/^\d+$/), type: z.string(),
   text: z.object({ body: z.string() }).optional(), image: media.optional(), video: media.optional(),
   audio: media.optional(), document: media.optional(),
-  button: z.object({ text: z.string() }).optional(),
-  interactive: z.object({ button_reply: z.object({ title: z.string() }).optional(), list_reply: z.object({ title: z.string() }).optional() }).optional(),
+  context: z.object({ id: z.string().max(512) }).passthrough().optional(),
+  button: z.object({ text: z.string().max(1024), payload: z.string().max(4096).optional() }).optional(),
+  interactive: z.object({ button_reply: z.object({ title: z.string().max(1024), id: z.string().max(4096).optional() }).optional(), list_reply: z.object({ title: z.string() }).optional() }).optional(),
   // Click-to-WhatsApp ads: the first message carries the ad (source_type "ad", source_id = the ad id) and ctwa_clid.
   referral: z.object({ source_url: z.string().max(2000).optional(), source_id: z.string().max(64).optional(), source_type: z.string().max(40).optional(), headline: z.string().max(500).optional(), ctwa_clid: z.string().max(500).optional() }).passthrough().optional(),
 });
@@ -37,4 +38,11 @@ export function providerTimestamp(value: string): Date {
   const milliseconds = Number(value) * 1000;
   if (!Number.isSafeInteger(milliseconds) || milliseconds < 0 || milliseconds > 8640000000000000) throw new InvalidWebhookError("Invalid timestamp");
   return new Date(Math.min(Date.now(), milliseconds));
+}
+
+/** Preserve structured callback identity separately from the display text. */
+export function metaButtonReply(message: MetaInboundMessage) {
+  const buttonText = message.type === 'button' ? message.button?.text : message.type === 'interactive' ? message.interactive?.button_reply?.title : undefined;
+  if (!message.context?.id || !buttonText) return undefined;
+  return { contextMessageId: message.context.id, buttonText, buttonId: message.button?.payload ?? message.interactive?.button_reply?.id ?? '' };
 }

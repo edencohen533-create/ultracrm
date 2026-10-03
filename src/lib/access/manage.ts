@@ -11,7 +11,7 @@ import { ApiError } from "@/lib/response";
 import { visibleUserIds, type SessionUser } from "@/lib/auth";
 import { withoutBusiness } from "@/lib/tenant";
 import { ACTIONS, MODULES, QUOTA_METRICS, TEMPLATES, type DataScope, type ModuleKey, type TemplateKey, type UserPermissions } from "./catalog";
-import { businessEntitlement, computeModules, effectiveAccess, invalidateEntitlement, parsePermissions, seatHolders, seatSummary, userPermissions, type ModuleEntitlement } from "./engine";
+import { businessEntitlement, subscriptionModules, computeModules, effectiveAccess, invalidateEntitlement, parsePermissions, seatHolders, seatSummary, userPermissions, type ModuleEntitlement } from "./engine";
 
 const SCOPE_RANK: Record<DataScope, number> = { own: 1, team: 2, business: 3 };
 
@@ -188,7 +188,9 @@ async function futureModules(businessId: string, t: Target) {
   if (t.addGrant) grants.push({ id: "new", ...t.addGrant });
   for (const [i, g] of (t.addGrants ?? []).entries()) grants.push({ id: `new${i}`, ...g });
   const overrides = { ...((b.modules ?? {}) as Record<string, unknown>), ...(t.legacyModules ?? {}) };
-  return computeModules(pv ? pv.modules : null, b.plan?.modules ?? null, overrides, grants);
+  const subscription = await db.subscription.findUnique({ where: { businessId }, select: { status: true, items: { select: { module: true, kind: true, quantity: true } } } });
+  if (subscription && t.planVersionId !== undefined) throw new ApiError("מודולי העסק נקבעים לפי המנוי בתשלום. יש לשנות אותם במסך חיוב ושימוש, ולא באמצעות שיוך חבילה ידנית", 409, "subscription_managed");
+  return computeModules(subscription ? subscriptionModules(subscription.status, subscription.items) : pv ? pv.modules : null, b.plan?.modules ?? null, overrides, grants);
 }
 
 export async function computeImpact(businessId: string, t: Target): Promise<{ impact: Impact; after: Record<ModuleKey, ModuleEntitlement> }> {

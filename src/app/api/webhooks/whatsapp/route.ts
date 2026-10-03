@@ -67,8 +67,15 @@ export async function POST(request: Request) {
   const providers = credentials.map((credential) => ({ credential, provider: new MetaWhatsAppProvider(metaConfigOf(credential.config), credential.id) }));
   if (!appSigned) {
     // Fallback: every addressed number must carry its own App Secret (manual connections) and the signature must match it.
-    if (!providers.length || providers.some(({ provider }) => !provider.verifyWebhook(request.headers, rawBody))) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    if (!providers.length || providers.some(({ provider }) => !provider.verifyWebhook(request.headers, rawBody))) {
+      // IDs and config state only (no body, no secrets) – makes a rejected real Meta event visible in the logs.
+      console.warn("whatsapp webhook: rejected signature", { appSecretConfigured: Boolean(metaAppEnv().appSecret), signatureHeader: request.headers.has("x-hub-signature-256"), phoneIds, knownPhoneIds: credentials.map((c) => c.phoneNumberId) });
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    }
   }
+  // A signed event for a number with no connection here is acknowledged (Meta must not retry it) but never silently.
+  const unknownPhoneIds = phoneIds.filter((id) => !credentials.some((c) => c.phoneNumberId === id));
+  if (unknownPhoneIds.length) console.warn("whatsapp webhook: signed event for a number not connected in the CRM – ignored", { unknownPhoneIds });
 
   // Account-level events (account_update etc.) are routed by WABA id from the stored mapping.
   for (const { entryId, change } of changes) {

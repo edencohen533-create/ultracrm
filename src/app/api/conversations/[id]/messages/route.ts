@@ -23,7 +23,7 @@ export const POST = organizationRequest(async function(request: Request, { param
     const result = await createOutboundMessage({ conversationId: id, ...parsed.data, requestKey: parsed.data.requestId ? `${session.user.id}:${id}:${parsed.data.requestId}` : undefined, sentByUserId: session.user.id });
     // A human reply takes the conversation over from the customer-service AI (stops pending bot replies).
     await prisma.conversation.updateMany({ where: { id, OR: [{ aiMode: null }, { aiMode: { not: "human" } }] }, data: { aiMode: "human" } });
-    if (result.message.status === "FAILED") return Response.json({ error: "הספק דחה את שליחת ההודעה", messageId: result.message.id }, { status: 502 });
+    if (result.message.status === "FAILED") return Response.json({ error: result.message.errorReason ? `הספק דחה את שליחת ההודעה: ${result.message.errorReason}` : "הספק דחה את שליחת ההודעה", messageId: result.message.id }, { status: 502 });
     return Response.json({ messageId: result.message.id, message: result.message });
   } catch (error) {
     if (error instanceof MessagePolicyError || error instanceof MessageOutcomeUnknownError) return Response.json({ error: error.message }, { status: 409 });

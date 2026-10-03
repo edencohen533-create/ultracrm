@@ -28,7 +28,7 @@ export const POST = organizationRequest(async function(request: Request, { param
     const result = await createOutboundMessage({ conversationId: id, body, type: mediaType(file.type), sentByUserId: session.user.id, requestKey: requestId ? `${session.user.id}:${id}:${requestId}` : undefined,
       media: { file: bytes, mimeType: file.type, fileName: file.name.slice(0, 200) },
     });
-    if (result.message.status === "FAILED") return Response.json({ error: "הספק דחה את שליחת הקובץ" }, { status: 502 });
+    if (result.message.status === "FAILED") return Response.json({ error: result.message.errorReason ? `הספק דחה את שליחת הקובץ: ${result.message.errorReason}` : "הספק דחה את שליחת הקובץ" }, { status: 502 });
     return Response.json({ message: result.message });
   } catch (error) {
     return Response.json({ error: error instanceof MessagePolicyError ? error.message : "לא ניתן לאמת את השליחה. יש לבדוק את השיחה לפני ניסיון נוסף" }, { status: error instanceof MessagePolicyError ? 409 : 502 });

@@ -16,6 +16,8 @@ describe("Meta error classification (6.07 / 6.09 / 1.09)", () => {
     expect(classifyMetaError(undefined, 503)).toMatchObject({ retryable: true });
     expect(classifyMetaError(131026, 400)).toMatchObject({ retryable: false });
     expect(classifyMetaError(132000, 400)).toMatchObject({ retryable: false });
+    // Meta test number: recipient not on the "To" list → a clear, permanent failure that does not block the connection.
+    expect(classifyMetaError(131030, 400)).toMatchObject({ retryable: false, blocksCredential: false, code: "131030", label: expect.stringContaining("מספר הבדיקה") });
     expect(classifyMetaError(190, 401)).toMatchObject({ retryable: false, blocksCredential: true });
     expect(classifyMetaError(131047, 400).label).toMatch(/24/);
     expect(retryDelayMs(0)).toBe(60_000); expect(retryDelayMs(1)).toBe(300_000); expect(retryDelayMs(9)).toBe(900_000);

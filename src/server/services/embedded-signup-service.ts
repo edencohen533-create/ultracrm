@@ -19,10 +19,10 @@ import crypto from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import type { WaConnectionStatus } from "@/generated/prisma/enums";
 import { db, prisma } from "@/lib/db";
-import { withoutBusiness } from "@/lib/tenant";
+import { requireBusinessId, withoutBusiness } from "@/lib/tenant";
 import { ApiError } from "@/lib/response";
 import { audit } from "@/lib/audit";
-import { appAccessToken, embeddedSignupReadiness, graph, GraphError, metaAppEnv, metaConfigOf, sealMetaConfig, GRAPH_VERSION } from "@/lib/meta/graph";
+import { appAccessToken, directWhatsAppEnv, embeddedSignupReadiness, graph, GraphError, metaAppEnv, metaConfigOf, sealMetaConfig, GRAPH_VERSION } from "@/lib/meta/graph";
 import { openSecret } from "@/lib/crypto";
 import type { SessionUser } from "@/lib/auth";
 
@@ -102,7 +102,7 @@ export async function verifyToken(accessToken: string, wabaId: string) {
 
 export async function readAssets(accessToken: string, wabaId: string, phoneNumberId: string) {
   const waba = await graph<WabaInfo>(wabaId, { token: accessToken, query: { fields: "id,name,account_review_status,business_verification_status,ownership_type" } });
-  const phone = await graph<PhoneInfo>(phoneNumberId, { token: accessToken, query: { fields: "id,display_phone_number,verified_name,name_status,code_verification_status,quality_rating,whatsapp_business_manager_messaging_limit,messaging_limit_tier,status,platform_type" } });
+  const phone = await graph<PhoneInfo>(phoneNumberId, { token: accessToken, query: { fields: "id,display_phone_number,verified_name,name_status,code_verification_status,quality_rating,whatsapp_business_manager_messaging_limit,status,platform_type" } });
   // The phone must belong to the granted WABA (never trust ids posted from the window alone).
   let belongs = false;
   let after: string | undefined;
@@ -262,6 +262,8 @@ export async function completeSignup(user: SessionUser, input: CompleteInput) {
 export async function runSetupSteps(user: SessionUser, credentialId: string, accessToken?: string, pinOverride?: string) {
   const c = await prisma.providerCredential.findFirst({ where: { id: credentialId, provider: "meta_whatsapp_cloud_api" } });
   if (!c || !c.wabaId || !c.phoneNumberId) throw new SignupError("החיבור לא נמצא", 404, "not_found");
+  // A direct number is never registered with a generated PIN – see whatsapp-direct-service (explicit, owner-confirmed).
+  if (c.connectionMethod === "direct") throw new SignupError("בחיבור ישיר הרישום מתבצע רק בפעולה מפורשת עם קוד האימות הדו-שלבי של העסק", 409, "direct_register_explicit");
   const cfg = metaConfigOf(c.config);
   const token = accessToken ?? cfg.accessToken;
   const pin = pinOverride ?? cfg.twoStepPin ?? newPin();
@@ -304,7 +306,7 @@ export async function checkConnection(user: { id: string | null; businessId: str
   let status: WaConnectionStatus = c.status;
   let error: string | null = null;
   try {
-    if (c.connectionMethod === "embedded_signup" && metaAppEnv().appSecret) {
+    if ((c.connectionMethod === "embedded_signup" || c.connectionMethod === "direct") && metaAppEnv().appSecret) {
       const v = await verifyToken(cfg.accessToken, c.wabaId);
       data.grantedScopes = v.scopes as Prisma.InputJsonValue;
       data.tokenCheckedAt = new Date();
@@ -312,6 +314,8 @@ export async function checkConnection(user: { id: string | null; businessId: str
     const assets = await readAssets(cfg.accessToken, c.wabaId, c.phoneNumberId);
     Object.assign(data, { wabaName: assets.waba.name ?? null, displayPhoneNumber: assets.phone.display_phone_number ?? null, verifiedName: assets.phone.verified_name ?? null, nameStatus: assets.phone.name_status ?? null, qualityRating: assets.phone.quality_rating ?? null, codeVerificationStatus: assets.phone.code_verification_status ?? null, platformType: assets.phone.platform_type ?? null, messagingLimitTier: (assets.phone as { whatsapp_business_manager_messaging_limit?: string; messaging_limit_tier?: string }).whatsapp_business_manager_messaging_limit ?? (assets.phone as { messaging_limit_tier?: string }).messaging_limit_tier ?? null });
     data.subscribedAt = (await isAppSubscribed(cfg.accessToken, c.wabaId)) ? (c.subscribedAt ?? new Date()) : null;
+    // Direct connections are never registered by us implicitly – "registered" mirrors what Meta reports for the number.
+    if (c.connectionMethod === "direct") data.registeredAt = assets.phone.platform_type?.toUpperCase() === "CLOUD_API" ? (c.registeredAt ?? new Date()) : null;
     data.sendingBlocked = false;
     status = c.status === "revoked" ? "connected_not_ready" : c.status;
   } catch (err) {
@@ -420,8 +424,12 @@ export async function connectionOverview() {
   const rows = await prisma.providerCredential.findMany({ where: { provider: "meta_whatsapp_cloud_api" }, orderBy: [{ isActive: "desc" }, { isDefault: "desc" }, { createdAt: "asc" }], include: { team: { select: { id: true, name: true } } } });
   const pending = await prisma.whatsAppSignupSession.findFirst({ where: { status: "started", expiresAt: { gt: new Date() } }, orderBy: { createdAt: "desc" }, select: { id: true, userId: true, createdAt: true } });
   const readiness = embeddedSignupReadiness();
+  const direct = directWhatsAppEnv();
+  const businessId = requireBusinessId();
   return {
     embeddedSignup: { ready: readiness.ready, missing: readiness.missing, appId: readiness.appId, configId: readiness.configId, version: readiness.version },
+    // Names of missing settings only – never values. `forThisBusiness`: the server's direct number belongs to this business.
+    direct: { mode: direct.mode, ready: direct.ready, missing: direct.missing, forThisBusiness: direct.businessId === businessId },
     pendingSession: pending,
     connections: rows.map((c) => {
       const r = deriveReadiness(c);

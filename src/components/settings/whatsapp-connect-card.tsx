@@ -38,6 +38,8 @@ export interface ConnectionView {
 }
 export interface Overview {
   embeddedSignup: { ready: boolean; missing: string[]; appId: string | null; configId: string | null; version: string };
+  /** Direct single-business Cloud API connection configured in the server environment (names of missing settings only). */
+  direct?: { mode: boolean; ready: boolean; missing: string[]; forThisBusiness: boolean };
   pendingSession: { id: string; userId: string; createdAt: string } | null;
   connections: ConnectionView[];
 }
@@ -112,6 +114,9 @@ const ES_ERR_EN: Record<string, string> = {
   phone_not_in_waba: "The selected number does not belong to the approved WhatsApp account", phone_bound_elsewhere: "This number is already connected to another business in the system. Disconnect it there first",
   waba_conflict: "Another WhatsApp account is already connected to this business. Disconnect it before connecting a new one", not_found: "Connection not found",
   test_recipient_not_allowed: "Test sends are allowed only to test numbers explicitly set on the connection",
+  direct_not_configured: "The direct connection is missing server settings", direct_other_business: "The server's direct connection belongs to another business",
+  direct_check_failed: "Meta rejected the check – verify the System User token, its permissions and asset assignment", register_not_allowed: "Registration is not allowed for this number in its current state",
+  pin_mismatch: "Meta rejected the PIN: the number has a different two-step verification PIN", register_failed: "Registration failed at Meta", direct_register_explicit: "A direct number is registered only through the explicit registration action",
 };
 /** Readiness blockers arrive from the server in Hebrew (embedded-signup-service connectionReadiness). */
 const blockerEn = (b: string) => ({
@@ -136,6 +141,8 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
   const [allow, setAllow] = useState<Record<string, string>>({});
   const [price, setPrice] = useState<Record<string, string>>({});
   const [confirmDisconnect, setConfirmDisconnect] = useState<ConnectionView | null>(null);
+  const [confirmRegister, setConfirmRegister] = useState<ConnectionView | null>(null);
+  const [assessment, setAssessment] = useState<{ kind: string; note: string; platformType: string | null } | null>(null);
   const inFlight = useRef(false);           // double-click guard
   const stateRef = useRef<string | null>(null);
   const assetsRef = useRef<EsMessage["data"] | null>(null);
@@ -217,13 +224,14 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
     } finally { inFlight.current = false; }
   }
 
-  async function act(c: ConnectionView, action: "check" | "retry_setup" | "disconnect" | "test_send" | "settings", extra: Record<string, unknown> = {}) {
+  async function act(c: ConnectionView, action: "check" | "retry_setup" | "register_direct" | "disconnect" | "test_send" | "settings", extra: Record<string, unknown> = {}) {
     if (busy) return;
     setBusy(`${c.id}:${action}`);
     try {
       const r = await api<{ status?: WaStatus; blockers?: string[]; error?: string | null; warning?: string | null; providerMessageId?: string | null }>(t, `/api/whatsapp/connection/${c.id}`, { action, ...extra });
       if (action === "check") { if (r.status === "connected") toast.success(t("החיבור תקין ומוכן", "Connection OK and ready")); else { const s = STATUS[r.status ?? "error"]; toast.warning(r.error ?? r.blockers?.map((b) => t(b, blockerEn(b))).join(" · ") ?? t(s.label, s.en)); } }
       if (action === "retry_setup") { if (r.status === "connected") toast.success(t("ההגדרה הושלמה", "Setup completed")); else toast.warning(r.error ?? t("עדיין נדרשת פעולה", "Action still required")); }
+      if (action === "register_direct") { if (r.status === "connected") toast.success(t("המספר נרשם ל-Cloud API", "The number was registered for the Cloud API")); else toast.warning(r.blockers?.map((b) => t(b, blockerEn(b))).join(" · ") ?? t("עדיין נדרשת פעולה", "Action still required")); setConfirmRegister(null); setPin(""); }
       if (action === "disconnect") toast.success(r.warning ?? t("החיבור נותק. ההיסטוריה נשמרה.", "Disconnected. History was kept."));
       if (action === "test_send") toast.success(t(`הודעת בדיקה נשלחה${r.providerMessageId ? ` (${r.providerMessageId})` : ""}`, `Test message sent${r.providerMessageId ? ` (${r.providerMessageId})` : ""}`));
       if ((action as string) === "settings") toast.success(t("הגדרות הבדיקה והעלות נשמרו", "Test and cost settings saved"));
@@ -232,7 +240,21 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
     finally { setBusy(null); }
   }
 
+  async function connectDirect() {
+    if (busy) return;
+    setBusy("direct");
+    try {
+      const r = await api<{ status: WaStatus; blockers: string[]; assessment: { kind: string; note: string; platformType: string | null }; subscribeError: string | null }>(t, "/api/whatsapp/direct", {});
+      setAssessment(r.assessment);
+      if (r.status === "connected") toast.success(t("המספר של העסק חובר ומוכן", "The business number is connected and ready"));
+      else toast.warning(r.subscribeError ?? r.blockers.map((b) => t(b, blockerEn(b))).join(" · "));
+      await refresh();
+    } catch (e) { toast.error(esError(t, e)); }
+    finally { setBusy(null); }
+  }
+
   const es = overview.embeddedSignup;
+  const direct = overview.direct?.mode ? overview.direct : null;
   const active = overview.connections.filter((c) => c.isActive);
   const history = overview.connections.filter((c) => !c.isActive);
   const flowBusy = flow.kind === "loading_sdk" || flow.kind === "popup" || flow.kind === "exchanging";
@@ -246,7 +268,12 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
         </div>
         <div className="flex items-center gap-2">
           {active.length === 0 && <Badge variant="outline">{t("לא מחובר", "Not connected")}</Badge>}
-          {canManage && (
+          {canManage && direct && (
+            <Button onClick={connectDirect} disabled={!direct.ready || !direct.forThisBusiness || busy !== null} data-testid="wa-direct-connect-btn">
+              {busy === "direct" ? t("בודק מול Meta…", "Checking with Meta…") : active.some((c) => c.method === "direct") ? t("בדוק וחבר מחדש את המספר של העסק", "Re-check and reconnect the business number") : t("חבר את המספר של העסק", "Connect the business number")}
+            </Button>
+          )}
+          {canManage && !direct && (
             <Button onClick={connect} disabled={!es.ready || flowBusy} data-testid="wa-connect-btn">
               {flow.kind === "loading_sdk" ? t("טוען…", "Loading…") : flow.kind === "popup" ? t("ממתין ל-Meta…", "Waiting for Meta…") : flow.kind === "exchanging" ? t("מאמת ומגדיר…", "Verifying and setting up…") : active.length ? t("חבר חשבון נוסף", "Connect another account") : t("חבר WhatsApp", "Connect WhatsApp")}
             </Button>
@@ -254,7 +281,18 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
         </div>
       </div>
 
-      {!es.ready && (
+      {direct && (
+        <div className="mt-4 rounded-lg border p-3 text-sm" data-testid="wa-direct-panel">
+          <div className="font-medium">{t("חיבור ישיר ל-WhatsApp Cloud API – המספר של העסק בלבד", "Direct WhatsApp Cloud API connection – this business's own number only")}</div>
+          <p className="mt-1 text-muted-foreground">{t("הטוקן ומזהי המספר מוגדרים בשרת (Vercel) ואינם נשמרים במסד הנתונים או מוצגים בדפדפן. חיבור עסקים אחרים (Embedded Signup) מושהה.", "The token and number IDs are set on the server (Vercel) – never stored in the database or shown in the browser. Connecting other businesses (Embedded Signup) is paused.")}</p>
+          {!direct.forThisBusiness && <p className="mt-2 text-amber-800" data-testid="wa-direct-other">{t("החיבור הישיר בשרת אינו מוגדר לעסק הזה (WHATSAPP_DIRECT_BUSINESS_ID).", "The server's direct connection is not configured for this business (WHATSAPP_DIRECT_BUSINESS_ID).")}</p>}
+          {direct.missing.length > 0 && (
+            <div className="mt-2 text-amber-900" data-testid="wa-direct-missing">{t("חסרות הגדרות בשרת:", "Missing server settings:")}<ul className="mt-1 list-disc pe-5 font-mono text-xs">{direct.missing.map((m) => <li key={m}><Ltr>{m}</Ltr></li>)}</ul><div className="mt-1">{t("ראו", "See")} <span className="font-mono">docs/WHATSAPP_DIRECT.md</span></div></div>
+          )}
+          {assessment && <p className="mt-2" data-testid="wa-direct-assessment">{t("מצב המספר אצל Meta:", "Number state at Meta:")} <Ltr>{assessment.platformType ?? "?"}</Ltr> – <span dir="auto">{assessment.note}</span></p>}
+        </div>
+      )}
+      {!direct && !es.ready && (
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="wa-missing-config">
           <div className="font-medium">{t("החיבור באמצעות Meta Embedded Signup אינו זמין עדיין – חסרה הגדרה בשרת:", "Connecting via Meta Embedded Signup isn't available yet – server configuration is missing:")}</div>
           <ul className="mt-1 list-disc pe-5 font-mono text-xs">{es.missing.map((m) => <li key={m}><Ltr>{m}</Ltr></li>)}</ul>
@@ -276,7 +314,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={st.tone} className={st.className} data-testid="wa-status">{t(st.label, st.en)}</Badge>
                 {c.isDefault && <Badge variant="outline">{t("ברירת מחדל", "Default")}</Badge>}
-                <Badge variant="outline">{c.method === "embedded_signup" ? "Embedded Signup" : t("חיבור ידני", "Manual connection")}</Badge>
+                <Badge variant="outline">{c.method === "embedded_signup" ? "Embedded Signup" : c.method === "direct" ? t("חיבור ישיר (שרת)", "Direct (server)") : t("חיבור ידני", "Manual connection")}</Badge>
               </div>
               <div className="text-xs text-muted-foreground">{t("נבדק לאחרונה:", "Last checked:")} {fmt(c.lastCheckedAt)}</div>
             </div>
@@ -309,7 +347,15 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
                     <div><Label htmlFor={`pin-${c.id}`} className="text-xs">{t("קוד אימות דו-שלבי (6 ספרות)", "Two-step verification PIN (6 digits)")}</Label><Input id={`pin-${c.id}`} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" className="w-32" dir="ltr" /></div>
                   </div>
                 )}
-                {c.status === "revoked" || c.status === "error" || c.status === "needs_action" ? (
+                {c.method === "direct" && !c.registeredAt && c.platformType?.toUpperCase() === "NOT_APPLICABLE" && (
+                  <div className="flex items-end gap-2">
+                    <div><Label htmlFor={`dpin-${c.id}`} className="text-xs">{t("קוד אימות דו-שלבי של המספר (6 ספרות)", "The number's two-step verification PIN (6 digits)")}</Label><Input id={`dpin-${c.id}`} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" className="w-32" dir="ltr" /></div>
+                    <Button variant="outline" size="sm" disabled={busy !== null || pin.length !== 6} onClick={() => setConfirmRegister(c)} data-testid="wa-direct-register">{t("רשום את המספר ל-Cloud API", "Register the number for the Cloud API")}</Button>
+                  </div>
+                )}
+                {c.method === "direct" ? (
+                  <Button variant="outline" size="sm" onClick={connectDirect} disabled={!direct?.ready || !direct.forThisBusiness || busy !== null} data-testid="wa-reconnect">{t("בדוק וחבר מחדש", "Re-check and reconnect")}</Button>
+                ) : c.status === "revoked" || c.status === "error" || c.status === "needs_action" ? (
                   <Button variant="outline" size="sm" onClick={connect} disabled={!es.ready || flowBusy} data-testid="wa-reconnect">{t("חבר מחדש", "Reconnect")}</Button>
                 ) : null}
                 <Button variant="destructive" size="sm" onClick={() => setConfirmDisconnect(c)} disabled={busy !== null} data-testid="wa-disconnect">{t("נתק", "Disconnect")}</Button>
@@ -357,6 +403,20 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
           <AlertDialogFooter>
             <AlertDialogCancel>{t("ביטול", "Cancel")}</AlertDialogCancel>
             <AlertDialogAction data-testid="wa-disconnect-confirm" onClick={() => { const c = confirmDisconnect; setConfirmDisconnect(null); if (c) void act(c, "disconnect", { confirm: true, reason: "user" }); }}>{t("נתק", "Disconnect")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmRegister !== null} onOpenChange={(o) => !o && setConfirmRegister(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t(`לרשום את ${confirmRegister?.displayPhoneNumber ?? "המספר"} ל-Cloud API?`, `Register ${confirmRegister?.displayPhoneNumber ?? "the number"} for the Cloud API?`)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("Meta מדווחת שהמספר אינו רשום כרגע לאף API. אחרי הרישום ההודעות למספר יתקבלו ויישלחו דרך המערכת. אם המספר עדיין פעיל באפליקציית WhatsApp או אצל ספק אחר – אל תמשיכו: יש לבצע קודם מעבר מסודר. הקוד הדו-שלבי ישמש פעם אחת ולא יישמר.", "Meta reports the number is not registered on any API. After registration, messages to the number are received and sent through the system. If the number is still active in the WhatsApp app or with another provider, do not continue – migrate it properly first. The two-step PIN is used once and not stored.")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("ביטול", "Cancel")}</AlertDialogCancel>
+            <AlertDialogAction data-testid="wa-direct-register-confirm" onClick={() => { const c = confirmRegister; if (c) void act(c, "register_direct", { pin, confirm: true }); }}>{t("רשום", "Register")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

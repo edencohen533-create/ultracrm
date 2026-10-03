@@ -3,12 +3,13 @@ import { withAuth, parseBody } from "@/lib/api";
 import { ok, ApiError } from "@/lib/response";
 import { normalizePhone } from "@/lib/phone";
 import { checkConnection, disconnectConnection, runSetupSteps, sendTestMessage, updateConnectionSettings } from "@/server/services/embedded-signup-service";
+import { registerDirect } from "@/server/services/whatsapp-direct-service";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const schema = z.object({
-  action: z.enum(["check", "retry_setup", "disconnect", "test_send", "settings"]),
+  action: z.enum(["check", "retry_setup", "register_direct", "disconnect", "test_send", "settings"]),
   testRecipients: z.array(z.string().trim().min(3).max(30)).max(10).optional(),
   unitPrice: z.number().min(0).max(100).nullable().optional(),
   unitPriceCurrency: z.string().trim().length(3).toUpperCase().nullable().optional(),
@@ -27,6 +28,8 @@ export const POST = withAuth(async ({ req, user, params }) => {
       return ok(await updateConnectionSettings(user, params.id, { testRecipients: b.testRecipients, unitPrice: b.unitPrice, unitPriceCurrency: b.unitPriceCurrency }));
     case "retry_setup":
       return ok(await runSetupSteps(user, params.id, undefined, b.pin));
+    case "register_direct":
+      return ok(await registerDirect(user, params.id, b.pin ?? "", Boolean(b.confirm)));
     case "disconnect":
       // Disconnecting a number stops it at Meta for the whole business (every team) – the owner's decision.
       if (user.role !== "owner") throw new ApiError("רק בעל העסק יכול לנתק מספר WhatsApp", 403, "forbidden");

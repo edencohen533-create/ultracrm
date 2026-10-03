@@ -72,9 +72,50 @@ export function appAccessToken() {
   return `${env.appId}|${env.appSecret}`;
 }
 
+/**
+ * Direct (single-business) Cloud API connection: the business's own System User token and IDs live in the
+ * deployment environment only – never in the database or the browser. See docs/WHATSAPP_DIRECT.md.
+ */
+export function directWhatsAppEnv() {
+  const v = (k: string) => process.env[k]?.trim() || null;
+  const values = {
+    businessId: v("WHATSAPP_DIRECT_BUSINESS_ID"),
+    wabaId: v("WHATSAPP_DIRECT_WABA_ID"),
+    phoneNumberId: v("WHATSAPP_DIRECT_PHONE_NUMBER_ID"),
+    accessToken: v("WHATSAPP_SYSTEM_USER_TOKEN"),
+  };
+  const env = metaAppEnv();
+  const missing = [
+    ...(!values.businessId ? ["WHATSAPP_DIRECT_BUSINESS_ID"] : []),
+    ...(!values.wabaId ? ["WHATSAPP_DIRECT_WABA_ID"] : []),
+    ...(!values.phoneNumberId ? ["WHATSAPP_DIRECT_PHONE_NUMBER_ID"] : []),
+    ...(!values.accessToken ? ["WHATSAPP_SYSTEM_USER_TOKEN"] : []),
+    ...(!env.appId ? ["META_APP_ID"] : []),
+    ...(!env.appSecret ? ["META_APP_SECRET"] : []),
+    ...(!env.webhookVerifyToken ? ["META_WEBHOOK_VERIFY_TOKEN"] : []),
+  ];
+  // Direct mode pauses the Tech Provider / Embedded Signup flow in the UI (its code stays for later use).
+  const mode = process.env.WHATSAPP_CONNECT_MODE?.trim() === "direct" || Boolean(values.businessId);
+  return { ...values, missing, ready: missing.length === 0, mode };
+}
+
 /** Decrypt a stored credential config for use by the provider. */
 export function metaConfigOf(config: unknown): MetaWhatsAppConfig {
   const c = (config ?? {}) as Record<string, string | undefined>;
+  if (c.tokenSource === "env") {
+    // The row stores only IDs; the token comes from the environment and only for the exact number it was set up for.
+    const d = directWhatsAppEnv();
+    const env = metaAppEnv();
+    const matches = d.businessId === c.businessId && d.phoneNumberId === c.phoneNumberId && d.wabaId === c.businessAccountId;
+    return {
+      accessToken: matches ? d.accessToken ?? "" : "",
+      phoneNumberId: c.phoneNumberId ?? "",
+      businessAccountId: c.businessAccountId,
+      webhookVerifyToken: env.webhookVerifyToken ?? "",
+      appSecret: env.appSecret ?? undefined,
+      apiVersion: c.apiVersion,
+    };
+  }
   return {
     accessToken: openSecret(c.accessToken) ?? "",
     phoneNumberId: c.phoneNumberId ?? "",

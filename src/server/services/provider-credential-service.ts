@@ -103,6 +103,8 @@ export async function updateProvider(id: string, input: { action: "disconnect" |
   if (input.action === "reconnect") {
     const saved = await prisma.providerCredential.findUnique({ where: { id } });
     if (!saved || saved.provider !== "meta_whatsapp_cloud_api") throw new MetaConnectionError("המספר אינו נגיש");
+    // The direct connection's token lives in the server environment – it must never be copied into a manual (DB) row.
+    if (saved.connectionMethod === "direct") throw new MetaConnectionError("חיבור ישיר מתחבר מחדש דרך כרטיס החיבור הישיר");
     return activateMetaProvider(metaConfigOf(saved.config) as MetaProviderConfigInput, actorUserId);
   }
   await prisma.$transaction(async (tx) => {

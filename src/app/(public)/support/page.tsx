@@ -4,7 +4,7 @@ import { platformIdentity } from "@/lib/platform-identity";
 import { PublicShell, Doc } from "@/components/public/PublicShell";
 import { SupportForm } from "@/components/public/SupportForm";
 
-export const metadata: Metadata = { title: "Support – UltraCRM" };
+export const metadata: Metadata = { title: "Support – Solina CRM" };
 
 export default async function SupportPage() {
   const t = await serverT();

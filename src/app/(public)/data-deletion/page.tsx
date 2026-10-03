@@ -5,7 +5,7 @@ import { platformIdentity } from "@/lib/platform-identity";
 import { deletionStatus } from "@/server/services/meta-deletion-service";
 import { PublicShell, Doc } from "@/components/public/PublicShell";
 
-export const metadata: Metadata = { title: "Data Deletion – UltraCRM" };
+export const metadata: Metadata = { title: "Data Deletion – Solina CRM" };
 export const dynamic = "force-dynamic";
 
 /** Data deletion instructions (Meta "Data Deletion Instructions URL") + status lookup for a confirmation code. */

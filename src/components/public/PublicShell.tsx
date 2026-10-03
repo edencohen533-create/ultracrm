@@ -12,7 +12,7 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-bg text-text flex flex-col" data-testid="public-shell">
       <header className="border-b border-line bg-panel">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
-          <Link href="/" className="font-bold text-lg flex items-center gap-2"><span className="inline-flex w-7 h-7 rounded-md bg-accent text-white items-center justify-center text-sm">U</span>{id.product}</Link>
+          <Link href="/" className="font-bold text-lg flex items-center gap-2"><span className="inline-flex w-7 h-7 rounded-md bg-accent text-white items-center justify-center text-sm">S</span>{id.product}</Link>
           <nav className="hidden md:flex gap-4 text-sm text-muted">{nav.map(([h, l]) => <Link key={h} href={h} className="hover:text-text">{l}</Link>)}</nav>
           <div className="ms-auto flex items-center gap-4"><LanguageToggle /><Link href="/login" className="rounded-md bg-accent text-white px-3 h-9 inline-flex items-center text-sm font-medium" data-testid="public-login">{t("כניסה", "Log in")}</Link></div>
         </div>

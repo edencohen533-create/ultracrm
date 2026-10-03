@@ -34,8 +34,8 @@ function LoginForm() {
   return (
     <form onSubmit={submit} className="w-full max-w-sm bg-panel border border-line rounded-2xl p-7 space-y-4">
       <div className="text-center mb-2">
-        <div className="w-12 h-12 rounded-xl bg-accent text-white font-bold text-xl flex items-center justify-center mx-auto mb-3">U</div>
-        <h1 className="text-lg font-semibold">{t("כניסה ל-UltraCRM", "Log in to UltraCRM")}</h1><p className="text-xs text-muted mt-1">{t("CRM · דיוור · טלפוניה · WhatsApp", "CRM · Messaging · Telephony · WhatsApp")}</p>
+        <div className="w-12 h-12 rounded-xl bg-accent text-white font-bold text-xl flex items-center justify-center mx-auto mb-3">S</div>
+        <h1 className="text-lg font-semibold">{t("כניסה ל-Solina CRM", "Log in to Solina CRM")}</h1><p className="text-xs text-muted mt-1">{t("CRM · דיוור · טלפוניה · WhatsApp", "CRM · Messaging · Telephony · WhatsApp")}</p>
       </div>
       <Input label={t("אימייל", "Email")} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required ltr />
       <Input label={t("סיסמה", "Password")} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required ltr />

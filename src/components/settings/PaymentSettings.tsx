@@ -38,7 +38,7 @@ export function PaymentSettings() {
             {s.provider === "payplus" && <p className="basis-full text-xs text-muted">{t("כתובת העדכונים (נשלחת ל-PayPlus אוטומטית עם כל עמוד תשלום):", "Notification URL (sent to PayPlus automatically with every payment page):")} <span dir="ltr" className="font-mono">{s.webhookUrl}</span></p>}
           </div>
         ) : <p className="text-muted">{t("לא חובר ספק סליקה – לא ניתן לגבות בשיחה.", "No payment provider – payments during calls are not available.")}</p>}
-        <p className="text-xs text-muted">{t("פרטי כרטיס אשראי לעולם אינם עוברים דרך UltraCRM: התשלום מתבצע בעמוד התשלום המאובטח של הספק (בתוך מסך השיחה או בקישור ללקוח).", "Card details never pass through UltraCRM: payment happens on the provider's secure page (inside the call screen or via a link to the customer).")}</p>
+        <p className="text-xs text-muted">{t("פרטי כרטיס אשראי לעולם אינם עוברים דרך Solina CRM: התשלום מתבצע בעמוד התשלום המאובטח של הספק (בתוך מסך השיחה או בקישור ללקוח).", "Card details never pass through Solina CRM: payment happens on the provider's secure page (inside the call screen or via a link to the customer).")}</p>
         {isOwner && (
           <div className="grid gap-2 sm:grid-cols-2">
             <Select label={t("ספק", "Provider")} value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value as "payplus" | "sandbox", environment: "test" })} data-testid="pay-provider">

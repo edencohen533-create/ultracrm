@@ -4,7 +4,7 @@ import { serverT } from "@/lib/i18n-server";
 import { platformIdentity } from "@/lib/platform-identity";
 import { PublicShell, Doc } from "@/components/public/PublicShell";
 
-export const metadata: Metadata = { title: "Privacy Policy – UltraCRM" };
+export const metadata: Metadata = { title: "Privacy Policy – Solina CRM" };
 
 /** Public privacy policy (the URL set in the Meta App Dashboard). Bilingual; the deletion section matches /data-deletion. */
 export default async function PrivacyPage() {

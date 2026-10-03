@@ -4,7 +4,7 @@ import { serverT } from "@/lib/i18n-server";
 import { platformIdentity } from "@/lib/platform-identity";
 import { PublicShell, Doc } from "@/components/public/PublicShell";
 
-export const metadata: Metadata = { title: "Terms of Service – UltraCRM" };
+export const metadata: Metadata = { title: "Terms of Service – Solina CRM" };
 
 export default async function TermsPage() {
   const t = await serverT();

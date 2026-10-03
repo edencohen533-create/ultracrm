@@ -10,7 +10,7 @@ import { LangProvider } from "@/components/i18n/LangProvider";
 const heebo = Heebo({ subsets: ["hebrew", "latin"], variable: "--font-heebo", weight: ["400", "500", "600", "700"] });
 
 export const metadata: Metadata = {
-  title: "UltraCRM",
+  title: "Solina CRM",
   description: "CRM, WhatsApp Business messaging, dialer, SMS and email in one platform",
 };
 

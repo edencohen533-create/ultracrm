@@ -20,7 +20,7 @@ export function OnboardingChecklist() {
     <div className="p-4 md:p-5 max-w-2xl space-y-3" data-testid="onboarding">
       <h1 className="text-lg font-semibold">{t("הקמת העסק", "Business setup")}</h1>
       <div className="flex flex-wrap items-center gap-2 text-sm"><span>{t("מסלול:", "Path:")}</span>
-        {(["own_crm", "external_crm"] as const).map((p) => <button key={p} type="button" onClick={async () => setC(await api.put<C>("/api/onboarding", { path: p }))} className={`h-8 px-3 rounded-full border text-xs ${c.path === p ? "bg-accent text-white border-accent" : "border-line"}`}>{p === "own_crm" ? t("CRM של UltraCRM", "UltraCRM's CRM") : t("CRM חיצוני + חייגן / WhatsApp", "External CRM + dialer / WhatsApp")}</button>)}
+        {(["own_crm", "external_crm"] as const).map((p) => <button key={p} type="button" onClick={async () => setC(await api.put<C>("/api/onboarding", { path: p }))} className={`h-8 px-3 rounded-full border text-xs ${c.path === p ? "bg-accent text-white border-accent" : "border-line"}`}>{p === "own_crm" ? t("CRM של Solina CRM", "Solina's CRM") : t("CRM חיצוני + חייגן / WhatsApp", "External CRM + dialer / WhatsApp")}</button>)}
       </div>
       <Panel title={<span className="flex items-center gap-2">{t("חובה להפעלה", "Required to start")} <Badge tone={c.ready ? "good" : "warn"}>{c.requiredDone}/{c.requiredTotal}</Badge></span>}><ul className="divide-y divide-line text-sm" data-testid="onboarding-required">{c.steps.filter((s) => s.required).map((s) => <Row key={s.key} s={s} />)}</ul></Panel>
       <Panel title={t("חיבורים אופציונליים", "Optional connections")}><ul className="divide-y divide-line text-sm">{c.steps.filter((s) => !s.required).map((s) => <Row key={s.key} s={s} />)}</ul></Panel>

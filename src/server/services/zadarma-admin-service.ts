@@ -24,7 +24,7 @@ export const ZADARMA_CAPABILITIES = [
   { key: "recording", status: "supported", note: "PBX recording, NOTIFY_RECORD, 180-second download links" },
   { key: "call_events", status: "unverified", note: "not documented for callback calls – proven by the live test" },
   { key: "reconciliation_after_timeout", status: "partial", note: "statistics lookup (3 requests/min, no request id)" },
-  { key: "inbound", status: "not_implemented", note: "only for numbers hosted at Zadarma; not routed by UltraCRM" },
+  { key: "inbound", status: "not_implemented", note: "only for numbers hosted at Zadarma; not routed by Solina CRM" },
 ] as const;
 
 export async function zadarmaOverview(businessId: string) {

@@ -97,7 +97,7 @@ export async function authenticateIntegrationKey(req: Request, scope: Integratio
   if (used > RATE_LIMIT_PER_MINUTE) throw new ApiError("חריגה ממגבלת הקצב – נסו שוב בעוד דקה", 429, "rate_limited", { limit: RATE_LIMIT_PER_MINUTE, retryAfterSec: Math.max(1, 60 - Math.floor((Date.now() - new Date(rows[0].window_start).getTime()) / 1000)) });
   const conn = await db.crmConnection.findFirst({ where: { id: a.connectionId, businessId: a.business.id } });
   if (!conn) throw new ApiError("החיבור של המפתח לא נמצא", 403, "connection_missing");
-  if (conn.status === "disconnected") throw new ApiError("החיבור מנותק ב-UltraCRM – הנתונים לא נקלטים עד חיבור מחדש", 409, "connection_disconnected");
+  if (conn.status === "disconnected") throw new ApiError("החיבור מנותק ב-Solina CRM – הנתונים לא נקלטים עד חיבור מחדש", 409, "connection_disconnected");
   // Push integrations: any authenticated call is a heartbeat – "no changes lately" is not stale data (pre-dial freshness).
   if (conn.status === "active" && (!conn.lastSyncAt || Date.now() - conn.lastSyncAt.getTime() > 60_000)) await db.crmConnection.update({ where: { id: conn.id }, data: { lastSyncAt: new Date() } }).catch(() => undefined);
   return { ...a, connection: conn, rateLimit: { limit: RATE_LIMIT_PER_MINUTE, remaining: Math.max(0, RATE_LIMIT_PER_MINUTE - used) } };
@@ -200,6 +200,6 @@ export async function deliverDueWebhooks(businessId: string, deadline = Date.now
 
 /** Manual "send test" – a sample lead.created payload, sent now (not queued), result returned to the screen. */
 export async function sendTestWebhook(endpoint: WebhookEndpoint) {
-  const payload = { id: `test_${Date.now()}`, event: "test", occurredAt: new Date(), businessId: endpoint.businessId, source: "test", data: { message: "בדיקת חיבור מ-UltraCRM", contact: { id: "c_test", fullName: "ליד לדוגמה", phone: "+972501234567", email: "lead@example.com" } } };
+  const payload = { id: `test_${Date.now()}`, event: "test", occurredAt: new Date(), businessId: endpoint.businessId, source: "test", data: { message: "בדיקת חיבור מ-Solina CRM", contact: { id: "c_test", fullName: "ליד לדוגמה", phone: "+972501234567", email: "lead@example.com" } } };
   return post(endpoint, `test_${crypto.randomUUID()}`, "test", payload);
 }

@@ -36,7 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="flex min-h-screen">
         <Sidebar
           user={{ fullName: session.fullName, role: session.role }}
-          businessName={business?.name ?? "UltraCRM"}
+          businessName={business?.name ?? "Solina CRM"}
           businesses={session.support ? [] : memberships.map((m) => ({ id: m.business.id, name: m.business.name, active: m.businessId === session.businessId }))}
           modules={entitlements.modules}
           access={access.modules}

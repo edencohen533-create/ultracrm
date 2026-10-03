@@ -4,7 +4,7 @@ import { PublicShell, Doc } from "@/components/public/PublicShell";
 import { InviteAccept } from "@/components/public/InviteAccept";
 import { inviteInfo } from "@/server/services/invite-service";
 
-export const metadata: Metadata = { title: "Invitation – UltraCRM", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "Invitation – Solina CRM", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
 export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {

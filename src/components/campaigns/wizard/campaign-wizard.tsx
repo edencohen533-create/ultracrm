@@ -133,7 +133,7 @@ export function CampaignWizard({ draftId }: { draftId: string }) {
   return (
     <div className="wz" data-testid="campaign-wizard" data-step={step}>
       <header className="wz-head">
-        <div className="wz-brand"><button type="button" className="wz-mark" onClick={() => void leaveTo("/")} aria-label={t("למסך הבית", "Home")} title={t("למסך הבית", "Home")} data-testid="wz-home">U</button><input className="wz-name" value={draft.name} onChange={(e) => patch({}, e.target.value)} aria-label={t("שם הקמפיין", "Campaign name")} data-testid="wz-name" /></div>
+        <div className="wz-brand"><button type="button" className="wz-mark" onClick={() => void leaveTo("/")} aria-label={t("למסך הבית", "Home")} title={t("למסך הבית", "Home")} data-testid="wz-home">S</button><input className="wz-name" value={draft.name} onChange={(e) => patch({}, e.target.value)} aria-label={t("שם הקמפיין", "Campaign name")} data-testid="wz-name" /></div>
         <nav className="wz-steps" aria-label={t("שלבים", "Steps")}>{steps.map((s, i) => { const done = i < idx; const bad = stepProblems(s).length > 0 && i !== idx; return <button key={s} className={`${s === step ? "active" : ""} ${bad ? "bad" : ""}`} onClick={() => go(s)} data-testid={`wz-step-${s}`}><span className="wz-num">{done ? <Check size={12} /> : i + 1}</span>{t(STEP_LABEL[s].he, STEP_LABEL[s].en)}</button>; })}</nav>
         <div className="wz-actions">
           <span className={`wz-save ${saveState}`} data-testid="wz-save-state">{saveState === "saved" ? t("נשמר", "Saved") : saveState === "saving" ? t("שומר…", "Saving…") : saveState === "dirty" ? t("שינויים לא שמורים", "Unsaved changes") : t("שגיאת שמירה", "Save error")}</span>

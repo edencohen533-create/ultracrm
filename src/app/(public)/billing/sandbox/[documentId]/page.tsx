@@ -14,7 +14,7 @@ export default async function SandboxBillingPay({ params, searchParams }: { para
   if (!doc) notFound();
   return (
     <main dir="rtl" className="mx-auto max-w-sm p-5 text-sm" data-testid="sandbox-billing">
-      <p className="rounded-md bg-amber-100 p-2 text-amber-900">סביבת בדיקה של חיוב UltraCRM – לא מתבצע חיוב ואין להזין פרטי כרטיס.</p>
+      <p className="rounded-md bg-amber-100 p-2 text-amber-900">סביבת בדיקה של חיוב Solina CRM – לא מתבצע חיוב ואין להזין פרטי כרטיס.</p>
       <h1 className="mt-4 text-lg font-semibold">מסמך {doc.number}</h1>
       <ul className="mt-2 text-xs text-gray-600">{(doc.lines as Array<{ name: string; quantity: number; amountMinor: number }>).map((l, i) => <li key={i}>{l.name} × {l.quantity} – ₪{(l.amountMinor / 100).toFixed(2)}</li>)}</ul>
       <p className="mt-2 text-2xl font-bold">₪{(doc.totalMinor / 100).toFixed(2)} <span className="text-xs font-normal">כולל מע״מ</span></p>

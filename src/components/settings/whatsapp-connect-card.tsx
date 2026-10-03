@@ -242,7 +242,7 @@ export function WhatsAppConnectCard({ initial, webhookUrl, canManage }: { initia
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">WhatsApp Business (Meta Cloud API)</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t("חיבור חשבון הוואטסאפ העסקי לשליחה וקבלת הודעות בתוך UltraCRM", "Connect your WhatsApp Business account to send and receive messages in UltraCRM")}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t("חיבור חשבון הוואטסאפ העסקי לשליחה וקבלת הודעות בתוך Solina CRM", "Connect your WhatsApp Business account to send and receive messages in Solina CRM")}</p>
         </div>
         <div className="flex items-center gap-2">
           {active.length === 0 && <Badge variant="outline">{t("לא מחובר", "Not connected")}</Badge>}

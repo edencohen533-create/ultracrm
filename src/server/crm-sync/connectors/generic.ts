@@ -40,7 +40,7 @@ export const genericConnector: ConnectorDef = {
   async test(ctx) {
     const hasCallback = Boolean(ctx.auth.callbackUrl);
     if (hasCallback) {
-      try { await callback(ctx, "ping", `ping_${Date.now()}`, { message: "בדיקת חיבור מ-UltraCRM" }); }
+      try { await callback(ctx, "ping", `ping_${Date.now()}`, { message: "בדיקת חיבור מ-Solina CRM" }); }
       catch (e) { return { ok: false, message: `כתובת החזרה לא אישרה את בקשת הבדיקה: ${(e as Error).message}` }; }
     }
     return { ok: true, message: hasCallback ? "כתובת החזרה אישרה בקשה חתומה. קליטה דרך ה-API פעילה עם מפתח האינטגרציה." : "קליטה דרך ה-API פעילה עם מפתח האינטגרציה. לא הוגדרה כתובת חזרה – תוצאות לא ייכתבו חזרה.", permissions: hasCallback ? ["push_api", "callback"] : ["push_api"] };

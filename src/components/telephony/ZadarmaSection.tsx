@@ -39,7 +39,7 @@ const NOTE_HE: Record<string, string> = {
   server_hangup: "אין API – הנציג מנתק בווידג'ט של Zadarma", dtmf: "מהווידג'ט של הנציג בלבד", conference: "אין API (קוד 000 מהטלפון בלבד)",
   supervisor_listen_whisper: "אין API (קוד 007 מהטלפון של המנהל בלבד)", recording: "הקלטת מרכזייה, NOTIFY_RECORD, קישור הורדה ל-180 שניות",
   call_events: "לא מתועד לשיחות callback – מוכח בבדיקה החיה", reconciliation_after_timeout: "חיפוש בסטטיסטיקה (3 בקשות בדקה, ללא מזהה בקשה)",
-  inbound: "רק למספרים ש-Zadarma מחזיקה; לא מנותב ב-UltraCRM",
+  inbound: "רק למספרים ש-Zadarma מחזיקה; לא מנותב ב-Solina CRM",
 };
 const READY: Record<string, [string, string]> = {
   not_configured: ["לא הוגדרו פרטי גישה", "No credentials"], caller_id_not_approved: ["מספר יוצא לא אושר", "Caller ID not approved"],

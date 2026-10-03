@@ -4,7 +4,7 @@
  */
 export function platformIdentity() {
   return {
-    product: process.env.PLATFORM_PRODUCT_NAME || "UltraCRM",
+    product: process.env.PLATFORM_PRODUCT_NAME || "Solina CRM",
     legalName: process.env.PLATFORM_LEGAL_NAME || null,
     address: process.env.PLATFORM_ADDRESS || null,
     supportEmail: process.env.SUPPORT_EMAIL || null,

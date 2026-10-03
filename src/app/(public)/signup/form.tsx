@@ -17,8 +17,8 @@ export function SignupForm() {
       <label className="block">אימייל<input className={input} type="email" dir="ltr" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required /></label>
       <label className="block">סיסמה (10 תווים לפחות, אותיות וספרות)<input className={input} type="password" dir="ltr" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required minLength={10} autoComplete="new-password" /></label>
       <fieldset className="space-y-1"><legend className="font-medium">איך תעבדו?</legend>
-        <label className="flex gap-2"><input type="radio" checked={f.path === "own_crm"} onChange={() => setF({ ...f, path: "own_crm" })} /> עם ה-CRM של UltraCRM</label>
-        <label className="flex gap-2"><input type="radio" checked={f.path === "external_crm"} onChange={() => setF({ ...f, path: "external_crm" })} /> עם ה-CRM הקיים שלנו + החייגן / WhatsApp של UltraCRM</label>
+        <label className="flex gap-2"><input type="radio" checked={f.path === "own_crm"} onChange={() => setF({ ...f, path: "own_crm" })} /> עם ה-CRM של Solina CRM</label>
+        <label className="flex gap-2"><input type="radio" checked={f.path === "external_crm"} onChange={() => setF({ ...f, path: "external_crm" })} /> עם ה-CRM הקיים שלנו + החייגן / WhatsApp של Solina CRM</label>
       </fieldset>
       <label className="flex gap-2"><input type="checkbox" checked={f.acceptTerms} onChange={(e) => setF({ ...f, acceptTerms: e.target.checked })} required /> קראתי ואני מסכים/ה ל<a className="underline" href="/terms" target="_blank">תנאי השימוש</a> ול<a className="underline" href="/privacy" target="_blank">מדיניות הפרטיות</a></label>
       {err && <p role="alert" className="text-red-700">{err}</p>}
